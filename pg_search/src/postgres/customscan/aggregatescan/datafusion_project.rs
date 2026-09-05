@@ -179,6 +179,12 @@ pub unsafe fn project_aggregate_row_to_slot(
         df_col_idx += 1;
     }
 
+    // Positions past the raw columns are resjunk predicate Vars appended by
+    // add_vars_to_tlist. ExecProject never reads them; null them rather than
+    // leave stale values behind.
+    datums[raw_columns..].fill(pg_sys::Datum::null());
+    isnull[raw_columns..].fill(true);
+
     // Mark slot as non-empty
     (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
     (*slot).tts_nvalid = natts as i16;

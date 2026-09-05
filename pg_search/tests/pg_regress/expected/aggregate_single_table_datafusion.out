@@ -287,29 +287,26 @@ ORDER BY category;
 -- Test 2.7: category is functionally dependent on the grouped primary key.
 -- It must be a real raw grouping input, never an uninitialised resjunk slot.
 -- The text group key also exercises by-reference Arrow-to-Datum conversion.
-DO $$
-DECLARE
-    plan text := '';
-    line text;
-BEGIN
-    FOR line IN EXECUTE $explain$
-        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-        SELECT id, category, upper(category),
-               repeat(category, 1024) || ':' || COUNT(*)::text AS label
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        GROUP BY id
-    $explain$
-    LOOP
-        plan := plan || E'\n' || line;
-    END LOOP;
-    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
-       OR plan NOT LIKE '%Backend: DataFusion%'
-    THEN
-        RAISE EXCEPTION 'expected functionally dependent output on DataFusion: %', plan;
-    END IF;
-END
-$$;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, category, upper(category),
+       repeat(category, 1024) || ':' || COUNT(*)::text AS label
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+GROUP BY id;
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: id, category, upper(category), ((repeat(category, 1024) || ':'::text) || ((count(*)))::text)
+   Backend: DataFusion
+   Indexes: df_fallback_products_idx (df_fallback_products)
+   Group By: category, id
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[id@0 as id, category@1 as category], aggr=[count(1) as agg_0]
+     :   CooperativeExec
+     :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
 SELECT COUNT(*) AS groups,
        BOOL_AND(category = 'Memory') AS categories_ok,
        BOOL_AND(upper_category = 'MEMORY') AS wrappers_ok,
@@ -329,47 +326,41 @@ FROM (
 
 -- Test 2.8: DISTINCT with an ORDER BY whose sort-group order differs from the
 -- output column order.
-DO $$
-DECLARE
-    plan text := '';
-    line text;
-BEGIN
-    FOR line IN EXECUTE $explain$
-        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-        SELECT DISTINCT category, id
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        ORDER BY id DESC
-    $explain$
-    LOOP
-        plan := plan || E'\n' || line;
-    END LOOP;
-    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
-       OR plan NOT LIKE '%Backend: DataFusion%'
-    THEN
-        RAISE EXCEPTION 'expected DISTINCT on DataFusion: %', plan;
-    END IF;
-END
-$$;
-DO $$
-DECLARE
-    rows integer;
-    only_category text;
-    id_span integer;
-BEGIN
-    SELECT COUNT(*), MIN(category), MAX(id) - MIN(id) + 1
-    INTO rows, only_category, id_span
-    FROM (
-        SELECT DISTINCT category, id
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        ORDER BY id DESC
-    ) distinct_groups;
-    IF rows != 2048 OR only_category != 'Memory' OR id_span != 2048 THEN
-        RAISE EXCEPTION 'unexpected DISTINCT output: %, %, %', rows, only_category, id_span;
-    END IF;
-END
-$$;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT category, id
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+ORDER BY id DESC;
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, id
+   Sort Key: df_fallback_products.id DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, id
+         Backend: DataFusion
+         Indexes: df_fallback_products_idx (df_fallback_products)
+         Group By: category, id
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@1 as category, id@0 as id], aggr=[]
+           :   CooperativeExec
+           :     PgSearchScan: table=df_fallback_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"memory","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT COUNT(*) AS groups,
+       MIN(category) AS only_category,
+       MAX(id) - MIN(id) + 1 AS id_span
+FROM (
+    SELECT DISTINCT category, id
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    ORDER BY id DESC
+) distinct_groups;
+ groups | only_category | id_span 
+--------+---------------+---------
+   2048 | Memory        |    2048
+(1 row)
+
 -- Test 2.9: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

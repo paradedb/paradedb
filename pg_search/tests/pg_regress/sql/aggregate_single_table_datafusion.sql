@@ -161,29 +161,12 @@ ORDER BY category;
 -- Test 2.7: category is functionally dependent on the grouped primary key.
 -- It must be a real raw grouping input, never an uninitialised resjunk slot.
 -- The text group key also exercises by-reference Arrow-to-Datum conversion.
-DO $$
-DECLARE
-    plan text := '';
-    line text;
-BEGIN
-    FOR line IN EXECUTE $explain$
-        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-        SELECT id, category, upper(category),
-               repeat(category, 1024) || ':' || COUNT(*)::text AS label
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        GROUP BY id
-    $explain$
-    LOOP
-        plan := plan || E'\n' || line;
-    END LOOP;
-    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
-       OR plan NOT LIKE '%Backend: DataFusion%'
-    THEN
-        RAISE EXCEPTION 'expected functionally dependent output on DataFusion: %', plan;
-    END IF;
-END
-$$;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, category, upper(category),
+       repeat(category, 1024) || ':' || COUNT(*)::text AS label
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+GROUP BY id;
 
 SELECT COUNT(*) AS groups,
        BOOL_AND(category = 'Memory') AS categories_ok,
@@ -200,48 +183,21 @@ FROM (
 
 -- Test 2.8: DISTINCT with an ORDER BY whose sort-group order differs from the
 -- output column order.
-DO $$
-DECLARE
-    plan text := '';
-    line text;
-BEGIN
-    FOR line IN EXECUTE $explain$
-        EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-        SELECT DISTINCT category, id
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        ORDER BY id DESC
-    $explain$
-    LOOP
-        plan := plan || E'\n' || line;
-    END LOOP;
-    IF plan NOT LIKE '%Custom Scan (ParadeDB Aggregate Scan)%'
-       OR plan NOT LIKE '%Backend: DataFusion%'
-    THEN
-        RAISE EXCEPTION 'expected DISTINCT on DataFusion: %', plan;
-    END IF;
-END
-$$;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT category, id
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+ORDER BY id DESC;
 
-DO $$
-DECLARE
-    rows integer;
-    only_category text;
-    id_span integer;
-BEGIN
-    SELECT COUNT(*), MIN(category), MAX(id) - MIN(id) + 1
-    INTO rows, only_category, id_span
-    FROM (
-        SELECT DISTINCT category, id
-        FROM df_fallback_products
-        WHERE description @@@ 'memory'
-        ORDER BY id DESC
-    ) distinct_groups;
-    IF rows != 2048 OR only_category != 'Memory' OR id_span != 2048 THEN
-        RAISE EXCEPTION 'unexpected DISTINCT output: %, %, %', rows, only_category, id_span;
-    END IF;
-END
-$$;
+SELECT COUNT(*) AS groups,
+       MIN(category) AS only_category,
+       MAX(id) - MIN(id) + 1 AS id_span
+FROM (
+    SELECT DISTINCT category, id
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    ORDER BY id DESC
+) distinct_groups;
 
 -- Test 2.9: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.

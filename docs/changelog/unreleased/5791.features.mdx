@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+`ORDER BY` on PostgreSQL range columns is now pushed down into the ParadeDB index Top-K path when the range column is the leading sort key, ordering bounds according to PostgreSQL `range_cmp` semantics.

@@ -1559,6 +1559,11 @@ async fn generated_numeric_range_precision(database: Db) {
 /// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
 /// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
 /// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+///
+/// Non-equi joins can inflate intermediate cardinality past DataFusion's `work_mem` pool
+/// (spilling is not wired yet). Raise `work_mem` so typical cases still compare; if the
+/// pool is still exhausted, `compare_outcome_retrying` accepts that as a capability miss
+/// rather than a failure (#6220).
 #[rstest]
 #[tokio::test]
 async fn generated_pdb_agg_join(database: Db) {
@@ -1598,6 +1603,9 @@ async fn generated_pdb_agg_join(database: Db) {
             &pool,
             &setup_sql,
             |query, conn| {
+                // Match generated_joinscan: keep the final hash aggregate in budget
+                // when possible; acceptance in compare_outcome covers the rest (#6220).
+                "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut rows = agg.rows(rows)?;
                 rows.sort();

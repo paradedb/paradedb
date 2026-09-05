@@ -21,7 +21,8 @@ mod pdb {
     use crate::api::HashMap;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
-    use crate::query::SearchQueryInput;
+    use crate::query::pdb_query::pdb::Query;
+    use crate::query::{MoreLikeThisOptions, SearchQueryInput};
     use pgrx::{AnyElement, PgOid, default, pg_extern};
 
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
@@ -46,17 +47,17 @@ mod pdb {
             serde_json::from_str(&document).expect("could not parse document_fields");
 
         SearchQueryInput::MoreLikeThis {
-            min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-            max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-            min_term_frequency: min_term_frequency.map(|n| n as usize),
-            max_query_terms: max_query_terms.map(|n| n as usize),
-            min_word_length: min_word_length.map(|n| n as usize),
-            max_word_length: max_word_length.map(|n| n as usize),
-            boost_factor,
-            stopwords,
-            document: Some(document.into_iter().collect()),
-            key_value: None,
-            fields: None,
+            options: MoreLikeThisOptions {
+                min_doc_frequency: min_doc_frequency.map(|n| n as u64),
+                max_doc_frequency: max_doc_frequency.map(|n| n as u64),
+                min_term_frequency: min_term_frequency.map(|n| n as usize),
+                max_query_terms: max_query_terms.map(|n| n as usize),
+                min_word_length: min_word_length.map(|n| n as usize),
+                max_word_length: max_word_length.map(|n| n as usize),
+                boost_factor,
+                stopwords,
+            },
+            document: document.into_iter().collect(),
         }
     }
 
@@ -73,28 +74,27 @@ mod pdb {
         max_word_length: default!(Option<i32>, "NULL"),
         boost_factor: default!(Option<f32>, "NULL"),
         stopwords: default!(Option<Vec<String>>, "NULL"),
-    ) -> SearchQueryInput {
-        SearchQueryInput::MoreLikeThis {
-            min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-            max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-            min_term_frequency: min_term_frequency.map(|n| n as usize),
-            max_query_terms: max_query_terms.map(|n| n as usize),
-            min_word_length: min_word_length.map(|n| n as usize),
-            max_word_length: max_word_length.map(|n| n as usize),
-            boost_factor,
-            stopwords,
-            fields: fields.map(|fields| fields.into_iter().collect()),
-            key_value: unsafe {
-                Some(
-                    TantivyValue::try_from_datum(
-                        key_value.datum(),
-                        PgOid::from_untagged(key_value.oid()),
-                    )
-                    .unwrap_or_else(|err| panic!("could not read more_like_this key_value: {err}"))
-                    .0,
-                )
+    ) -> Query {
+        Query::MoreLikeThis {
+            options: MoreLikeThisOptions {
+                min_doc_frequency: min_doc_frequency.map(|n| n as u64),
+                max_doc_frequency: max_doc_frequency.map(|n| n as u64),
+                min_term_frequency: min_term_frequency.map(|n| n as usize),
+                max_query_terms: max_query_terms.map(|n| n as usize),
+                min_word_length: min_word_length.map(|n| n as usize),
+                max_word_length: max_word_length.map(|n| n as usize),
+                boost_factor,
+                stopwords,
             },
-            document: None,
+            fields,
+            key_value: unsafe {
+                TantivyValue::try_from_datum(
+                    key_value.datum(),
+                    PgOid::from_untagged(key_value.oid()),
+                )
+                .unwrap_or_else(|err| panic!("could not read more_like_this key_value: {err}"))
+                .0
+            },
         }
     }
 }

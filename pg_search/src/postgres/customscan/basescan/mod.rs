@@ -2782,6 +2782,7 @@ fn base_query_has_search_predicates(
         | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeWithin { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Exists, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::FastFieldRangeWeight { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::MoreLikeThis { .. }, .. }
         | SearchQueryInput::MoreLikeThis { .. } => false,
 
         // These are search predicates that use the @@@ operator

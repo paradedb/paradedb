@@ -19,8 +19,10 @@ use crate::api::version::Version;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::{FieldSource, strip_tokenizer_cast};
 use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
+use serde::{Deserialize, Serialize};
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };
@@ -47,12 +49,6 @@ pub struct MoreLikeThisQuery {
     mlt: MoreLikeThis,
     doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>,
     index_created_by_version: Option<Version>,
-}
-
-impl MoreLikeThisQuery {
-    pub fn builder() -> MoreLikeThisQueryBuilder {
-        MoreLikeThisQueryBuilder::default()
-    }
 }
 
 impl Query for MoreLikeThisQuery {
@@ -89,69 +85,48 @@ impl Query for MoreLikeThisQuery {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MoreLikeThisOptions {
+    pub min_doc_frequency: Option<u64>,
+    pub max_doc_frequency: Option<u64>,
+    pub min_term_frequency: Option<usize>,
+    pub max_query_terms: Option<usize>,
+    pub min_word_length: Option<usize>,
+    pub max_word_length: Option<usize>,
+    pub boost_factor: Option<f32>,
+    pub stopwords: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct MoreLikeThisQueryBuilder {
     mlt: MoreLikeThis,
     index_created_by_version: Option<Version>,
 }
 
 impl MoreLikeThisQueryBuilder {
-    #[must_use]
-    pub fn with_min_doc_frequency(mut self, value: u64) -> Self {
-        self.mlt.inner.min_doc_frequency = Some(value);
-        self
+    pub fn new(options: MoreLikeThisOptions, index_created_by_version: Option<Version>) -> Self {
+        let defaults = TantivyMoreLikeThis::default();
+        Self {
+            mlt: MoreLikeThis {
+                inner: TantivyMoreLikeThis {
+                    // ParadeDB includes terms occurring once, unlike Tantivy's defaults.
+                    min_doc_frequency: Some(options.min_doc_frequency.unwrap_or(1)),
+                    min_term_frequency: Some(options.min_term_frequency.unwrap_or(1)),
+                    max_doc_frequency: options.max_doc_frequency,
+                    max_query_terms: options.max_query_terms.or(defaults.max_query_terms),
+                    min_word_length: options.min_word_length,
+                    max_word_length: options.max_word_length,
+                    boost_factor: options.boost_factor.or(defaults.boost_factor),
+                    stop_words: options.stopwords.unwrap_or_default(),
+                },
+            },
+            index_created_by_version,
+        }
     }
 
-    #[must_use]
-    pub fn with_max_doc_frequency(mut self, value: u64) -> Self {
-        self.mlt.inner.max_doc_frequency = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_min_term_frequency(mut self, value: usize) -> Self {
-        self.mlt.inner.min_term_frequency = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_max_query_terms(mut self, value: usize) -> Self {
-        self.mlt.inner.max_query_terms = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_min_word_length(mut self, value: usize) -> Self {
-        self.mlt.inner.min_word_length = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_max_word_length(mut self, value: usize) -> Self {
-        self.mlt.inner.max_word_length = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_boost_factor(mut self, value: f32) -> Self {
-        self.mlt.inner.boost_factor = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub fn with_stop_words(mut self, value: Vec<String>) -> Self {
-        self.mlt.inner.stop_words = value;
-        self
-    }
-
-    #[must_use]
-    pub fn with_index_created_by_version(mut self, value: Option<Version>) -> Self {
-        self.index_created_by_version = value;
-        self
-    }
-
-    pub fn with_key_value(
+    pub fn with_field_value(
         self,
+        lookup_field: crate::api::FieldName,
         key_value: PdbOwnedValue,
         fields: Option<Vec<String>>,
         index_oid: pgrx::pg_sys::Oid,
@@ -163,13 +138,34 @@ impl MoreLikeThisQueryBuilder {
         let schema = index_relation
             .schema()
             .expect("more_like_this: should be able to open schema");
-        let key_field_name = schema.key_field_name().unwrap_or_else(|| {
-            panic!("more_like_this(key_value => ...) requires an index configured with key_field")
-        });
-        let key_field_type = schema
-            .key_field_type()
-            .expect("configured key_field should have a field type");
         let categorized_fields = schema.categorized_fields();
+        let source = categorized_fields
+            .iter()
+            .find(|(field, _)| field.field_name() == &lookup_field)
+            .map(|(_, field)| field.source)
+            .unwrap_or_else(|| {
+                panic!("more_like_this: lookup field '{lookup_field}' does not exist")
+            });
+        let attno = match source {
+            FieldSource::Heap { attno } => Some(attno),
+            // Tokenizer casts can name a heap column; computed expressions cannot.
+            FieldSource::Expression { att_idx } => unsafe {
+                index_relation
+                    .index_expressions()
+                    .get_ptr(att_idx)
+                    .and_then(|expr| {
+                        crate::nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast()))
+                            .filter(|var| (**var).varattno > 0)
+                            .map(|var| ((*var).varattno - 1) as usize)
+                    })
+            },
+            FieldSource::CompositeField { .. } => None,
+        }
+        .expect("more_like_this(key_value => ...) requires a heap column on the left-hand side");
+        let tuple_desc = heap_relation.tuple_desc();
+        let attribute = tuple_desc.get(attno).expect("lookup column should exist");
+        let lookup_field = attribute.name();
+        let lookup_type = attribute.type_oid();
 
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
             pgrx::Spi::connect(|client| {
@@ -178,18 +174,21 @@ impl MoreLikeThisQueryBuilder {
                 // produced by the `unsafe` block's tail expression is dropped at the end of that
                 // block instead of living until the end of the enclosing statement.
                 let key_args = unsafe {
-                    [TantivyValue(key_value)
-                        .try_into_datum(key_field_type.typeoid())
-                        .expect("more_like_this: should be able to convert key value to datum")
-                        .into()]
+                    [pgrx::datum::DatumWithOid::new(
+                        TantivyValue(key_value)
+                            .try_into_datum(lookup_type)
+                            .expect("more_like_this: should be able to convert key value to datum"),
+                        lookup_type.value(),
+                    )]
                 };
                 let result = client
                     .select(
                         &format!(
-                            "SELECT * FROM {}.{} WHERE {} = $1",
+                            // Duplicate lookup values intentionally select an arbitrary source row.
+                            "SELECT * FROM {}.{} WHERE {} = $1 LIMIT 1",
                             pgrx::spi::quote_identifier(heap_relation.namespace()),
                             pgrx::spi::quote_identifier(heap_relation.name()),
-                            pgrx::spi::quote_identifier(key_field_name.root())
+                            pgrx::spi::quote_identifier(lookup_field)
                         ),
                         None,
                         &key_args,

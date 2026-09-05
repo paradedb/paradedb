@@ -31,7 +31,9 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::logical_expr::{
+    Expr, Extension, JoinType, LogicalPlan, UserDefinedLogicalNodeCore,
+};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -337,6 +339,25 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         }
         LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
+            // A null-extended row has no union value to carry: a dense union has no
+            // validity bitmap, and the row the join fills in points at the first entry of
+            // the first child. So a column of a null-supplying side is decoded before the
+            // join.
+            let carries_deferred = |input: &LogicalPlan| {
+                input.schema().columns().iter().any(|c| {
+                    trace_column(input, c)
+                        .is_some_and(|base| deferred_fields.iter().any(|df| df.name == base.name))
+                })
+            };
+            let null_extended = match join.join_type {
+                JoinType::Left => carries_deferred(&join.right),
+                JoinType::Right => carries_deferred(&join.left),
+                JoinType::Full => carries_deferred(&join.left) || carries_deferred(&join.right),
+                _ => false,
+            };
+            if null_extended {
+                return true;
+            }
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
                 l.add_column_refs(&mut join_refs);

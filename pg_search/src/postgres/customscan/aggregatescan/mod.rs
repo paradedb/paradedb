@@ -249,21 +249,7 @@ impl AggregateDeclineReason {
     fn detail(&self) -> std::borrow::Cow<'static, str> {
         match self {
             Self::NotAllBm25 => "all tables in the join must have ParadeDB indexes".into(),
-            Self::JoinPredicate(reason) => match reason {
-                datafusion_build::PathPredicateDeclineReason::ExternParam => {
-                    "generic prepared-plan parameters in join predicates are not supported".into()
-                }
-                #[cfg(feature = "pg15")]
-                datafusion_build::PathPredicateDeclineReason::AmbiguousVolatileOverlap => {
-                    "a volatile join predicate cannot be reconstructed safely on PostgreSQL 15".into()
-                }
-                datafusion_build::PathPredicateDeclineReason::OuterJoinOnResidual => {
-                    "outer-join ON residual predicates are not supported".into()
-                }
-                datafusion_build::PathPredicateDeclineReason::UnclassifiedClause => {
-                    "the selected lower join path contains a predicate that AggregateScan cannot classify".into()
-                }
-            },
+            Self::JoinPredicate(reason) => reason.detail().into(),
             Self::DistinctOn => "DISTINCT ON is not supported".into(),
             Self::NondeterministicCollation => {
                 "DISTINCT on a nondeterministic collation is not supported".into()

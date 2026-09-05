@@ -284,22 +284,6 @@ impl RelPathlistHookArgs {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub struct JoinPathlistHookArgs {
-    pub root: *mut pg_sys::PlannerInfo,
-    #[allow(dead_code)]
-    pub joinrel: *mut pg_sys::RelOptInfo,
-    #[allow(dead_code)]
-    pub outerrel: *mut pg_sys::RelOptInfo,
-    #[allow(dead_code)]
-    pub innerrel: *mut pg_sys::RelOptInfo,
-    #[allow(dead_code)]
-    pub jointype: pg_sys::JoinType::Type,
-    #[allow(dead_code)]
-    pub extra: *mut pg_sys::JoinPathExtraData,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,

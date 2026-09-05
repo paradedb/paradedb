@@ -38,8 +38,7 @@
 //!
 //! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
 //!
-//! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
-//!    - LEFT, RIGHT, and FULL joins are planned for future work
+//! 2. **Join type**: INNER, LEFT, RIGHT, FULL, SEMI, and ANTI joins are supported
 //!
 //! 3. **LIMIT clause**: Query must have a LIMIT clause
 //!    - This ensures we only pay the cost of "late materialization" (random heap access)
@@ -52,8 +51,7 @@
 //!    - A `@@@` search predicate in the WHERE clause
 //!
 //! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
-//!    It achieves this by reconstructing the join tree from PostgreSQL's plan or by nesting
-//!    multiple JoinScan operators.
+//!    It achieves this by reconstructing the join tree from PostgreSQL's plan or parse tree.
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
 //!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
@@ -63,8 +61,8 @@
 //!    - If any required column is not a fast field, we would need to access the heap
 //!      during the join, breaking the late materialization strategy.
 //!
-//! 7. **Equi-join keys required**: At least one equi-join key (e.g., `a.id = b.id`) is
-//!    required. Cross joins (cartesian products) fall back to PostgreSQL
+//! 7. **Equi-join or filter conditions**: Joins must have either equi-join keys or
+//!    translatable filter conditions that can be evaluated in DataFusion.
 //!
 //! # Example Queries
 //!
@@ -76,18 +74,18 @@
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
 //!
-//! -- JoinScan is NOT proposed (no LIMIT)
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless';
-//!
-//! -- JoinScan is NOT proposed (LEFT JOIN not supported)
+//! -- JoinScan IS proposed for outer joins
 //! SELECT p.name, s.name
 //! FROM products p
 //! LEFT JOIN suppliers s ON p.supplier_id = s.id
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
+//!
+//! -- JoinScan is NOT proposed (no LIMIT)
+//! SELECT p.name, s.name
+//! FROM products p
+//! JOIN suppliers s ON p.supplier_id = s.id
+//! WHERE p.description @@@ 'wireless';
 //!
 //! -- JoinScan IS proposed if price/min_price are fast fields in ParadeDB indexes
 //! SELECT p.name, s.name
@@ -106,7 +104,7 @@
 //! ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
 //! │   PostgreSQL    │     │    JoinScan      │     │     DataFusion      │
 //! │   Planner       │────▶│   Custom Scan    │────▶│   Execution Plan    │
-//! │   (hook)        │     │   (planning +    │     │                     │
+//! │ (UPPERREL_FINAL)│     │   (planning +    │     │                     │
 //! │                 │     │    execution)    │     │                     │
 //! └─────────────────┘     └──────────────────┘     └─────────────────────┘
 //!                                                             │
@@ -119,9 +117,9 @@
 //!
 //! ## Execution Strategy
 //!
-//! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into the join path list.
-//!    It identifies potential search joins (including reconstructing multi-level joins from
-//!    PostgreSQL's optimal paths), extracts predicates, and builds a `JoinCSClause`.
+//! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into `create_upper_paths_hook`
+//!    at `UPPERREL_FINAL`. It identifies potential search joins, extracts predicates,
+//!    evaluates DISTINCT / ORDER BY / LIMIT, and builds a `JoinCSClause`.
 //! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
 //!    This plan defines the join, filters, sorts, and limits.
 //! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
@@ -454,8 +452,8 @@ unsafe fn is_limit_pushdown_safe(
 ///
 /// Called from `set_rel_pathlist_hook` after BaseScan has been considered.
 /// When PostgreSQL keeps a subquery as a SubPlan instead of flattening it into
-/// a join, `set_join_pathlist_hook` never fires.  This function gives JoinScan
-/// a chance to handle those patterns.
+/// a join, standard join planning does not see it as a multi-relation join.
+/// This function gives JoinScan a chance to handle those patterns.
 pub unsafe fn try_create_subplan_join_paths(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
@@ -482,7 +480,7 @@ pub unsafe fn try_create_subplan_join_paths(
 
     // Quick pre-check: only proceed if baserestrictinfo contains an OR expression
     // with a SubPlan inside. This avoids interfering with normal queries where
-    // set_join_pathlist_hook already handles SubPlans.
+    // joins are planned at UPPERREL_FINAL.
     {
         use crate::postgres::customscan::qual_inspect::is_subplan;
         let bri = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
@@ -492,7 +490,7 @@ pub unsafe fn try_create_subplan_join_paths(
                 return false;
             }
             // Check if the clause itself is an OR BoolExpr containing a SubPlan.
-            // Top-level SubPlans are handled by the normal join_pathlist hook.
+            // Flattened subqueries are handled at UPPERREL_FINAL.
             if (*clause).type_ == pg_sys::NodeTag::T_BoolExpr {
                 let bexpr = clause as *mut pg_sys::BoolExpr;
                 (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR && is_subplan(clause, root)
@@ -563,8 +561,7 @@ impl JoinScan {
 
         // --- Activation checks ---
         // NOTE: We do NOT check has_search_predicate here. The caller is
-        // responsible for that check because the join-hook path also considers
-        // join_conditions.has_search_predicate, which is not available to us.
+        // responsible for checking `plan.has_search_predicate()`.
 
         if all_sources
             .iter()
@@ -1117,18 +1114,9 @@ impl CustomScan for JoinScan {
             let custom_scan_tlist_ptr = custom_scan_tlist.into_pg();
             node.custom_scan_tlist = custom_scan_tlist_ptr;
 
-            // For join custom scans, PostgreSQL doesn't pass clauses via the usual parameter.
-            // We stored the restrictlist in custom_private during create_custom_path.
-            //
-            // Note: We do NOT add restrictlist clauses to custom_exprs because setrefs would try
-            // to resolve their Vars using the child plans' target lists, which may not have all
-            // the needed columns. Instead, we keep the restrictlist in custom_private and handle
-            // join condition evaluation manually during execution using the original Var
-            // references.
-
-            // Add heap condition clauses to custom_exprs so they get transformed by
-            // set_customscan_references. The Vars in these expressions will be converted to
-            // INDEX_VAR references into custom_scan_tlist.
+            // Add multi-table predicate clauses (from custom_private) to custom_exprs
+            // so they get transformed by set_customscan_references. The Vars in these
+            // expressions will be converted to INDEX_VAR references into custom_scan_tlist.
             node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
 
             // Extract the column mappings from custom_scan_tlist (including any added

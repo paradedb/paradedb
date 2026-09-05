@@ -24,7 +24,7 @@
 //! during join execution. It supports:
 //!
 //! - Single-table search predicates (converted to Tantivy queries)
-//! - Cross-relation heap conditions (evaluated by PostgreSQL)
+//! - Cross-relation conditions (evaluated by DataFusion)
 //! - Boolean expression trees (AND/OR/NOT)
 
 use super::build::{JoinLevelExpr, JoinSource, RelNode, ScanInfo};

@@ -882,14 +882,11 @@ pub struct JoinNode {
     /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
     /// from, if any.  Set for Semi/Anti/LeftMark joins created by
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
-    /// that come from the normal join-hook path or path reconstruction.
+    /// that come from UPPERREL_FINAL or path reconstruction.
     pub subplan_id: Option<i32>,
     /// Cross-table `@@@` predicates that PG placed on this sub-join's
     /// `joinrestrictinfo`. The reconstruction in
-    /// `collect_join_sources_join_rel` parks them here because no
-    /// `JoinCSClause` exists yet to receive interned `plan_position`s;
-    /// `lower_absorbed_search_clauses` drains the field once one does, so
-    /// the vector is empty by the time the outer hook returns.
+    /// `collect_join_sources_join_rel` parks them here.
     /// `#[serde(skip)]` because the pointers are valid only within this
     /// planning pass and never reach the serialized plan.
     #[serde(skip)]
@@ -1211,18 +1208,6 @@ impl RelNode {
                 _ => false,
             };
             Ok(matches)
-        })
-        .unwrap_or(false)
-    }
-
-    pub fn has_absorbed_search_clauses(&self) -> bool {
-        self.exists(|node| {
-            let has = match node {
-                RelNode::Join(j) => !j.absorbed_search_clauses.is_empty(),
-                RelNode::Unnest(u) => !u.absorbed_clauses.is_empty(),
-                _ => false,
-            };
-            Ok(has)
         })
         .unwrap_or(false)
     }

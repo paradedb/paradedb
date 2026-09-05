@@ -847,10 +847,7 @@ unsafe fn collect_join_sources_join_rel(
         // If PG planned this sub-join right-oriented, rewrite it to its left
         // twin (rationale on `JoinNode::canonicalize_orientation`). Per level,
         // not recursive: `outer_node`/`inner_node` are already canonical from
-        // the collect_join_sources recursion above. Only reconstruction needs
-        // it -- the direct set_join_pathlist_hook invocation for a right join is
-        // redundant with the sibling left invocation PG also emits, so doing it
-        // there would only add a duplicate path.
+        // the collect_join_sources recursion above.
         join_node.canonicalize_orientation();
 
         return Some(CollectedJoinRel {

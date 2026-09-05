@@ -27,9 +27,7 @@ use crate::postgres::customscan::builders::custom_path::{
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::customscan::{
-    CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
-};
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
@@ -151,90 +149,6 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
 
         for path in paths {
             add_path(rel, path);
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub fn register_join_pathlist<CS>(_: CS)
-where
-    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
-{
-    unsafe {
-        static mut PREV_HOOKS: Lazy<
-            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
-        > = Lazy::new(Default::default);
-
-        #[pg_guard]
-        extern "C-unwind" fn __priv_callback<CS>(
-            root: *mut pg_sys::PlannerInfo,
-            joinrel: *mut pg_sys::RelOptInfo,
-            outerrel: *mut pg_sys::RelOptInfo,
-            innerrel: *mut pg_sys::RelOptInfo,
-            jointype: pg_sys::JoinType::Type,
-            extra: *mut pg_sys::JoinPathExtraData,
-        ) where
-            CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
-        {
-            unsafe {
-                #[allow(static_mut_refs)]
-                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
-                    (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
-                }
-
-                paradedb_join_pathlist_callback::<CS>(
-                    root, joinrel, outerrel, innerrel, jointype, extra,
-                );
-            }
-        }
-
-        #[allow(static_mut_refs)]
-        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
-            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
-            Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
-        };
-
-        pg_sys::set_join_pathlist_hook = Some(__priv_callback::<CS>);
-
-        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
-    }
-}
-
-#[pg_guard]
-pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
-    root: *mut pg_sys::PlannerInfo,
-    joinrel: *mut pg_sys::RelOptInfo,
-    outerrel: *mut pg_sys::RelOptInfo,
-    innerrel: *mut pg_sys::RelOptInfo,
-    jointype: pg_sys::JoinType::Type,
-    extra: *mut pg_sys::JoinPathExtraData,
-) where
-    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
-{
-    unsafe {
-        if !pg_search_extension_installed() {
-            return;
-        }
-
-        if !gucs::enable_join_custom_scan() {
-            return;
-        }
-
-        let paths = CS::create_custom_path(CustomPathBuilder::new(
-            root,
-            joinrel,
-            JoinPathlistHookArgs {
-                root,
-                joinrel,
-                outerrel,
-                innerrel,
-                jointype,
-                extra,
-            },
-        ));
-
-        for path in paths {
-            add_path(joinrel, path);
         }
     }
 }
@@ -1103,9 +1017,9 @@ unsafe fn replace_in_node(
 /// join opportunities after the base-scan hooks have run.
 ///
 /// When PostgreSQL keeps a subquery as a SubPlan (e.g. `col IN (SELECT ...) OR
-/// col IS NULL`), `set_join_pathlist_hook` never fires.  This additional
-/// rel-pathlist hook gives JoinScan a chance to handle those patterns by
-/// converting the SubPlan into a LeftMark join executed via DataFusion.
+/// col IS NULL`), standard join planning never sees it as a multi-relation join.
+/// This additional rel-pathlist hook gives JoinScan a chance to handle those patterns
+/// by converting the SubPlan into a LeftMark join executed via DataFusion.
 pub fn register_subplan_join_pathlist() {
     unsafe {
         static mut PREV_HOOK: pg_sys::set_rel_pathlist_hook_type = None;

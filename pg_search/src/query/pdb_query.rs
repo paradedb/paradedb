@@ -56,6 +56,11 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
     SearchQueryInput::FieldedQuery { field, query }
 }
 
+#[pg_extern(name = "to_search_query_input", immutable, parallel_safe)]
+pub fn to_search_query_input_unfielded(query: pdb::Query) -> SearchQueryInput {
+    SearchQueryInput::from_unfielded(query)
+}
+
 #[pg_schema]
 pub mod pdb {
     use crate::postgres::pdb_owned_value::PdbOwnedValue;

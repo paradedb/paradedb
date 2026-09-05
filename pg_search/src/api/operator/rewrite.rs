@@ -153,6 +153,12 @@ impl SearchOperator {
         let field = if self == Self::Parse {
             match rhs {
                 RHSValue::Text(text) if field.is_none() => return parse(text, None, None),
+                RHSValue::PdbQuery(query) if field.is_none() => {
+                    return SearchQueryInput::from_unfielded(query);
+                }
+                RHSValue::ProximityClause(_) if field.is_none() => panic!(
+                    "a proximity search requires an indexed field on the left-hand side, not a whole-row reference"
+                ),
                 RHSValue::TextArray(_) => self.invalid_rhs(),
                 _ => (),
             }
@@ -189,7 +195,11 @@ impl SearchOperator {
                 panic!("The right-hand side of the `@@@` operator must be a text value");
             }
             let signature = if is_pdb_query {
-                c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)"
+                if field.is_some() {
+                    c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)"
+                } else {
+                    c"paradedb.to_search_query_input(pdb.query)"
+                }
             } else if field.is_some() {
                 c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)"
             } else {
@@ -204,8 +214,6 @@ impl SearchOperator {
             let mut args = PgList::<pg_sys::Node>::new();
             if let Some(field) = field {
                 args.push(field.into_const().cast());
-            } else {
-                assert!(!is_pdb_query);
             }
             args.push(rhs);
             if !is_pdb_query {

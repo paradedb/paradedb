@@ -263,6 +263,39 @@ fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMet
     count > 2
 }
 
+/// Layer sizes used when a mutable segment freezes (#5950).
+///
+/// Always includes `0` so the frozen mutable is converted immediately, plus a compact
+/// ladder around the byte freeze cap so recent freeze products (~cap-sized immutables)
+/// coalesce without forcing a rewrite of large stable segments.
+fn freeze_merge_layer_sizes(index: &PgSearchRelation) -> Vec<u64> {
+    use crate::postgres::options::DEFAULT_MUTABLE_SEGMENT_BYTES;
+
+    let byte_cap = index
+        .options()
+        .mutable_segment_bytes()
+        .map(|n| n.get())
+        .unwrap_or(DEFAULT_MUTABLE_SEGMENT_BYTES);
+    // Keep consolidation local to freeze products: up to 8× the byte cap, floored at 4MB
+    // and capped at 64MB so we do not drag multi-hundred-MB segments into every freeze.
+    let soft_max = byte_cap
+        .saturating_mul(8)
+        .clamp(4 * 1024 * 1024, 64 * 1024 * 1024);
+
+    let mut layers = vec![
+        0,
+        byte_cap / 4,
+        byte_cap / 2,
+        byte_cap,
+        byte_cap.saturating_mul(2),
+        byte_cap.saturating_mul(4),
+        soft_max,
+    ];
+    layers.sort_unstable();
+    layers.dedup();
+    layers
+}
+
 /// Kick off a merge of the index, if needed.
 ///
 /// First merge into the smaller layers in the foreground,
@@ -272,6 +305,7 @@ pub unsafe fn do_merge(
     style: MergeStyle,
     current_xid: Option<pg_sys::FullTransactionId>,
     next_xid: Option<pg_sys::FullTransactionId>,
+    force_foreground: bool,
 ) -> anyhow::Result<()> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
@@ -302,7 +336,7 @@ pub unsafe fn do_merge(
             (false, 0)
         };
 
-    if needs_background_merge && !need_backpressure {
+    if needs_background_merge && !need_backpressure && !force_foreground {
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
@@ -310,9 +344,15 @@ pub unsafe fn do_merge(
 
         try_launch_background_merger(index, largest_layer_size);
     } else if style == MergeStyle::Insert
-        && (!foreground_layer_sizes.is_empty() || need_backpressure)
+        && (force_foreground || !foreground_layer_sizes.is_empty() || need_backpressure)
     {
-        let foreground_layer_sizes = if foreground_layer_sizes.is_empty() {
+        let foreground_layer_sizes = if force_foreground {
+            // After a mutable byte/row freeze (#5950), convert the frozen mutable and
+            // aggressively consolidate the small large-doc immutables that freeze produces.
+            // Using only `[0]` left those ~0.5–2MB segments behind and query latency grew
+            // with sustained churn even though the mutable buffer itself was capped.
+            freeze_merge_layer_sizes(index)
+        } else if foreground_layer_sizes.is_empty() {
             vec![0]
         } else {
             foreground_layer_sizes

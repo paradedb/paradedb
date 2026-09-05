@@ -324,6 +324,46 @@ fn is_plain_single_term(s: &str) -> bool {
 }
 
 impl SearchQueryInput {
+    /// Whole-row searches accept queries that do not require an implicit field.
+    pub fn from_unfielded(query: pdb::Query) -> Self {
+        match query {
+            // pdb.all() scores matches as 1, unlike the internal zero-score match-all query.
+            pdb::Query::All => Self::ConstScore {
+                query: Box::new(Self::All),
+                score: 1.0,
+            },
+            pdb::Query::Empty => Self::Empty,
+            pdb::Query::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            } => Self::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            },
+            pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data: None,
+                slop_data: None,
+            } => Self::Parse {
+                query_string: string,
+                lenient: None,
+                conjunction_mode: None,
+            },
+            pdb::Query::ScoreAdjusted { query, score } => {
+                let query = Box::new(Self::from_unfielded(*query));
+                match score.expect("score adjustment value should have been set") {
+                    pdb::ScoreAdjustStyle::Boost(factor) => Self::Boost { query, factor },
+                    pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
+                }
+            }
+            _ => pgrx::error!(
+                "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference"
+            ),
+        }
+    }
+
     pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
             expr: PostgresExpression {

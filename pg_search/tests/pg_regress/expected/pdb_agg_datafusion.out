@@ -84,8 +84,8 @@ FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb))
    Sort Key: p.category
@@ -99,12 +99,14 @@ ORDER BY p.category;
            : ProjectionExec: expr=[category@0 as category, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
            :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
            :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(18 rows)
+           :       TantivyDecodeExec: decode=[tag_name]
+           :         TantivyFetchExec: fetch=[tag_name]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(20 rows)
 
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
@@ -134,12 +136,14 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
      : ProjectionExec: expr=[__grouping_id@2 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __pdb_m0@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3, __pdb_m4@7 as __pdb_m4, __pdb_m5@8 as __pdb_m5]
      :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0, count(p_0.price) as __pdb_m1, sum(p_0.price) as __pdb_m2, count(t_1.weight) as __pdb_m3, sum(t_1.weight) as __pdb_m4, tantivy_cardinality(p_0.brand, 4) as __pdb_m5]
      :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, NULL as __pdb_k1), (category@0 as __pdb_k0, tag_name@3 as __pdb_k1)], aggr=[count(1) as __pdb_m0, count(p_0.price) as __pdb_m1, sum(p_0.price) as __pdb_m2, count(t_1.weight) as __pdb_m3, sum(t_1.weight) as __pdb_m4, tantivy_cardinality(p_0.brand, 4) as __pdb_m5]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, brand@2, price@3, tag_name@5, weight@6]
-     :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+     :       TantivyDecodeExec: decode=[tag_name]
+     :         TantivyFetchExec: fetch=[tag_name]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, brand@2, price@3, tag_name@5, weight@6]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"tags": {"terms": {"field": "tag_name", "size": 2}, "aggs": {"w": {"sum": {"field": "weight"}}}}, "uniq_brands": {"cardinality": {"field": "brand"}}, "avg_price": {"avg": {"field": "price"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
@@ -157,8 +161,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (sum(t.weight)), (pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb))
    Sort Key: p.category
@@ -173,12 +177,14 @@ ORDER BY p.category;
            :   FilterExec: __grouping_id@2 != 1 OR __common_expr_1@3 > 1
            :     AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as agg_1]
            :       AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, sum(t_1.weight) as agg_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+           :         TantivyDecodeExec: decode=[tag_name]
+           :           TantivyFetchExec: fetch=[tag_name]
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(21 rows)
 
 SELECT p.category, COUNT(*), SUM(t.weight), pdb.agg('{"terms": {"field": "tag_name"}}') AS tags
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
@@ -419,13 +425,15 @@ ORDER BY day;
            : ProjectionExec: expr=[pdb_timestamp_to_date(p_0.created_at)@0 as pdb_timestamp_to_date(p_0.created_at), __common_expr_2@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_2@3 as __pdb_m0]
            :   AggregateExec: mode=Final, gby=[pdb_timestamp_to_date(p_0.created_at)@0 as pdb_timestamp_to_date(p_0.created_at), __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_2]
            :     AggregateExec: mode=Partial, gby=[(__common_expr_1@0 as pdb_timestamp_to_date(p_0.created_at), NULL as __pdb_k0), (__common_expr_1@0 as pdb_timestamp_to_date(p_0.created_at), tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_2]
-           :       ProjectionExec: expr=[pdb_timestamp_to_date(created_at@0) as __common_expr_1, tag_name@1 as tag_name]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[created_at@1, tag_name@3]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+           :       TantivyDecodeExec: decode=[tag_name]
+           :         TantivyFetchExec: fetch=[tag_name]
+           :           ProjectionExec: expr=[pdb_timestamp_to_date(created_at@0) as __common_expr_1, tag_name@1 as tag_name]
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[created_at@1, tag_name@3]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(21 rows)
 
 SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
@@ -848,12 +856,14 @@ ORDER BY p.category;
            : ProjectionExec: expr=[category@0 as category, __common_expr_1@3 as agg_0, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __common_expr_1@3 as __pdb_m0, __pdb_m1@4 as __pdb_m1, __pdb_m2@5 as __pdb_m2, __pdb_m3@6 as __pdb_m3]
            :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, count(t_1.weight) as __pdb_m1, sum(t_1.weight) as __pdb_m2, tantivy_cardinality(t_1.weight, 0) as __pdb_m3]
            :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, tag_name@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, count(t_1.weight) as __pdb_m1, sum(t_1.weight) as __pdb_m2, tantivy_cardinality(t_1.weight, 0) as __pdb_m3]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(18 rows)
+           :       TantivyDecodeExec: decode=[tag_name]
+           :         TantivyFetchExec: fetch=[tag_name]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(20 rows)
 
 SET max_parallel_workers_per_gather TO 3;
 SET max_parallel_workers TO 8;

@@ -154,9 +154,7 @@ fn load_suite_inner(
     auto: Option<&AutoArgs>,
 ) -> anyhow::Result<Suite> {
     eprintln!("Loading Suite: {}", path.display());
-    let file = std::fs::read_to_string(path)?;
-    let mut definition = toml::from_str::<SuiteDefinition>(&file)?;
-    definition.path = Some(path.to_path_buf());
+    let mut definition = load_suite_definition(path)?;
 
     // Override server configurations with the provided pgversion if specified
     if let Some(version) = pgversion {
@@ -239,9 +237,52 @@ fn load_suite_inner(
     Ok(Suite::new(definition))
 }
 
+fn load_suite_definition(path: &Path) -> anyhow::Result<SuiteDefinition> {
+    // Resolve symlinks before relative workload/topology references. Antithesis
+    // publishes the selected suite through `/tmp/stressgres-workload.toml`.
+    let source_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
+    let file = std::fs::read_to_string(&source_path)?;
+    let mut definition = toml::from_str::<SuiteDefinition>(&file)?;
+    if let Some(topology_path) = definition.topology.clone() {
+        let topology_path = source_dir.join(topology_path);
+        let topology_file = std::fs::read_to_string(&topology_path)
+            .with_context(|| format!("Failed to read topology: {}", topology_path.display()))?;
+        let mut topology = toml::from_str::<SuiteDefinition>(&topology_file)
+            .with_context(|| format!("Failed to parse topology: {}", topology_path.display()))?;
+        anyhow::ensure!(
+            topology.topology.is_none() && topology.workload.is_none(),
+            "nested topology/workload references are not supported"
+        );
+        topology.workload = definition.workload.take();
+        topology.name = definition.name.take().or(topology.name);
+        topology.path = definition.path.take();
+        definition = topology;
+    }
+    if let Some(workload_path) = definition.workload.clone() {
+        let workload_path = source_dir.join(workload_path);
+        let workload_file = std::fs::read_to_string(&workload_path).with_context(|| {
+            format!(
+                "Failed to read workload definition: {}",
+                workload_path.display()
+            )
+        })?;
+        let workload = toml::from_str::<SuiteDefinition>(&workload_file).with_context(|| {
+            format!(
+                "Failed to parse workload definition: {}",
+                workload_path.display()
+            )
+        })?;
+        definition.compose_workload(workload)?;
+    }
+    definition.path = Some(path.to_path_buf());
+    Ok(definition)
+}
+
 #[cfg(test)]
 mod suite_file_tests {
-    use super::SuiteDefinition;
+    use super::load_suite_definition;
+    use crate::sqlscanner::StatementDestination;
     use std::fs;
     use std::path::PathBuf;
 
@@ -259,8 +300,7 @@ mod suite_file_tests {
         suite_paths.sort();
 
         for path in suite_paths {
-            let contents = fs::read_to_string(&path).unwrap();
-            toml::from_str::<SuiteDefinition>(&contents)
+            load_suite_definition(&path)
                 .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
 
             let suite_name = path.file_stem().unwrap().to_string_lossy();
@@ -274,5 +314,94 @@ mod suite_file_tests {
                 antithesis_entrypoint.display()
             );
         }
+    }
+
+    #[test]
+    fn workload_is_composed_with_topology_routes_and_phased_setup() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("suites/logical-replication-mixed-workload.toml");
+        let definition = load_suite_definition(&path).unwrap();
+
+        assert_eq!(definition.jobs.len(), 19);
+        assert!(
+            definition
+                .jobs
+                .iter()
+                .all(|job| !job.destinations.is_empty())
+        );
+
+        let subscriber = definition
+            .servers
+            .iter()
+            .find(|server| server.name == "Subscriber")
+            .unwrap();
+        let create_table = subscriber.setup.sql.find("CREATE TABLE test").unwrap();
+        let subscription = subscriber.setup.sql.find("CREATE SUBSCRIPTION").unwrap();
+        let create_index = subscriber.setup.sql.find("CREATE INDEX idxtest").unwrap();
+        assert!(create_table < subscription && subscription < create_index);
+
+        let multi_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("suites/logical-replication-mixed-workload-multi-subscriber.toml");
+        let multi = load_suite_definition(&multi_path).unwrap();
+        let top_k = multi
+            .jobs
+            .iter()
+            .find(|job| job.title.as_deref() == Some("Key-ordered Top K Base Scan"))
+            .unwrap();
+        assert_eq!(top_k.refresh_ms, 10);
+        assert_eq!(top_k.destinations.len(), 2);
+    }
+
+    #[test]
+    fn all_workload_topology_matrix_entries_compose() {
+        let matrix_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("suites/matrix");
+        let mut paths = fs::read_dir(&matrix_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        paths.sort();
+        assert_eq!(paths.len(), 18);
+
+        for path in paths {
+            let definition = load_suite_definition(&path)
+                .unwrap_or_else(|error| panic!("failed to compose {}: {error}", path.display()));
+            assert!(!definition.jobs.is_empty());
+            assert!(!definition.servers.is_empty());
+            assert!(
+                definition
+                    .jobs
+                    .iter()
+                    .all(|job| !job.destinations.is_empty())
+            );
+
+            if path.file_name().unwrap() == "wide-table--logical.toml" {
+                let update = definition
+                    .jobs
+                    .iter()
+                    .find(|job| job.title.as_deref() == Some("Single Update"))
+                    .unwrap();
+                assert_eq!(
+                    update.destinations,
+                    [StatementDestination::SpecificServers(vec![
+                        "Publisher".to_owned()
+                    ])]
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn composed_suite_resolves_references_through_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let suite = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("suites/background-merge.toml");
+        let temp = tempfile::tempdir().unwrap();
+        let link = temp.path().join("selected-suite.toml");
+        symlink(suite, &link).unwrap();
+
+        let definition = load_suite_definition(&link).unwrap();
+        assert_eq!(definition.servers.len(), 1);
+        assert!(!definition.jobs.is_empty());
     }
 }

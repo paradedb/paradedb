@@ -1,0 +1,45 @@
+capabilities = ["indexed_writes", "logical_replication"]
+
+[routes.read]
+destinations = ["Subscriber"]
+
+[routes.write]
+destinations = ["Publisher"]
+
+[[server]]
+name = "Publisher"
+setup_template = "primary"
+[server.style.Automatic]
+postgresql_conf = "Publisher"
+
+[server.setup]
+sql = """
+DROP PUBLICATION IF EXISTS stressgres_pub;
+CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
+"""
+[server.teardown]
+sql = ""
+[server.monitor]
+refresh_ms = 10
+log_columns = ["replication_lag:MB"]
+sql = """
+SELECT pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag
+FROM pg_stat_replication;
+"""
+
+[[server]]
+name = "Subscriber"
+setup_template = "primary"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+DROP SUBSCRIPTION IF EXISTS stressgres_sub;
+CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@'
+PUBLICATION stressgres_pub WITH (copy_data = false);
+"""
+[server.teardown]
+sql = ""
+[server.monitor]
+sql = ""

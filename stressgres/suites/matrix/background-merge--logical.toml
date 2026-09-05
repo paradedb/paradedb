@@ -1,0 +1,2 @@
+workload = "../workloads/background-merge.toml"
+topology = "../topologies/logical-replication.toml"

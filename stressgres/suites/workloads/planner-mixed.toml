@@ -1,0 +1,303 @@
+[setup_templates.writer]
+before = """
+DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    old_message TEXT,
+    category_id INTEGER NOT NULL,
+    unique_id BIGINT UNIQUE
+) WITH (autovacuum_enabled = false);
+
+DROP SEQUENCE IF EXISTS test_unique_id_seq;
+CREATE SEQUENCE test_unique_id_seq START 1;
+
+INSERT INTO categories (id, name)
+SELECT i, 'category ' || i::text
+FROM generate_series(1, 100) AS s(i);
+
+INSERT INTO test (message, category_id, unique_id)
+SELECT
+    (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
+           'wine cheese', 'wine', 'cheese', 'bread butter'])[1 + (i % 8)]
+    || ' ' || i::text,
+    1 + (i % 100),
+    nextval('test_unique_id_seq')
+FROM generate_series(1, 10000) AS s(i);
+"""
+
+[setup_templates.reader]
+before = """
+DROP TABLE IF EXISTS test CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+) WITH (autovacuum_enabled = true);
+
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    old_message TEXT,
+    category_id INTEGER NOT NULL,
+    unique_id BIGINT UNIQUE
+) WITH (
+    autovacuum_enabled = true,
+    autovacuum_vacuum_scale_factor = 0,
+    autovacuum_vacuum_threshold = 50,
+    autovacuum_vacuum_insert_threshold = 50
+);
+"""
+after = """
+CREATE INDEX idxtest ON test USING paradedb (id, message, category_id) WITH (
+    key_field = 'id',
+    layer_sizes = '10kb, 100kb, 1mb, 100mb',
+    numeric_fields = '{"category_id": {"fast": true}}'
+);
+CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
+);
+
+ANALYZE test;
+ANALYZE categories;
+
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %', a, b;
+    END IF;
+    RETURN true;
+END;
+$$;
+
+ALTER SYSTEM SET autovacuum_naptime TO '1s';
+SELECT pg_reload_conf();
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Size Info"
+log_columns = ["pages", "relation_size:MB", "segment_count"]
+log_tps = false
+sql = """
+SELECT count(*) FILTER (WHERE visible) AS visible,
+       count(*) FILTER (WHERE recyclable) AS recyclable,
+       count(*) AS segment_count,
+       pg_relation_size('idxtest') / 8192 AS pages,
+       pg_relation_size('idxtest') AS relation_size,
+       pg_size_pretty(pg_relation_size('idxtest'))
+FROM paradedb.index_info('idxtest', true);
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Key-ordered Top K Base Scan"
+sql_plan_contains = "TopKScanExecState"
+sql = "SELECT id, message FROM test WHERE message ||| 'beer' ORDER BY id DESC LIMIT 25"
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Unordered Top K Base Scan"
+on_connect = """
+SET max_parallel_workers_per_gather = 0;
+"""
+sql_plan_contains = "TopKScanExecState"
+sql = """
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine' LIMIT 100;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Normal Base Scan"
+on_connect = """
+SET max_parallel_workers_per_gather = 0;
+"""
+sql_plan_contains = "NormalScanExecState"
+sql = """
+SELECT id, message, old_message FROM test WHERE message &&& 'beer wine';
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Normal Base Scan"
+on_connect = """
+SET debug_parallel_query TO ON;
+SET max_parallel_workers_per_gather = 2;
+"""
+sql_plan_contains = ["Parallel Custom Scan", "NormalScanExecState"]
+sql = """
+SELECT id, message, old_message FROM test WHERE message ||| 'cheese';
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Aggregate Scan"
+sql_plan_contains = "ParadeDB Aggregate Scan"
+sql = """
+SELECT assert(count(*), 5000), count(*) FROM test WHERE message ||| 'beer';
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Grouped Aggregate Scan"
+sql_plan_contains = "ParadeDB Aggregate Scan"
+sql = """
+SELECT category_id, count(*) FROM test WHERE message ||| 'beer' GROUP BY category_id;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Index Only Scan Fallback"
+on_connect = """
+SET max_parallel_workers = 0;
+SET paradedb.enable_custom_scan = off;
+"""
+sql_plan_contains = "Index Only Scan"
+sql = """
+SELECT id FROM test WHERE message ||| 'wine' LIMIT 100;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Index Scan Fallback"
+on_connect = """
+SET max_parallel_workers = 0;
+SET paradedb.enable_custom_scan = off;
+SET enable_seqscan = off;
+"""
+sql_plan_contains = "Index Scan"
+sql = """
+SELECT id, message, old_message FROM test WHERE message ||| 'wine' LIMIT 100;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "Postgres Sort over Normal Base Scan"
+sql_plan_contains = ["NormalScanExecState", "Sort"]
+sql = """
+SELECT id, message, old_message
+FROM test
+WHERE message ||| 'wine beer'
+ORDER BY old_message
+LIMIT 20;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+title = "JoinScan"
+on_connect = """
+SET paradedb.enable_join_custom_scan = on;
+"""
+sql_plan_contains = "ParadeDB Join Scan"
+sql = """
+SELECT t.id, t.message, c.name
+FROM test t
+JOIN categories c ON t.category_id = c.id
+WHERE t.message ||| 'beer'
+ORDER BY t.id
+LIMIT 25;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 5
+window_height = 10
+log_tps = false
+title = "Find by ctid"
+sql = """
+select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id limit 100;
+"""
+route = "read"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Update 1..9"
+cancel_keycode = 'U'
+sql = """
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_length(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || lpad((txid_current() % 10000)::text, 5, '0'), old_message = message WHERE id < 10;
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Update 10,11"
+cancel_keycode = 'U'
+sql = """
+BEGIN;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_length(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || lpad((txid_current() % 10000)::text, 5, '0'), old_message = message WHERE id IN (10, 11);
+ABORT;
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Rotate join keys"
+sql = """
+UPDATE test SET category_id = (category_id % 100) + 1 WHERE id BETWEEN 1 AND 100;
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 150
+log_tps = false
+title = "Update joined rows"
+sql = """
+UPDATE categories SET name = 'category ' || id::text || ' ' || txid_current()::text WHERE id <= 10;
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Insert value A"
+sql = """
+INSERT INTO test (message, category_id, unique_id)
+VALUES ('A', 1 + (txid_current() % 100)::int, nextval('test_unique_id_seq'));
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Insert value B"
+sql = """
+INSERT INTO test (message, category_id, unique_id)
+VALUES ('B', 1 + (txid_current() % 100)::int, nextval('test_unique_id_seq'));
+"""
+route = "write"
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+pause_keycode = 'd'
+cancel_keycode = 'D'
+title = "Delete values"
+sql = """
+DELETE FROM test WHERE id > 10000;
+"""
+route = "write"

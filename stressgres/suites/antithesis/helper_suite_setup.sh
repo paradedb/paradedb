@@ -72,22 +72,31 @@ rewrite_pub_multi_sub() {
 setup() {
   local toml="$1" topology="$2"
   local path="${SUITE_DIR}/${toml}"
+  local topology_path="${path}"
+
+  # Composed suites keep their concrete servers in a referenced topology file.
+  # Rewrite that file while continuing to pass the small suite manifest to Stressgres.
+  if grep -q '^topology = ' "${path}"; then
+    local topology_file
+    topology_file="$(sed -n 's/^topology = "\(.*\)"/\1/p' "${path}")"
+    topology_path="$(dirname "${path}")/${topology_file}"
+  fi
 
   echo ""
   echo "Pointing ${toml} at its cluster(s)..."
   # A _phys topology adds a physical replica streaming from paradedb-rw: sub_phys is that
   # WAL sender/receiver pair on its own, pub_sub_phys hangs it off a logical subscriber.
   case "${topology}" in
-    single) rewrite_single "${path}" ;;
-    pub_sub) rewrite_pub_sub "${path}" ;;
-    pub_multi_sub) rewrite_pub_multi_sub "${path}" ;;
+    single) rewrite_single "${topology_path}" ;;
+    pub_sub) rewrite_pub_sub "${topology_path}" ;;
+    pub_multi_sub) rewrite_pub_multi_sub "${topology_path}" ;;
     sub_phys)
-      rewrite_subscriber "${path}"
-      rewrite_wal_receiver "${path}"
+      rewrite_subscriber "${topology_path}"
+      rewrite_wal_receiver "${topology_path}"
       ;;
     pub_sub_phys)
-      rewrite_pub_sub "${path}"
-      rewrite_wal_receiver "${path}"
+      rewrite_pub_sub "${topology_path}"
+      rewrite_wal_receiver "${topology_path}"
       ;;
     *)
       echo "unknown topology: ${topology}" >&2

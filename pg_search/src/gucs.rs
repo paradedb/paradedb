@@ -149,7 +149,9 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// Where a late-materialized string/bytes column's fast-field fetch runs. On, the scan emits
 /// doc addresses and a `TantivyFetchExec` resolves term ordinals at the decode point. Off,
-/// the scan resolves them in doc order and only the dictionary decode is deferred.
+/// the scan resolves them in doc order and only the dictionary decode is deferred. The
+/// knob is what makes the scan-side fetch reachable, for its tests and as an override
+/// for the plans where the deferred fetch loses.
 static DEFER_COLUMN_FETCH: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to enable or disable the SegmentedTopK optimization.

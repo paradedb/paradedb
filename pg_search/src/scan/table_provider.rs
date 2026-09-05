@@ -127,7 +127,6 @@ pub struct PgSearchTableProvider {
     /// scan (State 1, in doc order) or left as doc addresses for a `TantivyFetchExec`.
     /// Snapshotted from `paradedb.defer_column_fetch` when the columns are deferred, so a
     /// dispatched plan carries the leader's choice.
-    #[serde(default)]
     deferred_fetch_at_scan: bool,
 
     /// Source position in the unified-sources array. When set, the codec's

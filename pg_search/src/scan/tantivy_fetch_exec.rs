@@ -76,11 +76,9 @@ pub struct CtidColumnLookup {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct FetchDispatchPayload {
     fetch_fields: Vec<PhysicalDeferredField>,
-    #[serde(default)]
     ctid_columns: Vec<CtidColumnLookup>,
     /// `(plan_position, indexrelid)` for each wired ctid resolver, so a worker whose scan sits
     /// behind a network boundary can rebuild the resolver from its index segment view.
-    #[serde(default)]
     ctid_resolver_indexes: Vec<(usize, u32)>,
 }
 

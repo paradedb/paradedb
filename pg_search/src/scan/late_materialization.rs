@@ -870,7 +870,6 @@ pub struct DeferredField {
     /// When true, the scan resolves the column's term ordinals itself, in doc order, and
     /// emits State 1; only the dictionary decode is deferred. When false, the scan emits
     /// doc addresses and a `TantivyFetchExec` resolves them at the decode point.
-    #[serde(default)]
     pub fetch_at_scan: bool,
 }
 

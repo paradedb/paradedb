@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` no longer fail on Postgres 15 and 16 when another backend writes to the table during the build.

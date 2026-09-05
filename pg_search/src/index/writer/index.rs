@@ -213,7 +213,7 @@ pub struct SerialIndexWriter {
     indexrel: PgSearchRelation,
     ctid_field: Field,
     config: IndexWriterConfig,
-    index: Index,
+    pub(crate) index: Index,
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
     schema: SearchIndexSchema,

@@ -18,11 +18,14 @@
 //! Per-row search evaluation when a search predicate executes as a heap filter.
 
 mod args;
+mod inline;
 mod keyset;
 
+pub(crate) use inline::MaybeInlineRow;
 pub(crate) use keyset::KeySet;
 
-use self::args::{FakeAnyElement, FakeCtid, FakeSearchQueryInput};
+use self::args::{FakeAnyElement, FakeCtid, FakeRow, FakeSearchQueryInput};
+use self::inline::RowMatcher;
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -32,7 +35,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_sys};
+use pgrx::{Array, FromDatum, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_sys};
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -43,6 +46,7 @@ struct QueryCacheEntry {
 #[derive(Default)]
 struct Cache {
     by_query: HashMap<Vec<u8>, QueryCacheEntry>,
+    inline_rows: HashMap<Vec<u8>, RowMatcher>,
 }
 
 #[allow(unused_variables)]
@@ -75,6 +79,78 @@ pub fn search_with_query_input_ctid_strict(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
+}
+
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
+pub fn search_with_query_input_ctid_or_row_strict(
+    element: FakeAnyElement,
+    query: FakeSearchQueryInput,
+    ctid: FakeCtid,
+    fallback_row: FakeRow,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<bool> {
+    search_with_query_input_ctid_or_row(Some(element), query, ctid, Some(fallback_row), fcinfo)
+}
+
+#[allow(unused_variables)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
+pub fn search_with_query_input_ctid_or_row(
+    element: Option<FakeAnyElement>,
+    query: FakeSearchQueryInput,
+    ctid: FakeCtid,
+    fallback_row: Option<FakeRow>,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> Option<bool> {
+    let ctid = unsafe { Ctid::from_fcinfo(fcinfo, 2) }?;
+    fallback_row?;
+    let rows = unsafe {
+        pg_sys::pg_detoast_datum(pg_getarg_datum_raw(fcinfo, 3).cast_mut_ptr())
+            .cast::<pg_sys::ArrayType>()
+    };
+    // Check the empty-array marker without unpacking or materializing a heap row.
+    if unsafe { (*rows).ndim } == 0 {
+        if !ctid.is_valid() {
+            return None;
+        }
+        return search_with_query_input_impl(fcinfo, Some(ctid));
+    }
+
+    assert!(
+        unsafe { pg_sys::type_is_rowtype((*rows).elemtype) },
+        "inline row must be a composite value"
+    );
+    let rows = unsafe { Array::<pg_sys::Datum>::from_datum(pg_sys::Datum::from(rows), false) }?;
+    assert_eq!(rows.len(), 1, "inline evaluation requires exactly one row");
+    let row = rows.get(0)??;
+
+    let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
+    let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
+    let key = unsafe {
+        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
+        pgrx::varlena_to_byte_slice(varlena).to_vec()
+    };
+
+    let matcher = cache.inline_rows.entry(key).or_insert_with(|| {
+        let query = unsafe {
+            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+                .expect("the query argument cannot be NULL")
+        };
+        let index_oid = query.index_oid().unwrap_or_else(|| {
+            panic!("pg_search: could not determine the index to use for this query")
+        });
+        RowMatcher::new(
+            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE),
+            query,
+        )
+    });
+
+    unsafe { matcher.matches(row) }
+}
+
+#[allow(unused_variables)]
+#[pg_extern(immutable, strict, parallel_safe)]
+pub fn ctid_is_valid(ctid: FakeCtid, fcinfo: pg_sys::FunctionCallInfo) -> bool {
+    unsafe { Ctid::from_fcinfo(fcinfo, 0) }.is_some_and(Ctid::is_valid)
 }
 
 fn search_with_query_input_impl(

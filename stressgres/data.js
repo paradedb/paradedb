@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788638059030,
+  "lastUpdate": 1788638067441,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307912,6 +307912,42 @@ window.BENCHMARK_DATA = {
             "value": 10.39707363661378,
             "unit": "median tps",
             "extra": "avg tps: 9.027348643305565, max tps: 12.311614512467226, count: 59424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c2667adb313041e94c78563d03a889868c9f6e0",
+          "message": "refactor: decouple column fetching from string decoding (#6219)\n\n# Ticket(s) Closed\n\n- Closes #6216\n\n## What\n\nThis PR splits `TantivyLookupExec` into `TantivyFetchExec` (doc address\nto term ordinal, packed ctid to ctid) and `TantivyDecodeExec` (term\nordinal to string or bytes), and lets a scan emit term ordinals\ndirectly.\n\n## Why\n\nThe two halves have different access patterns. The fetch wants doc\norder, which a join or a shuffle above the scan no longer keeps. The\ndecode is random access wherever it runs, and an ordinal is far narrower\nthan the string. #6156 measured the cost of moving both above a fan-out\njoin. As separate nodes, a cost model can place each on its own.\n\n## How\n\n- The planner puts the decode directly over the fetch, so plans change\nshape but the work runs where it did. The fetch keeps the schema and\npasses State 1 rows through; the decode treats a State 0 row as an\ninternal error. The ctid-only lookup under `VisibilityFilterExec` is a\nfetch with no string columns.\n- The fetch carries only the input ordering up, as the old node did.\nCarrying a join's equivalence classes let DataFusion rewrite a Top-K\nsort key onto the other join side and move its dynamic filter off the\nprobe scan.\n- With `paradedb.defer_column_fetch = off` (default `on`), the scan\nresolves the ordinals itself, in doc order, and only the decode node is\nplanned. It's an A/B lever for the cost-model follow-up, not a\nrecommendation: it fetches every projected deferred column, decoded or\nnot.\n- Batch sizes are unchanged. The scan keeps its 8192 batch whenever its\nstrings are deferred, and the decode runs per input batch. Gathering the\ndecode's input up to `MAX_BATCH_SIZE` is a follow-up to measure, since a\nTop-K or `LIMIT` above it would see its first rows 16x later.\n- Naming follows option 1 from the issue. Folding the\n`SegmentedTopKExec`'s own union reader onto `DeferredUnion` is a\nfollow-up.\n\n## Tests\n\n- New `deferred_fetch_decode` regress test: Top-K, a two-column sort, a\nbytes-backed `NUMERIC` sort key, NULLs, `enable_segmented_topk = off`,\nan aggregate over a join, and an MPP leg, each under both GUC settings,\nwith identical rows. `mpp_joinscan` gains the scan-fetch placement over\nits shuffled LEFT JOIN, where the decode's worker rebuilds its reader\nfor a scan in another stage.\n- 56 expected files change shape: the ctid-only lookup is renamed, and\nevery `decode=[...]` line becomes a decode over a fetch. They were\nrewritten by script from the old outputs, then verified by running each\ntest. Only the fetch node's own `EXPLAIN ANALYZE` metrics come from a\nrun.",
+          "timestamp": "2026-09-05T12:34:56-07:00",
+          "tree_id": "5d9882f33a82aae5f5ddffc83077937ee9e4da12",
+          "url": "https://github.com/paradedb/paradedb/commit/1c2667adb313041e94c78563d03a889868c9f6e0"
+        },
+        "date": 1788638037208,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.535533162990425,
+            "unit": "median tps",
+            "extra": "avg tps: 7.015094006511912, max tps: 7.917283520022832, count: 59420"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.430375587235755,
+            "unit": "median tps",
+            "extra": "avg tps: 9.07202394072384, max tps: 12.31023060543747, count: 59420"
           }
         ]
       }

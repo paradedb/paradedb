@@ -217,6 +217,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2_a INNER (t1 INNER t2_b)
          Join Cond: t1.fk_a = t2_a.fk, t1.fk_b = t2_b.fk
+         Join Filter: (t1.fk_b = t2_b.fk)
          Limit: 10
          Order By: t1.id asc
          DataFusion Physical Plan: 
@@ -232,7 +233,7 @@ LIMIT 10;
            :               PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
            :           CooperativeExec
            :             PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
-(19 rows)
+(20 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
 DROP TABLE IF EXISTS result_q2_linear;
@@ -298,6 +299,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2_a INNER ((t1 INNER t2_b) INNER t2_c)
          Join Cond: t1.fk_a = t2_a.fk, t1.fk_c = t2_c.fk, t1.fk_b = t2_b.fk
+         Join Filter: (t1.fk_c = t2_c.fk) AND (t1.fk_b = t2_b.fk)
          Limit: 10
          Order By: t1.id asc
          DataFusion Physical Plan: 
@@ -316,7 +318,7 @@ LIMIT 10;
            :               PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
            :           CooperativeExec
            :             PgSearchScan: table=t2_c, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K]
-(22 rows)
+(23 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
 DROP TABLE IF EXISTS result_q3_linear;

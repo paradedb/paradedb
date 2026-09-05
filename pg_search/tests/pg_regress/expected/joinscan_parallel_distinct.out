@@ -140,6 +140,7 @@ LIMIT 48;
          ->  Custom Scan (ParadeDB Join Scan)
                Relation Tree: u INNER (p INNER o)
                Join Cond: u.id = p.id, p.age = o.age
+               Join Filter: (p.age = o.age)
                Limit: 48
                Distinct: true
                Order By: u.id asc, o.id asc, u.name asc
@@ -180,7 +181,7 @@ LIMIT 48;
                  :         │     t0: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :         │     t1: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                  :         └──────────────────────────────────────────────────
-(45 rows)
+(46 rows)
 
 -- And it must return the correct rows (DISTINCT + LIMIT).
 SELECT count(*) AS distinct_limited_rows

@@ -188,6 +188,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: documents INNER (files INNER pages)
          Join Cond: documents.id = files.documentid, files.id = pages.fileid
+         Join Filter: (files.id = pages.fileid)
          Limit: 10
          Order By: pages.fileid asc, pages.page_number asc
          DataFusion Physical Plan: 
@@ -203,7 +204,7 @@ LIMIT 10;
            :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: table=pages, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 \i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

@@ -109,6 +109,25 @@ pub unsafe fn extract_join_level_conditions(
 
     for ri in &all_restrict_infos {
         let clause = (**ri).clause;
+        let rtis = expr_collect_rtis(clause.cast());
+        // All clauses in `all_restrict_infos` originate from `extra.restrictlist` (or
+        // `post_join_conditions` extracted from it). PostgreSQL places clauses in a joinrel's
+        // restrictlist ONLY if they can and must be evaluated at this join level; clauses that
+        // could be evaluated at lower levels or single base scans are never included here.
+        // In chained outer joins, single-table WHERE clauses on nullable relations (e.g.
+        // `WHERE orders.age IS NULL` in `users LEFT (products LEFT orders)`) cannot be pushed
+        // into the sub-join and are delayed to the outer join level. Therefore, any clause
+        // whose referenced RTIs are all contained within this plan must be absorbed here.
+        if !rtis.iter().all(|rti| join_clause.plan.contains_rti(*rti)) {
+            continue;
+        }
+        let already_present = multi_table_predicate_clauses.iter().any(|c| {
+            std::ptr::eq((*c).cast::<pg_sys::Node>(), clause.cast())
+                || pg_sys::equal((*c).cast(), clause.cast())
+        });
+        if already_present {
+            continue;
+        }
         let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
 
         if has_search_op {
@@ -182,7 +201,11 @@ pub unsafe fn extract_join_level_conditions(
         for conjunct in conjuncts {
             let rtis = expr_collect_rtis(conjunct);
             // Only process cross-table predicates whose referenced RTIs are all in `sources`
-            if rtis.len() > 1 && rtis.iter().all(|rti| join_clause.plan.contains_rti(*rti)) {
+            // and span across both sides of this join level.
+            if rtis.len() > 1
+                && rtis.iter().all(|rti| join_clause.plan.contains_rti(*rti))
+                && join_clause.plan.spans_both_sides(&rtis)
+            {
                 // Check if this conjunct was already extracted as an equi-key
                 if super::build::try_extract_equi_key(conjunct.cast(), &valid_rtis).is_some() {
                     continue;
@@ -345,10 +368,44 @@ pub unsafe fn transform_to_search_expr(
         }
     }
 
+    /// Check if an expression consists purely of search operators (`search_op`)
+    /// connected by boolean operations (AND, OR, NOT). Expressions containing
+    /// non-search predicates (such as `NullTest`, comparisons, etc.) return false.
+    unsafe fn is_pure_search_expr(mut node: *mut pg_sys::Node, search_op: pg_sys::Oid) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        node = super::build::strip_node_wrappers(node);
+        if node.is_null() {
+            return false;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_OpExpr => {
+                let opexpr = node as *mut pg_sys::OpExpr;
+                (*opexpr).opno == search_op
+            }
+            pg_sys::NodeTag::T_BoolExpr => {
+                let boolexpr = node as *mut pg_sys::BoolExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                !args.is_empty()
+                    && args
+                        .iter_ptr()
+                        .all(|arg| is_pure_search_expr(arg, search_op))
+            }
+            _ => false,
+        }
+    }
+
     // If this is a single-table expression with search predicate, extract as a single
     // Tantivy search predicate so that table-local negation (with NULL-preserving exists guards),
     // conjunctions, and disjunctions are evaluated natively by Tantivy.
-    if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
+    // Mixed expressions containing non-search sub-predicates (e.g. `IS NULL`) are bypassed
+    // so they decompose into DataFusion boolean expressions post-join, preserving outer join null semantics.
+    if has_search_op
+        && rtis.len() == 1
+        && referenced_source_indices.len() == 1
+        && is_pure_search_expr(node, search_op)
+    {
         let rti = *rtis.iter().next().unwrap();
         let source = &sources[referenced_source_indices[0]];
         let plan_position = source.plan_position;
@@ -365,8 +422,8 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
-    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
-    if !has_search_op && referenced_source_indices.len() > 1 {
+    // If this is a post-join expression WITHOUT search predicate, create MultiTablePredicate
+    if !has_search_op && !referenced_source_indices.is_empty() {
         if !all_vars_are_fast_fields_recursive(node, sources, None) {
             return None;
         }
@@ -790,10 +847,15 @@ pub unsafe fn resolve_join_conditions(
         (Vec::new(), "")
     };
 
-    let must_decline =
-        !illegal_residuals.is_empty() || (equi_keys.is_empty() && is_outer && filter.is_none());
+    let must_decline = !illegal_residuals.is_empty()
+        || (equi_keys.is_empty() && (is_outer || is_semi_or_anti) && filter.is_none());
 
     if must_decline {
+        if (is_outer || is_semi_or_anti) && equi_keys.is_empty() && filter.is_none() {
+            return Err(super::JoinDeclineReason::new(
+                "JoinScan not used: non-inner joins require at least one join condition",
+            ));
+        }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
             !clause.is_null()

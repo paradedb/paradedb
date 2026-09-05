@@ -631,6 +631,7 @@ fn build_relnode_df<'a>(
                     df,
                     &filter.predicate,
                     &translated_exprs,
+                    &mut 0,
                     &sources,
                     /* handle_mark = */ false,
                 )

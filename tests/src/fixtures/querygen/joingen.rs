@@ -112,6 +112,7 @@ impl JoinExpr {
         self.steps
             .iter()
             .all(|s| matches!(s.join_type, JoinType::Inner))
+            && self.unnests.iter().all(|u| !u.is_left)
     }
 
     pub fn has_no_cross(&self) -> bool {
@@ -398,6 +399,7 @@ mod tests {
             Column::new("age", "INTEGER", "20"),
             Column::new("price", "NUMERIC(10,2)", "9.99"),
             Column::new("name", "TEXT", "alice"),
+            Column::new("tags", "TEXT[]", "ARRAY['alpha', 'beta']::text[]"),
         ];
 
         let strategy = arb_joins(
@@ -414,11 +416,16 @@ mod tests {
         let mut saw_equi = false;
         let mut saw_non_equi = false;
         let mut saw_mixed = false;
+        let mut saw_unnest = false;
 
         for _ in 0..100 {
             let join_expr = strategy.new_tree(&mut runner).unwrap().current();
             let sql = join_expr.to_sql();
             assert!(sql.starts_with("FROM t1"));
+
+            if !join_expr.unnests.is_empty() {
+                saw_unnest = true;
+            }
 
             for step in &join_expr.steps {
                 if let Some(cond) = &step.on_condition {
@@ -441,5 +448,6 @@ mod tests {
             "Should have generated at least one non-equi join"
         );
         assert!(saw_mixed, "Should have generated at least one mixed join");
+        assert!(saw_unnest, "Should have generated at least one unnest step");
     }
 }

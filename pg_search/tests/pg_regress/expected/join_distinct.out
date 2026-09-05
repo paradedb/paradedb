@@ -335,6 +335,7 @@ ORDER BY p.name
                Output: p.name, s.name, c.name
                Relation Tree: s INNER (c INNER p)
                Join Cond: p.supplier_id = s.id, p.category_id = c.id
+               Join Filter: (p.category_id = c.id)
                Limit: 10
                Distinct: true
                Order By: p.name asc, s.name asc, c.name asc
@@ -351,7 +352,7 @@ ORDER BY p.name
                  :               PgSearchScan: table=s, segments=1, query="all"
                  :             CooperativeExec
                  :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+(25 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p

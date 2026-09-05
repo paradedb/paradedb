@@ -28,7 +28,9 @@ use sqlx::Row;
 use sqlx::postgres::PgRow;
 
 use crate::fixtures::querygen::Column;
-use crate::fixtures::querygen::joingen::{JoinExpr, JoinType, arb_joins};
+use crate::fixtures::querygen::joingen::{
+    ConditionKind, JoinExpr, JoinType, arb_joins_with_conditions,
+};
 
 /// Size that no generated bucket count reaches, so a level is never cut.
 const NO_CUT: u32 = 1000;
@@ -289,8 +291,9 @@ struct SpecShape {
 }
 
 /// A join over a prefix of `tables` and a `pdb.agg()` whose fields belong to
-/// those tables. `key_columns` are the join keys; `terms` keys come from the
-/// text and integer columns, metrics from the integer and NUMERIC ones.
+/// those tables. `key_columns` are the join keys, and every step keeps an
+/// equality on one of them; `terms` keys come from the text and integer
+/// columns, metrics from the integer and NUMERIC ones.
 pub fn arb_pdb_agg_join(
     tables: Vec<String>,
     key_columns: &[Column],
@@ -306,7 +309,19 @@ pub fn arb_pdb_agg_join(
         // The planner cannot see the fields inside a spec, so it removes an outer
         // join whose table nothing else reads, and the spec then names a table
         // that is gone. Inner joins are never removed.
-        let join = arb_joins(Just(JoinType::Inner), joined.clone(), &key_columns);
+        //
+        // A step joined on a non-equi condition alone is nearly a cross product, and
+        // the buckets over it outgrow any work_mem the oracle sets, since the
+        // aggregate cannot spill. The equality in a mixed condition bounds the rows.
+        let join = arb_joins_with_conditions(
+            Just(JoinType::Inner),
+            joined.clone(),
+            &key_columns,
+            prop_oneof![
+                2 => Just(ConditionKind::Equi),
+                1 => Just(ConditionKind::Mixed),
+            ],
+        );
         (join, arb_pdb_agg(joined, shape))
     })
 }
@@ -409,4 +424,38 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
                 metrics,
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    #[test]
+    fn every_join_step_keeps_an_equality() {
+        let mut runner = TestRunner::default();
+        let tables = vec![
+            "users".to_string(),
+            "products".to_string(),
+            "orders".to_string(),
+        ];
+        let key_columns = vec![
+            Column::new("id", "BIGINT", "1"),
+            Column::new("age", "INTEGER", "20"),
+        ];
+        let strategy = arb_pdb_agg_join(tables, &key_columns);
+
+        let mut saw_mixed = false;
+        for _ in 0..200 {
+            let (join, _) = strategy.new_tree(&mut runner).unwrap().current();
+            let sql = join.to_sql();
+            assert!(!join.has_keyless_step(), "{sql}");
+            saw_mixed |= sql.contains(" AND ");
+        }
+        assert!(
+            saw_mixed,
+            "a non-equi part should still appear beside an equality"
+        );
+    }
 }

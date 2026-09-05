@@ -120,6 +120,13 @@ impl JoinExpr {
             .all(|s| !matches!(s.join_type, JoinType::Cross))
     }
 
+    /// A step joined on a non-equi condition alone, with no equality to bound its fan-out.
+    pub fn has_keyless_step(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s.on_condition, Some(OnCondition::NonEqui { .. })))
+    }
+
     /// Render as a SQL fragment, e.g.
     /// `FROM t0 JOIN t1 ON t0.a = t1.b LEFT JOIN t2 ON t1.x = t2.y ...`
     pub fn to_sql(&self) -> String {
@@ -220,6 +227,30 @@ where
     J: Strategy<Value = JoinType>,
     S: AsRef<str>,
 {
+    arb_joins_with_conditions(
+        join_types,
+        tables_to_join,
+        columns,
+        prop_oneof![
+            2 => Just(ConditionKind::Equi),
+            1 => Just(ConditionKind::NonEqui),
+            1 => Just(ConditionKind::Mixed),
+        ],
+    )
+}
+
+/// [`arb_joins`] with the kind of each `ON` condition drawn from `condition_kinds`.
+pub fn arb_joins_with_conditions<J, S, K>(
+    join_types: J,
+    tables_to_join: Vec<S>,
+    columns: &[Column],
+    condition_kinds: K,
+) -> impl Strategy<Value = JoinExpr> + use<J, S, K>
+where
+    J: Strategy<Value = JoinType>,
+    S: AsRef<str>,
+    K: Strategy<Value = ConditionKind>,
+{
     let tables_to_join = tables_to_join
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
@@ -265,11 +296,7 @@ where
 
     let step_strategy = (
         join_types,
-        prop_oneof![
-            2 => Just(ConditionKind::Equi),
-            1 => Just(ConditionKind::NonEqui),
-            1 => Just(ConditionKind::Mixed),
-        ],
+        condition_kinds,
         0..table_cols.len(),
         0..orderable_cols.len(),
         0..NON_EQUI_OPS.len(),

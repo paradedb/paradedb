@@ -685,8 +685,10 @@ mod tests {
         fn config_str(&self) -> String {
             match self {
                 LayerSizes::Default => "".to_string(),
-                LayerSizes::Foreground(sizes) => format!(", layer_sizes = '{sizes}'"),
-                LayerSizes::Background(sizes) => format!(", background_layer_sizes = '{sizes}'"),
+                LayerSizes::Foreground(sizes) => format!(" WITH (layer_sizes = '{sizes}')"),
+                LayerSizes::Background(sizes) => {
+                    format!(" WITH (background_layer_sizes = '{sizes}')")
+                }
             }
         }
     }
@@ -697,7 +699,7 @@ mod tests {
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run(
             format!(
-                "CREATE INDEX t_idx ON t USING paradedb (id, data) WITH (key_field = 'id'{})",
+                "CREATE INDEX t_idx ON t USING paradedb (id, data){}",
                 layer_sizes.config_str()
             )
             .as_str(),

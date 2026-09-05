@@ -1,12 +1,11 @@
--- Coverage for the aggregate late-materialization path behind
--- paradedb.enable_aggregate_late_materialization. Default off keeps aggregates
--- eager; this flips it on so the deferred path (serial and MPP) does not rot.
+-- An aggregate over a join keeps its string group key deferred through the join
+-- and checks visibility in the scan. A deleted row must not reach the groups,
+-- serial or MPP.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_aggregate_late_materialization TO on;
 
 CREATE TABLE alm_products (
     id SERIAL PRIMARY KEY,
@@ -40,7 +39,7 @@ WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fiel
 -- not appear in the aggregate.
 DELETE FROM alm_products WHERE id = 2;
 
--- Serial: the deferred path puts a VisibilityFilterExec above the join.
+-- Serial.
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)

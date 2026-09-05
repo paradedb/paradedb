@@ -19,6 +19,7 @@ pub mod batch_scanner;
 pub mod codec;
 pub mod deferred_encode;
 pub mod deferred_lookup;
+pub mod deferred_placement_rule;
 pub mod execution_plan;
 pub mod filter_passthrough_exec;
 pub mod filter_pushdown;

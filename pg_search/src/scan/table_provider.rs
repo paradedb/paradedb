@@ -126,7 +126,7 @@ pub struct PgSearchTableProvider {
     /// Whether a deferred string/bytes column has its term ordinals resolved inside the
     /// scan (State 1, in doc order) or left as doc addresses for a `TantivyFetchExec`.
     /// Snapshotted from `paradedb.defer_column_fetch` when the columns are deferred, so a
-    /// dispatched plan carries the leader's choice.
+    /// dispatched plan carries the leader's choice; the placement rule may flip it per scan.
     deferred_fetch_at_scan: bool,
 
     /// Source position in the unified-sources array. When set, the codec's
@@ -291,7 +291,13 @@ impl PgSearchTableProvider {
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
-        self.deferred_fetch_at_scan = !crate::gucs::defer_column_fetch();
+        use crate::gucs::DeferredPlacement;
+        // A column that is never deferred is decoded by the scan, which is what an eager
+        // decode setting asks for; the placement rule handles the per-column decisions.
+        if crate::gucs::defer_string_decode() == DeferredPlacement::Off {
+            return;
+        }
+        self.deferred_fetch_at_scan = crate::gucs::defer_column_fetch() == DeferredPlacement::Off;
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(

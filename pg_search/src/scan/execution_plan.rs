@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{SchemaRef, SortOptions};
+use arrow_schema::{DataType, SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -887,12 +887,18 @@ impl DisplayAs for PgSearchScanPlan {
                 )?;
             }
         }
-        // Only the projected deferred columns leave the scan, so only those are fetched.
+        // Only a projected deferred column leaves the scan as ordinals; a string column the
+        // plan did not defer is decoded here whatever the setting says.
         let schema = self.properties.eq_properties.schema();
         let scan_fetched: Vec<&str> = self
             .deferred_fields
             .iter()
-            .filter(|d| d.fetch_at_scan && schema.column_with_name(&d.name).is_some())
+            .filter(|d| {
+                d.fetch_at_scan
+                    && schema
+                        .column_with_name(&d.name)
+                        .is_some_and(|(_, f)| matches!(f.data_type(), DataType::Union(_, _)))
+            })
             .map(|d| d.name.as_str())
             .collect();
         if !scan_fetched.is_empty() {

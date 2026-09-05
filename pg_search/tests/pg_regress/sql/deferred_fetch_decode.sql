@@ -33,35 +33,40 @@ INSERT INTO dfd_documents (id, category) VALUES
 ('doc-09', 'PROJECT_ALPHA resource allocation'),
 ('doc-10', 'BETA_GROUP incident response');
 
+-- `price` is an unconstrained NUMERIC, which the index stores as bytes, so it takes the
+-- bytes branches of the fetch and the decode.
 CREATE TABLE dfd_files (
     id SERIAL PRIMARY KEY,
     document_id TEXT,
     title TEXT,
-    content TEXT
+    content TEXT,
+    price NUMERIC
 );
 
 CREATE INDEX dfd_documents_idx ON dfd_documents USING bm25 (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
-CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content, price)
+WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', numeric_fields = '{"price": {"fast": true}}');
 
 -- Two insert batches after the index exists give the files index two segments, so a
 -- batch above the join mixes rows whose ordinals live in different dictionaries.
 SET paradedb.global_mutable_segment_rows = 0;
 
-INSERT INTO dfd_files (document_id, title, content)
+INSERT INTO dfd_files (document_id, title, content, price)
 SELECT
     'doc-' || LPAD(((i - 1) % 10 + 1)::TEXT, 2, '0'),
     CASE WHEN i % 7 = 0 THEN NULL ELSE 'File Title ' || LPAD(i::TEXT, 3, '0') END,
-    'file content for item ' || i
+    'file content for item ' || i,
+    CASE WHEN i % 11 = 0 THEN NULL ELSE ((i * 37) % 101)::NUMERIC / 4 END
 FROM generate_series(1, 50) AS i;
 
-INSERT INTO dfd_files (document_id, title, content)
+INSERT INTO dfd_files (document_id, title, content, price)
 SELECT
     'doc-' || LPAD(((i - 1) % 10 + 1)::TEXT, 2, '0'),
     CASE WHEN i % 7 = 0 THEN NULL ELSE 'File Title ' || LPAD(i::TEXT, 3, '0') END,
-    'file content for item ' || i
+    'file content for item ' || i,
+    CASE WHEN i % 11 = 0 THEN NULL ELSE ((i * 37) % 101)::NUMERIC / 4 END
 FROM generate_series(51, 100) AS i;
 
 RESET paradedb.global_mutable_segment_rows;
@@ -114,6 +119,20 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category @@@ 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
+
+-- Bytes-backed column: NULLs first, then the smallest prices.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
 
 -- Without the SegmentedTopKExec the fetch and decode stay adjacent under the sort.
 SET paradedb.enable_segmented_topk = off;
@@ -197,6 +216,20 @@ FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
 WHERE d.category @@@ 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
+
+-- Bytes-backed column: NULLs first, then the smallest prices.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
 
 SET paradedb.enable_segmented_topk = off;
 

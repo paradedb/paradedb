@@ -297,8 +297,9 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 
 /// A lookup node decoded below this one already rebuilt the helper for an index whose scan
 /// sits behind a network boundary, so the decode above a fetch reuses it instead of opening
-/// the index a second time. A fetch and the decode above it lay out the same columns of an
-/// index, because the fetch placement is decided per index.
+/// the index a second time. The reuse relies on every deferred column of a provider sharing
+/// one `fetch_at_scan` (the setting is read once per provider), so a fetch below a decode
+/// lays out exactly the columns the decode reads.
 fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32, Arc<FFHelper>>) {
     let helpers = if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
         Some(fetch.ffhelpers())

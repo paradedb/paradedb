@@ -820,9 +820,8 @@ impl ExtensionPlanner for LateMaterializePlanner {
                 }
             }
 
-            // The fetch sits directly under the decode for now, so the split changes the
-            // plan's shape but not where either half runs. A scan that already resolved
-            // its ordinals needs no fetch node at all.
+            // The planner places the fetch directly under the decode; a cost model may
+            // separate them. A scan that already resolved its ordinals needs no fetch node.
             let decode_input: Arc<dyn ExecutionPlan> = if fetch_fields.is_empty() {
                 input_exec
             } else {

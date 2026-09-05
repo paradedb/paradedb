@@ -27,30 +27,35 @@ INSERT INTO dfd_documents (id, category) VALUES
 ('doc-08', 'GAMMA_DIVISION vendor evaluation'),
 ('doc-09', 'PROJECT_ALPHA resource allocation'),
 ('doc-10', 'BETA_GROUP incident response');
+-- `price` is an unconstrained NUMERIC, which the index stores as bytes, so it takes the
+-- bytes branches of the fetch and the decode.
 CREATE TABLE dfd_files (
     id SERIAL PRIMARY KEY,
     document_id TEXT,
     title TEXT,
-    content TEXT
+    content TEXT,
+    price NUMERIC
 );
 CREATE INDEX dfd_documents_idx ON dfd_documents USING bm25 (id, category)
 WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content, price)
+WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', numeric_fields = '{"price": {"fast": true}}');
 -- Two insert batches after the index exists give the files index two segments, so a
 -- batch above the join mixes rows whose ordinals live in different dictionaries.
 SET paradedb.global_mutable_segment_rows = 0;
-INSERT INTO dfd_files (document_id, title, content)
+INSERT INTO dfd_files (document_id, title, content, price)
 SELECT
     'doc-' || LPAD(((i - 1) % 10 + 1)::TEXT, 2, '0'),
     CASE WHEN i % 7 = 0 THEN NULL ELSE 'File Title ' || LPAD(i::TEXT, 3, '0') END,
-    'file content for item ' || i
+    'file content for item ' || i,
+    CASE WHEN i % 11 = 0 THEN NULL ELSE ((i * 37) % 101)::NUMERIC / 4 END
 FROM generate_series(1, 50) AS i;
-INSERT INTO dfd_files (document_id, title, content)
+INSERT INTO dfd_files (document_id, title, content, price)
 SELECT
     'doc-' || LPAD(((i - 1) % 10 + 1)::TEXT, 2, '0'),
     CASE WHEN i % 7 = 0 THEN NULL ELSE 'File Title ' || LPAD(i::TEXT, 3, '0') END,
-    'file content for item ' || i
+    'file content for item ' || i,
+    CASE WHEN i % 11 = 0 THEN NULL ELSE ((i * 37) % 101)::NUMERIC / 4 END
 FROM generate_series(51, 100) AS i;
 RESET paradedb.global_mutable_segment_rows;
 -- =============================================================================
@@ -190,6 +195,51 @@ LIMIT 5;
  98 |                | file content for item 98
  94 | File Title 094 | file content for item 94
 (5 rows)
+
+-- Bytes-backed column: NULLs first, then the smallest prices.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.price
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.price
+         Relation Tree: f INNER d
+         Join Cond: d.id = f.document_id
+         Limit: 7
+         Order By: f.price asc nulls first, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, price@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[price]
+           :     TantivyFetchExec: fetch=[price]
+           :       SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7, visibility_checks=[f, d]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, price@4, id@5, ctid_1@0]
+           :           CooperativeExec
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
+(18 rows)
+
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+ id |         price          
+----+------------------------
+ 11 |                       
+ 33 |                       
+ 55 |                       
+ 77 |                       
+ 99 |                       
+ 71 | 0.25000000000000000000
+ 41 | 0.50000000000000000000
+(7 rows)
 
 -- Without the SegmentedTopKExec the fetch and decode stay adjacent under the sort.
 SET paradedb.enable_segmented_topk = off;
@@ -415,6 +465,50 @@ LIMIT 5;
  98 |                | file content for item 98
  94 | File Title 094 | file content for item 94
 (5 rows)
+
+-- Bytes-backed column: NULLs first, then the smallest prices.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.price
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.price
+         Relation Tree: f INNER d
+         Join Cond: d.id = f.document_id
+         Limit: 7
+         Order By: f.price asc nulls first, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, price@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[price]
+           :     SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7, visibility_checks=[f, d]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, price@4, id@5, ctid_1@0]
+           :         CooperativeExec
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=f, segments=2, fetch=[price], dynamic_filters=2, query="all"
+(17 rows)
+
+SELECT f.id, f.price
+FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.price ASC NULLS FIRST, f.id ASC
+LIMIT 7;
+ id |         price          
+----+------------------------
+ 11 |                       
+ 33 |                       
+ 55 |                       
+ 77 |                       
+ 99 |                       
+ 71 | 0.25000000000000000000
+ 41 | 0.50000000000000000000
+(7 rows)
 
 SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

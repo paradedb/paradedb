@@ -36,7 +36,7 @@ use crate::postgres::customscan::joinscan::visibility_filter::{
     DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
 use crate::scan::deferred_encode::{
-    DeferredUnion, DeferredValue, build_state_term_ordinals_per_row,
+    DeferredUnion, DeferredValue, build_state_term_ordinals_per_row, unpack_doc_address,
 };
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
@@ -406,7 +406,7 @@ fn fetch_batch(
 
 /// Resolves a deferred column's doc addresses to term ordinals, returning a State 1 array.
 /// A column with no State 0 rows is returned as is.
-pub(crate) fn fetch_term_ordinals(
+fn fetch_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
     column: &ArrayRef,
@@ -415,10 +415,20 @@ pub(crate) fn fetch_term_ordinals(
     let num_rows = column.len();
     let mut segment_ords = vec![0u32; num_rows];
     let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
+    let num_segments = ffhelper.num_segments();
     let mut packed_rows: Vec<(usize, u64)> = Vec::new();
     for (row, value) in union.values().enumerate() {
         match value {
-            DeferredValue::DocAddress(packed) => packed_rows.push((row, packed)),
+            DeferredValue::DocAddress(packed) => {
+                let (segment_ord, _) = unpack_doc_address(packed);
+                if segment_ord as usize >= num_segments {
+                    return Err(DataFusionError::Execution(format!(
+                        "TantivyFetchExec: column '{}' row {row} names segment {segment_ord}, but its index has {num_segments} segments",
+                        field.display_name
+                    )));
+                }
+                packed_rows.push((row, packed));
+            }
             DeferredValue::TermOrdinal {
                 segment_ord,
                 term_ord,
@@ -434,7 +444,7 @@ pub(crate) fn fetch_term_ordinals(
     }
 
     for_each_segment(
-        ffhelper.num_segments(),
+        num_segments,
         packed_rows.into_iter(),
         |segment_ord, rows| {
             let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();

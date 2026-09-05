@@ -2,4 +2,4 @@
 header: features
 ---
 
-A late-materialized string column is now looked up in two physical steps, `TantivyFetchExec` (doc address to term ordinal) and `TantivyDecodeExec` (term ordinal to string), so each can be placed on its own. The new `paradedb.defer_column_fetch` setting (default `on`) picks whether the fetch runs at the decode point or inside the scan, where rows are still in doc order.
+A late-materialized string column is now looked up in two steps: the fast-field read that turns a document address into a term ordinal, and the dictionary read that turns the ordinal into the string. Each step can be placed on its own. The tuning setting `paradedb.defer_column_fetch` (default `on`) keeps the first step next to the second; `off` runs it inside the scan, where rows are still in document order.

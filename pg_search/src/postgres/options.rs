@@ -428,9 +428,6 @@ pub struct BM25IndexOptions {
 }
 
 impl BM25IndexOptions {
-    pub const MISSING_KEY_FIELD_CONFIG: &'static str =
-        "index should have a `WITH (key_field='...')` option";
-
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
         Self {
@@ -491,10 +488,8 @@ impl BM25IndexOptions {
         self.options_data().cluster_replication()
     }
 
-    pub fn key_field_name(&self) -> FieldName {
-        self.options_data()
-            .key_field_name()
-            .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    pub fn key_field_name(&self) -> Option<FieldName> {
+        self.options_data().key_field_name()
     }
 
     /// Returns the sort_by configuration.
@@ -513,9 +508,9 @@ impl BM25IndexOptions {
         self.options_data().search_tokenizer()
     }
 
-    pub fn key_field_type(&self) -> SearchFieldType {
-        self.get_field_type(&self.key_field_name())
-            .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    pub fn key_field_type(&self) -> Option<SearchFieldType> {
+        self.key_field_name()
+            .and_then(|key_field_name| self.get_field_type(&key_field_name))
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -594,7 +589,10 @@ impl BM25IndexOptions {
             });
         }
 
-        if field_name.root() == data.key_field_name()?.root() {
+        if data
+            .key_field_name()
+            .is_some_and(|key_field_name| field_name.root() == key_field_name.root())
+        {
             return match self.text_config().as_ref().unwrap().get(field_name) {
                 // if the key_field is TEXT then we'll use the config for it
                 config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
@@ -606,11 +604,7 @@ impl BM25IndexOptions {
 
         let field_type = self.get_field_type(field_name);
 
-        if field_name.root() == data.key_field_name()?.root() {
-            return field_type.map(key_field_config);
-        } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
-            field_type
-        {
+        if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) = field_type {
             return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
         }
 
@@ -812,8 +806,11 @@ impl BM25IndexOptions {
     #[inline(always)]
     fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {
-            assert!(!(*self.indexrel).rd_options.is_null());
-            &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            if (*self.indexrel).rd_options.is_null() {
+                &DEFAULT_INDEX_OPTIONS
+            } else {
+                &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            }
         }
     }
 }
@@ -844,6 +841,29 @@ struct BM25IndexOptionsData {
     partition_by_offset: i32,
     bounds_scope_offset: i32,
 }
+
+static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
+    vl_len_: 0,
+    text_fields_offset: 0,
+    numeric_fields_offset: 0,
+    boolean_fields_offset: 0,
+    json_fields_offset: 0,
+    range_fields_offset: 0,
+    datetime_fields_offset: 0,
+    key_field_offset: 0,
+    layer_sizes_offset: 0,
+    inet_fields_offset: 0,
+    target_segment_count: 0,
+    background_layer_sizes_offset: 0,
+    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+    sort_by_offset: 0,
+    search_tokenizer_offset: 0,
+    centroid_ratio: DEFAULT_CENTROID_RATIO,
+    training_samples_per_centroid: DEFAULT_TRAINING_SAMPLES_PER_CENTROID as i32,
+    cluster_replication: DEFAULT_CLUSTER_REPLICATION,
+    partition_by_offset: 0,
+    bounds_scope_offset: 0,
+};
 
 impl BM25IndexOptionsData {
     /// Returns the configured `layer_sizes`, split into a [`Vec<u64>`] of byte sizes.

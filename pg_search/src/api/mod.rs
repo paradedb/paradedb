@@ -107,6 +107,8 @@ pub type Cardinality = f64;
 
 pub type Varno = i32;
 
+pub(crate) const CTID_FIELD_NAME: &str = "ctid";
+
 pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
@@ -209,7 +211,7 @@ impl FieldName {
     }
 
     pub fn is_ctid(&self) -> bool {
-        self.root() == "ctid"
+        self.root() == CTID_FIELD_NAME
     }
 }
 

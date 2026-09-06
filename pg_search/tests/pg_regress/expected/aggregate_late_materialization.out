@@ -4,6 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_late_materialization TO on;
 CREATE TABLE alm_products (
     id SERIAL PRIMARY KEY,
     description TEXT,
@@ -15,14 +16,14 @@ CREATE TABLE alm_tags (
     product_id INTEGER,
     tag_name TEXT
 );
-INSERT INTO alm_products (description, category, price) VALUES
-    ('laptop fast', 'Electronics', 999.99),
-    ('laptop gaming', 'Electronics', 1299.99),
-    ('shoes running', 'Sports', 89.99),
-    ('shoes trail', 'Sports', 119.99),
-    ('jacket winter', 'Clothing', 129.99);
-INSERT INTO alm_tags (product_id, tag_name) VALUES
-    (1, 'tech'), (2, 'tech'), (3, 'fitness'), (4, 'fitness'), (5, 'outdoor');
+-- Three categories over many rows, so the aggregate groups on their ordinals.
+INSERT INTO alm_products (description, category, price)
+SELECT (ARRAY['laptop fast', 'shoes running', 'jacket winter'])[1 + i % 3] || ' ' || i,
+       (ARRAY['Electronics', 'Sports', 'Clothing'])[1 + i % 3],
+       (i % 7) * 10 + 9.99
+FROM generate_series(1, 60) AS i;
+INSERT INTO alm_tags (product_id, tag_name)
+SELECT id, (ARRAY['tech', 'fitness', 'outdoor'])[1 + id % 3] FROM alm_products;
 CREATE INDEX alm_products_idx ON alm_products
 USING bm25 (id, description, category, price)
 WITH (key_field='id', text_fields='{"description": {}, "category": {"fast": true}}', numeric_fields='{"price": {"fast": true}}');
@@ -67,9 +68,9 @@ GROUP BY p.category
 ORDER BY p.category;
   category   | count 
 -------------+-------
- Clothing    |     1
- Electronics |     1
- Sports      |     2
+ Clothing    |    19
+ Electronics |    20
+ Sports      |    20
 (3 rows)
 
 -- Same result must hold on the MPP path.
@@ -85,9 +86,9 @@ GROUP BY p.category
 ORDER BY p.category;
   category   | count 
 -------------+-------
- Clothing    |     1
- Electronics |     1
- Sports      |     2
+ Clothing    |    19
+ Electronics |    20
+ Sports      |    20
 (3 rows)
 
 DROP TABLE alm_products, alm_tags;

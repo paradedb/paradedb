@@ -71,8 +71,8 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -81,15 +81,13 @@ ORDER BY doc_count DESC, job_title;
          Group By: job_title
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   TantivyDecodeExec: decode=[job_title]
-           :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :         CooperativeExec
-           :           PgSearchScan: table=asa_cccf, segments=1, fetch=[job_title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=asa_cccf, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
@@ -184,8 +182,8 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -194,18 +192,16 @@ ORDER BY doc_count DESC, job_title;
          Group By: job_title
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   TantivyDecodeExec: decode=[job_title]
-           :     AggregateExec: mode=Partial, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], null_aware
-           :           CooperativeExec
-           :             PgSearchScan: table=asa_cccf, segments=1, fetch=[job_title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=asa_contact_list, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], null_aware
+           :       CooperativeExec
+           :         PgSearchScan: table=asa_cccf, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=asa_contact_list, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=asa_contact_list, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf

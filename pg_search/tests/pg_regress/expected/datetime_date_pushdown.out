@@ -239,8 +239,8 @@ SELECT DATE(created_at), region, COUNT(*)
 FROM events_nullable
 WHERE id @@@ pdb.all()
 GROUP BY DATE(created_at), region;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (date(created_at)), region, (count(*))
    Backend: DataFusion
@@ -248,13 +248,10 @@ GROUP BY DATE(created_at), region;
    Group By: date(created_at), region
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Final, gby=[pdb_timestamp_to_date(events_nullable_0.created_at)@0 as pdb_timestamp_to_date(events_nullable_0.created_at), region@1 as region], aggr=[count(1) as agg_0]
-     :   TantivyDecodeExec: decode=[region]
-     :     AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at), region@1 as region], aggr=[count(1) as agg_0]
-     :       TantivyFetchExec: fetch=[region]
-     :         CooperativeExec
-     :           PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(13 rows)
+     : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at), region@1 as region], aggr=[count(1) as agg_0]
+     :   CooperativeExec
+     :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
 
 SELECT DATE(created_at) AS day, region, COUNT(*) AS cnt
 FROM events_nullable

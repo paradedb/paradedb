@@ -70,6 +70,8 @@ RESET paradedb.enable_custom_scan;
 -- the predicate as a join filter and therefore needs the searched row's CTID in the join target.
 CREATE TEMP TABLE sequential_scan_terms(term text NOT NULL);
 INSERT INTO sequential_scan_terms VALUES ('target');
+ANALYZE sequential_scan;
+ANALYZE sequential_scan_terms;
 SET paradedb.enable_join_custom_scan = off;
 SET paradedb.planner_warnings = off;
 SET enable_hashjoin = off;

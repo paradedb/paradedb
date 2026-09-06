@@ -892,31 +892,33 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    // Strings leave the scan deferred, so the placement rule can put each half of their
-    // lookup where it pays and the aggregate can group on term ordinals. Visibility stays
-    // in the scan: a post-join check trades one check per scanned row for one per joined
-    // row, and nothing models when that pays.
-    let mut required_early: crate::api::HashSet<String> = Default::default();
-    for jk in plan.join_keys() {
-        if source.contains_rti(jk.outer_rti)
-            && let Some(col) = source.column_name(jk.outer_attno)
-        {
-            required_early.insert(col);
+    // When asked, strings leave the scan deferred, so the placement rule can put each half
+    // of their lookup where it pays and the aggregate can group on term ordinals. Visibility
+    // stays in the scan either way: a post-join check trades one check per scanned row for
+    // one per joined row, and nothing models when that pays.
+    if crate::gucs::enable_aggregate_late_materialization() {
+        let mut required_early: crate::api::HashSet<String> = Default::default();
+        for jk in plan.join_keys() {
+            if source.contains_rti(jk.outer_rti)
+                && let Some(col) = source.column_name(jk.outer_attno)
+            {
+                required_early.insert(col);
+            }
+            if source.contains_rti(jk.inner_rti)
+                && let Some(col) = source.column_name(jk.inner_attno)
+            {
+                required_early.insert(col);
+            }
         }
-        if source.contains_rti(jk.inner_rti)
-            && let Some(col) = source.column_name(jk.inner_attno)
-        {
-            required_early.insert(col);
+        for (rti, attno) in plan.filter_input_vars() {
+            if source.contains_rti(rti)
+                && let Some(col) = source.column_name(attno)
+            {
+                required_early.insert(col);
+            }
         }
+        provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
     }
-    for (rti, attno) in plan.filter_input_vars() {
-        if source.contains_rti(rti)
-            && let Some(col) = source.column_name(attno)
-        {
-            required_early.insert(col);
-        }
-    }
-    provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 

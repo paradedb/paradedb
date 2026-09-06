@@ -433,6 +433,9 @@ fn grouped_at_anchor(
     is_stop: impl Fn(&LogicalPlan) -> bool,
     df: &DeferredField,
 ) -> bool {
+    if !crate::gucs::enable_aggregate_late_materialization() {
+        return false;
+    }
     let Some(anchor) = ancestors.iter().rev().find(|a| is_stop(a)) else {
         return false;
     };

@@ -131,15 +131,21 @@ impl AggregateType {
             None
         } else {
             let context = PlannerContext::from_planner(root);
-            extract_quals(
-                &context,
-                heap_rti,
-                (*aggref).aggfilter as *mut pg_sys::Node,
-                RestrictInfoType::BaseRelation,
-                bm25_index,
-                false,
-                qual_state,
-                true,
+            Some(
+                extract_quals(
+                    &context,
+                    heap_rti,
+                    (*aggref).aggfilter as *mut pg_sys::Node,
+                    RestrictInfoType::BaseRelation,
+                    bm25_index,
+                    false,
+                    qual_state,
+                    true,
+                )
+                // An inextractable FILTER has to decline the scan, as an
+                // inextractable WHERE does; treating it as "no filter" would
+                // aggregate every row.
+                .ok_or("could not extract search query from the aggregate FILTER")?,
             )
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));

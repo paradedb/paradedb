@@ -20,7 +20,7 @@ CREATE TABLE data_docstore_query (
 
 CREATE INDEX data_docstore_query_idx ON data_docstore_query
 USING paradedb (id, doc_text)
-WITH (key_field=id, mutable_segment_rows=2, background_layer_sizes='0', layer_sizes='1kb, 100kb, 1mb, 10mb', target_segment_count = 4);
+WITH (key_field=id, mutable_segment_rows=2, mutable_segment_bytes='0', background_layer_sizes='0', layer_sizes='1kb, 100kb, 1mb, 10mb', target_segment_count = 4);
 
 -- Large toasted rows that land in mutable segments.
 INSERT INTO data_docstore_query (doc_text)

@@ -244,12 +244,38 @@ pub struct DeleteEntry {
 }
 
 #[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SegmentMetaEntryMutable {
+struct SegmentMetaEntryMutableV1 {
     pub header_block: pg_sys::BlockNumber,
     pub num_deleted_docs: u32,
     // Once a mutable segment reaches a configurable size threshold, it is frozen, and becomes
     // mergeable.
     pub frozen: bool,
+}
+
+#[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SegmentMetaEntryMutable {
+    pub header_block: pg_sys::BlockNumber,
+    pub num_deleted_docs: u32,
+    // Once a mutable segment reaches a configurable row or byte threshold, it is frozen, and
+    // becomes mergeable.
+    pub frozen: bool,
+    /// Estimated indexed varlena bytes buffered in this segment (see #5950).
+    /// Absent on segments written before this field existed (decoded as 0).
+    pub estimated_bytes: u64,
+    /// When `false`, this entry was decoded from a pre-#5950 (V1) on-disk form. Write-backs
+    /// must omit `estimated_bytes` so `update_item` keeps a stable item size across upgrades.
+    #[serde(skip)]
+    pub persist_estimated_bytes: bool,
+}
+
+/// Why a mutable segment froze during `mutable_add_items` (#5950).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutableFreeze {
+    None,
+    /// Hit `mutable_segment_rows` only — historical behavior does not merge on append.
+    ByRows,
+    /// Hit byte cap or large-doc eager freeze — foreground-merge immediately.
+    ByBytes,
 }
 
 impl SegmentMetaEntryMutable {
@@ -265,6 +291,8 @@ impl SegmentMetaEntryMutable {
             header_block: items.get_header_blockno(),
             num_deleted_docs: 0,
             frozen: false,
+            estimated_bytes: 0,
+            persist_estimated_bytes: true,
         };
         (self_, items)
     }
@@ -451,29 +479,50 @@ impl SegmentMetaEntry {
 
     /// If this is a mutable segment which is not frozen, add the given items; otherwise, return an
     /// error.
+    ///
+    /// `batch_bytes` is the estimated indexed size of the newly added docs (varlena proxy).
+    /// `max_row_bytes` is the largest single-row estimate in this batch.
+    ///
+    /// The segment freezes when the row limit is reached, the byte cap is reached, or the
+    /// batch contains a large document at/above the eager-freeze threshold (#5950).
+    ///
+    /// Returns whether this call newly froze the segment, and whether the freeze was due to
+    /// bytes/large-doc (caller should aggressive-merge) vs rows only (historical: no merge).
     pub fn mutable_add_items(
         &mut self,
         indexrel: &PgSearchRelation,
         items: &[MutableSegmentEntry],
-    ) -> Result<(), &str> {
+        batch_bytes: u64,
+        max_row_bytes: u64,
+    ) -> Result<MutableFreeze, &str> {
         let items_len: u32 = items.len().try_into().unwrap();
         let new_max_doc = self.header.max_doc + items_len;
+        let mut freeze = MutableFreeze::None;
         match &mut self.content {
             SegmentMetaEntryContent::Mutable(content) if !content.frozen => {
                 unsafe { content.open(indexrel).add_items(items, None) };
+                content.estimated_bytes = content.estimated_bytes.saturating_add(batch_bytes);
                 let row_limit = indexrel
                     .options()
                     .mutable_segment_rows()
                     .map(|v| v.get())
                     .unwrap_or(0);
-                if new_max_doc as usize >= row_limit {
+                let by_bytes = indexrel
+                    .options()
+                    .should_freeze_mutable_bytes(content.estimated_bytes, max_row_bytes);
+                let by_rows = new_max_doc as usize >= row_limit;
+                if by_bytes {
                     content.frozen = true;
+                    freeze = MutableFreeze::ByBytes;
+                } else if by_rows {
+                    content.frozen = true;
+                    freeze = MutableFreeze::ByRows;
                 }
             }
             _ => return Err("Cannot add items to a non-mutable segment"),
         }
         self.header.max_doc = new_max_doc;
-        Ok(())
+        Ok(freeze)
     }
 
     /// If this is a mutable segment which is not frozen, delete the given items; otherwise, return an
@@ -483,6 +532,7 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
+        let live_docs = self.num_docs();
         let SegmentMetaEntryContent::Mutable(content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");
         };
@@ -496,6 +546,10 @@ impl SegmentMetaEntry {
             content.open(indexrel).add_items(&entries, None);
         }
         let deleted: u32 = entries.len().try_into().unwrap();
+        if live_docs > 0 && content.estimated_bytes > 0 {
+            let deleted_bytes = content.estimated_bytes * deleted as u64 / live_docs as u64;
+            content.estimated_bytes = content.estimated_bytes.saturating_sub(deleted_bytes);
+        }
         content.num_deleted_docs += deleted;
 
         Ok(())
@@ -686,8 +740,10 @@ impl SegmentMetaEntry {
         let content = match &self.content {
             SegmentMetaEntryContent::Immutable(content) => content,
             SegmentMetaEntryContent::Mutable(content) => {
-                // TODO: Guesstimate. Most likely the byte_size should be made optional so that
-                // merging is forced to consider mutable segments separately.
+                if content.estimated_bytes > 0 {
+                    return content.estimated_bytes;
+                }
+                // Legacy fallback for segments written before estimated_bytes existed.
                 return (self.header.max_doc as u64 * 1000)
                     + (content.num_deleted_docs as u64 * 10);
             }
@@ -816,8 +872,27 @@ impl From<SegmentMetaEntry> for PgItem {
             }
             SegmentMetaEntryContent::Mutable(content) => {
                 debug_assert!(val.header.tag == SegmentMetaEntryTag::Mutable);
-                bincode::serde::encode_into_std_write(content, &mut buf, bincode::config::legacy())
+                // Pre-#5950 (V1) mutable metas omit `estimated_bytes`. Writing it back would
+                // change the item size and panic `update_item` after ALTER EXTENSION upgrade.
+                if content.persist_estimated_bytes {
+                    bincode::serde::encode_into_std_write(
+                        content,
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
                     .expect("expected to serialize valid SegmentMetaEntryContent::Mutable")
+                } else {
+                    bincode::serde::encode_into_std_write(
+                        SegmentMetaEntryMutableV1 {
+                            header_block: content.header_block,
+                            num_deleted_docs: content.num_deleted_docs,
+                            frozen: content.frozen,
+                        },
+                        &mut buf,
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to serialize V1 SegmentMetaEntryContent::Mutable")
+                }
             }
         };
 
@@ -887,12 +962,30 @@ impl From<PgItem> for SegmentMetaEntry {
                 })
             }
             SegmentMetaEntryTag::Mutable => {
-                let (content, _): (SegmentMetaEntryMutable, _) = bincode::serde::decode_from_slice(
-                    &bytes[bytes_read..],
-                    bincode::config::legacy(),
-                )
-                .expect("expected to deserialize valid SegmentMetaEntryContent");
-                SegmentMetaEntryContent::Mutable(content)
+                let content_bytes = &bytes[bytes_read..];
+                // Prefixed fields match `SegmentMetaEntryMutableV1`. Trailing `estimated_bytes`
+                // was added for #5950; older metas omit it and decode as 0.
+                let (v1, v1_len): (SegmentMetaEntryMutableV1, usize) =
+                    bincode::serde::decode_from_slice(content_bytes, bincode::config::legacy())
+                        .expect("expected to deserialize valid SegmentMetaEntryContent::Mutable");
+                let estimated_bytes = if content_bytes.len() > v1_len {
+                    bincode::serde::decode_from_slice::<u64, _>(
+                        &content_bytes[v1_len..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to deserialize mutable estimated_bytes")
+                    .0
+                } else {
+                    0
+                };
+                let persist_estimated_bytes = content_bytes.len() > v1_len;
+                SegmentMetaEntryContent::Mutable(SegmentMetaEntryMutable {
+                    header_block: v1.header_block,
+                    num_deleted_docs: v1.num_deleted_docs,
+                    frozen: v1.frozen,
+                    estimated_bytes,
+                    persist_estimated_bytes,
+                })
             }
         };
 

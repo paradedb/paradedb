@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_late_materialization TO on;
 SET max_parallel_workers_per_gather TO 0;
 
 -- The NUMERIC price routes the aggregates to the DataFusion backend.

@@ -6,6 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_late_materialization TO on;
 
 CREATE TABLE alm_products (
     id SERIAL PRIMARY KEY,

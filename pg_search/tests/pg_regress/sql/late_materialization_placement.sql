@@ -246,8 +246,11 @@ ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 -- =============================================================================
--- Aggregates: a group key is fetched in the scan and grouped on its ordinals
+-- Aggregates: a key with few rows per term is not grouped on ordinals, so
+-- nothing bounds the fan-out and the scan decodes it
 -- =============================================================================
+
+SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
@@ -341,6 +344,8 @@ ORDER BY p.title
 LIMIT 5;
 
 RESET paradedb.defer_column_fetch;
+RESET paradedb.enable_aggregate_late_materialization;
+
 SET paradedb.defer_column_fetch = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -399,6 +404,8 @@ WHERE p.body @@@ 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
+SET paradedb.enable_aggregate_late_materialization = on;
+
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
@@ -413,6 +420,8 @@ WHERE p.body @@@ 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
+
+RESET paradedb.enable_aggregate_late_materialization;
 
 DROP TABLE lmp_profiles;
 DROP TABLE lmp_comments;

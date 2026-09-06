@@ -85,6 +85,9 @@ impl PhysicalOptimizerRule for DeferredAggregateRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        if !crate::gucs::enable_aggregate_late_materialization() {
+            return Ok(plan);
+        }
         rewrite(plan)
     }
 

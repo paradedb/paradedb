@@ -120,6 +120,14 @@ impl JoinExpr {
             .all(|s| !matches!(s.join_type, JoinType::Cross))
     }
 
+    /// A step joined on a non-equi condition alone, which nothing keeps from
+    /// fanning out to nearly the cross product of its two sides.
+    pub fn has_keyless_step(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s.on_condition, Some(OnCondition::NonEqui { .. })))
+    }
+
     /// Render as a SQL fragment, e.g.
     /// `FROM t0 JOIN t1 ON t0.a = t1.b LEFT JOIN t2 ON t1.x = t2.y ...`
     pub fn to_sql(&self) -> String {

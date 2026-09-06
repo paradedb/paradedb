@@ -1598,6 +1598,9 @@ async fn generated_pdb_agg_join(database: Db) {
             &pool,
             &setup_sql,
             |query, conn| {
+                // A keyless join under three bucket keys makes tens of thousands of
+                // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
+                "SET work_mem TO '64MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut rows = agg.rows(rows)?;
                 rows.sort();

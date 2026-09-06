@@ -81,7 +81,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         NestedLoopJoinExec: join_type=Inner, filter=price@1 <= max_price@0, projection=[ctid_0@3, max_price@4, id@5, ctid_1@0, price@1, id@2]
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
@@ -129,7 +129,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, rating@4 as col_3, NULL as col_4, min_rating@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         NestedLoopJoinExec: join_type=Inner, filter=rating@1 >= min_rating@0
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
@@ -177,7 +177,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@6 as col_1, NULL as col_2, price@5 as col_3, NULL as col_4, min_price@1 as col_5, max_price@2 as col_6, id@3 as col_7, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@6 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         NestedLoopJoinExec: join_type=Inner, filter=price@2 >= min_price@0 AND price@2 <= max_price@1, projection=[ctid_0@3, min_price@4, max_price@5, id@6, ctid_1@0, price@1, id@2]
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
@@ -225,7 +225,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, category@4 as col_3, NULL as col_4, target_category@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         NestedLoopJoinExec: join_type=Inner, filter=category@1 != target_category@0
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
@@ -272,7 +272,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=price@1 <= max_price@0, projection=[ctid_0@4, max_price@6, id@7, ctid_1@0, price@2, id@3]
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR riser OR mat","lenient":null,"conjunction_mode":null}}}}
@@ -319,7 +319,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@3 as col_3, rating@4 as col_4, NULL as col_5, id@1 as col_6, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o, i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, target_category@1)], filter=price@2 >= min_price@0 AND rating@3 >= min_rating@1, projection=[ctid_0@5, id@9, ctid_1@0, price@2, rating@3, id@4]
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"electronics OR keyboard OR headset","lenient":null,"conjunction_mode":null}}}}
@@ -369,7 +369,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, max_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_1]
            :         NestedLoopJoinExec: join_type=Right, filter=price@1 > max_price@0
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
@@ -415,7 +415,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, price@4 as col_3, NULL as col_4, min_price@1 as col_5, id@2 as col_6, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[i]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, target_category@1)], filter=price@1 < min_price@0, projection=[ctid_0@4, min_price@6, id@7, ctid_1@0, price@2, id@3]
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
@@ -461,7 +461,7 @@ LIMIT 10;
                  : ProjectionExec: expr=[NULL as col_1, max_price@3 as col_2, id@4 as col_3, id@1 as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[o]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(target_category@1, category@1)], filter=price@0 <= max_price@1, projection=[ctid_0@4, id@7, ctid_1@0, max_price@2, id@3]
                  :           CooperativeExec
                  :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
@@ -513,7 +513,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, price@1 as col_3, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, target_category@0)], filter=min_price@1 > price@0, projection=[ctid_0@0, price@2, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
@@ -561,7 +561,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, price@1 as col_3, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[i]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :       TantivyFetchExec: fetch=[ctid_0]
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(category@1, target_category@0)], filter=min_price@1 > price@0, projection=[ctid_0@0, price@2, id@3]
            :           CooperativeExec
            :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
@@ -610,7 +610,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[o, i]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         NestedLoopJoinExec: join_type=Inner, filter=price@2 <= max_price@0 AND (__i_1_tag_0@3 OR __o_0_tag_0@1), projection=[ctid_0@0, id@2, ctid_1@4, id@6]
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}

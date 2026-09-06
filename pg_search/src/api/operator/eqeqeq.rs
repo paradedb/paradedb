@@ -15,78 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use crate::api::FieldName;
-use crate::api::builder_fns::{term_set_str, term_str};
+use crate::api::operator::ReturnedNodePointer;
+use crate::api::operator::SearchOperator;
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
-use crate::api::operator::{
-    RHSValue, ReturnedNodePointer, build_pdb_query_funcexpr, build_text_funcexpr,
-    get_expr_result_type, is_pdb_query_castable, validate_lhs_type_as_text_compatible,
-};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
-use pgrx::{AnyElement, Internal, extension_sql, opname, pg_extern, pg_operator, pg_sys};
+use pgrx::{AnyElement, extension_sql, opname, pg_extern, pg_operator};
 
-/// Runtime counterpart to the `===` const-folding path in `search_with_term_support`.
-///
-/// Called from a plan built by `search_with_term_support`'s `exec_rewrite` when the RHS is a
-/// `Param` (generic prepared plan) rather than a folded `Const`. Classifies the incoming
-/// `pdb.query` the same way the const path does: an `UnclassifiedString`/`UnclassifiedArray`
-/// becomes a `term`/`term_set`, with any `fuzzy_data` or `slop_data` re-applied. This is
-/// necessary because `to_search_query_input` alone leaves `UnclassifiedString` intact, which
-/// blows up at Tantivy conversion time (`pdb::Query::UnclassifiedString cannot be converted
-/// into a TantivyQuery`).
+/// Runtime classification for `===` expressions that cannot be folded during planning.
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    let classified = match query {
-        pdb::Query::UnclassifiedString {
-            string,
-            fuzzy_data,
-            slop_data,
-        } => {
-            let mut q = term_str(string);
-            q.apply_fuzzy_data(fuzzy_data);
-            q.apply_slop_data(slop_data);
-            q
-        }
-        pdb::Query::UnclassifiedArray {
-            array,
-            fuzzy_data,
-            slop_data,
-        } => {
-            let mut q = term_set_str(array);
-            q.apply_fuzzy_data(fuzzy_data);
-            q.apply_slop_data(slop_data);
-            q
-        }
-        pdb::Query::ScoreAdjusted { query, score } => {
-            let mut inner = *query;
-            if let pdb::Query::UnclassifiedString {
-                string,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = term_str(string);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            } else if let pdb::Query::UnclassifiedArray {
-                array,
-                fuzzy_data,
-                slop_data,
-            } = inner
-            {
-                inner = term_set_str(array);
-                inner.apply_fuzzy_data(fuzzy_data);
-                inner.apply_slop_data(slop_data);
-            }
-            pdb::Query::ScoreAdjusted {
-                query: Box::new(inner),
-                score,
-            }
-        }
-        other => other,
-    };
-    to_search_query_input(field, classified)
+    to_search_query_input(field, SearchOperator::Term.classify_query(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -119,110 +59,7 @@ fn search_with_term_fuzzy(_field: AnyElement, term: FuzzyType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, fuzzy)` operator: `{term:?}`")
 }
 
-#[pg_extern(immutable, parallel_safe)]
-fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
-    unsafe {
-        let const_rewrite: super::ConstRewrite = |lhs, field, term| {
-            validate_lhs_type_as_text_compatible(lhs, "===");
-
-            let field = field
-                .expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
-
-            match term {
-                RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
-                RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score }) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {
-                        string,
-                        fuzzy_data,
-                        slop_data,
-                    } = query
-                    {
-                        query = term_str(string);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {
-                        array,
-                        fuzzy_data,
-                        slop_data,
-                    } = query
-                    {
-                        query = term_set_str(array);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(
-                        field,
-                        pdb::Query::ScoreAdjusted {
-                            query: Box::new(query),
-                            score,
-                        },
-                    )
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {
-                    string,
-                    fuzzy_data,
-                    slop_data,
-                }) => {
-                    let mut query = term_str(string);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray {
-                    array,
-                    fuzzy_data,
-                    slop_data,
-                }) => {
-                    let mut query = term_set_str(array);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                _ => unreachable!(
-                    "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value"
-                ),
-            }
-        };
-        let exec_rewrite: super::ExecRewrite = |field, lhs, rhs| {
-            validate_lhs_type_as_text_compatible(lhs, "===");
-            let field = field
-                .expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
-            // Under a generic prepared plan, `Param` nodes bypass const folding so the RHS is
-            // not a `Const` we can inspect at planning time. Recognize the `pdb.*` shape and
-            // build a runtime call that evaluates the parameter, mirroring the const-path in
-            // `rewrite_rhs_to_search_query_input`. Fixes issue #5779 where
-            // `... === $1::pdb.fuzzy(...)` errored on execution 6 with "must be a text or text
-            // array value" because the RHS type (`pdb.fuzzy`) failed the text-only check in
-            // `build_text_funcexpr`.
-            let rhs_type = get_expr_result_type(rhs);
-            if is_pdb_query_castable(rhs_type) {
-                build_pdb_query_funcexpr(
-                    field,
-                    rhs,
-                    rhs_type,
-                    c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
-                )
-            } else {
-                build_text_funcexpr(
-                    field,
-                    rhs,
-                    "===",
-                    c"paradedb.term(paradedb.fieldname, text)",
-                    c"paradedb.term_set(paradedb.fieldname, text[])",
-                )
-            }
-        };
-        ReturnedNodePointer::for_support_simplify(
-            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
-            super::SimplifyRhs::Rewrite {
-                const_rewrite,
-                exec_rewrite,
-            },
-        )
-    }
-}
+operator_support!(fn search_with_term_support, Term);
 
 extension_sql!(
     r#"

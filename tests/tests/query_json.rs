@@ -471,12 +471,12 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_more_like_this_index ON test_more_like_this_table USING paradedb (id, flavour)
-    WITH (key_field='id');
+    CREATE INDEX test_more_like_this_index ON test_more_like_this_table
+    USING paradedb (id, (flavour::pdb.simple));
     "#
     .execute(&mut conn);
 
-    // Missing keys should fail.
+    // A JSON MLT query requires a document.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         '{"more_like_this": {}}'::jsonb;
@@ -486,18 +486,17 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(
                 db_error_message(&err),
-                "error returned from database: more_like_this must be called with either key_value or document"
+                "error returned from database: error parsing search query input json at \".\": data did not match any variant of untagged enum SearchQueryInput"
             )
         }
-        _ => panic!("key_value or document validation failed"),
+        _ => panic!("missing document validation failed"),
     }
 
-    // Conflicting keys should fail.
+    // Document fields must be an array of field/value pairs.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@
         '{"more_like_this": {
-            "key_value": 0,
-            "document": [["flavour", "banana"]]
+            "document": {"flavour": "banana"}
         }}'::jsonb;
     "#
     .fetch_result::<()>(&mut conn)
@@ -505,10 +504,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(
                 db_error_message(&err),
-                "error returned from database: more_like_this must be called with either key_value or document"
+                "error returned from database: error parsing search query input json at \".\": data did not match any variant of untagged enum SearchQueryInput"
             )
         }
-        _ => panic!("key_value or document validation failed"),
+        _ => panic!("invalid document validation failed"),
     }
 
     let rows: Vec<(i32, String)> = r#"
@@ -518,19 +517,6 @@ fn more_like_this_raw(mut conn: PgConnection) {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document": [["flavour", "banana"]]
-        }
-    }'::jsonb ORDER BY id;
-    "#
-    .fetch_collect(&mut conn);
-    assert_eq!(rows.len(), 2);
-
-    let rows: Vec<(i32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ '{
-        "more_like_this": {
-            "min_doc_frequency": 0,
-            "min_term_frequency": 0,
-            "key_value": 2
         }
     }'::jsonb ORDER BY id;
     "#
@@ -555,8 +541,8 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CREATE INDEX test_more_like_this_index ON test_more_like_this_table USING paradedb (id, flavour)
-    WITH (key_field='id');
+    CREATE INDEX test_more_like_this_index ON test_more_like_this_table
+    USING paradedb (id, (flavour::pdb.simple));
     "#
     .execute(&mut conn);
 
@@ -570,10 +556,10 @@ fn more_like_this_empty(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(
                 db_error_message(&err),
-                "error returned from database: more_like_this must be called with either key_value or document"
+                "error returned from database: error parsing search query input json at \".\": data did not match any variant of untagged enum SearchQueryInput"
             )
         }
-        _ => panic!("key_value or document validation failed"),
+        _ => panic!("missing document validation failed"),
     }
 }
 

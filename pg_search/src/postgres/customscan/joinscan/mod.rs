@@ -160,6 +160,7 @@ use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::node::NodeExt;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -198,7 +199,7 @@ use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logica
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
-use pgrx::{PgList, pg_guard, pg_sys};
+use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
@@ -295,27 +296,11 @@ impl JoinDeclineReason {
 /// `T_SubPlan` node found at any depth.  Uses Postgres's
 /// `expression_tree_walker` so it handles all node types automatically.
 unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
-    if node.is_null() {
-        return;
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut std::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        if (*node).type_ == pg_sys::NodeTag::T_SubPlan {
-            let subplan = node as *mut pg_sys::SubPlan;
-            let ids = &mut *(context as *mut HashSet<i32>);
+    node.visit(|node| {
+        if let Some(subplan) = crate::nodecast!(SubPlan, T_SubPlan, node) {
             ids.insert((*subplan).plan_id);
         }
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void);
+    });
 }
 
 /// Collect all SubPlan `plan_id`s present in `baserestrictinfo` of the

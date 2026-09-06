@@ -55,3 +55,18 @@ GROUP BY
 ORDER BY
     COUNT(*) DESC
 LIMIT 10;
+
+-- DataFusion TopK aggregate scan with the strings kept late-materialized
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_aggregate_late_materialization TO on; SELECT
+    u.about_me,
+    COUNT(*)
+FROM users u
+JOIN stackoverflow_posts p ON u.id = p.owner_user_id
+JOIN comments c ON p.id = c.post_id
+WHERE
+    p.body ||| 'code'
+GROUP BY
+    u.about_me
+ORDER BY
+    COUNT(*) DESC
+LIMIT 10;

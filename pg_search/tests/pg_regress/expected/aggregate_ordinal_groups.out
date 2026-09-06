@@ -1,0 +1,526 @@
+-- A GROUP BY on a deferred string column groups on term ordinals first, decodes one
+-- row per group, and merges the segments' groups by string.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_aggregate_late_materialization TO on;
+SET max_parallel_workers_per_gather TO 0;
+-- The NUMERIC price routes the aggregates to the DataFusion backend.
+CREATE TABLE aog_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    brand TEXT,
+    price NUMERIC(8, 2)
+);
+CREATE TABLE aog_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    stars INTEGER
+);
+CREATE TABLE aog_notes (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    note TEXT
+);
+-- Three insert batches, each its own segment, so the same category groups per
+-- segment before the merge. A few categories and brands repeat across many rows,
+-- which is the case grouping on ordinals is for.
+CREATE INDEX aog_products_idx ON aog_products
+USING bm25 (id, description, category, brand, price)
+WITH (key_field='id',
+      text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
+      numeric_fields='{"price": {"fast": true}}');
+CREATE INDEX aog_reviews_idx ON aog_reviews
+USING bm25 (id, product_id, stars)
+WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
+CREATE INDEX aog_notes_idx ON aog_notes
+USING bm25 (id, product_id, note)
+WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(1, 60) AS i;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(61, 120) AS i;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(121, 180) AS i;
+RESET paradedb.global_mutable_segment_rows;
+INSERT INTO aog_reviews (product_id, stars)
+SELECT id, s FROM aog_products, generate_series(1, 3) AS s WHERE id % 3 <> 0;
+INSERT INTO aog_notes (product_id, note)
+SELECT id, (ARRAY['fragile', 'heavy'])[1 + id % 2] FROM aog_products WHERE id % 5 = 1;
+-- =============================================================================
+-- One table: the fetch runs below the partial aggregate, the decode above it
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (count(*)), (sum(price))
+   Sort Key: aog_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (count(*)), (sum(price))
+         Backend: DataFusion
+         Indexes: aog_products_idx (aog_products)
+         Group By: category
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :   TantivyDecodeExec: decode=[category]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :       TantivyFetchExec: fetch=[category]
+           :         CooperativeExec
+           :           PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+ category | count |  sum   
+----------+-------+--------
+ Garden   |    36 | 180.00
+ Tools    |    36 | 180.00
+ Toys     |    45 | 225.00
+          |    45 | 225.00
+(4 rows)
+
+-- The same groups from Postgres.
+SET paradedb.enable_aggregate_custom_scan TO off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price)
+   Group Key: aog_products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: aog_products.category
+         ->  Custom Scan (ParadeDB Base Scan) on public.aog_products
+               Output: category, price
+               Table: aog_products
+               Index: aog_products_idx
+               Worker Selection: Row-capped
+               Exec Method: ColumnarExecState
+               Fast Fields: category, price
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+ category | count |  sum   
+----------+-------+--------
+ Garden   |    36 | 180.00
+ Tools    |    36 | 180.00
+ Toys     |    45 | 225.00
+          |    45 | 225.00
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Two string keys group together on their ordinal pairs.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, brand, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category, brand
+ORDER BY category, brand;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, brand, (count(*)), (sum(price))
+   Sort Key: aog_products.category, aog_products.brand
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, brand, (count(*)), (sum(price))
+         Backend: DataFusion
+         Indexes: aog_products_idx (aog_products)
+         Group By: brand, category
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category, brand@1 as brand], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :   TantivyDecodeExec: decode=[category, brand]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category, brand@1 as brand], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :       TantivyFetchExec: fetch=[category, brand]
+           :         CooperativeExec
+           :           PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT category, brand, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category, brand
+ORDER BY category, brand;
+ category | brand | count |  sum  
+----------+-------+-------+-------
+ Garden   | Acme  |    12 | 48.00
+ Garden   | Bolt  |    12 | 60.00
+ Garden   | Cog   |    12 | 72.00
+ Tools    | Acme  |    12 | 48.00
+ Tools    | Bolt  |    12 | 60.00
+ Tools    | Cog   |    12 | 72.00
+ Toys     | Acme  |    15 | 60.00
+ Toys     | Bolt  |    15 | 75.00
+ Toys     | Cog   |    15 | 90.00
+          | Acme  |    15 | 60.00
+          | Bolt  |    15 | 75.00
+          | Cog   |    15 | 90.00
+(12 rows)
+
+-- DISTINCT is a group by with no aggregates.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT category
+FROM aog_products
+WHERE description @@@ 'widget'
+ORDER BY category;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category
+   Sort Key: aog_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category
+         Backend: DataFusion
+         Indexes: aog_products_idx (aog_products)
+         Group By: category
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[]
+           :   TantivyDecodeExec: decode=[category]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[]
+           :       TantivyFetchExec: fetch=[category]
+           :         CooperativeExec
+           :           PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT DISTINCT category
+FROM aog_products
+WHERE description @@@ 'widget'
+ORDER BY category;
+ category 
+----------
+ Garden
+ Tools
+ Toys
+ 
+(4 rows)
+
+-- =============================================================================
+-- A fan-out join: the scan resolves the ordinals, the partial aggregate groups
+-- the joined rows on them, and one row per group is decoded
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (sum(r.stars))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*)), (sum(r.stars))
+         Backend: DataFusion
+         Indexes: aog_products_idx (p), aog_reviews_idx (r)
+         Group By: category
+         Aggregates: COUNT(*), SUM(stars)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
+           :   TantivyDecodeExec: decode=[category]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, stars@3]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
+
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+ category | count | sum 
+----------+-------+-----
+ Garden   |    72 | 144
+ Tools    |    72 | 144
+ Toys     |    90 | 180
+          |    90 | 180
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (sum(r.stars))
+   Sort Key: p.category
+   ->  HashAggregate
+         Output: p.category, count(*), sum(r.stars)
+         Group Key: p.category
+         ->  Hash Join
+               Output: p.category, r.stars
+               Inner Unique: true
+               Hash Cond: (r.product_id = p.id)
+               ->  Seq Scan on public.aog_reviews r
+                     Output: r.id, r.product_id, r.stars
+               ->  Hash
+                     Output: p.category, p.id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.aog_products p
+                           Output: p.category, p.id
+                           Table: aog_products
+                           Index: aog_products_idx
+                           Worker Selection: Row-capped
+                           Exec Method: ColumnarExecState
+                           Fast Fields: category, id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
+
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
+ category | count | sum 
+----------+-------+-----
+ Garden   |    72 | 144
+ Tools    |    72 | 144
+ Toys     |    90 | 180
+          |    90 | 180
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- A string from the null-supplying side of an outer join stays deferred through
+-- the join: a null-extended row is a NULL ordinal, which counts as no note.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*), COUNT(n.note)
+FROM aog_products p LEFT JOIN aog_notes n ON n.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (count(n.note))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*)), (count(n.note))
+         Backend: DataFusion
+         Indexes: aog_products_idx (p), aog_notes_idx (n)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(note)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, count(n_1.note) as agg_1]
+           :   TantivyDecodeExec: decode=[category]
+           :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, count(n_1.note) as agg_1]
+           :       TantivyDecodeExec: decode=[note]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(product_id@0, id@0)], projection=[category@3, note@1]
+           :           CooperativeExec
+           :             PgSearchScan: table=n, segments=1, fetch=[note], visibility=eager, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT p.category, COUNT(*), COUNT(n.note)
+FROM aog_products p LEFT JOIN aog_notes n ON n.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+ category | count | count 
+----------+-------+-------
+ Garden   |    36 |     9
+ Tools    |    36 |     9
+ Toys     |    45 |     9
+          |    45 |     9
+(4 rows)
+
+-- =============================================================================
+-- Opting out: with the decode pinned to the scan, the aggregate sees strings
+-- =============================================================================
+SET paradedb.defer_string_decode = off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (count(*)), (sum(price))
+   Sort Key: aog_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (count(*)), (sum(price))
+         Backend: DataFusion
+         Indexes: aog_products_idx (aog_products)
+         Group By: category
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+ category | count |  sum   
+----------+-------+--------
+ Garden   |    36 | 180.00
+ Tools    |    36 | 180.00
+ Toys     |    45 | 225.00
+          |    45 | 225.00
+(4 rows)
+
+RESET paradedb.defer_string_decode;
+-- =============================================================================
+-- MPP: each worker groups its segments on ordinals and decodes its groups
+-- =============================================================================
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (count(*)), (sum(price))
+   Sort Key: aog_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: category, (count(*)), (sum(price))
+         Backend: DataFusion
+         Indexes: aog_products_idx (aog_products)
+         Group By: category
+         Aggregates: COUNT(*), SUM(price)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 2] => NetworkCoalesceExec: output_partitions=9, input_tasks=3
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 2 ── tasks=3, partitions=3
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :   │   [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 1 ── tasks=3, partitions=9
+           :     │ RepartitionExec: partitioning=Hash([category@0], 9), input_partitions=1
+           :     │   TantivyDecodeExec: decode=[category]
+           :     │     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, numeric64_sum(aog_products_0.price, 2) as agg_1]
+           :     │       TantivyFetchExec: fetch=[category]
+           :     │         DistributedLeafExec:
+           :     │           t0: PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :     │           t1: PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :     │           t2: PgSearchScan: table=aog_products, segments=3, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :     └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT category, COUNT(*), SUM(price)
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+ category | count |  sum   
+----------+-------+--------
+ Garden   |    36 | 180.00
+ Tools    |    36 | 180.00
+ Toys     |    45 | 225.00
+          |    45 | 225.00
+(4 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (sum(r.stars))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*)), (sum(r.stars))
+         Backend: DataFusion
+         Indexes: aog_products_idx (p), aog_reviews_idx (r)
+         Group By: category
+         Aggregates: COUNT(*), SUM(stars)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
+           : │     RepartitionExec: partitioning=Hash([category@0], 3), input_partitions=3
+           : │       TantivyDecodeExec: decode=[category]
+           : │         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
+           : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, stars@3]
+           : │             CoalescePartitionsExec
+           : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
+           : │             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+           : │               DistributedLeafExec:
+           : │                 t0: PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 1 ── tasks=3, partitions=3
+           :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
+           :   │   DistributedLeafExec:
+           :   │     t0: PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :   │     t1: PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :   │     t2: PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :   └──────────────────────────────────────────────────
+(30 rows)
+
+SELECT p.category, COUNT(*), SUM(r.stars)
+FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
+WHERE p.description @@@ 'widget'
+GROUP BY p.category
+ORDER BY p.category;
+ category | count | sum 
+----------+-------+-----
+ Garden   |    72 | 144
+ Tools    |    72 | 144
+ Toys     |    90 | 180
+          |    90 | 180
+(4 rows)
+
+DROP TABLE aog_notes;
+DROP TABLE aog_reviews;
+DROP TABLE aog_products;

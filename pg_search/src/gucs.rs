@@ -54,6 +54,8 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle range co-partitioning for joins.
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to late-materialize the string columns of an aggregate scan on the
+/// DataFusion backend, which then groups on term ordinals.
 static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
@@ -375,8 +377,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_aggregate_late_materialization",
-        c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
+        c"Late-materialize the string columns of aggregate plans",
+        c"When enabled, an aggregate scan on the DataFusion backend keeps its string columns as term ordinals through joins, groups on the ordinals, and decodes one value per group. Default is false.",
         &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),

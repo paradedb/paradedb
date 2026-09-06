@@ -198,7 +198,8 @@ ORDER BY c.author ASC, c.id ASC, c2.id ASC
 LIMIT 5;
 
 -- =============================================================================
--- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
+-- Aggregates: a key with few rows per term is not grouped on ordinals, so
+-- nothing bounds the fan-out and the scan decodes it
 -- =============================================================================
 
 SET paradedb.enable_aggregate_late_materialization = on;

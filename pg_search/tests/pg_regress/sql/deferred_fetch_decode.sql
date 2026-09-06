@@ -152,7 +152,7 @@ LIMIT 5;
 
 RESET paradedb.enable_segmented_topk;
 
--- An aggregate over the join decodes its group key above the visibility filter.
+-- An aggregate over the join groups on the key's ordinals and decodes one row per group.
 SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

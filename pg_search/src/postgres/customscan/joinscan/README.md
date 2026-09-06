@@ -43,13 +43,14 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 2. **`LateMaterializationRule`** — injects [`TantivyDecodeExec`][decode-exec] over [`TantivyFetchExec`][fetch-exec] to defer string materialization. With `paradedb.defer_column_fetch = off` the scan resolves term ordinals itself and only the decode node is injected
 3. **[`RangeCoPartitionedJoinRule`](range_partitioning_rule.rs)** — flips a `CollectLeft` inner hash join to `Partitioned` mode when both sides declare compatible `Partitioning::Range` layouts, so MPP joins partition pairs task-locally instead of broadcasting the build side
 4. **[`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs)** — decides per source where the fetch and the decode of a deferred string column run: a build side or a fan-out join moves the fetch into the scan, and a fan-out with no bounded consumer above moves the decode there too. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` override it
-5. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
+5. **[`DeferredAggregateRule`](../../../scan/deferred_aggregate_rule.rs)** — splits an aggregate that groups on a deferred string column into a partial aggregate on the term ordinals, a decode of one row per group, and a final aggregate on the strings
+6. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 
 When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`DistributedExec`), slicing it into isolated tasks. Plans with fewer than two producer tasks, or launches with fewer than two attached workers, run serially.
 
 ### 4. Deferred Columns
 
-String columns are emitted as a [2-way `UnionArray`](../../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
+String columns are emitted as a [packed `UInt64`](../../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
 
 The lookup has two halves with different access patterns, so they are separate nodes. [`TantivyFetchExec`][fetch-exec] reads the columnar field (doc_address → term_ordinal, and packed ctid → real ctid); it wants doc order, which a join above the scan no longer keeps. [`TantivyDecodeExec`][decode-exec] reads the segment dictionary (term_ordinal → string); it is random access either way, and ordinals are much narrower than strings, so it can move above joins and shuffles at the same cost per row. The planner places the two next to each other and [`DeferredPlacementRule`](../../../scan/deferred_placement_rule.rs) then moves either half into the scan when the path above would run it out of doc order or on multiplied rows. `paradedb.defer_column_fetch` and `paradedb.defer_string_decode` pin each half instead.
 
@@ -100,7 +101,7 @@ Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
 | [`batch_scanner.rs`](../../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
 | [`execution_plan.rs`](../../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
 | [`pre_filter.rs`](../../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
-| [`deferred_encode.rs`](../../../scan/deferred_encode.rs) | 2-way UnionArray construction and unpacking                                                                                         |
+| [`deferred_encode.rs`](../../../scan/deferred_encode.rs) | Packed deferred column construction and unpacking                                                                                   |
 
 ## GUCs
 

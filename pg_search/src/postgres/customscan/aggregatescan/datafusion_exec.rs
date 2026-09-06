@@ -50,7 +50,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table,
+    create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
@@ -328,7 +328,7 @@ pub async fn build_join_aggregate_plan(
     }
 
     Ok(JoinAggregatePlan {
-        logical: df.into_optimized_plan()?,
+        logical: optimize_logical_plan(df)?,
         group_df_indices,
         pdb_plan,
         pdb_root_having,
@@ -892,10 +892,10 @@ async fn build_source_df(
     provider.set_expr_context(source_expr_context);
     provider.set_planstate(planstate);
 
-    // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. On the current cost model that only pays for specific
-    // shapes, so it stays off until selective late materialization can pick
-    // them. With it off the source keeps eager, in-scan visibility.
+    // When asked, strings leave the scan deferred, so the placement rule can put each half
+    // of their lookup where it pays and the aggregate can group on term ordinals. Visibility
+    // stays in the scan either way: a post-join check trades one check per scanned row for
+    // one per joined row, and nothing models when that pays.
     if crate::gucs::enable_aggregate_late_materialization() {
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in plan.join_keys() {
@@ -917,11 +917,7 @@ async fn build_source_df(
                 required_early.insert(col);
             }
         }
-
-        provider.configure_deferred_outputs(
-            &required_early,
-            crate::scan::VisibilityMode::Deferred { plan_position },
-        );
+        provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
     }
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;

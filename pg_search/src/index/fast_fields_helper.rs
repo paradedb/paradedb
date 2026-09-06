@@ -541,7 +541,7 @@ impl WhichFastField {
             )),
             WhichFastField::Junk(_) => DataType::Null,
             WhichFastField::Deferred(_, _field_type) => {
-                crate::scan::deferred_encode::deferred_union_data_type()
+                crate::scan::deferred_encode::deferred_data_type()
             }
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
@@ -557,9 +557,13 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     use arrow_schema::{Field, Schema};
     use std::sync::Arc;
 
+    // A deferred column is a plain `UInt64` to Arrow; its field's metadata is what marks it.
     let fields: Vec<Field> = which_fast_fields
         .iter()
-        .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
+        .map(|wff| match wff {
+            WhichFastField::Deferred(name, _) => crate::scan::deferred_encode::deferred_field(name),
+            _ => Field::new(wff.name(), wff.arrow_data_type(), true),
+        })
         .collect();
     Arc::new(Schema::new(fields))
 }

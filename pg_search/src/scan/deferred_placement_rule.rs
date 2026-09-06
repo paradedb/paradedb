@@ -17,7 +17,7 @@
 
 //! Physical optimizer rule that places the two halves of a deferred string lookup per source.
 //!
-//! The logical rule decides whether a string column leaves its scan as a union at all. This
+//! The logical rule decides whether a string column leaves its scan deferred at all. This
 //! rule decides where each half of the lookup runs, from the shape of the plan between the
 //! scan and the decode point:
 //!
@@ -26,7 +26,9 @@
 //!   join multiplies them. Otherwise the scan resolves the ordinals itself, in doc order.
 //! - The decode (term ordinal to string) costs the same per row wherever it runs, so it stays
 //!   deferred unless a join multiplies the rows on the way and nothing above bounds them. In
-//!   that case the scan decodes the column and no union is carried at all.
+//!   that case the scan decodes the column and no ordinal is carried at all. A limit bounds
+//!   the rows, and so does an aggregate that groups on the column, since it reduces them to
+//!   one per group before the decode (see `DeferredAggregateRule`).
 //!
 //! Row multiplication is read from the join keys, not from cardinality estimates: a source's
 //! rows fan out through an equi-join when the other side's key is not that side's unique key
@@ -75,6 +77,7 @@ use crate::api::{HashMap, HashSet};
 use crate::gucs::{self, DeferredPlacement};
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
+use crate::scan::deferred_aggregate_rule::ordinal_group_keys;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -102,6 +105,7 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
         let mut ctx = Context {
             fetch_auto: gucs::defer_column_fetch() == DeferredPlacement::Auto,
             decode_auto: gucs::defer_string_decode() == DeferredPlacement::Auto,
+            aggregate_ordinals: gucs::enable_aggregate_late_materialization(),
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         };
@@ -154,6 +158,10 @@ enum Bound {
     /// A Top-K sort, which consumes every row itself. It bounds a decode only when the
     /// `SegmentedTopKRule` will take the sort over and prune before the decode.
     TopK(LexOrdering),
+    /// An aggregate. It bounds the decode of a column it groups on, since
+    /// `DeferredAggregateRule` then groups the ordinals first and decodes one row per
+    /// group.
+    Aggregate(Arc<dyn ExecutionPlan>),
 }
 
 /// Where a source's deferred columns end up. Both flags false keeps them at the decode point.
@@ -181,6 +189,9 @@ impl Decision {
 struct Context {
     fetch_auto: bool,
     decode_auto: bool,
+    /// Whether `DeferredAggregateRule` will group on ordinals, so an aggregate counts as a
+    /// bound.
+    aggregate_ordinals: bool,
     /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
     key_fields: HashMap<u32, Option<String>>,
     decisions: HashMap<u32, Decision>,
@@ -211,10 +222,15 @@ type PathStep = (Arc<dyn ExecutionPlan>, usize);
 /// whatever the path did to the row count.
 fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Context) {
     if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-        let bounded = match &bound {
+        let reduced = match &bound {
+            Bound::Aggregate(agg) => reduced_indexes(agg, node, decode),
+            _ => HashSet::default(),
+        };
+        let bounded_for = |indexrelid: u32| match &bound {
             Bound::None => false,
             Bound::Limit => true,
             Bound::TopK(order) => segmented_topk_takes(order, decode),
+            Bound::Aggregate(_) => reduced.contains(&indexrelid),
         };
         let wanted: Vec<u32> = decode
             .deferred_fields()
@@ -225,6 +241,7 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         collect_scans(node, &mut Vec::new(), &wanted, &mut scans);
         for ((indexrelid, alias), path) in scans {
             let summary = summarize_path(&path, ctx);
+            let bounded = bounded_for(indexrelid);
             let decision = decide(&summary, bounded, ctx);
             let merged = match ctx.decisions.get(&indexrelid) {
                 Some(existing) => existing.merge(decision),
@@ -250,6 +267,8 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         && sort.fetch().is_some()
     {
         Bound::TopK(sort.expr().clone())
+    } else if node.is::<AggregateExec>() && ctx.aggregate_ordinals {
+        Bound::Aggregate(Arc::clone(node))
     } else if is_transparent(node) {
         bound
     } else {
@@ -258,6 +277,35 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
     for child in node.children() {
         collect_decisions(child, below.clone(), ctx);
     }
+}
+
+/// The indexes whose every column at this decode point is a plain group key of `agg`, so
+/// the aggregate reduces their rows before any of them is decoded. The aggregate must sit
+/// directly on the decode, or its column indexes mean something else.
+fn reduced_indexes(
+    agg: &Arc<dyn ExecutionPlan>,
+    decode_node: &Arc<dyn ExecutionPlan>,
+    decode: &TantivyDecodeExec,
+) -> HashSet<u32> {
+    let Some(agg) = agg.downcast_ref::<AggregateExec>() else {
+        return HashSet::default();
+    };
+    if !Arc::ptr_eq(agg.input(), decode_node) {
+        return HashSet::default();
+    }
+    let keys = ordinal_group_keys(agg, decode);
+    let fields = decode.deferred_fields();
+    fields
+        .iter()
+        .map(|f| f.canonical.indexrelid)
+        .filter(|indexrelid| {
+            fields
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.canonical.indexrelid == *indexrelid)
+                .all(|(i, _)| keys.contains(&i))
+        })
+        .collect()
 }
 
 /// Whether `SegmentedTopKRule` will take a Top-K sort with this order over from `decode`:
@@ -577,7 +625,7 @@ mod tests {
     use super::*;
     use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
     use crate::query::SearchQueryInput;
-    use crate::scan::deferred_encode::deferred_union_data_type;
+    use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::physical_expr::projection::ProjectionExpr;
@@ -587,6 +635,7 @@ mod tests {
         Context {
             fetch_auto,
             decode_auto,
+            aggregate_ordinals: true,
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         }
@@ -672,7 +721,7 @@ mod tests {
             None,
             Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, true),
-                Field::new("title", deferred_union_data_type(), true),
+                deferred_field("title"),
             ])),
             SearchQueryInput::All,
             None,

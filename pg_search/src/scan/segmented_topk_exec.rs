@@ -22,11 +22,11 @@
 //!
 //! `SegmentedTopKExec` sits below the deferred lookup (`TantivyDecodeExec`, and the
 //! `TantivyFetchExec` under it when the scan emits doc addresses) in the physical
-//! plan. It operates on the 2-way deferred `UnionArray` columns emitted by late
-//! materialization:
-//!   - State 0 (doc_address): unpacks `(segment_ord, doc_id)` and bulk-fetches
+//! plan. It operates on the packed deferred columns emitted by late materialization
+//! (see `deferred_encode`):
+//!   - State 0 (doc address): unpacks `(segment_ord, doc_id)` and bulk-fetches
 //!     term ordinals via `FFHelper`.
-//!   - State 1 (term_ordinals): uses ordinals directly (already resolved by
+//!   - State 1 (term ordinal): uses the ordinal directly (already resolved by
 //!     pre-filter memoization or by the scan).
 //!
 //! For States 0 and 1, a per-segment Vec-based buffer (capacity 2×K) with
@@ -72,7 +72,7 @@
 //! `survivors_s` bound above.
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
@@ -80,12 +80,10 @@ use crate::postgres::customscan::joinscan::visibility_filter::{
 };
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue, unpack_doc_address};
 use crate::scan::deferred_lookup::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use crate::scan::execution_plan::UnsafeSendStream;
-use arrow_array::{
-    Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
-};
+use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use arrow_select::concat::concat_batches;
 use arrow_select::filter::filter_record_batch;
@@ -849,7 +847,8 @@ struct SegmentBuf {
 struct PassThroughRow {
     batch_idx: usize,
     row_idx: usize,
-    seg_ord: SegmentOrdinal,
+    /// `None` when the row is NULL in every deferred sort column.
+    seg_ord: Option<SegmentOrdinal>,
     row_val: OwnedRow,
 }
 
@@ -1079,15 +1078,12 @@ impl SegmentedTopKState {
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
                 // Keep the compound key the converter already built for this
-                // row. `row_to_seg_scratch` is populated unconditionally in
-                // `extract_deferred_ordinals` for every row a deferred column
-                // touched, which includes any row that reached this branch.
-                let seg_ord = self.row_to_seg_scratch[row_idx]
-                    .expect("row_to_seg_scratch must be populated for pass-through rows");
+                // row. A row with no segment is NULL in every deferred column,
+                // so nothing of it needs a dictionary later.
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
-                    seg_ord,
+                    seg_ord: self.row_to_seg_scratch[row_idx],
                     row_val: converted_rows.row(row_idx).owned(),
                 });
                 continue;
@@ -1125,8 +1121,9 @@ impl SegmentedTopKState {
         Ok(())
     }
 
-    /// Helper to extract term ordinals from a deferred UnionArray.
+    /// Helper to extract term ordinals from a deferred column.
     /// Mutates `pass_through` for rows that contain NULLs, and populates `row_to_seg` mapping.
+    /// A NULL row has no segment: it is a NULL value or a row an outer join null-extended.
     fn extract_deferred_ordinals(
         ffhelper: &FFHelper,
         batch: &RecordBatch,
@@ -1136,100 +1133,33 @@ impl SegmentedTopKState {
         row_to_seg: &mut [Option<SegmentOrdinal>],
     ) -> Result<Vec<Option<TermOrdinal>>> {
         let column = batch.column(deferred_col.sort_col_idx);
-        let union_col = column
-            .as_any()
-            .downcast_ref::<UnionArray>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "SegmentedTopKExec: sort column should be a deferred UnionArray but found {:?} at index {}",
-                    column.data_type(), deferred_col.sort_col_idx
-                ))
-            })?;
-
-        let type_ids = union_col.type_ids();
-        let offsets = union_col.offsets().ok_or_else(|| {
-            DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
+        let deferred = DeferredColumn::try_new(column.as_ref()).map_err(|e| {
+            DataFusionError::Internal(format!(
+                "SegmentedTopKExec: sort column at index {}: {e}",
+                deferred_col.sort_col_idx
+            ))
         })?;
 
-        let mut state0_rows: Vec<usize> = Vec::new();
-        let mut state1_rows: Vec<usize> = Vec::new();
-        for row_idx in 0..num_rows {
-            match type_ids[row_idx] {
-                0 => state0_rows.push(row_idx),
-                1 => state1_rows.push(row_idx),
-                _ => unreachable!("Invalid Union state"),
-            }
-        }
-
         let mut global_term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
-
-        // State 0: compact doc address child.
         let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();
-        if !state0_rows.is_empty() {
-            let doc_addr_child = union_col
-                .child(0)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
-                    )
-                })?;
-            for &row_idx in &state0_rows {
-                let packed = doc_addr_child.value(offsets[row_idx] as usize);
-                let (seg_ord, doc_id) = unpack_doc_address(packed);
-                state0_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row_idx, doc_id));
-                row_to_seg[row_idx] = Some(seg_ord);
-            }
-        }
-
-        // State 1: compact term ordinal child.
-        if !state1_rows.is_empty() {
-            let term_ord_child = union_col
-                .child(1)
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
-                    )
-                })?;
-            let seg_ord_array = term_ord_child
-                .column(0)
-                .as_any()
-                .downcast_ref::<UInt32Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
-                    )
-                })?;
-            let ord_array = term_ord_child
-                .column(1)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
-                    )
-                })?;
-
-            for &row_idx in &state1_rows {
-                let ci = offsets[row_idx] as usize;
-                let seg_ord = seg_ord_array.value(ci);
-                row_to_seg[row_idx] = Some(seg_ord);
-                if !ord_array.is_null(ci) {
-                    let ord = ord_array.value(ci);
-                    if ord != NULL_TERM_ORDINAL {
-                        global_term_ords[row_idx] = Some(ord);
-                    } else {
-                        pass_through[row_idx] = true;
-                    }
-                } else {
-                    pass_through[row_idx] = true;
+        for (row_idx, value) in deferred.values().enumerate() {
+            match value {
+                DeferredValue::DocAddress(packed) => {
+                    let (seg_ord, doc_id) = unpack_doc_address(packed);
+                    state0_by_seg
+                        .entry(seg_ord)
+                        .or_default()
+                        .push((row_idx, doc_id));
+                    row_to_seg[row_idx] = Some(seg_ord);
                 }
+                DeferredValue::TermOrdinal {
+                    segment_ord,
+                    term_ord,
+                } => {
+                    row_to_seg[row_idx] = Some(segment_ord);
+                    global_term_ords[row_idx] = Some(term_ord);
+                }
+                DeferredValue::Null => pass_through[row_idx] = true,
             }
         }
 
@@ -1256,11 +1186,9 @@ impl SegmentedTopKState {
             }
 
             for (i, (row_idx, _)) in rows.into_iter().enumerate() {
-                let ord = term_ords[i].unwrap_or(NULL_TERM_ORDINAL);
-                if ord == NULL_TERM_ORDINAL {
-                    pass_through[row_idx] = true;
-                } else {
-                    global_term_ords[row_idx] = Some(ord);
+                match term_ords[i] {
+                    Some(ord) => global_term_ords[row_idx] = Some(ord),
+                    None => pass_through[row_idx] = true,
                 }
             }
         }
@@ -1782,7 +1710,7 @@ impl SegmentedTopKState {
         //
         // Ordinal-tracked survivors and pass-through rows carry the same compound
         // key, so both resolve through one path below.
-        type Candidate = (usize, usize, SegmentOrdinal, OwnedRow);
+        type Candidate = (usize, usize, Option<SegmentOrdinal>, OwnedRow);
         let mut candidates: Vec<Candidate> = Vec::new();
 
         for (seg_idx, slot) in self.segment_bufs.iter().enumerate() {
@@ -1791,7 +1719,7 @@ impl SegmentedTopKState {
                 candidates.push((
                     *batch_idx,
                     *row_idx,
-                    seg_idx as SegmentOrdinal,
+                    Some(seg_idx as SegmentOrdinal),
                     row_val.clone(),
                 ));
             }
@@ -1917,7 +1845,13 @@ impl SegmentedTopKState {
                         .map(|a| a.value(cand_idx));
                     match term_ord {
                         Some(term_ord) => {
-                            self.materialize_deferred_ordinal(*seg_ord, term_ord, deferred)?
+                            let seg_ord = seg_ord.ok_or_else(|| {
+                                DataFusionError::Internal(
+                                    "SegmentedTopKExec: a row with a term ordinal has no segment"
+                                        .into(),
+                                )
+                            })?;
+                            self.materialize_deferred_ordinal(seg_ord, term_ord, deferred)?
                         }
                         None => typed_null(sort_col)?,
                     }
@@ -2048,7 +1982,7 @@ mod tests {
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::deferred_encode::{build_state_doc_address, deferred_union_data_type};
+    use crate::scan::deferred_encode::{build_state_doc_address, deferred_field};
     use crate::scan::segmented_topk_exec::DeferredSortColumn;
     use crate::schema::SearchFieldType;
 
@@ -2139,7 +2073,7 @@ mod tests {
         ));
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new("sort_col", deferred_union_data_type(), true),
+            deferred_field("sort_col"),
             Field::new("id", arrow_schema::DataType::Int64, true),
         ]));
 

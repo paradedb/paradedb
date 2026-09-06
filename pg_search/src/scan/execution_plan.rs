@@ -71,6 +71,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
+use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
@@ -981,7 +982,7 @@ impl DisplayAs for PgSearchScanPlan {
                 d.fetch_at_scan
                     && schema
                         .column_with_name(&d.name)
-                        .is_some_and(|(_, f)| matches!(f.data_type(), DataType::Union(_, _)))
+                        .is_some_and(|(_, f)| is_deferred_field(f))
             })
             .map(|d| d.name.as_str())
             .collect();

@@ -560,8 +560,8 @@ WHERE description @@@ paradedb.regex_phrase(
 EXPLAIN (FORMAT TEXT, VERBOSE, COSTS OFF, TIMING OFF)
 SELECT * FROM recursive_test.estimate_items
 WHERE id @@@ pdb.more_like_this(1);
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
@@ -569,7 +569,7 @@ WHERE id @@@ pdb.more_like_this(1);
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":null},"estimated_docs":19}},"estimated_docs":19}
+   Tantivy Query: {"with_index":{"query":{"more_like_this":{"field":"id","key_value":1,"fields":null,"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null},"estimated_docs":19}},"estimated_docs":19}
 (8 rows)
 
 -- Test 5.16: Match query with explicit tokenizer

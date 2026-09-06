@@ -4,6 +4,13 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
+SELECT pg_typeof(pdb.more_like_this(1)) AS value_type,
+       pg_typeof(pdb.more_like_this(document => '{"body":"alpha"}')) AS document_type;
+ value_type |       document_type       
+------------+---------------------------
+ pdb.query  | paradedb.searchqueryinput
+(1 row)
+
 CREATE TABLE mlt (
     id SERIAL PRIMARY KEY,
     text_field_a TEXT,
@@ -134,6 +141,23 @@ SELECT * FROM mlt where id @@@ pdb.more_like_this(100);
 ----+--------------+--------------+---------------+------------
 (0 rows)
 
+-- The LHS selects the source row, independently of the configured key.
+SELECT ARRAY(SELECT id FROM mlt WHERE id @@@ pdb.more_like_this(3, ARRAY['text_field_a']) ORDER BY id)
+     = ARRAY(SELECT id FROM mlt WHERE numeric_field @@@ pdb.more_like_this(
+         2, fields => ARRAY['text_field_a']) ORDER BY id)
+       AS explicit_lookup_matches_key;
+ explicit_lookup_matches_key 
+-----------------------------
+ t
+(1 row)
+
+SELECT pdb.more_like_this(1, '{text_field_a}')::text::jsonb
+     = pdb.more_like_this(1, ARRAY['text_field_a'])::text::jsonb AS legacy_fields_literal;
+ legacy_fields_literal 
+-----------------------
+ t
+(1 row)
+
 DROP TABLE mlt;
 -- Field-less more_like_this skips vector columns (issue #5826)
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -165,3 +189,152 @@ SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['de
 SELECT id FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['embedding']);
 ERROR:  vector fields are not supported for more_like_this
 DROP TABLE mlt_vec;
+CREATE TABLE mlt_keyless (
+    tenant int,
+    id int,
+    body text,
+    "Lookup Code" text,
+    PRIMARY KEY (tenant, id)
+);
+INSERT INTO mlt_keyless VALUES
+    (10, 1, 'alpha alpha', 'alpha''s'),
+    (20, 1, 'beta beta', 'beta'),
+    (10, 2, 'alpha alpha', NULL),
+    (20, 2, 'beta beta', NULL);
+CREATE INDEX mlt_keyless_idx ON mlt_keyless USING paradedb (tenant, id, body, "Lookup Code");
+-- A non-first, quoted LHS supplies the lookup column, not the rewritten planner anchor.
+SELECT tenant, id FROM mlt_keyless t
+WHERE "Lookup Code" @@@ pdb.more_like_this('alpha''s'::text, fields => ARRAY['body'])
+ORDER BY tenant, id;
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+-- Either source is valid for a duplicated value, but their content must not be combined.
+SELECT ARRAY(SELECT tenant FROM mlt_keyless t WHERE id @@@ pdb.more_like_this(
+    1, fields => ARRAY['body']) ORDER BY tenant)
+    IN (ARRAY[10, 10], ARRAY[20, 20]) AS one_source;
+ one_source 
+------------
+ t
+(1 row)
+
+SELECT tenant, id FROM mlt_keyless t
+WHERE t @@@ pdb.more_like_this(document => '{"body": "alpha alpha"}')
+ORDER BY tenant, id;
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+SELECT tenant, id FROM mlt_keyless t WHERE id @@@ pdb.more_like_this(999, fields => ARRAY['body']);
+ tenant | id 
+--------+----
+(0 rows)
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE mlt_lookup(text) AS
+SELECT tenant, id FROM mlt_keyless t WHERE "Lookup Code" @@@ pdb.more_like_this(
+    $1, fields => ARRAY['body'])
+ORDER BY tenant, id;
+EXECUTE mlt_lookup('alpha''s');
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+EXECUTE mlt_lookup('beta');
+ tenant | id 
+--------+----
+     20 |  1
+     20 |  2
+(2 rows)
+
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+DISCARD PLANS;
+EXECUTE mlt_lookup('alpha''s');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+EXECUTE mlt_lookup('beta');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ tenant | id 
+--------+----
+     20 |  1
+     20 |  2
+(2 rows)
+
+DEALLOCATE mlt_lookup;
+RESET plan_cache_mode;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_bitmapscan;
+SELECT tenant, id FROM mlt_keyless t WHERE t @@@ pdb.more_like_this(key_value => 1);
+ERROR:  a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference
+SELECT tenant, id FROM mlt_keyless WHERE "Lookup Code" @@@
+    pdb.more_like_this('alpha''s'::text, fields => ARRAY['body'])::pdb.boost(2)
+ORDER BY tenant, id;
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE mlt_query(pdb.query) AS
+SELECT tenant, id FROM mlt_keyless WHERE "Lookup Code" @@@ $1 ORDER BY tenant, id;
+EXECUTE mlt_query(pdb.more_like_this('alpha''s'::text, fields => ARRAY['body']));
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+DEALLOCATE mlt_query;
+RESET plan_cache_mode;
+-- An aliased tokenizer cast still identifies its underlying heap column.
+DROP INDEX mlt_keyless_idx;
+CREATE INDEX mlt_keyless_idx ON mlt_keyless USING paradedb (
+    tenant, id, body, ("Lookup Code"::pdb.literal('alias=lookup_code')));
+SELECT tenant, id FROM mlt_keyless WHERE
+    ("Lookup Code"::pdb.literal('alias=lookup_code')) @@@
+    pdb.more_like_this('alpha''s'::text, fields => ARRAY['body'])
+ORDER BY tenant, id;
+ tenant | id 
+--------+----
+     10 |  1
+     10 |  2
+(2 rows)
+
+-- Computed expressions are not silently interpreted as their underlying heap column.
+DROP INDEX mlt_keyless_idx;
+CREATE INDEX mlt_keyless_idx ON mlt_keyless USING paradedb (
+    tenant, id, body, (lower("Lookup Code")::pdb.literal('alias=lookup_lower')));
+SELECT tenant, id FROM mlt_keyless WHERE lower("Lookup Code") @@@
+    pdb.more_like_this('alpha''s'::text, fields => ARRAY['body']);
+ERROR:  more_like_this(key_value => ...) requires a heap column on the left-hand side
+DROP TABLE mlt_keyless;
+-- The legacy key-value overload keeps working for non-integer keys too.
+CREATE TABLE mlt_text_key (id text PRIMARY KEY, body text);
+INSERT INTO mlt_text_key VALUES ('alpha', 'alpha alpha'), ('beta', 'beta beta');
+CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body) WITH (key_field = 'id');
+SELECT id FROM mlt_text_key WHERE id @@@ pdb.more_like_this(
+    key_value => 'alpha'::text, fields => ARRAY['body']) ORDER BY id;
+  id   
+-------
+ alpha
+(1 row)
+
+DROP TABLE mlt_text_key;

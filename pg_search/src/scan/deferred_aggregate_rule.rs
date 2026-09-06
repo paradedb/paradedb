@@ -30,11 +30,11 @@
 //!                                                      input
 //! ```
 //!
-//! The partial group key is the deferred union itself. The row format encodes a dense
-//! union, and two rows compare equal only when segment and ordinal match, which is what a
-//! per-segment group needs. The decode then runs once per partial group, and the final
-//! aggregate merges the segments' groups by string. A NULL string is a NULL ordinal in
-//! every segment, so the final aggregate merges those groups like any other.
+//! The partial group key is the deferred column itself: one `UInt64` per row that packs the
+//! segment with the ordinal, so two rows compare equal only when both match, which is what a
+//! per-segment group needs, and the hash table works on primitives. The decode then runs
+//! once per partial group, and the final aggregate merges the segments' groups by string. A
+//! NULL string is a NULL key, which the final aggregate merges like any other group.
 //!
 //! A row that reaches the partial aggregate as a doc address (State 0) would group per
 //! document and reduce nothing, so a column only moves when a fetch below the aggregate,
@@ -270,7 +270,7 @@ mod tests {
     use crate::api::HashMap;
     use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
     use crate::query::SearchQueryInput;
-    use crate::scan::deferred_encode::deferred_union_data_type;
+    use crate::scan::deferred_encode::{deferred_data_type, deferred_field};
     use crate::scan::late_materialization::DeferredField;
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::functions_aggregate::count::count_udaf;
@@ -291,7 +291,7 @@ mod tests {
             None,
             Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, true),
-                Field::new("category", deferred_union_data_type(), true),
+                deferred_field("category"),
             ])),
             SearchQueryInput::All,
             None,
@@ -381,10 +381,7 @@ mod tests {
             .downcast_ref::<AggregateExec>()
             .expect("a partial aggregate under the decode");
         assert_eq!(*partial.mode(), AggregateMode::Partial);
-        assert_eq!(
-            partial.schema().field(0).data_type(),
-            &deferred_union_data_type()
-        );
+        assert_eq!(partial.schema().field(0).data_type(), &deferred_data_type());
         assert!(
             partial.input().is::<PgSearchScanPlan>(),
             "the scan feeds the partial aggregate its ordinals"

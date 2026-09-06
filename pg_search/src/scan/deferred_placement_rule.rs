@@ -17,7 +17,7 @@
 
 //! Physical optimizer rule that places the two halves of a deferred string lookup per source.
 //!
-//! The logical rule decides whether a string column leaves its scan as a union at all. This
+//! The logical rule decides whether a string column leaves its scan deferred at all. This
 //! rule decides where each half of the lookup runs, from the shape of the plan between the
 //! scan and the decode point:
 //!
@@ -26,7 +26,7 @@
 //!   join multiplies them. Otherwise the scan resolves the ordinals itself, in doc order.
 //! - The decode (term ordinal to string) costs the same per row wherever it runs, so it stays
 //!   deferred unless a join multiplies the rows on the way and nothing above bounds them. In
-//!   that case the scan decodes the column and no union is carried at all. A limit bounds
+//!   that case the scan decodes the column and no ordinal is carried at all. A limit bounds
 //!   the rows, and so does an aggregate that groups on the column, since it reduces them to
 //!   one per group before the decode (see `DeferredAggregateRule`).
 //!
@@ -621,7 +621,7 @@ mod tests {
     use super::*;
     use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
     use crate::query::SearchQueryInput;
-    use crate::scan::deferred_encode::deferred_union_data_type;
+    use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::physical_expr::projection::ProjectionExpr;
@@ -716,7 +716,7 @@ mod tests {
             None,
             Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, true),
-                Field::new("title", deferred_union_data_type(), true),
+                deferred_field("title"),
             ])),
             SearchQueryInput::All,
             None,

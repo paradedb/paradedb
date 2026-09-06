@@ -31,9 +31,7 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::logical_expr::{
-    Expr, Extension, JoinType, LogicalPlan, UserDefinedLogicalNodeCore,
-};
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -44,17 +42,17 @@ use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 /// **Strategy:**
 /// 1. We traverse the `LogicalPlan` bottom-up using `transform_up`.
 /// 2. At the base, we intercept any `TableScan` originating from a `PgSearchTableProvider`
-///    that has actively deferred columns. We wrap its source in a `UnionTableSource`,
-///    which safely overrides the declared schema from `Utf8View` (which the SQL planner needs)
-///    to `Union(UInt64, Utf8View)` (which reflects the true physical layout).
+///    that has actively deferred columns and flip the provider's declared schema from
+///    `Utf8View` (which the SQL planner needs) to the packed `UInt64` of a deferred column
+///    (which reflects the true physical layout, see `deferred_encode`).
 /// 3. As we bubble up through the plan, we evaluate each node via `should_anchor`.
 ///    If a node (like `Projection` or a `HashJoin` not joining on the deferred column)
-///    merely passes the column through without evaluating it, we let the `Union` schema
+///    merely passes the column through without evaluating it, we let the deferred schema
 ///    bubble through the node transparently (via `recompute_schema`).
 ///    If a node (like `Sort`, `Filter`, or `Aggregate`) natively evaluates the deferred column,
 ///    we *anchor* a `LateMaterializeNode` directly underneath it.
-/// 4. If the `Union` successfully bubbles all the way to the root of the plan, we wrap the
-///    final result in a `LateMaterializeNode` to ensure the client receives the standard
+/// 4. If a deferred column successfully bubbles all the way to the root of the plan, we wrap
+///    the final result in a `LateMaterializeNode` to ensure the client receives the standard
 ///    materialized strings.
 #[derive(Debug)]
 pub struct LateMaterializationRule;
@@ -222,60 +220,71 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
     }
 }
 
-/// Helper function to check if the given plan outputs a `Union` type that corresponds
-/// to a known deferred field. If it does, it returns the actively tracked deferred fields
-/// mapped accurately to the plan's current output schema (accounting for relation aliases).
-fn get_union_info(
+/// The deferred field a plan column carries, if it is one. A deferred column is a
+/// `UInt64` whose lineage ends at a deferred field of its scan; the match is by index and
+/// name, so two tables that share a column name keep their own entries, and a self-join's
+/// two identical entries are consumed from `pool` one by one so each column claims its own.
+fn take_deferred_field(
+    plan: &LogicalPlan,
+    qualifier: Option<&datafusion::common::TableReference>,
+    field: &arrow_schema::Field,
+    pool: &mut Vec<DeferredField>,
+) -> Option<DeferredField> {
+    if field.data_type() != &arrow_schema::DataType::UInt64 {
+        return None;
+    }
+    let col = datafusion::common::Column::from((qualifier, field));
+    let base_col = trace_column(plan, &col)?;
+    let pos = pool.iter().position(|d| base_col.is(d))?;
+    Some(pool.remove(pos))
+}
+
+fn materialized_field(field: &arrow_schema::Field, is_bytes: bool) -> arrow_schema::Field {
+    let materialized_type = if is_bytes {
+        arrow_schema::DataType::BinaryView
+    } else {
+        arrow_schema::DataType::Utf8View
+    };
+    arrow_schema::Field::new(field.name(), materialized_type, field.is_nullable())
+}
+
+/// Helper function to check if the given plan outputs deferred columns. If it does, it
+/// returns the actively tracked deferred fields mapped accurately to the plan's current
+/// output schema (accounting for relation aliases), and that schema with each of them
+/// materialized.
+fn get_deferred_info(
     plan: &LogicalPlan,
 ) -> Option<(Vec<DeferredField>, datafusion::common::DFSchemaRef)> {
     let schema = plan.schema();
-    let mut has_union = false;
-    for field in schema.fields() {
-        if matches!(field.data_type(), arrow_schema::DataType::Union(_, _)) {
-            has_union = true;
-            break;
-        }
-    }
-    if !has_union {
+    if !schema
+        .fields()
+        .iter()
+        .any(|f| f.data_type() == &arrow_schema::DataType::UInt64)
+    {
         return None;
     }
 
     let mut all_deferred = get_deferred_fields(plan);
+    if all_deferred.is_empty() {
+        return None;
+    }
     let mut active_deferred = Vec::new();
     let mut new_fields = Vec::new();
 
     for (qualifier, field) in schema.iter() {
-        if let arrow_schema::DataType::Union(_, _) = field.data_type() {
-            // Find the matching deferred field by tracing the column lineage back to its
-            // scan. The match is by index and name, so two tables that share a column name
-            // keep their own entries. A self-join's two scans produce identical entries, and
-            // consuming them one by one gives each Union field its own.
-            let col =
-                datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
-            let mut is_bytes = false;
-            if let Some(base_col) = trace_column(plan, &col)
-                && let Some(pos) = all_deferred.iter().position(|d| base_col.is(d))
-            {
-                let d = all_deferred.remove(pos);
-                is_bytes = d.is_bytes;
+        match take_deferred_field(plan, qualifier, field, &mut all_deferred) {
+            Some(d) => {
+                new_fields.push((
+                    qualifier.cloned(),
+                    Arc::new(materialized_field(field, d.is_bytes)),
+                ));
                 active_deferred.push(d);
             }
-
-            let materialized_type = if is_bytes {
-                arrow_schema::DataType::BinaryView
-            } else {
-                arrow_schema::DataType::Utf8View
-            };
-
-            let materialized_field = Arc::new(arrow_schema::Field::new(
-                field.name(),
-                materialized_type,
-                field.is_nullable(),
-            ));
-            new_fields.push((qualifier.cloned(), materialized_field));
-        } else {
-            new_fields.push((qualifier.cloned(), field.clone()));
+            None => new_fields.push((qualifier.cloned(), field.clone())),
         }
+    }
+    if active_deferred.is_empty() {
+        return None;
     }
 
     let new_schema = Arc::new(
@@ -297,8 +306,8 @@ fn get_column_refs(node: &LogicalPlan) -> HashSet<Column> {
 }
 
 /// Determines whether a `LateMaterializeNode` must be anchored *below* the given logical plan node.
-/// If `true`, the `Union` values will be materialized into standard strings before this node executes.
-/// If `false`, the `Union` schema will bubble straight through it.
+/// If `true`, the deferred columns will be materialized into standard strings before this node executes.
+/// If `false`, the deferred schema will bubble straight through it.
 fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool {
     let refs = get_column_refs(node);
 
@@ -314,7 +323,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         LogicalPlan::Filter(_) => references_deferred,
         LogicalPlan::Projection(proj) => {
             // Only anchor if the projection does something other than pass through or alias the deferred column.
-            // If it's just a Column or Alias(Column), the Union can safely pass through.
+            // If it's just a Column or Alias(Column), the deferred column can safely pass through.
             let mut anchors_deferred = false;
             for expr in &proj.expr {
                 let mut cols = HashSet::new();
@@ -356,25 +365,6 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         }
         LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
-            // A null-extended row has no union value to carry: a dense union has no
-            // validity bitmap, and the row the join fills in points at the first entry of
-            // the first child. So a column of a null-supplying side is decoded before the
-            // join.
-            let carries_deferred = |input: &LogicalPlan| {
-                input.schema().columns().iter().any(|c| {
-                    trace_column(input, c)
-                        .is_some_and(|base| deferred_fields.iter().any(|df| base.is(df)))
-                })
-            };
-            let null_extended = match join.join_type {
-                JoinType::Left => carries_deferred(&join.right),
-                JoinType::Right => carries_deferred(&join.left),
-                JoinType::Full => carries_deferred(&join.left) || carries_deferred(&join.right),
-                _ => false,
-            };
-            if null_extended {
-                return true;
-            }
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
                 l.add_column_refs(&mut join_refs);
@@ -525,19 +515,15 @@ impl OptimizerRule for LateMaterializationRule {
                         .any(|df| beneficial_fields.contains(&df.canonical));
 
                     if has_beneficial_deferred {
-                        let is_already_union =
-                            scan.projected_schema.fields().iter().any(|f| {
-                                matches!(f.data_type(), arrow_schema::DataType::Union(_, _))
-                            });
-
-                        if is_already_union {
+                        if provider.is_late_materialization_schema_enabled() {
                             return Ok(Transformed::no(node));
                         }
 
-                        // Tell the provider to flip its schema output from Utf8View to Union
+                        // Tell the provider to flip its schema output from Utf8View to the
+                        // deferred columns.
                         provider.enable_late_materialization_schema();
 
-                        // Now the provider natively outputs the Union schema!
+                        // Now the provider natively outputs the deferred schema!
                         // We must reconstruct the TableScan's projected schema to reflect this new reality.
                         let mut new_scan = scan.clone();
                         let projected_indices: Result<Vec<usize>, _> = scan
@@ -574,7 +560,7 @@ impl OptimizerRule for LateMaterializationRule {
 
             for input in node.inputs() {
                 let input_plan = input.clone();
-                if let Some((deferred_fields, output_schema)) = get_union_info(&input_plan) {
+                if let Some((deferred_fields, output_schema)) = get_deferred_info(&input_plan) {
                     if should_anchor(&node, &deferred_fields) {
                         let extension_node = LogicalPlan::Extension(Extension {
                             node: Arc::new(LateMaterializeNode {
@@ -597,14 +583,14 @@ impl OptimizerRule for LateMaterializationRule {
                 let new_node = node.with_new_exprs(node.expressions(), new_inputs)?;
                 Ok(Transformed::yes(new_node))
             } else {
-                let has_union_child = new_inputs.iter().any(|i| get_union_info(i).is_some());
-                if has_union_child {
-                    // Union bubbled into us. We MUST recompute our schema to reflect the Union.
+                let has_deferred_child = new_inputs.iter().any(|i| get_deferred_info(i).is_some());
+                if has_deferred_child {
+                    // A deferred column bubbled into us. We MUST recompute our schema to reflect it.
                     // DataFusion's `transform_up` uses `map_children` which intentionally preserves the
                     // Join's old `schema` to avoid overhead during structural recursion.
                     // Using `Join::try_new` is the recommended way to forcefully re-evaluate `build_join_schema`
                     // using the mutated child schemas, guaranteeing that the `Join` node correctly
-                    // reports the bubbled `Union` types to the rest of the plan.
+                    // reports the bubbled deferred types to the rest of the plan.
                     if let LogicalPlan::Join(join) = &node {
                         let new_join = datafusion::logical_expr::logical_plan::Join::try_new(
                             Arc::new(new_inputs[0].clone()),
@@ -629,7 +615,7 @@ impl OptimizerRule for LateMaterializationRule {
         })?;
 
         let final_plan = transformed_plan.data;
-        if let Some((deferred_fields, output_schema)) = get_union_info(&final_plan) {
+        if let Some((deferred_fields, output_schema)) = get_deferred_info(&final_plan) {
             let root_mat = LogicalPlan::Extension(Extension {
                 node: Arc::new(LateMaterializeNode {
                     input: final_plan,
@@ -728,46 +714,25 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
         for (i, field) in child_schema.fields().iter().enumerate() {
             let (qualifier, _) = child_schema.qualified_field(i);
 
-            if let arrow_schema::DataType::Union(_, _) = field.data_type() {
-                // Find the corresponding deferred field by tracing column lineage. The match
-                // is by index and name; a self-join's identical entries are consumed one by
-                // one so each Union column claims its own slot.
-                let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
-                let mut is_bytes = false;
-                if let Some(base_col) = trace_column(&input, &target_col)
-                    && let Some(pos) = deferred_pool.iter().position(|d| base_col.is(d))
-                {
-                    let d = deferred_pool.remove(pos);
-                    is_bytes = d.is_bytes;
+            // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.
+            // We must manually map the incoming deferred columns back to their materialized
+            // types to construct a truthful output schema, avoiding invariant panics.
+            match take_deferred_field(&input, qualifier, field, &mut deferred_pool) {
+                Some(d) => {
+                    qualified_fields.push((
+                        qualifier.cloned(),
+                        Arc::new(materialized_field(field, d.is_bytes)),
+                    ));
                     new_deferred_fields.push(d);
                 }
-
-                // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.
-                // We must manually map the incoming `Union` types back to their materialized `T` types
-                // to construct a truthful output schema, avoiding invariant panics.
-                let materialized_type = if is_bytes {
-                    arrow_schema::DataType::BinaryView
-                } else {
-                    arrow_schema::DataType::Utf8View
-                };
-
-                qualified_fields.push((
-                    qualifier.cloned(),
-                    Arc::new(arrow_schema::Field::new(
-                        field.name(),
-                        materialized_type,
-                        field.is_nullable(),
-                    )),
-                ));
-            } else {
-                qualified_fields.push((
+                None => qualified_fields.push((
                     qualifier.cloned(),
                     Arc::new(arrow_schema::Field::new(
                         field.name(),
                         field.data_type().clone(),
                         field.is_nullable(),
                     )),
-                ));
+                )),
             }
         }
 
@@ -830,16 +795,16 @@ impl ExtensionPlanner for LateMaterializePlanner {
             let mut fetch_fields = Vec::new();
 
             for deferred in &mat_node.deferred_fields {
-                // Scan the child schema for the Union-typed field whose base column name
+                // Scan the child schema for the deferred column whose base column name
                 // matches this deferred field. We iterate by physical index so that duplicate
                 // column names (e.g. both sides of a self-join both called "ord") each resolve
                 // to their own distinct physical slot, not the first match by name.
                 let mut found_col_idx: Option<usize> = None;
                 for (i, field) in child_logical_schema.fields().iter().enumerate() {
-                    if !matches!(field.data_type(), arrow_schema::DataType::Union(_, _)) {
+                    if field.data_type() != &arrow_schema::DataType::UInt64 {
                         continue;
                     }
-                    // Only consider Union columns that haven't been claimed yet.
+                    // Only consider columns that haven't been claimed yet.
                     if physical_deferred_fields
                         .iter()
                         .any(|p: &PhysicalDeferredField| p.col_idx == i)
@@ -859,7 +824,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
 
                 let col_idx = found_col_idx.ok_or_else(|| {
                     DataFusionError::Internal(format!(
-                        "LateMaterializePlanner: could not locate physical Union column \
+                        "LateMaterializePlanner: could not locate the physical deferred column \
                          for deferred field '{}' in child schema. \
                          Child schema fields: [{}]",
                         deferred.name,
@@ -908,7 +873,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
 
 /// Tracks a deferred column's metadata through DataFusion's logical query plan.
 ///
-/// DataFusion's logical schema engine natively tracks data types (like our `Union`)
+/// DataFusion's logical schema engine natively tracks data types (like a deferred `UInt64`)
 /// as they bubble up through projections and joins. However, the schema engine does
 /// *not* preserve custom metadata attached to fields.
 ///

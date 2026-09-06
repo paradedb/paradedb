@@ -160,8 +160,8 @@ ORDER BY p.category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
--- A string from the null-supplying side of an outer join is decoded before the
--- join, since a null-extended row has no ordinal to carry.
+-- A string from the null-supplying side of an outer join stays deferred through
+-- the join: a null-extended row is a NULL ordinal, which counts as no note.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.category, COUNT(*), COUNT(n.note)
 FROM aog_products p LEFT JOIN aog_notes n ON n.product_id = p.id

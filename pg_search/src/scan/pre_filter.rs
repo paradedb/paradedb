@@ -107,6 +107,7 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
+use crate::scan::deferred_encode::is_deferred_field;
 use tantivy::Term;
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
@@ -209,10 +210,11 @@ impl PreFilter {
                 .ok_or_else(|| format!("Column {} not fetched", ff_index))?
                 .clone();
 
-            let schema_type = schema.field(ff_index).data_type();
+            let schema_field = schema.field(ff_index);
+            let schema_type = schema_field.data_type();
 
             // Cast numeric fast fields to match the expected DataFusion schema type
-            if !is_string_like_type(schema_type) && array.data_type() != schema_type {
+            if !is_string_like_field(schema_field) && array.data_type() != schema_type {
                 array = cast(&array, schema_type).map_err(|e| {
                     format!(
                         "Failed to cast Tantivy fast field from {:?} to DataFusion schema type {:?}: {}",
@@ -402,19 +404,21 @@ fn try_extract_score_threshold(
     }
 }
 
-/// Helper to centrally identify string, bytes, dictionary, and deferred string columns.
-fn is_string_like_type(data_type: &DataType) -> bool {
-    matches!(
-        data_type,
-        DataType::Utf8
-            | DataType::LargeUtf8
-            | DataType::Utf8View
-            | DataType::Binary
-            | DataType::LargeBinary
-            | DataType::BinaryView
-            | DataType::Dictionary(_, _)
-            | DataType::Union(_, _)
-    )
+/// Helper to centrally identify string, bytes, dictionary, and deferred string columns. A
+/// deferred column is a `UInt64` of term ordinals that string literals compare against once
+/// `try_rewrite_binary` has translated them, so it counts as a string here.
+fn is_string_like_field(field: &Field) -> bool {
+    is_deferred_field(field)
+        || matches!(
+            field.data_type(),
+            DataType::Utf8
+                | DataType::LargeUtf8
+                | DataType::Utf8View
+                | DataType::Binary
+                | DataType::LargeBinary
+                | DataType::BinaryView
+                | DataType::Dictionary(_, _)
+        )
 }
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
 ///
@@ -474,9 +478,7 @@ fn is_supported(
                 if let Some(col) = sub_node.downcast_ref::<Column>() {
                     let idx = col.index();
                     if idx < schema.fields().len() {
-                        let data_type = schema.field(idx).data_type();
-
-                        if is_string_like_type(data_type) {
+                        if is_string_like_field(schema.field(idx)) {
                             is_numeric = false;
                             return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
                         }
@@ -553,9 +555,6 @@ fn extract_bytes_from_scalar(scalar: &ScalarValue) -> Option<Option<&[u8]>> {
         | ScalarValue::Binary(None)
         | ScalarValue::LargeBinary(None)
         | ScalarValue::BinaryView(None) => Some(None),
-
-        ScalarValue::Union(Some((_, boxed_val)), _, _) => extract_bytes_from_scalar(boxed_val),
-        ScalarValue::Union(None, _, _) => Some(None),
 
         _ => None,
     }

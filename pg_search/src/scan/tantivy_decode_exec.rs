@@ -32,7 +32,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
 };
-use crate::scan::deferred_encode::{DeferredUnion, DeferredValue};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
     rebuild_missing_ffhelpers,
@@ -42,7 +42,8 @@ use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::stats::ColumnStatistics;
+use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -53,7 +54,9 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use datafusion::physical_plan::{
+    ChildStats, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, StatisticsArgs,
+};
 use tantivy::SegmentOrdinal;
 use tantivy::termdict::TermOrdinal;
 
@@ -148,7 +151,7 @@ impl TantivyDecodeExec {
     }
 }
 
-/// The input schema with each deferred union column replaced by its decoded type.
+/// The input schema with each deferred column replaced by its decoded type.
 fn build_output_schema(
     input_schema: SchemaRef,
     deferred: &[PhysicalDeferredField],
@@ -165,9 +168,9 @@ fn build_output_schema(
                 d.col_idx, d.display_name
             ))
         })?;
-        if !matches!(field.data_type(), DataType::Union(_, _)) {
+        if field.data_type() != &DataType::UInt64 {
             return Err(DataFusionError::Plan(format!(
-                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred union",
+                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred UInt64 column",
                 d.col_idx,
                 d.display_name,
                 field.data_type()
@@ -207,6 +210,25 @@ impl ExecutionPlan for TantivyDecodeExec {
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    /// The rows pass through unchanged; only the decoded columns' types change.
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        let mut statistics = input_stats[0].as_ref().clone();
+        for field in &self.deferred_fields {
+            if let Some(column) = statistics.column_statistics.get_mut(field.col_idx) {
+                *column = ColumnStatistics::new_unknown();
+            }
+        }
+        Ok(Arc::new(statistics))
     }
 
     fn apply_expressions(
@@ -309,16 +331,16 @@ fn decode_term_ordinals(
     field: &PhysicalDeferredField,
     column: &ArrayRef,
 ) -> Result<ArrayRef> {
-    let union = DeferredUnion::try_new(column.as_ref())?;
+    let deferred = DeferredColumn::try_new(column.as_ref())?;
     let num_rows = column.len();
     let num_segments = ffhelper.num_segments();
     let mut by_segment: Vec<Vec<(usize, TermOrdinal)>> = vec![Vec::new(); num_segments];
     let mut null_rows: Vec<usize> = Vec::new();
-    for (row, value) in union.values().enumerate() {
+    for (row, value) in deferred.values().enumerate() {
         match value {
             DeferredValue::TermOrdinal {
                 segment_ord,
-                term_ord: Some(term_ord),
+                term_ord,
             } => {
                 let entry = by_segment.get_mut(segment_ord as usize).ok_or_else(|| {
                     DataFusionError::Execution(format!(
@@ -328,9 +350,7 @@ fn decode_term_ordinals(
                 })?;
                 entry.push((row, term_ord));
             }
-            DeferredValue::TermOrdinal { term_ord: None, .. } | DeferredValue::Null => {
-                null_rows.push(row)
-            }
+            DeferredValue::Null => null_rows.push(row),
             DeferredValue::DocAddress(_) => {
                 return Err(DataFusionError::Internal(format!(
                     "TantivyDecodeExec: column '{}' row {row} still carries a doc address; a TantivyFetchExec must resolve it first",

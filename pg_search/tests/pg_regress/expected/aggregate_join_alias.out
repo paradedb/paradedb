@@ -48,8 +48,8 @@ FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id
 GROUP BY company_name
 ORDER BY company_name;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: cccf.company_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -100,8 +100,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT count(DISTINCT company_name)
 FROM repro_cccf cccf
 JOIN repro_ti ti ON cccf.company_id = ti.company_id;
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: repro_cccf_idx (cccf), repro_ti_idx (ti)

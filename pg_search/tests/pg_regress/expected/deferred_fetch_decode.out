@@ -36,10 +36,11 @@ CREATE TABLE dfd_files (
     content TEXT,
     price NUMERIC
 );
-CREATE INDEX dfd_documents_idx ON dfd_documents USING bm25 (id, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
-CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content, price)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', numeric_fields = '{"price": {"fast": true}}');
+CREATE INDEX dfd_documents_idx ON dfd_documents USING paradedb
+((id::pdb.literal), (category::pdb.simple('columnar=true')));
+CREATE INDEX dfd_files_idx ON dfd_files USING paradedb
+(id, (document_id::pdb.literal), (title::pdb.simple('columnar=true')),
+ (content::pdb.simple('columnar=true')), price);
 -- Two insert batches after the index exists give the files index two segments, so a
 -- batch above the join mixes rows whose ordinals live in different dictionaries.
 SET paradedb.global_mutable_segment_rows = 0;
@@ -72,11 +73,11 @@ SHOW paradedb.defer_column_fetch;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -92,14 +93,14 @@ LIMIT 5;
            :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[f, d]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      
@@ -115,11 +116,11 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -135,14 +136,14 @@ LIMIT 4;
            :       SegmentedTopKExec: expr=[title@1 DESC, id@2 ASC NULLS LAST], k=4, visibility_checks=[f, d]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"BETA_GROUP","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
  id  |     title      
@@ -157,11 +158,11 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, f.content
    ->  Custom Scan (ParadeDB Join Scan)
@@ -177,14 +178,14 @@ LIMIT 5;
            :       SegmentedTopKExec: expr=[title@1 DESC, content@2 ASC NULLS LAST], k=5, visibility_checks=[f, d]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, content@5, ctid_1@0]
            :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"GAMMA_DIVISION","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
  id |     title      |         content          
@@ -200,11 +201,11 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.price
    ->  Custom Scan (ParadeDB Join Scan)
@@ -220,14 +221,14 @@ LIMIT 7;
            :       SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7, visibility_checks=[f, d]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, price@4, id@5, ctid_1@0]
            :           CooperativeExec
-           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :           CooperativeExec
            :             PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (18 rows)
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
  id |         price          
@@ -246,11 +247,11 @@ SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -268,14 +269,14 @@ LIMIT 5;
            :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :               CooperativeExec
-           :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :               CooperativeExec
            :                 PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (20 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      
@@ -293,12 +294,12 @@ SET paradedb.enable_aggregate_late_materialization = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*))
    ->  Sort
@@ -319,14 +320,14 @@ LIMIT 5;
                  :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@0)], projection=[title@3, ctid_0@1, ctid_1@4]
                  :               CooperativeExec
-                 :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"BETA_GROUP","lenient":null,"conjunction_mode":null}}}}
+                 :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
                  :               CooperativeExec
                  :                 PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
 (23 rows)
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
@@ -347,11 +348,11 @@ SET paradedb.defer_column_fetch = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -366,14 +367,14 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[f, d]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :         CooperativeExec
-           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      
@@ -388,11 +389,11 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -407,14 +408,14 @@ LIMIT 4;
            :     SegmentedTopKExec: expr=[title@1 DESC, id@2 ASC NULLS LAST], k=4, visibility_checks=[f, d]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :         CooperativeExec
-           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"BETA_GROUP","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
  id  |     title      
@@ -428,11 +429,11 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, f.content
    ->  Custom Scan (ParadeDB Join Scan)
@@ -447,14 +448,14 @@ LIMIT 5;
            :     SegmentedTopKExec: expr=[title@1 DESC, content@2 ASC NULLS LAST], k=5, visibility_checks=[f, d]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, content@5, ctid_1@0]
            :         CooperativeExec
-           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"GAMMA_DIVISION","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, fetch=[title, content], dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
  id |     title      |         content          
@@ -470,11 +471,11 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.price
    ->  Custom Scan (ParadeDB Join Scan)
@@ -489,14 +490,14 @@ LIMIT 7;
            :     SegmentedTopKExec: expr=[price@1 ASC, id@2 ASC NULLS LAST], k=7, visibility_checks=[f, d]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, price@4, id@5, ctid_1@0]
            :         CooperativeExec
-           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :         CooperativeExec
            :           PgSearchScan: table=f, segments=2, fetch=[price], dynamic_filters=2, query="all"
 (17 rows)
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
  id |         price          
@@ -514,11 +515,11 @@ SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -535,14 +536,14 @@ LIMIT 5;
            :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@2, title@4, id@5, ctid_1@0]
            :             CooperativeExec
-           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :             CooperativeExec
            :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      
@@ -559,12 +560,12 @@ SET paradedb.enable_aggregate_late_materialization = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*))
    ->  Sort
@@ -584,14 +585,14 @@ LIMIT 5;
                  :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@0)], projection=[title@3, ctid_0@1, ctid_1@4]
                  :             CooperativeExec
-                 :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"BETA_GROUP","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
                  :             CooperativeExec
                  :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
 (22 rows)
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
@@ -616,11 +617,11 @@ SET parallel_tuple_cost TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -650,13 +651,13 @@ LIMIT 5;
            :     ┌───── Stage 1 ── tasks=1, partitions=2
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :     └──────────────────────────────────────────────────
 (31 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      
@@ -672,11 +673,11 @@ RESET paradedb.defer_column_fetch;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
@@ -707,13 +708,13 @@ LIMIT 5;
            :     ┌───── Stage 1 ── tasks=1, partitions=2
            :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
            :     │   DistributedLeafExec:
-           :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
            :     └──────────────────────────────────────────────────
 (32 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
  id |     title      

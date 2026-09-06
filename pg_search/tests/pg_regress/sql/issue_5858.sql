@@ -238,6 +238,28 @@ WHERE id @@@ paradedb.all()
   AND id > 1
 ORDER BY id;
 
+\echo '=== SECTION 7: an aggregate FILTER that cannot be extracted declines the scan ==='
+
+-- With filter pushdown off, a collation-declined comparison inside FILTER has
+-- no route into the scan: extraction fails, and the aggregate scan must step
+-- aside rather than treat the FILTER as absent and count every row.
+SET paradedb.enable_aggregate_custom_scan = on;
+SET paradedb.enable_filter_pushdown = off;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
+       count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
+FROM issue_5858_products
+WHERE id @@@ paradedb.all();
+
+SELECT count(*) FILTER (WHERE name_icu > 'B') AS range_count,
+       count(*) FILTER (WHERE name_ci = 'Books') AS equality_count
+FROM issue_5858_products
+WHERE id @@@ paradedb.all();
+
+RESET paradedb.enable_filter_pushdown;
+RESET paradedb.enable_aggregate_custom_scan;
+
 DROP TABLE issue_5858_products;
 DROP COLLATION issue_5858_icu;
 DROP COLLATION issue_5858_ci;

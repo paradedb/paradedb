@@ -161,6 +161,9 @@ pub struct Scanner {
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
+    /// Deferred columns (by `which_fast_fields` index) whose term ordinals this scan resolves
+    /// itself, so they leave the scan as State 1 in doc order instead of as doc addresses.
+    fetch_ordinals_in_scan: Vec<bool>,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
@@ -298,6 +301,8 @@ impl Scanner {
             .iter()
             .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
 
+        let fetch_ordinals_in_scan = vec![false; which_fast_fields.len()];
+
         Self {
             search_results,
             batch_size,
@@ -306,12 +311,25 @@ impl Scanner {
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             defer_visibility,
+            fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
             active_tag_scorers: Vec::new(),
+        }
+    }
+
+    /// Resolve the named deferred columns' term ordinals inside the scan, while the rows are
+    /// still in doc order, so only their dictionary decode is deferred.
+    pub fn fetch_ordinals_in_scan(&mut self, field_names: &[String]) {
+        for (ff_index, wff) in self.which_fast_fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, _) = wff {
+                if field_names.contains(name) {
+                    self.fetch_ordinals_in_scan[ff_index] = true;
+                }
+            }
         }
     }
 
@@ -551,12 +569,14 @@ impl Scanner {
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters.
+        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters,
+        // plus the deferred columns whose ordinals are fetched here rather than above.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
             if matches!(
                 which_ff,
                 WhichFastField::Named(_, _) | WhichFastField::Array(_, _)
-            ) {
+            ) || self.fetch_ordinals_in_scan[ff_index]
+            {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -672,7 +692,8 @@ impl Scanner {
                 }
                 // When resolving the data block, we build a 2-state UnionArray:
                 // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
-                // 1. Some(UInt64) -> The pre-filter already resolved term ordinals. Emit State 1.
+                // 1. Some(UInt64) -> The term ordinals are already resolved, by a pre-filter
+                //    or because this column is fetched in the scan. Emit State 1.
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),

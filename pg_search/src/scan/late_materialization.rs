@@ -21,9 +21,11 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::table_provider::pg_search_provider_from_scan;
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 use async_trait::async_trait;
 use datafusion::catalog::Session;
@@ -763,6 +765,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
 
             let child_logical_schema = mat_node.input.schema();
             let mut physical_deferred_fields = Vec::with_capacity(mat_node.deferred_fields.len());
+            let mut fetch_fields = Vec::new();
 
             for deferred in &mat_node.deferred_fields {
                 // Scan the child schema for the Union-typed field whose base column name
@@ -775,11 +778,10 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         continue;
                     }
                     // Only consider Union columns that haven't been claimed yet.
-                    if physical_deferred_fields.iter().any(
-                        |p: &crate::scan::tantivy_lookup_exec::PhysicalDeferredField| {
-                            p.col_idx == i
-                        },
-                    ) {
+                    if physical_deferred_fields
+                        .iter()
+                        .any(|p: &PhysicalDeferredField| p.col_idx == i)
+                    {
                         continue;
                     }
                     let (q, _) = child_logical_schema.qualified_field(i);
@@ -809,23 +811,31 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     ))
                 })?;
 
-                physical_deferred_fields.push(
-                    crate::scan::tantivy_lookup_exec::PhysicalDeferredField {
-                        col_idx,
-                        display_name: deferred.name.clone(),
-                        is_bytes: deferred.is_bytes,
-                        canonical: deferred.canonical.clone(),
-                        rebuild: deferred.rebuild.clone(),
-                    },
-                );
+                physical_deferred_fields.push(PhysicalDeferredField {
+                    col_idx,
+                    display_name: deferred.name.clone(),
+                    is_bytes: deferred.is_bytes,
+                    canonical: deferred.canonical.clone(),
+                    rebuild: deferred.rebuild.clone(),
+                });
+                if !deferred.fetch_at_scan {
+                    fetch_fields.push(physical_deferred_fields.last().unwrap().clone());
+                }
             }
 
-            let exec = TantivyLookupExec::new(
-                input_exec,
-                physical_deferred_fields,
-                ff_helpers,
-                Vec::new(),
-            )?;
+            // The planner places the fetch directly under the decode; a cost model may
+            // separate them. A scan that already resolved its ordinals needs no fetch node.
+            let decode_input: Arc<dyn ExecutionPlan> = if fetch_fields.is_empty() {
+                input_exec
+            } else {
+                Arc::new(TantivyFetchExec::new(
+                    input_exec,
+                    fetch_fields,
+                    ff_helpers.clone(),
+                    Vec::new(),
+                )?)
+            };
+            let exec = TantivyDecodeExec::new(decode_input, physical_deferred_fields, ff_helpers)?;
 
             Ok(Some(Arc::new(exec)))
         } else {
@@ -860,6 +870,10 @@ pub struct DeferredField {
     /// behavior of collecting the helper from the plan subtree.
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
+    /// When true, the scan resolves the column's term ordinals itself, in doc order, and
+    /// emits State 1; only the dictionary decode is deferred. When false, the scan emits
+    /// doc addresses and a `TantivyFetchExec` resolves them at the decode point.
+    pub fetch_at_scan: bool,
 }
 
 /// Everything a worker needs to rebuild the fast-field reader for a deferred column when the

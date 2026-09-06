@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788653416079,
+  "lastUpdate": 1788653424718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -194664,6 +194664,126 @@ window.BENCHMARK_DATA = {
             "value": 28.89453125,
             "unit": "median mem",
             "extra": "avg mem: 28.67485996710748, max mem: 29.1484375, count: 59322"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c807edea84cc882673003f352eeb05a77bdaf8dc",
+          "message": "fix: keep the pdb.agg join proptest inside work_mem (#6235)\n\n## Ticket(s) Closed\n\nNone.\n\n## What\n\nThis PR keeps `generated_pdb_agg_join` inside `work_mem`.\n\n## Why\n\nThe proptest can draw a join with a step joined on a non-equi condition\nalone, such as `users.age <> products.age`, which fans out to nearly the\ncross product of its two sides. Under a SQL `GROUP BY` and two nested\n`terms`, that yields tens of thousands of buckets. The DataFusion\naggregate runs with the `DiskManager` disabled, so it fails once its\nstate outgrows `work_mem` instead of spilling. In addition,\n`create_memory_pool` in\n`pg_search/src/postgres/customscan/datafusion/memory.rs` grows the pool\nonly for a `HashJoinExec` or a `SortExec`, so under a\n`NestedLoopJoinExec` the pool is the default 4MB.\n\nBoth reproduction scripts from run 33983476495 (PG16 system and PG18\npgrx) fail on a local instance at `work_mem = 4MB` every time, so this\nwas never a flake. Measured on the PG18 data:\n\n| Shape | Buckets | Fails at | Passes at |\n| --- | --- | --- | --- |\n| PG18 seed: `GROUP BY` + 2 `terms`, 2 `cardinality` | 982 | 8MB | 16MB\n|\n| 3 keys, `sum`/`min`/`max` on NUMERIC, keyless 3-way join | 55035 |\n16MB | 24MB |\n| 3 keys, 3 `cardinality`, keyless 3-way join | 55035 | 256MB | 1GB |\n\n## How\n\n- The oracle closure sets `work_mem` to `64MB`, the way\n`generated_joins_small` does. That covers every shape without a sketch\nwith about 3x margin.\n- `arb_pdb_agg_join` passes the join into the spec shape. Over a join\nwith a keyless step, a spec with `cardinality` keeps to at most one\nbucket key; with more keys the metric becomes `value_count` on the same\nfield. Equi and mixed joins keep every shape, since their equality\nbounds the fan-out.\n- `JoinExpr::has_keyless_step` is the new predicate.\n\nWhether `create_memory_pool` should also budget for a\n`NestedLoopJoinExec` is a separate question.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-09-05T16:51:04-07:00",
+          "tree_id": "6838bea4ae00cc689285536c21323d19e40b89ce",
+          "url": "https://github.com/paradedb/paradedb/commit/c807edea84cc882673003f352eeb05a77bdaf8dc"
+        },
+        "date": 1788653396010,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.090019,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.937430603449094, max cpu: 38.095238, count: 59301"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.80358059412995, max mem: 42.81640625, count: 59301"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.576935936173012, max cpu: 28.360415, count: 59301"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.60722020918703, max mem: 20.6328125, count: 59301"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.986610225730511, max cpu: 14.34263, count: 59301"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.54851236962699, max mem: 43.64453125, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18925,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19069.341208411326, max block_count: 36486.0, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8823629305420044, max cpu: 4.729064, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.316277471079747, max mem: 21.32421875, count: 59301"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.17503920675874, max segment_count: 38.0, count: 59301"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.393347,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.09669703765548, max cpu: 23.845009, count: 59301"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 42.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.00154646685975, max mem: 42.0078125, count: 59301"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.134849917309804, max cpu: 28.472567, count: 118602"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.07024293962159, max mem: 45.7578125, count: 118602"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.528641820262093, max cpu: 19.171242, count: 59301"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.844058278949763, max mem: 29.12890625, count: 59301"
           }
         ]
       }

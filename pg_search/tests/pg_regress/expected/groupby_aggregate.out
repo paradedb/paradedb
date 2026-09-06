@@ -704,8 +704,8 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -719,13 +719,10 @@ LIMIT 10;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyDecodeExec: decode=[category]
-                 :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :         TantivyFetchExec: fetch=[category]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category
 FROM products
@@ -907,8 +904,8 @@ WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -922,13 +919,10 @@ LIMIT 2;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyDecodeExec: decode=[category]
-                 :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :         TantivyFetchExec: fetch=[category]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, COUNT(*) as product_count
 FROM products
@@ -953,8 +947,8 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -968,13 +962,10 @@ LIMIT 10;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     TantivyDecodeExec: decode=[category]
-                 :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :         TantivyFetchExec: fetch=[category]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, COUNT(*) as pcount
 FROM products

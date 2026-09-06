@@ -149,8 +149,8 @@ impl VisibilityChecker {
     }
 
     /// Whether the heap is checked at all, the `solve_mvcc` decision of the
-    /// Tantivy backend. Only `check_one` and `check_batch` honor a `false`; the
-    /// tuple-fetching helpers always check.
+    /// Tantivy backend. The single- and batch-checking methods honor a `false`;
+    /// the tuple-fetching helpers always check.
     pub fn with_check_visibility(mut self, check_visibility: bool) -> Self {
         self.check_visibility = check_visibility;
         self
@@ -272,14 +272,27 @@ impl VisibilityChecker {
     /// Single-ctid visibility check for callers probing one doc at a time
     /// (e.g. the cardinality fast path's visibility filter).
     pub fn check_one(&mut self, ctid: u64) -> bool {
-        !self.check_visibility || self.resolve_visible(ctid, None).is_some()
+        !self.check_visibility || self.resolve_visible(ctid, None, false).is_some()
     }
 
-    /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
-    /// chain) if so. Panics if any ctids are absent.
-    ///
-    /// See `check` for details on visibility checking logic.
+    /// Checks if a batch of rows are visible. For all-visible blocks, the input CTID is returned
+    /// without resolving a possible HOT redirect.
     pub fn check_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
+        self.check_batch_impl(ctids, results, false);
+    }
+
+    /// Checks if a batch of rows are visible and resolves each CTID to the physical HOT member
+    /// visible under this checker's snapshot, including on all-visible blocks.
+    pub fn resolve_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
+        self.check_batch_impl(ctids, results, true);
+    }
+
+    fn check_batch_impl(
+        &mut self,
+        ctids: &[Option<u64>],
+        results: &mut [Option<u64>],
+        resolve_hot: bool,
+    ) {
         if ctids.is_empty() {
             return;
         }
@@ -304,7 +317,8 @@ impl VisibilityChecker {
             // acquire the block's buffer once per run of same-block ctids and
             // hold its lock across the run; resolve_visible's own VM re-check
             // hits the blockvis cache
-            let needs_heap_check = blockno < self.nblocks && !self.is_block_all_visible(blockno);
+            let needs_heap_check =
+                blockno < self.nblocks && (resolve_hot || !self.is_block_all_visible(blockno));
             let locked_buffer = if needs_heap_check {
                 if current_block != blockno {
                     drop(current_buffer.take());
@@ -315,7 +329,7 @@ impl VisibilityChecker {
             } else {
                 None
             };
-            results[idx] = self.resolve_visible(ctid, locked_buffer);
+            results[idx] = self.resolve_visible(ctid, locked_buffer, resolve_hot);
         }
     }
 
@@ -325,13 +339,18 @@ impl VisibilityChecker {
     /// buffer; otherwise the tuple is checked under a short share lock,
     /// reusing a cached pin on the heap block across calls since consecutive
     /// checks tend to hit the same block.
-    fn resolve_visible(&mut self, ctid: u64, locked_buffer: Option<pg_sys::Buffer>) -> Option<u64> {
+    fn resolve_visible(
+        &mut self,
+        ctid: u64,
+        locked_buffer: Option<pg_sys::Buffer>,
+        resolve_hot: bool,
+    ) -> Option<u64> {
         let blockno = (ctid >> 16) as pg_sys::BlockNumber;
         if blockno >= self.nblocks {
             self.invisible_tuple_count += 1;
             return None;
         }
-        if self.is_block_all_visible(blockno) {
+        if !resolve_hot && self.is_block_all_visible(blockno) {
             return Some(ctid);
         }
         self.heap_tuple_check_count += 1;

@@ -218,6 +218,35 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Ctid(u64);
+
+impl Ctid {
+    pub unsafe fn from_fcinfo(
+        fcinfo: pg_sys::FunctionCallInfo,
+        argument_index: usize,
+    ) -> Option<Self> {
+        let datum = unsafe { pg_getarg_datum_raw(fcinfo, argument_index) };
+        unsafe { pg_sys::ItemPointerData::from_datum(datum, datum.is_null()) }.map(Self::from)
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.0 as pg_sys::OffsetNumber != pg_sys::InvalidOffsetNumber
+    }
+}
+
+impl From<pg_sys::ItemPointerData> for Ctid {
+    fn from(value: pg_sys::ItemPointerData) -> Self {
+        Self(item_pointer_to_u64(value))
+    }
+}
+
+impl From<Ctid> for u64 {
+    fn from(value: Ctid) -> Self {
+        value.0
+    }
+}
+
 /// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
 /// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
 /// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of

@@ -32,6 +32,7 @@
 
 use crate::api::HashSet;
 use crate::gucs::WorkMem;
+use crate::postgres::buffile;
 use crate::postgres::tuplesort::Sorter;
 use crate::postgres::types::TantivyValue;
 use pgrx::pg_sys;
@@ -156,19 +157,13 @@ impl Spilled {
             // and the BufFile *struct* (via the current memory context) must outlive the current
             // per-tuple ExprContext. Create it against the transaction's owner/context; `Spilled`'s
             // Drop closes it when the function's cache is torn down at end of query.
-            let saved_owner = pg_sys::CurrentResourceOwner;
-            let saved_cxt = pg_sys::CurrentMemoryContext;
-            pg_sys::CurrentResourceOwner = pg_sys::CurTransactionResourceOwner;
-            pg_sys::CurrentMemoryContext = pg_sys::CurTransactionContext;
-            let file = pg_sys::BufFileCreateTemp(false);
-            pg_sys::CurrentResourceOwner = saved_owner;
-            pg_sys::CurrentMemoryContext = saved_cxt;
+            let file = buffile::create_transaction_scoped_buffile();
 
             let mut index: Vec<IndexEntry> = Vec::new();
             let mut count: usize = 0;
             while let Some(bytes) = sorter.next_sorted() {
                 if count.is_multiple_of(INDEX_STRIDE) {
-                    let (fileno, offset) = buffile_tell(file);
+                    let (fileno, offset) = buffile::buffile_tell(file);
                     index.push(IndexEntry {
                         key: bytes.to_vec(),
                         fileno,
@@ -177,8 +172,8 @@ impl Spilled {
                 }
 
                 let len = bytes.len() as u32;
-                buffile_write(file, &len.to_ne_bytes());
-                buffile_write(file, bytes);
+                buffile::buffile_write(file, &len.to_ne_bytes());
+                buffile::buffile_write(file, bytes);
                 count += 1;
             }
 
@@ -209,7 +204,11 @@ impl Spilled {
         // pass the needle.
         unsafe {
             let entry = &self.index[block];
-            pg_sys::BufFileSeek(self.file, entry.fileno, entry.offset, 0 /* SEEK_SET */);
+            if buffile::buffile_seek(self.file, entry.fileno, entry.offset, 0 /* SEEK_SET */)
+                .is_err()
+            {
+                pgrx::error!("could not seek spilled key file to block {block}");
+            }
             for _ in 0..INDEX_STRIDE {
                 let Some(rec) = self.read_record() else {
                     return false;
@@ -227,13 +226,13 @@ impl Spilled {
     /// Read one length-prefixed record at the current file position; `None` at EOF.
     unsafe fn read_record(&self) -> Option<Vec<u8>> {
         let mut len_buf = [0u8; 4];
-        let n = pg_sys::BufFileRead(self.file, len_buf.as_mut_ptr().cast(), 4);
+        let n = buffile::buffile_read(self.file, &mut len_buf);
         if n == 0 {
             return None;
         }
         let len = u32::from_ne_bytes(len_buf) as usize;
         let mut buf = vec![0u8; len];
-        buffile_read_exact(self.file, buf.as_mut_ptr().cast(), len);
+        buffile::buffile_read_exact(self.file, &mut buf);
         Some(buf)
     }
 }
@@ -241,35 +240,5 @@ impl Spilled {
 impl Drop for Spilled {
     fn drop(&mut self) {
         unsafe { pg_sys::BufFileClose(self.file) }
-    }
-}
-
-unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> (c_int, pg_sys::off_t) {
-    let mut fileno: c_int = 0;
-    let mut offset: pg_sys::off_t = 0;
-    pg_sys::BufFileTell(file, &mut fileno, &mut offset);
-    (fileno, offset)
-}
-
-// The following wrap Postgres APIs whose signatures differ across supported versions.
-
-/// Write `data` to `file`. (PG15's `BufFileWrite` takes `*mut`; PG16+ takes `*const`.)
-unsafe fn buffile_write(file: *mut pg_sys::BufFile, data: &[u8]) {
-    #[cfg(feature = "pg15")]
-    pg_sys::BufFileWrite(file, data.as_ptr() as *mut std::ffi::c_void, data.len());
-    #[cfg(not(feature = "pg15"))]
-    pg_sys::BufFileWrite(file, data.as_ptr().cast::<std::ffi::c_void>(), data.len());
-}
-
-/// Read exactly `size` bytes into `ptr`. (`BufFileReadExact` was added in PG16; emulate it on PG15.)
-unsafe fn buffile_read_exact(file: *mut pg_sys::BufFile, ptr: *mut std::ffi::c_void, size: usize) {
-    #[cfg(feature = "pg15")]
-    {
-        let n = pg_sys::BufFileRead(file, ptr, size);
-        assert_eq!(n, size, "short read from spilled key file");
-    }
-    #[cfg(not(feature = "pg15"))]
-    {
-        pg_sys::BufFileReadExact(file, ptr, size);
     }
 }

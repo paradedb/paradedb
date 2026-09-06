@@ -581,9 +581,9 @@ WHERE p.description @@@ 'wireless'
                                                                                                                QUERY PLAN                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: (pdb.agg_fn('COUNT(*)'::text))
+   Output: (count(*))
    ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: pdb.agg_fn('COUNT(*)'::text)
+         Output: (count(*))
          Backend: DataFusion
          Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
          Aggregates: COUNT(*)

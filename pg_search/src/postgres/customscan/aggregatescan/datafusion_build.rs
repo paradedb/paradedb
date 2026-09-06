@@ -24,6 +24,7 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -1365,7 +1366,8 @@ pub unsafe fn check_join_path_predicates(
 /// source tables via `plan_position`.
 pub enum FilterExprBuildContext<'a> {
     Having {
-        targetlist: &'a super::join_targetlist::JoinAggregateTargetList,
+        /// Planner-only; HAVING aggregates are matched by whole-`Aggref` equality.
+        extracted_target: &'a ExtractedDataFusionTarget,
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     },
@@ -1429,51 +1431,15 @@ impl FilterExpr {
                 // translated expression can reference `agg_{idx}` columns at
                 // exec time.
                 //
-                // We can't do pointer comparison because havingQual has its
-                // own copy of the Aggref node. Instead we match by function
-                // OID + aggstar, and for non-star aggregates also match on
-                // the (rti, attno) of the first argument. For COUNT(*) that's
-                // enough; for column aggregates the (rti, attno) check
-                // disambiguates cases like COUNT(a) vs COUNT(b).
-                let FilterExprBuildContext::Having { targetlist, .. } = ctx else {
+                // `havingQual` holds its own copy of the Aggref, so match by
+                // `equal`, which covers FILTER, DISTINCT, and aggregate ORDER BY.
+                let FilterExprBuildContext::Having {
+                    extracted_target, ..
+                } = ctx
+                else {
                     return None;
                 };
-                let aggref = node as *mut pg_sys::Aggref;
-                for (idx, agg) in targetlist.aggregates.iter().enumerate() {
-                    if (*aggref).aggfnoid.to_u32() == agg.func_oid
-                        && ((*aggref).aggstar
-                            == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
-                    {
-                        if (*aggref).aggstar {
-                            return Some(Self::AggRef(idx));
-                        }
-                        // Non-star: confirm the argument column matches.
-                        // Compare by `plan_position` rather than rti so the
-                        // match is robust to rti aliasing across sub-
-                        // PlannerInfos. `plan_position` is the canonical
-                        // identity; targetlist refs don't carry rti.
-                        if !agg.field_refs.is_empty() {
-                            let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-                            if let Some(first_arg) = args.get_ptr(0)
-                                && let Some(var) = crate::postgres::var::find_one_var(
-                                    (*first_arg).expr as *mut pg_sys::Node,
-                                )
-                            {
-                                let rti = (*var).varno as pg_sys::Index;
-                                let attno = (*var).varattno;
-                                if let Some(r) = agg.field_refs.first() {
-                                    let var_pp = ctx.resolve_var(rti, attno);
-                                    if var_pp == Some(r.plan_position) && attno == r.attno {
-                                        return Some(Self::AggRef(idx));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // HAVING referenced an aggregate we didn't extract - bail out
-                // of the DataFusion path and let Postgres handle it natively.
-                None
+                extracted_target.aggregate_index(node).map(Self::AggRef)
             }
             pg_sys::NodeTag::T_Var => {
                 // A plain column reference. HAVING can only reference group
@@ -1496,7 +1462,10 @@ impl FilterExpr {
                             field_name,
                         })
                     }
-                    FilterExprBuildContext::Having { targetlist, .. } => targetlist
+                    FilterExprBuildContext::Having {
+                        extracted_target, ..
+                    } => extracted_target
+                        .targetlist()
                         .group_columns
                         .iter()
                         .find(|gc| gc.plan_position == pp && gc.attno == attno)

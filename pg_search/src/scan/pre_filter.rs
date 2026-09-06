@@ -879,7 +879,10 @@ fn try_convert_in_list_to_query(
         .iter()
         .map(|expr| {
             let scalar = extract_physical_scalar_value(expr)?;
-            let owned_value = PdbOwnedValue::from_scalar(&scalar, &field_type)?;
+            // Join-derived InList members are Arrow execution values. For
+            // Numeric64 that means already-scaled Int64 — do not re-apply scale
+            // via from_scalar (see #6158).
+            let owned_value = PdbOwnedValue::from_execution_scalar(&scalar, &field_type)?;
             value_to_term(
                 tantivy_field,
                 &owned_value,

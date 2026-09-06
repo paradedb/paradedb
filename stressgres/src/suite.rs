@@ -225,6 +225,10 @@ pub struct Server {
     #[serde(deserialize_with = "validate_server_name")]
     pub name: String,
 
+    /// Optional phased setup supplied by an external workload definition.
+    #[serde(default)]
+    pub setup_template: Option<String>,
+
     #[serde(default)]
     pub style: ServerStyle,
 
@@ -258,6 +262,9 @@ pub struct Job {
     pub title: Option<String>,
     pub on_connect: Option<String>,
     pub sql: String,
+    /// A logical destination resolved by the topology's `[routes]` table.
+    #[serde(default)]
+    pub route: Option<String>,
     /// Text which must occur in the verbose plan for `sql` before the job starts.
     /// A string is accepted for the common case; an array can assert multiple plan nodes.
     #[serde(default, deserialize_with = "deserialize_string_or_vec")]
@@ -296,15 +303,18 @@ where
     if names.is_none() {
         return Ok(vec![StatementDestination::DefaultServer]);
     }
-    let mut destinations: Vec<StatementDestination> = Vec::new();
-    for name in names.unwrap() {
-        destinations.push(match name.to_lowercase().as_str() {
+    Ok(destinations_from_names(names.unwrap()))
+}
+
+fn destinations_from_names(names: Vec<String>) -> Vec<StatementDestination> {
+    names
+        .into_iter()
+        .map(|name| match name.to_lowercase().as_str() {
             "default" => StatementDestination::DefaultServer,
             "all" => StatementDestination::AllServers,
             _ => StatementDestination::SpecificServers(vec![name]),
-        });
-    }
-    Ok(destinations)
+        })
+        .collect()
 }
 
 fn deserialize_string_or_vec<'de, D>(d: D) -> Result<Vec<String>, D::Error>
@@ -330,6 +340,7 @@ impl Default for Job {
             title: None,
             on_connect: None,
             sql: "".to_string(),
+            route: None,
             sql_plan_contains: vec![],
             assert: None,
             window_height: None,
@@ -399,17 +410,140 @@ pub struct SuiteDefinition {
     /// The display name of the suite.
     pub name: Option<String>,
 
+    /// Workload definition to compose with this topology, relative to this file.
+    #[serde(default)]
+    pub workload: Option<PathBuf>,
+
+    /// Topology definition to compose with this suite, relative to this file.
+    #[serde(default)]
+    pub topology: Option<PathBuf>,
+
+    /// Features supplied by a topology or required by a workload.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+
+    #[serde(default)]
+    pub requires: Vec<String>,
+
+    /// Phased, reusable server setup snippets supplied by a workload.
+    #[serde(default)]
+    pub setup_templates: HashMap<String, SetupTemplate>,
+
+    /// Maps logical workload routes to concrete destinations and an interval scale.
+    #[serde(default)]
+    pub routes: HashMap<String, Route>,
+
     /// The list of jobs to run as part of the suite.
+    #[serde(default)]
     pub jobs: Vec<Job>,
 
     /// The list of servers (Postgres instances) involved in the suite.
-    #[serde(deserialize_with = "validate_server_list")]
+    #[serde(default, deserialize_with = "validate_server_list")]
     #[serde(rename = "server")]
     pub servers: Vec<Server>,
 
     /// A list of error message substrings that should be ignored during execution and termination.
     #[serde(default)]
     pub ignore_errors: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct SetupTemplate {
+    #[serde(default)]
+    pub before: String,
+    #[serde(default)]
+    pub after: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Route {
+    pub destinations: Vec<String>,
+    #[serde(default = "default_route_refresh_scale")]
+    pub refresh_scale: f64,
+}
+
+fn default_route_refresh_scale() -> f64 {
+    1.0
+}
+
+impl SuiteDefinition {
+    /// Combine schema/query definitions from a workload with concrete topology settings.
+    pub fn compose_workload(&mut self, mut workload: SuiteDefinition) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            workload.workload.is_none(),
+            "nested workload definitions are not supported"
+        );
+        anyhow::ensure!(
+            workload.servers.is_empty(),
+            "a workload definition must not declare concrete servers"
+        );
+        for required in &workload.requires {
+            anyhow::ensure!(
+                self.capabilities.contains(required),
+                "workload requires topology capability `{required}`"
+            );
+        }
+
+        for (name, template) in workload.setup_templates.drain() {
+            anyhow::ensure!(
+                self.setup_templates
+                    .insert(name.clone(), template)
+                    .is_none(),
+                "duplicate setup template `{name}`"
+            );
+        }
+
+        for server in &mut self.servers {
+            let Some(template_name) = &server.setup_template else {
+                continue;
+            };
+            let template = self.setup_templates.get(template_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "server `{}` references unknown setup template `{template_name}`",
+                    server.name
+                )
+            })?;
+            server.setup.sql = [
+                template.before.trim(),
+                server.setup.sql.trim(),
+                template.after.trim(),
+            ]
+            .into_iter()
+            .filter(|sql| !sql.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        }
+
+        workload.jobs.append(&mut self.jobs);
+        self.jobs = workload.jobs;
+        self.ignore_errors.splice(0..0, workload.ignore_errors);
+
+        for job in &mut self.jobs {
+            if job.route.is_none() {
+                job.route = Some(if job.is_select() { "read" } else { "write" }.to_owned());
+            }
+            let Some(route_name) = &job.route else {
+                continue;
+            };
+            let route = self.routes.get(route_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "job `{}` references unknown route `{route_name}`",
+                    job.title()
+                )
+            })?;
+            anyhow::ensure!(
+                route.refresh_scale.is_finite() && route.refresh_scale > 0.0,
+                "route `{route_name}` has invalid refresh_scale {}",
+                route.refresh_scale
+            );
+            job.destinations = destinations_from_names(route.destinations.clone());
+            job.refresh_ms = ((job.refresh_ms as f64) * route.refresh_scale)
+                .round()
+                .max(1.0) as usize;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Suite {

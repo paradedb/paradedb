@@ -1,0 +1,19 @@
+capabilities = ["indexed_writes"]
+
+[routes.read]
+destinations = ["Primary"]
+
+[routes.write]
+destinations = ["Primary"]
+
+[[server]]
+name = "Primary"
+setup_template = "primary"
+[server.style.Automatic]
+
+[server.setup]
+sql = ""
+[server.teardown]
+sql = ""
+[server.monitor]
+sql = ""

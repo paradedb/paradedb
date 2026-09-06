@@ -1,0 +1,2 @@
+workload = "../workloads/wide-table.toml"
+topology = "../topologies/logical-replication-multi-subscriber.toml"

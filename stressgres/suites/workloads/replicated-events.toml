@@ -1,0 +1,50 @@
+[setup_templates.primary]
+before = """
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+INSERT INTO events(message)
+SELECT CASE WHEN i % 2 = 0 THEN 'beer ' ELSE 'wine ' END || i
+FROM generate_series(1, 10000) s(i);
+CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+"""
+
+[setup_templates.writer]
+before = """
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+INSERT INTO events(message)
+SELECT CASE WHEN i % 2 = 0 THEN 'beer ' ELSE 'wine ' END || i
+FROM generate_series(1, 10000) s(i);
+"""
+
+[setup_templates.reader]
+before = """
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
+"""
+after = """
+CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Subscriber Top K Base Scan"
+route = "read"
+sql = "SELECT id, message FROM events WHERE message ||| 'beer' LIMIT 100;"
+
+[[jobs]]
+refresh_ms = 25
+title = "Replicated Inserts"
+route = "write"
+sql = "INSERT INTO events(message) VALUES ('beer ' || txid_current());"
+
+[[jobs]]
+refresh_ms = 25
+title = "Replicated Updates"
+route = "write"
+sql = "UPDATE events SET message = message || ' updated' WHERE id BETWEEN 1 AND 100;"
+
+[[jobs]]
+refresh_ms = 50
+title = "Replicated Deletes"
+route = "write"
+sql = "DELETE FROM events WHERE id > 10000;"

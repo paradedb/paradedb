@@ -1,0 +1,2 @@
+workload = "../workloads/single-node-planner-paths.toml"
+topology = "../topologies/single.toml"

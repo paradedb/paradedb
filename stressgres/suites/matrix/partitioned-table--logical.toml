@@ -1,0 +1,2 @@
+workload = "../workloads/partitioned-table.toml"
+topology = "../topologies/logical-replication.toml"

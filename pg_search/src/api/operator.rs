@@ -15,30 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-macro_rules! operator_support {
-    ($vis:vis fn $name:ident, $operator:ident) => {
-        #[pgrx::pg_extern(immutable, parallel_safe)]
-        $vis fn $name(arg: pgrx::Internal) -> ReturnedNodePointer {
-            unsafe {
-                ReturnedNodePointer::for_support_operator(arg, super::SearchOperator::$operator)
-            }
-        }
-    };
-}
-
-mod andandand;
-mod atatat;
-pub(crate) mod boost;
-pub(crate) mod const_score;
-mod eqeqeq;
-pub(crate) mod fuzzy;
-mod hashhashhash;
-mod ororor;
-mod proximity;
-mod rewrite;
-mod searchqueryinput;
-pub(crate) mod slop;
-
 use crate::api::operator::boost::{BoostType, boost_to_boost};
 use crate::api::operator::fuzzy::{FuzzyType, fuzzy_to_fuzzy};
 use crate::api::operator::rewrite::SearchOperator;
@@ -78,6 +54,30 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 use pgrx::*;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
+
+macro_rules! operator_support {
+    ($vis:vis fn $name:ident, $operator:ident) => {
+        #[pgrx::pg_extern(immutable, parallel_safe)]
+        $vis fn $name(arg: pgrx::Internal) -> ReturnedNodePointer {
+            unsafe {
+                ReturnedNodePointer::for_support_operator(arg, super::SearchOperator::$operator)
+            }
+        }
+    };
+}
+
+mod andandand;
+mod atatat;
+pub(crate) mod boost;
+pub(crate) mod const_score;
+mod eqeqeq;
+pub(crate) mod fuzzy;
+mod hashhashhash;
+mod ororor;
+mod proximity;
+mod rewrite;
+mod searchqueryinput;
+pub(crate) mod slop;
 
 enum RHSValue {
     Text(String),

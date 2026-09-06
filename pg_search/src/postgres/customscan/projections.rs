@@ -34,8 +34,8 @@ use crate::postgres::customscan::basescan::projections::snippet::{
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_vars};
-use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{Internal, IntoDatum, PgList, direct_function_call, pg_extern, pg_guard, pg_sys};
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -91,11 +91,7 @@ pub(crate) unsafe fn create_placeholder_targetlist(
         let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
             && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
 
-        !is_top_level_placeholder
-            && expr_contains_placeholder_funcexpr(
-                (*te).expr as *mut pg_sys::Node,
-                placeholder_funcid,
-            )
+        !is_top_level_placeholder && (*te).expr.contains_functions(&[placeholder_funcid])
     });
 
     if !needs_projection {
@@ -184,11 +180,8 @@ pub(crate) unsafe fn create_placeholder_targetlist(
         let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
             && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
 
-        let contains_placeholder = is_top_level_placeholder
-            || expr_contains_placeholder_funcexpr(
-                (*te).expr as *mut pg_sys::Node,
-                placeholder_funcid,
-            );
+        let contains_placeholder =
+            is_top_level_placeholder || (*te).expr.contains_functions(&[placeholder_funcid]);
 
         if contains_placeholder {
             // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)
@@ -220,46 +213,6 @@ pub(crate) unsafe fn create_placeholder_targetlist(
     (new_targetlist, ctx.const_nodes, true)
 }
 
-/// Check if an expression tree contains a placeholder FuncExpr with the given funcid.
-unsafe fn expr_contains_placeholder_funcexpr(
-    node: *mut pg_sys::Node,
-    placeholder_funcid: pg_sys::Oid,
-) -> bool {
-    struct WalkerContext {
-        found: bool,
-        funcid: pg_sys::Oid,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = &mut *(context as *mut WalkerContext);
-
-        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
-            let funcexpr = node as *mut pg_sys::FuncExpr;
-            if (*funcexpr).funcid == ctx.funcid {
-                ctx.found = true;
-                return true; // Stop walking
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut ctx = WalkerContext {
-        found: false,
-        funcid: placeholder_funcid,
-    };
-    walker(node, addr_of_mut!(ctx).cast());
-    ctx.found
-}
-
 /// Create a placeholder Const node from a FuncExpr placeholder.
 /// The Const will be initialized with NULL value and will be mutated with actual
 /// aggregate values before each ExecBuildProjectionInfo call. This follows the
@@ -284,31 +237,6 @@ unsafe fn make_placeholder_const_from_funcexpr(
         true,                   // constisnull (starts as NULL)
         typbyval,               // constbyval
     )
-}
-
-/// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
-/// when it encounters a join context.
-#[pg_guard]
-unsafe extern "C-unwind" fn find_join_expr_walker(
-    node: *mut pg_sys::Node,
-    _context: *mut std::ffi::c_void,
-) -> bool {
-    if node.is_null() {
-        return false;
-    }
-    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
-        return true;
-    }
-    // Comma joins are a `FromExpr` with multiple fromlist entries and no
-    // `JoinExpr`. Without this, placeholder functions (score/snippet) used in a
-    // comma-join query are not wrapped in a PlaceHolderVar and get re-evaluated
-    // above the Gather Merge, panicking with "Unsupported query shape" (#5108).
-    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node)
-        && PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1
-    {
-        return true;
-    }
-    expression_tree_walker(node, Some(find_join_expr_walker), _context)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -338,10 +266,13 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         // anti/semi-joins (from NOT EXISTS/EXISTS sublinks pulled up by
         // pull_up_sublinks) create JoinExpr nodes without setting hasJoinRTEs.
         let has_joins = !(*root).parse.is_null()
-            && find_join_expr_walker(
-                (*(*root).parse).jointree as *mut pg_sys::Node,
-                std::ptr::null_mut(),
-            );
+            && (*(*root).parse).jointree.any(|node| {
+                (*node).type_ == pg_sys::NodeTag::T_JoinExpr
+                    // Comma joins have multiple fromlist entries without a JoinExpr.
+                    || nodecast!(FromExpr, T_FromExpr, node).is_some_and(|from_expr| {
+                        PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1
+                    })
+            });
 
         if !has_joins && !has_aggs {
             // No joins and no aggregates - PlaceHolderVar provides no benefit
@@ -381,44 +312,16 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 }
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = &*data.cast::<Data>();
-            if data.score_funcoids.contains(&(*funcexpr).funcid)
-                || data.snippet_funcoids.contains(&(*funcexpr).funcid)
-                || data
-                    .snippet_positions_funcoids
-                    .contains(&(*funcexpr).funcid)
-            {
-                return true;
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        score_funcoids: [pg_sys::Oid; 2],
-        snippet_funcoids: [pg_sys::Oid; 2],
-        snippet_positions_funcoids: [pg_sys::Oid; 2],
-    }
-
-    let mut data = Data {
-        score_funcoids: score_funcoids(),
-        snippet_funcoids: snippet_funcoids(),
-        snippet_positions_funcoids: snippet_positions_funcoids(),
-    };
-
-    let data = addr_of_mut!(data).cast();
-    walker(node, data)
+    let score_funcoids = score_funcoids();
+    let snippet_funcoids = snippet_funcoids();
+    let snippet_positions_funcoids = snippet_positions_funcoids();
+    node.any(|node| {
+        nodecast!(FuncExpr, T_FuncExpr, node).is_some_and(|expr| {
+            score_funcoids.contains(&(*expr).funcid)
+                || snippet_funcoids.contains(&(*expr).funcid)
+                || snippet_positions_funcoids.contains(&(*expr).funcid)
+        })
+    })
 }
 
 /// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain
@@ -432,60 +335,33 @@ pub unsafe fn pullout_funcexprs(
     rti: i32,
     root: *mut pg_sys::PlannerInfo,
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = &mut *data.cast::<Data>();
-            if data.funcids.contains(&(*funcexpr).funcid) {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                for arg in args.iter_ptr() {
-                    if let Some((var, fieldname)) =
-                        find_one_var_and_fieldname(VarContext::Planner(data.root), arg)
-                    {
-                        let same_layer = (*var).varno as i32 == data.rti as i32
-                            || (rte_is_partitioned(data.root, (*var).varno as pg_sys::Index)
-                                && rte_is_parent(
-                                    data.root,
-                                    data.rti as pg_sys::Index,
-                                    (*var).varno as pg_sys::Index,
-                                ));
-
-                        if same_layer {
-                            data.matches.push((funcexpr, var, fieldname));
-                        }
+    let mut matches = Vec::new();
+    node.walk(|node| {
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && funcids.contains(&(*funcexpr).funcid)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            for arg in args.iter_ptr() {
+                if let Some((var, fieldname)) =
+                    find_one_var_and_fieldname(VarContext::Planner(root), arg)
+                {
+                    let same_layer = (*var).varno as i32 == rti
+                        || (rte_is_partitioned(root, (*var).varno as pg_sys::Index)
+                            && rte_is_parent(
+                                root,
+                                rti as pg_sys::Index,
+                                (*var).varno as pg_sys::Index,
+                            ));
+                    if same_layer {
+                        matches.push((funcexpr, var, fieldname));
                     }
                 }
-
-                return false;
             }
+            return WalkControl::SkipChildren;
         }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data<'a> {
-        funcids: &'a [pg_sys::Oid],
-        rti: i32,
-        root: *mut pg_sys::PlannerInfo,
-        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)>,
-    }
-
-    let mut data = Data {
-        funcids,
-        rti,
-        root,
-        matches: vec![],
-    };
-
-    walker(node, addr_of_mut!(data).cast());
-    data.matches
+        WalkControl::Continue
+    });
+    matches
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -266,6 +266,8 @@ ORDER BY p.category;
            :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)
@@ -327,6 +329,8 @@ ORDER BY p.category;
            :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)

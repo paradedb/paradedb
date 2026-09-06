@@ -413,7 +413,7 @@ ORDER BY pr.promo_code;
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
- electronics |     5 | 2489.9499999999994
+ electronics |     5 |            2489.95
  sports      |     3 | 289.96999999999997
 (3 rows)
 
@@ -449,14 +449,15 @@ WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicate
  Aggregate
    ->  Nested Loop
          Join Filter: (p.unindexed_stock < pr.min_rating)
-         ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
-               Table: agg_nonequi_products
-               Index: agg_nonequi_products_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
          ->  Seq Scan on agg_nonequi_promos pr
-(10 rows)
+         ->  Materialize
+               ->  Custom Scan (ParadeDB Base Scan) on agg_nonequi_products p
+                     Table: agg_nonequi_products
+                     Index: agg_nonequi_products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 SELECT COUNT(*)
 FROM agg_nonequi_products p

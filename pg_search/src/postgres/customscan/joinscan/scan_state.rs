@@ -33,7 +33,8 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::logical_expr::{Expr, LogicalPlan, col};
+use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -321,10 +322,33 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
+/// Optimizes a plan with the session's rules first and late materialization once those have
+/// settled. DataFusion's rules cannot see through an extension node, so a rewrite they only
+/// reach on a later pass (a semi join under a duplicate-insensitive aggregate, once the
+/// projection above it is trimmed) would be lost to an anchor planted on the first pass.
+/// When an anchor is planted, the session's rules get a last pass over it, as they would
+/// have had in the next pass of one loop; when nothing is planted, the plan stays as it was.
+pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
+    let (state, plan) = df.into_parts();
+    let plan = state.optimize(&plan)?;
+    let late_materialization: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![Arc::new(
+        crate::scan::late_materialization::LateMaterializationRule,
+    )];
+    let planted =
+        Optimizer::with_rules(late_materialization).optimize(plan.clone(), &state, |_, _| {})?;
+    if planted == plan {
+        return Ok(planted);
+    }
+    state.optimizer().optimize(planted, &state, |_, _| {})
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
-/// - Late materialization
 /// - `PgSearchQueryPlanner`
+///
+/// Late materialization is not on the session; [`optimize_logical_plan`] runs it after the
+/// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
+/// columns are still present in the logical plan.
 pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -333,15 +357,10 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_config(config)
         .with_default_features();
 
-    // Inject visibility before late materialization so ctid lineage is analyzed
-    // while DeferredCtid columns are still present in the logical plan.
     builder = builder
         .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
         .with_optimizer_rule(Arc::new(
             super::range_partitioning_rule::RangePartitioningRule::new(),
-        ))
-        .with_optimizer_rule(Arc::new(
-            crate::scan::late_materialization::LateMaterializationRule,
         ));
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
@@ -421,7 +440,7 @@ pub async fn build_joinscan_logical_plan(
     let ctx = create_datafusion_session_context();
     let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
-    df.into_optimized_plan()
+    optimize_logical_plan(df)
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.

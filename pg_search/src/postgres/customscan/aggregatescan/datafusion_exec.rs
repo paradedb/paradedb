@@ -50,7 +50,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::postgres::customscan::joinscan::privdat::SCORE_COL_NAME;
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table,
+    create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
@@ -328,7 +328,7 @@ pub async fn build_join_aggregate_plan(
     }
 
     Ok(JoinAggregatePlan {
-        logical: df.into_optimized_plan()?,
+        logical: optimize_logical_plan(df)?,
         group_df_indices,
         pdb_plan,
         pdb_root_having,

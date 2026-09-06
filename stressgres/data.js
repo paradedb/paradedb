@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788654519268,
+  "lastUpdate": 1788654527746,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -314462,6 +314462,126 @@ window.BENCHMARK_DATA = {
             "value": 9.900795671998743,
             "unit": "median tps",
             "extra": "avg tps: 15.349360871444667, max tps: 762.690405659773, count: 57412"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c807edea84cc882673003f352eeb05a77bdaf8dc",
+          "message": "fix: keep the pdb.agg join proptest inside work_mem (#6235)\n\n## Ticket(s) Closed\n\nNone.\n\n## What\n\nThis PR keeps `generated_pdb_agg_join` inside `work_mem`.\n\n## Why\n\nThe proptest can draw a join with a step joined on a non-equi condition\nalone, such as `users.age <> products.age`, which fans out to nearly the\ncross product of its two sides. Under a SQL `GROUP BY` and two nested\n`terms`, that yields tens of thousands of buckets. The DataFusion\naggregate runs with the `DiskManager` disabled, so it fails once its\nstate outgrows `work_mem` instead of spilling. In addition,\n`create_memory_pool` in\n`pg_search/src/postgres/customscan/datafusion/memory.rs` grows the pool\nonly for a `HashJoinExec` or a `SortExec`, so under a\n`NestedLoopJoinExec` the pool is the default 4MB.\n\nBoth reproduction scripts from run 33983476495 (PG16 system and PG18\npgrx) fail on a local instance at `work_mem = 4MB` every time, so this\nwas never a flake. Measured on the PG18 data:\n\n| Shape | Buckets | Fails at | Passes at |\n| --- | --- | --- | --- |\n| PG18 seed: `GROUP BY` + 2 `terms`, 2 `cardinality` | 982 | 8MB | 16MB\n|\n| 3 keys, `sum`/`min`/`max` on NUMERIC, keyless 3-way join | 55035 |\n16MB | 24MB |\n| 3 keys, 3 `cardinality`, keyless 3-way join | 55035 | 256MB | 1GB |\n\n## How\n\n- The oracle closure sets `work_mem` to `64MB`, the way\n`generated_joins_small` does. That covers every shape without a sketch\nwith about 3x margin.\n- `arb_pdb_agg_join` passes the join into the spec shape. Over a join\nwith a keyless step, a spec with `cardinality` keeps to at most one\nbucket key; with more keys the metric becomes `value_count` on the same\nfield. Equi and mixed joins keep every shape, since their equality\nbounds the fan-out.\n- `JoinExpr::has_keyless_step` is the new predicate.\n\nWhether `create_memory_pool` should also budget for a\n`NestedLoopJoinExec` is a separate question.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-09-05T16:51:04-07:00",
+          "tree_id": "6838bea4ae00cc689285536c21323d19e40b89ce",
+          "url": "https://github.com/paradedb/paradedb/commit/c807edea84cc882673003f352eeb05a77bdaf8dc"
+        },
+        "date": 1788654523652,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 175.83011495820676,
+            "unit": "median tps",
+            "extra": "avg tps: 179.53912333856888, max tps: 215.41108526447354, count: 57424"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 292.901679452412,
+            "unit": "median tps",
+            "extra": "avg tps: 315.50238800916856, max tps: 471.5572774461091, count: 57424"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4049.726470714414,
+            "unit": "median tps",
+            "extra": "avg tps: 4040.4030766378055, max tps: 4461.120973823451, count: 57424"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 181.34820512917048,
+            "unit": "median tps",
+            "extra": "avg tps: 185.75027449395137, max tps: 228.84767800941154, count: 57424"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3416.1316519671363,
+            "unit": "median tps",
+            "extra": "avg tps: 3407.36950654759, max tps: 3506.311611351262, count: 57424"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3381.4157490051443,
+            "unit": "median tps",
+            "extra": "avg tps: 3368.928312482076, max tps: 3549.8523890025867, count: 57424"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 154.62219294940655,
+            "unit": "median tps",
+            "extra": "avg tps: 157.36478503466037, max tps: 185.80008998459923, count: 57424"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 270.51998765243275,
+            "unit": "median tps",
+            "extra": "avg tps: 278.98282616710276, max tps: 372.01512621200044, count: 57424"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 509.78843961236487,
+            "unit": "median tps",
+            "extra": "avg tps: 515.5617169061857, max tps: 584.5635206222182, count: 57424"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 581.6613503595063,
+            "unit": "median tps",
+            "extra": "avg tps: 591.5171437862845, max tps: 677.7637478048867, count: 57424"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1275.1598804527137,
+            "unit": "median tps",
+            "extra": "avg tps: 1275.6075117195976, max tps: 1284.0954617930008, count: 57424"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 325.0776873132053,
+            "unit": "median tps",
+            "extra": "avg tps: 344.2571902700857, max tps: 562.444786487039, count: 57424"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 540.0952183996162,
+            "unit": "median tps",
+            "extra": "avg tps: 545.3819056359775, max tps: 608.5906090089975, count: 57424"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2340.802814552181,
+            "unit": "median tps",
+            "extra": "avg tps: 2344.0172462635705, max tps: 2521.4790199674594, count: 57424"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1772.2134916917316,
+            "unit": "median tps",
+            "extra": "avg tps: 1782.201478421721, max tps: 2174.6064371852503, count: 57424"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 25.89785708026202,
+            "unit": "median tps",
+            "extra": "avg tps: 33.133178328832244, max tps: 774.7205582946232, count: 57424"
           }
         ]
       }

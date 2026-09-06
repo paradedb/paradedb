@@ -110,6 +110,7 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
         let mut ctx = Context {
             fetch_auto: gucs::defer_column_fetch() == DeferredPlacement::Auto,
             decode_auto: gucs::defer_string_decode() == DeferredPlacement::Auto,
+            aggregate_ordinals: gucs::enable_aggregate_late_materialization(),
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         };
@@ -210,6 +211,9 @@ impl Decision {
 struct Context {
     fetch_auto: bool,
     decode_auto: bool,
+    /// Whether `DeferredAggregateRule` will group on ordinals, so an aggregate counts as a
+    /// bound.
+    aggregate_ordinals: bool,
     /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
     key_fields: HashMap<u32, Option<String>>,
     /// Per column of per scan, since each one has its own consumer and its own path, so its
@@ -291,7 +295,7 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         && sort.fetch().is_some()
     {
         Bound::TopK(sort.expr().clone())
-    } else if node.is::<AggregateExec>() {
+    } else if node.is::<AggregateExec>() && ctx.aggregate_ordinals {
         Bound::Aggregate(Arc::clone(node))
     } else if is_transparent(node) {
         bound
@@ -700,6 +704,7 @@ mod tests {
         Context {
             fetch_auto,
             decode_auto,
+            aggregate_ordinals: true,
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         }

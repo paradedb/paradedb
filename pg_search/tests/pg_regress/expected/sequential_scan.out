@@ -150,6 +150,8 @@ RESET paradedb.enable_custom_scan;
 -- the predicate as a join filter and therefore needs the searched row's CTID in the join target.
 CREATE TEMP TABLE sequential_scan_terms(term text NOT NULL);
 INSERT INTO sequential_scan_terms VALUES ('target');
+ANALYZE sequential_scan;
+ANALYZE sequential_scan_terms;
 SET paradedb.enable_join_custom_scan = off;
 SET paradedb.planner_warnings = off;
 SET enable_hashjoin = off;
@@ -177,11 +179,10 @@ SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequentia
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
    Join Filter: paradedb.search_with_query_input_ctid_or_row(s.anchor, paradedb.with_index('sequential_scan_idx'::regclass, paradedb.parse_with_field('body'::paradedb.fieldname, t.term, NULL::boolean, NULL::boolean)), s.ctid, CASE WHEN (paradedb.ctid_is_valid(s.ctid) AND s.keep) THEN '{}'::record[] ELSE (ARRAY[s.*])::record[] END)
+   ->  Seq Scan on sequential_scan_terms t
    ->  Seq Scan on sequential_scan s
          Filter: keep
-   ->  Materialize
-         ->  Seq Scan on sequential_scan_terms t
-(6 rows)
+(5 rows)
 
 SELECT s.id
 FROM sequential_scan_terms t

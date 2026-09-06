@@ -189,10 +189,10 @@ ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
  id |     title      |         content          
 ----+----------------+--------------------------
- 14 |                | file content for item 14
- 28 |                | file content for item 28
  84 |                | file content for item 84
  98 |                | file content for item 98
+ 14 |                | file content for item 14
+ 28 |                | file content for item 28
  94 | File Title 094 | file content for item 94
 (5 rows)
 
@@ -459,10 +459,10 @@ ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
  id |     title      |         content          
 ----+----------------+--------------------------
- 14 |                | file content for item 14
- 28 |                | file content for item 28
  84 |                | file content for item 84
  98 |                | file content for item 98
+ 14 |                | file content for item 14
+ 28 |                | file content for item 28
  94 | File Title 094 | file content for item 94
 (5 rows)
 

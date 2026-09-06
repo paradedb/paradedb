@@ -235,6 +235,72 @@ EXECUTE radius_search(0);
 DEALLOCATE radius_search;
 RESET plan_cache_mode;
 
+-- BitmapAnd: both predicates are indexable, so both bitmaps are intersected and
+-- both filters move to recheck. Wide rows make the heap fetch expensive enough
+-- that the second bitmap pays for itself.
+CREATE TABLE wide_providers (
+    id BIGINT, description TEXT, cat_a TEXT, cat_b TEXT, filler TEXT
+);
+ALTER TABLE wide_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO wide_providers
+SELECT i, 'cardiology notes ' || i, 'a' || (i % 10), 'b' || (i % 10), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX wide_paradedb ON wide_providers
+    USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX wide_cat_a ON wide_providers (cat_a);
+CREATE INDEX wide_cat_b ON wide_providers (cat_b);
+VACUUM ANALYZE wide_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM wide_providers
+WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3'
+ORDER BY id LIMIT 5;
+SELECT count(*) AS bitmap_and_count FROM (
+    SELECT id FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3') q;
+-- Rescan with a BitmapAnd child: freed and rebuilt per outer row, re-seeding
+-- through the BitmapAnd into its first leaf.
+SELECT v.k, s.n FROM (VALUES ('a3'), ('a7')) v(k)
+CROSS JOIN LATERAL (
+    SELECT count(*) AS n FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = v.k AND cat_b = 'b3') s
+ORDER BY v.k;
+
+-- Parity with the same predicates and no bitmap source available.
+DROP INDEX wide_cat_a;
+DROP INDEX wide_cat_b;
+SELECT count(*) AS bitmap_and_count_no_bitmap FROM (
+    SELECT id FROM wide_providers
+    WHERE description === 'cardiology' AND cat_a = 'a3' AND cat_b = 'b3') q;
+DROP TABLE wide_providers CASCADE;
+
+-- Overlapping clause sets: overlap_ab is the better single bitmap, and overlap_bc
+-- would still look like it pays for itself on top of it. Both answer cat_b, so the
+-- ledger would count that clause's selectivity twice and credit overlap_bc with
+-- rejecting rows overlap_ab already rejected. Sharing a clause disqualifies it.
+CREATE TABLE overlap_providers (
+    id BIGINT, description TEXT, cat_a TEXT, cat_b TEXT, cat_c TEXT, filler TEXT
+);
+ALTER TABLE overlap_providers ALTER COLUMN filler SET STORAGE PLAIN;
+INSERT INTO overlap_providers
+SELECT i, 'cardiology notes ' || i, 'a' || (i % 4), 'b' || ((i / 4) % 2),
+       'c' || ((i / 8) % 2), repeat('x', 1400)
+FROM generate_series(0, 4999) i;
+CREATE INDEX overlap_paradedb ON overlap_providers
+    USING bm25 (id, description) WITH (key_field = 'id');
+CREATE INDEX overlap_ab ON overlap_providers (cat_a, cat_b);
+CREATE INDEX overlap_bc ON overlap_providers (cat_b, cat_c);
+VACUUM ANALYZE overlap_providers;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM overlap_providers
+WHERE description === 'cardiology'
+  AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1'
+ORDER BY id LIMIT 5;
+SELECT count(*) AS overlap_clause_count FROM (
+    SELECT id FROM overlap_providers
+    WHERE description === 'cardiology'
+      AND cat_a = 'a1' AND cat_b = 'b1' AND cat_c = 'c1') q;
+DROP TABLE overlap_providers CASCADE;
+
 -- ============================================================================
 -- REJECTED SHAPES
 -- Correct refusals: no Bitmap Intersection, results identical to heap filtering.
@@ -269,6 +335,16 @@ ORDER BY id LIMIT 5;
 SELECT count(*) AS saop_all_count FROM (
     SELECT id FROM providers
     WHERE description === 'cardiology' AND specialty = ALL('{specialty13,specialty13}')) q;
+
+-- Cost gate: both indexes qualify, but the second bitmap only sees what the first
+-- one kept, and on this narrow table those rows are worth less than the index scan
+-- they cost. Only the best net bitmap is used.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology'
+  AND specialty LIKE 'specialty13%'
+  AND service_area && circle(point(50, 50), 1)
+ORDER BY id LIMIT 5;
 
 -- Cost gate: an unselective bitmap is not worth building.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -349,14 +425,6 @@ ROLLBACK;
 -- UNSUPPORTED / TODO SHAPES
 -- Should harvest someday; these goldens flip when the feature lands.
 -- ============================================================================
-
--- TODO BitmapAnd: both indexes qualify; today only the best-net bitmap is used.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM providers
-WHERE description === 'cardiology'
-  AND specialty LIKE 'specialty13%'
-  AND service_area && circle(point(50, 50), 1)
-ORDER BY id LIMIT 5;
 
 -- TODO BitmapOr: a fully indexable disjunction; today it stays a heap filter.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

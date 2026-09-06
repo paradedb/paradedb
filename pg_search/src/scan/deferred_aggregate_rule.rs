@@ -43,6 +43,12 @@
 //! the string, so such a column keeps its decode below. Grouping sets are left alone, since
 //! their partial output carries a grouping id the final aggregate reads back.
 //!
+//! The rewrite pays when the groups are far fewer than the rows. The dictionaries bound the
+//! groups from above (one per distinct term per segment), and the plan's row estimate says
+//! how many rows reach the aggregate, so a key whose dictionaries are nearly as large as
+//! the input keeps its decode below: its partial aggregate would reduce little and its
+//! decode would run about as often as the scan's.
+//!
 //! [`DeferredPlacementRule`] runs first and asks [`ordinal_group_keys`] the same question,
 //! so a join that multiplies the rows under such an aggregate keeps the decode deferred
 //! instead of pushing it into the scan.
@@ -53,13 +59,18 @@ use std::sync::Arc;
 
 use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
+use datafusion::common::stats::Precision;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
-use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
+use datafusion::physical_plan::{
+    ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions, StatisticsArgs,
+    StatisticsContext,
+};
 
 use crate::api::HashSet;
+use crate::index::fast_fields_helper::FFType;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
@@ -114,7 +125,8 @@ fn rewrite(node: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
 }
 
 /// Indexes into `decode.deferred_fields()` of the columns that `agg` reads only as plain
-/// group keys, and that arrive at the aggregate already resolved to term ordinals.
+/// group keys, that arrive at the aggregate already resolved to term ordinals, and whose
+/// dictionaries are small next to the aggregate's input.
 pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec) -> Vec<usize> {
     if !matches!(agg.mode(), AggregateMode::Single | AggregateMode::Partial)
         || agg.limit_options().is_some()
@@ -143,14 +155,45 @@ pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec
     for filter in agg.filter_expr().iter().flatten() {
         elsewhere.extend(collect_columns(filter).iter().map(|c| c.index()));
     }
+    let rows = input_rows(agg);
     decode
         .deferred_fields()
         .iter()
         .enumerate()
         .filter(|(_, field)| keys.contains(&field.col_idx) && !elsewhere.contains(&field.col_idx))
         .filter(|(_, field)| resolved_below(decode, field))
+        .filter(|(_, field)| reduces_enough(rows, decode, field))
         .map(|(i, _)| i)
         .collect()
+}
+
+/// The estimated number of rows entering `agg`, when the plan has one.
+fn input_rows(agg: &AggregateExec) -> Option<usize> {
+    let statistics = StatisticsContext::new()
+        .compute(agg.input().as_ref(), &StatisticsArgs::new())
+        .ok()?;
+    match statistics.num_rows {
+        Precision::Exact(rows) | Precision::Inexact(rows) => Some(rows),
+        Precision::Absent => None,
+    }
+}
+
+/// Input rows per dictionary term below which the two-phase shape is not worth its second
+/// hash pass: the partial aggregate could reduce the rows by less than this factor, and
+/// the decode of its groups would run about as often as the scan's.
+const MIN_ROWS_PER_TERM: usize = 4;
+
+/// Whether `rows` outnumber the terms of `field`'s dictionaries by [`MIN_ROWS_PER_TERM`].
+/// An input without an estimate keeps the rewrite.
+fn reduces_enough(
+    rows: Option<usize>,
+    decode: &TantivyDecodeExec,
+    field: &PhysicalDeferredField,
+) -> bool {
+    let Some(rows) = rows else {
+        return true;
+    };
+    rows >= dictionary_terms(decode, field).saturating_mul(MIN_ROWS_PER_TERM)
 }
 
 /// Whether `field` reaches `decode` as a term ordinal: a fetch directly below resolves it,
@@ -261,6 +304,23 @@ fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         return Ok(None);
     }
     Ok(Some(Arc::new(final_agg)))
+}
+
+/// The number of terms in `field`'s dictionaries across its index's segments, which is the
+/// most partial groups the column can produce.
+fn dictionary_terms(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> usize {
+    let Some(ffhelper) = decode.ffhelper(field.canonical.indexrelid) else {
+        return 0;
+    };
+    (0..ffhelper.num_segments())
+        .map(
+            |segment_ord| match ffhelper.column(segment_ord as u32, field.canonical.ff_index) {
+                FFType::Text(column) => column.num_terms(),
+                FFType::Bytes(column) => column.num_terms(),
+                _ => 0,
+            },
+        )
+        .sum()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

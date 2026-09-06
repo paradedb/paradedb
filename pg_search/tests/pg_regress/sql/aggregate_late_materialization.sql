@@ -19,14 +19,14 @@ CREATE TABLE alm_tags (
     tag_name TEXT
 );
 
-INSERT INTO alm_products (description, category, price) VALUES
-    ('laptop fast', 'Electronics', 999.99),
-    ('laptop gaming', 'Electronics', 1299.99),
-    ('shoes running', 'Sports', 89.99),
-    ('shoes trail', 'Sports', 119.99),
-    ('jacket winter', 'Clothing', 129.99);
-INSERT INTO alm_tags (product_id, tag_name) VALUES
-    (1, 'tech'), (2, 'tech'), (3, 'fitness'), (4, 'fitness'), (5, 'outdoor');
+-- Three categories over many rows, so the aggregate groups on their ordinals.
+INSERT INTO alm_products (description, category, price)
+SELECT (ARRAY['laptop fast', 'shoes running', 'jacket winter'])[1 + i % 3] || ' ' || i,
+       (ARRAY['Electronics', 'Sports', 'Clothing'])[1 + i % 3],
+       (i % 7) * 10 + 9.99
+FROM generate_series(1, 60) AS i;
+INSERT INTO alm_tags (product_id, tag_name)
+SELECT id, (ARRAY['tech', 'fitness', 'outdoor'])[1 + id % 3] FROM alm_products;
 
 CREATE INDEX alm_products_idx ON alm_products
 USING bm25 (id, description, category, price)

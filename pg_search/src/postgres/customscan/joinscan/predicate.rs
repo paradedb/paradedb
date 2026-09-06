@@ -30,13 +30,13 @@
 use super::build::{
     FilterNode, JoinCSClause, JoinLevelExpr, JoinNode, JoinSource, RelNode, ScanInfo, UnnestNode,
 };
-use crate::api::operator::SearchPredicate;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, contains_exec_param, extract_quals,
 };
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars};
@@ -132,7 +132,7 @@ pub unsafe fn extract_join_level_conditions(
         if already_present {
             continue;
         }
-        let has_search_op = SearchPredicate::contained_by(clause.cast());
+        let has_search_op = clause.contains_search_predicate();
 
         if has_search_op {
             if let Some(expr) = transform_to_search_expr(
@@ -226,7 +226,7 @@ pub unsafe fn extract_join_level_conditions(
                     continue;
                 }
 
-                let has_search_op = SearchPredicate::contained_by(conjunct.cast());
+                let has_search_op = conjunct.contains_search_predicate();
                 if has_search_op {
                     if let Some(expr) = transform_to_search_expr(
                         root,
@@ -359,7 +359,7 @@ pub unsafe fn transform_to_search_expr(
         };
     }
 
-    let has_search_op = SearchPredicate::contained_by(node);
+    let has_search_op = node.contains_search_predicate();
 
     // Check which tables this expression references
     let rtis = expr_collect_rtis(node);
@@ -778,7 +778,7 @@ pub unsafe fn resolve_join_conditions(
         let clause = (*ri).clause;
         // Skip `@@@` (and any search ops): search clauses pass through to
         // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
-        if !clause.is_null() && SearchPredicate::contained_by(clause.cast()) {
+        if clause.contains_search_predicate() {
             unabsorbed.push(ri);
             continue;
         }
@@ -854,10 +854,10 @@ pub unsafe fn resolve_join_conditions(
                 "JoinScan not used: non-inner joins require at least one join condition",
             ));
         }
-        if illegal_residuals.iter().any(|&ri| {
-            let clause = (*ri).clause;
-            !clause.is_null() && SearchPredicate::contained_by(clause.cast())
-        }) {
+        if illegal_residuals
+            .iter()
+            .any(|&ri| (*ri).clause.contains_search_predicate())
+        {
             return Err(super::JoinDeclineReason::new(format!(
                 "JoinScan not used: search operators in {context} are not supported"
             )));

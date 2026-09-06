@@ -309,7 +309,7 @@ pub unsafe fn pullup_fast_fields(
         // Other nodes (e.g., T_SubPlan, T_FuncExpr, T_OpExpr, T_CaseExpr, T_PlaceHolderVar, etc.)
         // are not supported in FastFields yet.
         //
-        // Casts of key fields (e.g. `CAST(id AS TEXT)`) are not supported.
+        // Casts of fields (e.g. `CAST(id AS TEXT)`) are not supported.
         // See: https://github.com/paradedb/paradedb/issues/3978
         return None;
     }

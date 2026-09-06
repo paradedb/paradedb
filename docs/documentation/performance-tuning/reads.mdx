@@ -127,7 +127,7 @@ constraints, and table size.
 SET paradedb.spill_to_disk TO on;
 ```
 
-Spilled data is written through Postgres' own temp-file mechanism (`BufFile`), so it respects `temp_file_limit` and `temp_tablespaces`, and is cleaned up automatically at the end of the transaction - including on an early-terminated query or a crashed backend.
+Spilled data is written through Postgres' own temp-file mechanism (`BufFile`), so it respects `temp_file_limit` and `temp_tablespaces`, and is cleaned up automatically at the end of the transaction, and on restart after a crash.
 
 <Note>
   Enabling `paradedb.spill_to_disk` trades peak memory usage for slower

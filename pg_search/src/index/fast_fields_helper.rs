@@ -258,21 +258,19 @@ impl FFType {
         match self {
             FFType::Junk => TantivyValue(PdbOwnedValue::Null),
             FFType::Text(ff) => {
+                let Some(ord) = ff.term_ords(doc).next() else {
+                    return TantivyValue(PdbOwnedValue::Null);
+                };
                 let mut s = String::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
                 ff.ord_to_str(ord, &mut s)
                     .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
             }
             FFType::Bytes(ff) => {
+                let Some(ord) = ff.term_ords(doc).next() else {
+                    return TantivyValue(PdbOwnedValue::Null);
+                };
                 let mut bytes = Vec::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
                 ff.ord_to_bytes(ord, &mut bytes)
                     .expect("bytes should be retrievable for term ord");
                 TantivyValue(PdbOwnedValue::Bytes(bytes))

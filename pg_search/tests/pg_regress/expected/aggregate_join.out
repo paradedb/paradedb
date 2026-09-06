@@ -56,8 +56,8 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -66,9 +66,9 @@ WHERE p.description @@@ 'laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (11 rows)
 
 SELECT COUNT(*)
@@ -86,8 +86,8 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -96,9 +96,9 @@ WHERE p.description @@@ 'laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, avg(p_0.rating) as agg_2]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1, rating@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (11 rows)
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
@@ -116,8 +116,8 @@ SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -126,9 +126,9 @@ WHERE p.description @@@ 'laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (11 rows)
 
 SELECT MIN(p.price), MAX(p.price)
@@ -227,8 +227,8 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*))
    Sort Key: p.category
@@ -242,9 +242,9 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*)
@@ -362,8 +362,8 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -375,9 +375,9 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT p.category, COUNT(DISTINCT t.tag_name)
@@ -418,8 +418,8 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: t.tag_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -431,9 +431,9 @@ ORDER BY t.tag_name;
            : AggregateExec: mode=Single, gby=[tag_name@1 as tag_name], aggr=[count(DISTINCT p_0.category) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT t.tag_name, COUNT(DISTINCT p.category)
@@ -482,8 +482,8 @@ FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -493,9 +493,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(t_1.tag_name) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT p.category, COUNT(t.tag_name)
@@ -549,8 +549,8 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: t.tag_name
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -562,9 +562,9 @@ ORDER BY t.tag_name;
            : AggregateExec: mode=Single, gby=[tag_name@0 as tag_name], aggr=[count(p_1.category) as agg_0]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(product_id@0, id@0)], projection=[tag_name@1, category@3]
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=t, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, dynamic_filters=1, query="all"
+           :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT t.tag_name, COUNT(p.category)
@@ -626,8 +626,8 @@ SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
 WHERE a.description @@@ 'laptop OR shoes';
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: idx_comp_a (a), idx_comp_b (b)
@@ -636,9 +636,9 @@ WHERE a.description @@@ 'laptop OR shoes';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(x@0, x@0), (y@1, y@1)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: table=b, segments=1, query="all"
+     :       PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :     CooperativeExec
-     :       PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT COUNT(*)
@@ -1090,8 +1090,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -1101,9 +1101,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(DISTINCT t_1.product_id) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, product_id@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 -- AVG(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
@@ -1113,8 +1113,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -1124,9 +1124,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[avg(DISTINCT t_1.product_id) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, product_id@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 -- COUNT(DISTINCT) should still show AggregateScan (this still works)
@@ -1136,8 +1136,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
@@ -1147,9 +1147,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 -- =====================================================================
@@ -1213,8 +1213,8 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                     QUERY PLAN                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
    Backend: DataFusion
@@ -1224,9 +1224,9 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"excluded":500.0},"upper_bound":null}}]}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"excluded":500.0},"upper_bound":null}}]}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*), SUM(p.price)
@@ -1343,8 +1343,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (bool_and(p.in_stock))
    Backend: DataFusion
@@ -1355,9 +1355,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[bool_and(p_0.in_stock) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, in_stock@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR toy","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR toy","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 SELECT p.category, BOOL_AND(p.in_stock)
@@ -1394,8 +1394,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (string_agg(t.tag_name, ', '::text))
    Backend: DataFusion
@@ -1406,9 +1406,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
@@ -1504,8 +1504,8 @@ SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT'::text)
    Backend: DataFusion
@@ -1515,9 +1515,9 @@ WHERE p.description @@@ 'laptop OR shoes';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(p_0.category) as agg_1, count(t_1.tag_name) as agg_2]
      :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
 
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
@@ -1583,8 +1583,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (string_agg(t.tag_name, ', '::text ORDER BY t.tag_name))
    Backend: DataFusion
@@ -1595,10 +1595,10 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
@@ -1652,8 +1652,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (array_agg(t.tag_name ORDER BY t.tag_name))
    Backend: DataFusion
@@ -1664,10 +1664,10 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[array_agg(t_1.tag_name) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
      :     SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
      :       CooperativeExec
-     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (14 rows)
 
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
@@ -1763,9 +1763,9 @@ GROUP BY i.metadata->>'category';
      : AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0, sum(o_1.qty) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, item_id@0)], projection=[metadata.category@1, qty@3]
      :     CooperativeExec
-     :       PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
+     :       PgSearchScan: table=i, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
      :     CooperativeExec
-     :       PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 -- Test 17.2: JSON sub-field GROUP BY results
@@ -1811,8 +1811,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*)), (count(*) FILTER (WHERE (p.price > '100'::double precision)))
    Backend: DataFusion
@@ -1823,9 +1823,9 @@ GROUP BY p.category;
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(1) FILTER (WHERE p_0.price > Float64(100)) as agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all"
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (13 rows)
 
 -- Test 17.2: COUNT with FILTER — results
@@ -1920,9 +1920,9 @@ WHERE p.description @@@ 'laptop';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0], metrics=[output_rows=1, output_bytes=8.0 B, output_batches=1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[], metrics=[output_rows=6, output_bytes=0.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=3, input_batches=2, input_rows=9, avg_fanout=100% (6/6), probe_hit_rate=66.67% (6/9)]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=24.0 B, output_batches=1]
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=24.0 B, output_batches=1]
      :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=9, output_bytes=72.0 B, output_batches=2, rows_pruned=3, rows_scanned=12]
+     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all", metrics=[output_rows=9, output_bytes=72.0 B, output_batches=2, rows_pruned=3, rows_scanned=12]
 (11 rows)
 
 -- =====================================================================

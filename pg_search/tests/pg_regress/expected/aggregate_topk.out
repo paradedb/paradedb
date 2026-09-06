@@ -30,8 +30,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -47,7 +47,7 @@ LIMIT 3;
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=mock_items, segments=1, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT category, COUNT(*)
@@ -75,8 +75,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (sum(rating))
    ->  Sort
@@ -92,7 +92,7 @@ LIMIT 3;
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[sum(mock_items_0.rating) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=mock_items, segments=1, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT category, SUM(rating)
@@ -118,8 +118,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -135,7 +135,7 @@ LIMIT 2;
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=mock_items, segments=1, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT category, COUNT(*)
@@ -198,12 +198,12 @@ ORDER BY COUNT(*) DESC;
 -------------+-------+-----
  Footwear    |     6 |  24
  Electronics |     5 |  20
- Groceries   |     4 |  17
- Toys        |     4 |  12
- Books       |     4 |  10
  Apparel     |     4 |  17
+ Books       |     4 |  10
+ Groceries   |     4 |  17
  Home Decor  |     4 |  18
  Photography |     4 |  18
+ Toys        |     4 |  12
  Beauty      |     3 |  10
  Furniture   |     3 |  12
 (10 rows)
@@ -236,7 +236,7 @@ LIMIT 3;
                  : SortExec: TopK(fetch=3), expr=[agg_1@2 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@1 as category], aggr=[count(1) as agg_0, sum(mock_items_0.rating) as agg_1, min(mock_items_0.rating) as agg_2, max(mock_items_0.rating) as agg_3]
                  :     CooperativeExec
-                 :       PgSearchScan: table=mock_items, segments=1, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
@@ -262,8 +262,8 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
    ->  Sort
@@ -279,7 +279,7 @@ LIMIT 1;
                  : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=mock_items, segments=1, query={"with_index":{"query":"all"}}
+                 :       PgSearchScan: table=mock_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)
 
 SELECT category, COUNT(*)

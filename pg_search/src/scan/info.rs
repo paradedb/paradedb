@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
+use crate::api::{FieldName, MvccVisibility};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -226,6 +226,10 @@ pub struct ScanInfo {
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
+    /// Whether rows are checked against the heap for snapshot visibility. Only a
+    /// `pdb.agg()` query can ask for anything but the default.
+    #[serde(default)]
+    pub mvcc_visibility: MvccVisibility,
 }
 
 impl ScanInfo {
@@ -248,6 +252,7 @@ impl ScanInfo {
             estimate: RowEstimate::Unknown,
             estimate_from_total_docs: false,
             segment_count: 0,
+            mvcc_visibility: MvccVisibility::default(),
         }
     }
 

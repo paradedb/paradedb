@@ -103,3 +103,9 @@ END $$;
 SET statement_timeout = 0;
 
 SELECT * FROM rb_outcome ORDER BY line;
+
+-- Cleanup.
+DROP TABLE rb_users;
+DROP TABLE rb_posts;
+DROP TABLE rb_comments;
+DROP TABLE rb_outcome;

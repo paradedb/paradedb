@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{SchemaRef, SortOptions};
+use arrow_schema::{DataType, SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -583,6 +583,7 @@ impl PgSearchScanPlan {
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: scanner_config.scan_mode,
+            check_visibility: state.0.visibility.checks_visibility(),
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
@@ -673,7 +674,8 @@ impl PgSearchScanPlan {
             &descriptor.which_fast_fields,
         ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+            .with_check_visibility(descriptor.check_visibility);
 
         let scanner_config = ScannerConfig {
             which_fast_fields: descriptor.which_fast_fields,
@@ -766,6 +768,9 @@ struct ScanDispatchDescriptor {
     /// assigned variant advertises one local output partition to DataFusion.
     global_partition_count: usize,
     range_split_points: Option<RangeSplitPoints>,
+    /// Whether the scan checks the heap for snapshot visibility. Decided on the
+    /// leader; see `PgSearchTableProvider::scan_inner`.
+    check_visibility: bool,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,
 }
@@ -882,13 +887,31 @@ impl DisplayAs for PgSearchScanPlan {
                 )?;
             }
         }
+        // Only a projected deferred column leaves the scan as ordinals; a string column the
+        // plan did not defer is decoded here whatever the setting says.
+        let schema = self.properties.eq_properties.schema();
+        let scan_fetched: Vec<&str> = self
+            .deferred_fields
+            .iter()
+            .filter(|d| {
+                d.fetch_at_scan
+                    && schema
+                        .column_with_name(&d.name)
+                        .is_some_and(|(_, f)| matches!(f.data_type(), DataType::Union(_, _)))
+            })
+            .map(|d| d.name.as_str())
+            .collect();
+        if !scan_fetched.is_empty() {
+            write!(f, ", fetch=[{}]", scan_fetched.join(", "))?;
+        }
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
-        // Whether the scan checks visibility itself is otherwise readable only from the
-        // `VisibilityFilterExec` that names it, somewhere above.
-        if self.deferred_ctid_plan_position.is_some() {
-            write!(f, ", visibility=deferred")?;
+        // A deferred check is already named by the `VisibilityFilterExec` or
+        // `SegmentedTopKExec` that runs it. A scan that checks itself has no such
+        // witness, so only that case is marked.
+        if self.deferred_ctid_plan_position.is_none() {
+            write!(f, ", visibility=eager")?;
         }
         match &self.scan_mode {
             crate::scan::ScanMode::Standard { .. } => {
@@ -1059,6 +1082,12 @@ impl ExecutionPlan for PgSearchScanPlan {
             .column_with_name(&WhichFastField::Score.name())
             .map(|(idx, _)| idx);
         let dynamic_filters = self.dynamic_filters.clone();
+        let scan_fetched_fields: Vec<String> = self
+            .deferred_fields
+            .iter()
+            .filter(|d| d.fetch_at_scan)
+            .map(|d| d.name.clone())
+            .collect();
 
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
@@ -1129,6 +1158,9 @@ impl ExecutionPlan for PgSearchScanPlan {
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
+            }
+            if !scan_fetched_fields.is_empty() {
+                scanner.fetch_ordinals_in_scan(&scan_fetched_fields);
             }
 
             let mut pushdown_metric_recorded = false;

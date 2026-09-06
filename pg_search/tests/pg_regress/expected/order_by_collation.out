@@ -663,8 +663,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
-                                                                                                                  QUERY PLAN                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: s INNER p
@@ -673,14 +673,15 @@ LIMIT 5;
          Order By: p.name_c asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name_c@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name_c]
-           :     SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
-(15 rows)
+           :   TantivyDecodeExec: decode=[name_c]
+           :     TantivyFetchExec: fetch=[name_c]
+           :       SegmentedTopKExec: expr=[name_c@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name_c@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
 Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)
@@ -719,8 +720,8 @@ JOIN collation_join_suppliers s ON p.id = s.product_id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          ->  Custom Scan (ParadeDB Join Scan)
@@ -732,12 +733,13 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
-                 :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=deferred, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=deferred, query="all"
-(16 rows)
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, ctid_1@0, id@1]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 RESET paradedb.enable_join_custom_scan;
 -- =============================================================================
@@ -775,8 +777,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
@@ -788,7 +790,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=collation_test, segments=1, query={"with_index":{"query":"all"}}
+                 :     PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
 (12 rows)
 
 RESET paradedb.max_term_agg_buckets;

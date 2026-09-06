@@ -26,10 +26,13 @@
 use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
-    JoinSource, JoinSourceCandidate, JoinType, RelNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode, UnnestNode,
 };
-use super::predicate::find_base_info_recursive;
+use super::predicate::{
+    all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
+};
 use super::privdat::{OutputColumnInfo, PrivateData};
+use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::version::VersionInfo;
@@ -46,7 +49,7 @@ use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -137,6 +140,7 @@ pub(super) struct JoinConditions {
 /// - Other conditions that need post-join evaluation
 /// - Whether any condition contains our @@@ search operator
 pub(super) unsafe fn extract_join_conditions(
+    root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
     sources: &[&JoinSource],
 ) -> JoinConditions {
@@ -155,7 +159,7 @@ pub(super) unsafe fn extract_join_conditions(
         return result;
     }
 
-    extract_join_conditions_from_list(restrictlist, sources)
+    extract_join_conditions_from_list(root, restrictlist, sources)
 }
 
 /// Get type length and pass-by-value info for a given type OID.
@@ -615,6 +619,47 @@ unsafe fn collect_join_sources_join_rel(
         let outer_rel = (*outer_path).parent;
         let inner_rel = (*inner_path).parent;
 
+        // Check if inner_rel or outer_rel is a lateral unnest on the other side
+        let try_unnest = |unnest_rel: *mut pg_sys::RelOptInfo,
+                          input_rel: *mut pg_sys::RelOptInfo|
+         -> Option<CollectedJoinRel> {
+            if unnest_rel.is_null() || pg_sys::bms_num_members((*unnest_rel).relids) != 1 {
+                return None;
+            }
+            let rti = bms_iter((*unnest_rel).relids).next().unwrap();
+            let mut unnest_info = build::try_extract_lateral_unnest(root, rti)?;
+            let input_collected = collect_join_sources(root, input_rel)?;
+            if !input_collected.plan.contains_rti(unnest_info.source_rti.0) {
+                return None;
+            }
+            unnest_info.is_left_join = (*join_path).jointype == pg_sys::JoinType::JOIN_LEFT;
+            let mut absorbed_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
+            if !(*unnest_rel).baserestrictinfo.is_null() {
+                let baserestrict =
+                    PgList::<pg_sys::RestrictInfo>::from_pg((*unnest_rel).baserestrictinfo);
+                for ri in baserestrict.iter_ptr() {
+                    absorbed_clauses.push(ri);
+                }
+            }
+            let plan = RelNode::Unnest(Box::new(UnnestNode {
+                input: input_collected.plan,
+                unnest_info,
+                absorbed_clauses,
+            }));
+            Some(CollectedJoinRel {
+                plan,
+                join_keys: input_collected.join_keys,
+                multi_table_clauses: input_collected.multi_table_clauses,
+            })
+        };
+
+        if let Some(res) = try_unnest(inner_rel, outer_rel) {
+            return Some(res);
+        }
+        if let Some(res) = try_unnest(outer_rel, inner_rel) {
+            return Some(res);
+        }
+
         let outer_collected = collect_join_sources(root, outer_rel)?;
         let inner_collected = collect_join_sources(root, inner_rel)?;
 
@@ -637,61 +682,85 @@ unsafe fn collect_join_sources_join_rel(
         // Extract keys for this level
         let join_restrict_info = (*join_path).joinrestrictinfo;
         let mut join_conditions =
-            extract_join_conditions_from_list(join_restrict_info, &all_sources);
+            extract_join_conditions_from_list(root, join_restrict_info, &all_sources);
 
-        // PG drops a join clause from `joinrestrictinfo` when a parameterized
-        // inner index lookup already enforces it (the inner index's `ppi`
-        // clauses become the join condition for the `NestPath`). The clause
-        // still lives on `inner_path->param_info->ppi_clauses` for the base
-        // rel. Pull it in here so we can recover the equi-key. Without this
-        // the 3-way `JoinScan` declines whenever PG picks a parameterized
-        // inner bitmap-index plan.
-        if join_conditions.equi_keys.is_empty() {
-            let inner_param = (*inner_path).param_info;
-            if !inner_param.is_null() {
-                let ppi_clauses = (*inner_param).ppi_clauses;
-                if !ppi_clauses.is_null() {
-                    let extra = extract_join_conditions_from_list(ppi_clauses, &all_sources);
-                    join_conditions.equi_keys.extend(extra.equi_keys);
-                    join_conditions
-                        .other_conditions
-                        .extend(extra.other_conditions);
-                    join_conditions.has_search_predicate =
-                        join_conditions.has_search_predicate || extra.has_search_predicate;
+        // Also inspect inner/outer param_info to recover any join conditions
+        // that PostgreSQL placed in PPI clauses rather than on joinrestrictinfo
+        // (e.g. multi-table joins where a parameterized index scan enforces one of the join keys).
+        // A condition is only valid for this join level if it connects outer_node and inner_node.
+        let mut merge_extra = |extra: JoinConditions| {
+            for k in extra.equi_keys {
+                if !join_conditions
+                    .equi_keys
+                    .iter()
+                    .any(|existing| existing.is_same_key(&k))
+                    && k.resolve_against(&outer_node, &inner_node).is_some()
+                {
+                    join_conditions.equi_keys.push(k);
                 }
             }
+            for c in extra.other_conditions {
+                let relids = (*c).clause_relids;
+                let spans_both_sides = !relids.is_null()
+                    && crate::postgres::customscan::range_table::bms_iter(relids)
+                        .any(|rti| outer_node.contains_rti(rti))
+                    && crate::postgres::customscan::range_table::bms_iter(relids)
+                        .any(|rti| inner_node.contains_rti(rti));
+                if spans_both_sides && !join_conditions.other_conditions.contains(&c) {
+                    join_conditions.other_conditions.push(c);
+                }
+            }
+            join_conditions.has_search_predicate |= extra.has_search_predicate;
+        };
+
+        let inner_param = (*inner_path).param_info;
+        if !inner_param.is_null() && !(*inner_param).ppi_clauses.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*inner_param).ppi_clauses,
+                &all_sources,
+            ));
+        }
+        let outer_param = (*outer_path).param_info;
+        if !outer_param.is_null() && !(*outer_param).ppi_clauses.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*outer_param).ppi_clauses,
+                &all_sources,
+            ));
         }
 
         let jointype = (*join_path).jointype;
 
-        if join_conditions.equi_keys.is_empty() {
-            return None;
-        }
+        let resolved = resolve_join_conditions(
+            root,
+            &all_sources,
+            &join_conditions.equi_keys,
+            &join_conditions.other_conditions,
+            jointype,
+        )
+        .ok()?;
 
-        // PG places each `WHERE` predicate at the lowest join carrying all
-        // its rels, so a cross-table `OR` over the outer-side rels lands in
-        // *this* sub-join's `joinrestrictinfo`. We can't intern it yet (no
-        // `JoinCSClause` exists at reconstruction time); park the pointers
-        // and let `extract_join_level_conditions` lower them once one does.
-        //
-        // `@@@` is the only search op visible here: PG's
-        // `SupportRequestSimplify` has already rewritten `|||`/`&&&`/`===`/
-        // `###` to `@@@`, and `##`/`##>` appear as arguments inside an
-        // `@@@`, not as standalone predicates. Same convention as
-        // `transform_to_search_expr`.
         let search_op = anyelement_query_input_opoid();
         let mut absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
-        let mut has_non_search_leftover = false;
-        for ri in &join_conditions.other_conditions {
+        for ri in &resolved.post_join_conditions {
             let clause = (**ri).clause;
-            if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+            if clause.is_null() {
+                continue;
+            }
+            if expr_contains_any_operator(clause.cast(), &[search_op])
+                || (all_vars_are_fast_fields_recursive(clause.cast(), &all_sources, None)
+                    && PredicateTranslator::can_translate(
+                        Some(root),
+                        &all_sources,
+                        clause.cast(),
+                        None,
+                    ))
+            {
                 absorbed_search_clauses.push(*ri);
             } else {
-                has_non_search_leftover = true;
+                return None;
             }
-        }
-        if has_non_search_leftover {
-            return None;
         }
 
         // Validate that all join keys are fast fields.
@@ -752,23 +821,52 @@ unsafe fn collect_join_sources_join_rel(
             }
         };
 
-        // Absorbed search clauses must lower to `RelNode::Filter` sitting
-        // immediately above the absorbing `JoinNode`. Outer joins
-        // (Left/Right/Full) would drop outer-fill rows the post-Filter
-        // shouldn't see; pruned-side joins (Semi/Anti/Mark, both directions)
-        // would leave Vars unresolved against the pruned schema;
-        // UniqueOuter/UniqueInner aren't lowerable to DataFusion at all.
-        if !absorbed_search_clauses.is_empty() && !matches!(parsed_jointype, build::JoinType::Inner)
-        {
-            return None;
+        let is_outer = matches!(
+            parsed_jointype,
+            build::JoinType::Left | build::JoinType::Right | build::JoinType::Full
+        );
+
+        // Absorbed search clauses lower to `RelNode::Filter` sitting immediately
+        // above the absorbing `JoinNode`. With predicate tagging (#6010), both sides
+        // of Inner and Outer (Left/Right/Full) joins preserve their match-tag columns,
+        // allowing DataFusion to evaluate the filter with 3-valued boolean logic.
+        // However, for outer joins (Left/Right/Full), only WHERE-clause predicates
+        // (`is_pushed_down == true`) can be evaluated above the join: an outer join's
+        // ON-clause predicate (`is_pushed_down == false`) dictates whether rows match
+        // to produce join pairs, and evaluating it post-join would incorrectly drop
+        // null-extended rows.
+        // Pruned-side joins (Semi/Anti/Mark, both directions) would leave Vars/tags
+        // unresolved against the pruned schema; UniqueOuter/UniqueInner aren't
+        // lowerable to DataFusion at all.
+        if !absorbed_search_clauses.is_empty() {
+            if !matches!(
+                parsed_jointype,
+                build::JoinType::Inner
+                    | build::JoinType::Left
+                    | build::JoinType::Right
+                    | build::JoinType::Full
+            ) {
+                return None;
+            }
+            if is_outer
+                && absorbed_search_clauses
+                    .iter()
+                    .any(|&ri| !(*ri).is_pushed_down)
+            {
+                return None;
+            }
         }
+
+        join_conditions
+            .equi_keys
+            .retain(|k| k.resolve_against(&outer_node, &inner_node).is_some());
 
         let mut join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,
             left: outer_node,
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
-            filter: None,
+            filter: resolved.filter,
             subplan_id: None,
             absorbed_search_clauses,
         };
@@ -865,6 +963,12 @@ pub(crate) unsafe fn transparent_path_subpath(
         pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
         // Cached materialisation for inner-side replay: same rows, same schema.
         pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
+        // Cached parameterised execution for inner-side replay: same rows, same schema.
+        pg_sys::NodeTag::T_MemoizePath => Some((*(path as *mut pg_sys::MemoizePath)).subpath),
+        // Incremental sort wrapper: same rows, only adds ordering.
+        pg_sys::NodeTag::T_IncrementalSortPath => {
+            Some((*(path as *mut pg_sys::IncrementalSortPath)).spath.subpath)
+        }
         // Adjusts the target list above the underlying path; the join
         // structure (RTIs, equi-keys, jointype) remains unchanged.
         pg_sys::NodeTag::T_ProjectionPath => Some((*(path as *mut pg_sys::ProjectionPath)).subpath),
@@ -1205,6 +1309,7 @@ unsafe fn resolve_subplan_output_var(
 /// Iterates over the given restrict list and groups conditions according to whether they are
 /// standard join keys or general functional predicates.
 unsafe fn extract_join_conditions_from_list(
+    root: *mut pg_sys::PlannerInfo,
     restrictlist: *mut pg_sys::List,
     sources: &[&JoinSource],
 ) -> JoinConditions {
@@ -1221,6 +1326,51 @@ unsafe fn extract_join_conditions_from_list(
         let clause = (*ri).clause;
         if clause.is_null() {
             continue;
+        }
+
+        // Only consider clauses whose required relations are a subset of `valid_rtis`.
+        // Clauses from `ppi_clauses` that require relations outside of `valid_rtis`
+        // belong to higher-level joins, not this join. For outer-join-delayed quals,
+        // `required_relids` is strictly larger than `clause_relids` and includes the outer-join rels.
+        // Non-base relations like `RTE_JOIN` (which PostgreSQL adds to track
+        // outer-join evaluation boundaries) and lateral unnest RTEs over these sources are not
+        // external relations and should not disqualify the clause.
+        let relids = if !(*ri).required_relids.is_null() {
+            (*ri).required_relids
+        } else {
+            (*ri).clause_relids
+        };
+        if !relids.is_null() {
+            let mut all_in_valid_rtis = true;
+            for rti in bms_iter(relids) {
+                if valid_rtis.contains(&rti) {
+                    continue;
+                }
+                let rte = get_rte(
+                    (*root).simple_rel_array_size as usize,
+                    (*root).simple_rte_array,
+                    rti,
+                );
+                if let Some(rte_ptr) = rte {
+                    let rtekind = (*rte_ptr).rtekind;
+                    if rtekind == pg_sys::RTEKind::RTE_JOIN {
+                        continue;
+                    }
+                    if let Some(unnest_info) =
+                        crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest_from_rte(
+                            root, rti, rte_ptr,
+                        )
+                        && sources.iter().any(|s| s.contains_rti(unnest_info.source_rti.0))
+                    {
+                        continue;
+                    }
+                }
+                all_in_valid_rtis = false;
+                break;
+            }
+            if !all_in_valid_rtis {
+                continue;
+            }
         }
 
         let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
@@ -1281,10 +1431,24 @@ pub(super) unsafe fn collect_required_fields(
     // relation shares an RTI value with an outer relation (inner queries
     // have their own RTI numbering space), forcing us to over-project.
     let join_key_projections = join_clause.plan.join_key_projections();
+    let lateral_unnests: Vec<_> = join_clause
+        .plan
+        .lateral_unnests()
+        .into_iter()
+        .cloned()
+        .collect();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
         ensure_ctid(source);
+    }
+
+    for unnest in &lateral_unnests {
+        for source in &mut plan_sources {
+            if source.contains_rti(unnest.source_rti.0) {
+                ensure_array_field(source, unnest.source_attno, &unnest.field_name);
+            }
+        }
     }
 
     if plan_sources.len() >= 2 {
@@ -1412,10 +1576,51 @@ pub(super) unsafe fn collect_required_fields(
     // that DISTINCT expressions depend on (e.g., `DISTINCT upper(name)` needs `name`).
     if let Some(projections) = &join_clause.output_projection {
         for proj in projections {
-            if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
-                for var_info in input_vars {
-                    ensure_column_in_all_sources(&mut plan_sources, var_info.rti, var_info.attno);
+            match proj {
+                super::build::ChildProjection::Expression { input_vars, .. } => {
+                    for var_info in input_vars {
+                        ensure_column_in_all_sources(
+                            &mut plan_sources,
+                            var_info.rti,
+                            var_info.attno,
+                        );
+                    }
                 }
+                super::build::ChildProjection::IndexedExpression { rti, field_name } => {
+                    for source in &mut plan_sources {
+                        if source.contains_rti(*rti) {
+                            if source
+                                .scan_info
+                                .fields
+                                .iter()
+                                .any(|f| f.field.name() == field_name.as_str())
+                            {
+                                break;
+                            }
+                            let added = get_source_attno_by_name(source, field_name)
+                                .and_then(|attno| {
+                                    try_ensure_field(source, attno)?;
+                                    source
+                                        .scan_info
+                                        .fields
+                                        .iter()
+                                        .any(|f| {
+                                            f.attno == attno
+                                                && f.field.name() == field_name.as_str()
+                                        })
+                                        .then_some(())
+                                })
+                                .is_some();
+                            if !added && let Err(e) = ensure_expression_field(source, field_name) {
+                                pgrx::warning!(
+                                    "JoinScan: failed to project expression field '{field_name}': {e}"
+                                );
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1476,6 +1681,22 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
     Some(())
 }
 
+/// Ensures that an array fast field for a lateral unnest is projected from a `JoinSource`.
+unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, field_name: &str) {
+    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
+        return;
+    }
+    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
+    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
+        && let Some(search_field) = schema.search_field(field_name)
+    {
+        side.scan_info.add_field(
+            attno,
+            WhichFastField::Array(field_name.to_string(), search_field.field_type()),
+        );
+    }
+}
+
 /// Ensures an expression-indexed fast field is projected from a `JoinSource`.
 ///
 /// Unlike `ensure_field` (which resolves plain columns via attno), this function
@@ -1484,6 +1705,14 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
 unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
+    if source
+        .scan_info
+        .fields
+        .iter()
+        .any(|f| f.field.name() == field_name)
+    {
+        return Ok(());
+    }
     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
     let schema = SearchIndexSchema::open(&index_rel).map_err(|e| {
         format!(
@@ -1506,7 +1735,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
         .ok_or_else(|| format!("Field '{field_name}' has unsupported type for pullup"))?;
 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
-    source.scan_info.add_field(
+    source.scan_info.add_field_by_name(
         synthetic_attno,
         WhichFastField::Named(field_name.to_string(), field_type),
     );
@@ -1527,40 +1756,39 @@ fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
     sources.iter().map(|s| s.scan_info.heap_rti).collect()
 }
 
-/// Count query_pathkeys that reference at least one source relation (i.e. are
+/// Count query_pathkeys that reference at least one output relation (i.e. are
 /// not outer-only). This is the number of pathkeys JoinScan is responsible for.
 pub(super) unsafe fn count_relevant_pathkeys(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[&JoinSource],
+    output_rtis: &[pg_sys::Index],
 ) -> usize {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    let source_rtis = collect_source_rtis(sources);
     pathkeys
         .iter_ptr()
-        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, &source_rtis))
+        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, output_rtis))
         .count()
 }
 
 /// Returns true if no equivalence class member for this pathkey references any
-/// relation in `source_rtis`. Such pathkeys are "outer-only" w.r.t. this join
+/// relation in `output_rtis`. Such pathkeys are "outer-only" w.r.t. this join
 /// subtree — the parent plan owns sorting on those keys.
 unsafe fn pathkey_is_outer_only(
     equivclass: *mut pg_sys::EquivalenceClass,
-    source_rtis: &[pg_sys::Index],
+    output_rtis: &[pg_sys::Index],
 ) -> bool {
     let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
     for member in members.iter_ptr() {
         let check_expr = strip_wrappers((*member).em_expr.cast());
 
         if let Some(var) = nodecast!(Var, T_Var, check_expr) {
-            if source_rtis.contains(&((*var).varno as pg_sys::Index)) {
+            if output_rtis.contains(&((*var).varno as pg_sys::Index)) {
                 return false;
             }
         } else {
             let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
             let vars = PgList::<pg_sys::Var>::from_pg(var_list);
             for var_ptr in vars.iter_ptr() {
-                if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
+                if output_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
                     return false;
                 }
             }
@@ -1642,6 +1870,15 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
+
+                if let Some(unnest_info) =
+                    crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                        root, varno,
+                    )
+                    && source_rtis.contains(&unnest_info.source_rti.0)
+                {
+                    continue 'pathkey;
+                }
 
                 if !source_rtis.contains(&varno) {
                     continue;
@@ -1762,7 +1999,10 @@ pub(super) enum ResolvedExpr {
     Score { rti: pg_sys::Index },
     /// An indexed expression that matched via find_matching_fast_field.
     /// Handled by existing machinery — does NOT need the UDF path.
-    IndexedExpression { rti: pg_sys::Index },
+    IndexedExpression {
+        rti: pg_sys::Index,
+        field_name: String,
+    },
     /// Arbitrary expression with its Var dependencies and resolved type info
     Expression {
         expr_node: *mut pg_sys::Expr,
@@ -1902,7 +2142,11 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
                 let ir = PgSearchRelation::open(source.scan_info.indexrelid);
                 let td = hr.tuple_desc();
                 resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
-            });
+            })
+                || crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root, varno,
+                )
+                .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
             if !is_fast {
                 return None;
             }
@@ -1920,26 +2164,21 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         }
 
         // Case 3: Check if expression matches an indexed expression (existing behavior)
-        let matched_source = sources.iter().find(|source| {
+        let matched_source = sources.iter().find_map(|source| {
             let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-                return false;
-            };
-            find_matching_fast_field(
+            let schema = SearchIndexSchema::open(&index_rel).ok()?;
+            let search_field = find_matching_fast_field(
                 expr,
                 &index_rel.index_expressions(),
                 schema,
                 source.scan_info.heap_rti,
-            )
-            .is_some()
+            )?;
+            Some((source.scan_info.heap_rti, search_field.name().to_string()))
         });
-        if let Some(source) = matched_source {
+        if let Some((rti, field_name)) = matched_source {
             // Indexed expressions are handled by existing fast field machinery.
-            // They don't need the UDF path. The attno=0 convention for indexed
-            // expressions is already handled by build_projection_expr.
-            entries.push(ResolvedExpr::IndexedExpression {
-                rti: source.scan_info.heap_rti,
-            });
+            // They don't need the UDF path.
+            entries.push(ResolvedExpr::IndexedExpression { rti, field_name });
             continue;
         }
 
@@ -2200,6 +2439,7 @@ enum JoinSortExprKind {
 
 impl JoinSortExprKind {
     unsafe fn classify(
+        root: *mut pg_sys::PlannerInfo,
         check_expr: *mut pg_sys::Expr,
         direction: SortDirection,
         sources: &[&JoinSource],
@@ -2219,6 +2459,7 @@ impl JoinSortExprKind {
                 NullTestKind::IsNotNull
             };
             return match Self::classify(
+                root,
                 inner_expr,
                 direction,
                 sources,
@@ -2269,6 +2510,24 @@ impl JoinSortExprKind {
                 } else {
                     Self::NoMatch
                 };
+            }
+
+            if let Some(unnest_info) =
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root, varno,
+                )
+                && let Some(_source) = sources
+                    .iter()
+                    .find(|s| s.contains_rti(unnest_info.source_rti.0))
+            {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Var {
+                        rti: varno,
+                        attno: varattno,
+                        name: Some(unnest_info.field_name.clone()),
+                    },
+                    direction,
+                });
             }
 
             for source in sources {
@@ -2353,7 +2612,7 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
 
-        match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, false) {
+        match JoinSortExprKind::classify(root, check_expr, direction, sources, output_rtis, false) {
             JoinSortExprKind::Resolved(info) => result.push(info),
             JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
             JoinSortExprKind::NoMatch => return None,
@@ -2412,8 +2671,6 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
-    let source_rtis = collect_source_rtis(sources);
-
     let distinct_target_list = if has_distinct {
         let parse = (*root).parse;
         Some(PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList))
@@ -2425,7 +2682,7 @@ pub(super) unsafe fn extract_orderby(
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
 
-        if pathkey_is_outer_only(equivclass, &source_rtis) {
+        if pathkey_is_outer_only(equivclass, output_rtis) {
             continue;
         }
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
@@ -2474,7 +2731,14 @@ pub(super) unsafe fn extract_orderby(
                 }
             }
 
-            match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
+            match JoinSortExprKind::classify(
+                root,
+                check_expr,
+                direction,
+                sources,
+                output_rtis,
+                true,
+            ) {
                 JoinSortExprKind::Resolved(info) => {
                     // For DISTINCT queries, NullTest pathkeys come from the
                     // DISTINCT target list — they are handled by the GROUP BY,

@@ -286,28 +286,40 @@ struct SpecShape {
     numeric_metrics: bool,
     /// A `size` may cut any level, not only a lone top level under no group.
     size_anywhere: bool,
+    /// Bucket keys a spec with a `cardinality` metric may have. Every bucket
+    /// carries its own sketch, and the DataFusion aggregate holds them all in
+    /// `work_mem` with no spill.
+    sketch_keys: usize,
 }
 
 /// A join over a prefix of `tables` and a `pdb.agg()` whose fields belong to
 /// those tables. `key_columns` are the join keys; `terms` keys come from the
-/// text and integer columns, metrics from the integer and NUMERIC ones.
+/// text and integer columns, metrics from the integer and NUMERIC ones. A join
+/// with a keyless step yields tens of thousands of buckets under several keys,
+/// so `cardinality` keeps to one key there.
 pub fn arb_pdb_agg_join(
     tables: Vec<String>,
     key_columns: &[Column],
 ) -> impl Strategy<Value = (JoinExpr, PdbAggExpr)> {
-    let shape = SpecShape {
-        grouped: false,
-        numeric_metrics: true,
-        size_anywhere: false,
-    };
     let key_columns = key_columns.to_vec();
     (2..=tables.len()).prop_flat_map(move |num_tables| {
         let joined: Vec<String> = tables[..num_tables].to_vec();
         // The planner cannot see the fields inside a spec, so it removes an outer
         // join whose table nothing else reads, and the spec then names a table
         // that is gone. Inner joins are never removed.
-        let join = arb_joins(Just(JoinType::Inner), joined.clone(), &key_columns);
-        (join, arb_pdb_agg(joined, shape))
+        arb_joins(Just(JoinType::Inner), joined.clone(), &key_columns).prop_flat_map(move |join| {
+            let shape = SpecShape {
+                grouped: false,
+                numeric_metrics: true,
+                size_anywhere: false,
+                sketch_keys: if join.has_keyless_step() {
+                    1
+                } else {
+                    usize::MAX
+                },
+            };
+            (Just(join), arb_pdb_agg(joined.clone(), shape))
+        })
     })
 }
 
@@ -322,6 +334,7 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
             grouped: true,
             numeric_metrics: false,
             size_anywhere: true,
+            sketch_keys: usize::MAX,
         },
     )
 }
@@ -397,6 +410,13 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
                     });
                 }
             }
+            if usize::from(outer_group.is_some()) + terms.len() > shape.sketch_keys {
+                for metric in &mut metrics {
+                    if metric.kind == MetricKind::Cardinality {
+                        metric.kind = MetricKind::ValueCount;
+                    }
+                }
+            }
             let size = size.filter(|&(level, _)| {
                 level < terms.len()
                     && (shape.size_anywhere
@@ -409,4 +429,45 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
                 metrics,
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    #[test]
+    fn cardinality_keeps_to_one_key_over_a_keyless_join() {
+        let mut runner = TestRunner::default();
+        let tables = vec![
+            "users".to_string(),
+            "products".to_string(),
+            "orders".to_string(),
+        ];
+        let key_columns = vec![
+            Column::new("id", "BIGINT", "1"),
+            Column::new("age", "INTEGER", "20"),
+        ];
+        let strategy = arb_pdb_agg_join(tables, &key_columns);
+
+        let mut saw_sketch_over_keyless = false;
+        let mut saw_sketch_under_keys = false;
+        for _ in 0..500 {
+            let (join, agg) = strategy.new_tree(&mut runner).unwrap().current();
+            let keys = usize::from(agg.outer_group.is_some()) + agg.terms.len();
+            let sketch = agg
+                .metrics
+                .iter()
+                .any(|m| m.kind == MetricKind::Cardinality);
+            if join.has_keyless_step() {
+                assert!(!(sketch && keys > 1), "{join:?} {agg:?}");
+                saw_sketch_over_keyless |= sketch;
+            } else {
+                saw_sketch_under_keys |= sketch && keys > 1;
+            }
+        }
+        assert!(saw_sketch_over_keyless);
+        assert!(saw_sketch_under_keys);
+    }
 }

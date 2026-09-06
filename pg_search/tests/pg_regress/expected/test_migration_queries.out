@@ -889,7 +889,7 @@ SELECT pdb.agg('{"terms": {"field": "category"}}')
 FROM products WHERE id @@@ pdb.all();
                                                                                                                                   agg                                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "electronics", "doc_count": 3}, {"key": "footwear", "doc_count": 3}, {"key": "apparel", "doc_count": 2}, {"key": "fitness", "doc_count": 1}, {"key": "accessories", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ {"buckets": [{"key": "electronics", "doc_count": 3}, {"key": "footwear", "doc_count": 3}, {"key": "apparel", "doc_count": 2}, {"key": "accessories", "doc_count": 1}, {"key": "fitness", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- histogram

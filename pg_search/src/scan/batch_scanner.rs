@@ -21,7 +21,9 @@ use crate::index::fast_fields_helper::{
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
-use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_array::{
+    Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
+};
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
@@ -91,6 +93,14 @@ fn ensure_column_fetched(
                     .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
+        // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+        WhichFastField::Array(_, search_field_type) => {
+            memoized_columns[ff_index] = Some(
+                ffhelper
+                    .column(segment_ord, ff_index)
+                    .fetch_array_values_or_ords_to_arrow(ids, *search_field_type),
+            );
+        }
         WhichFastField::Score
         | WhichFastField::Ctid
         | WhichFastField::TableOid
@@ -131,7 +141,9 @@ impl Batch {
             })
             .collect();
 
-        RecordBatch::try_new(schema.clone(), columns).expect("Failed to create RecordBatch")
+        let options = RecordBatchOptions::new().with_row_count(Some(self.num_rows));
+        RecordBatch::try_new_with_options(schema.clone(), columns, &options)
+            .expect("Failed to create RecordBatch")
     }
 }
 
@@ -149,6 +161,9 @@ pub struct Scanner {
     /// When true, visibility checking is deferred to VisibilityFilterExec.
     /// Packed DocAddresses are emitted instead of real ctids.
     defer_visibility: bool,
+    /// Deferred columns (by `which_fast_fields` index) whose term ordinals this scan resolves
+    /// itself, so they leave the scan as State 1 in doc order instead of as doc addresses.
+    fetch_ordinals_in_scan: Vec<bool>,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
@@ -262,7 +277,7 @@ impl Scanner {
         let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
             matches!(
                 wff,
-                WhichFastField::Named(_, field_type) if matches!(
+                WhichFastField::Named(_, field_type) | WhichFastField::Array(_, field_type) if matches!(
                     field_type.arrow_data_type(),
                     arrow_schema::DataType::Utf8View
                         | arrow_schema::DataType::BinaryView
@@ -286,6 +301,8 @@ impl Scanner {
             .iter()
             .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
 
+        let fetch_ordinals_in_scan = vec![false; which_fast_fields.len()];
+
         Self {
             search_results,
             batch_size,
@@ -294,12 +311,25 @@ impl Scanner {
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             defer_visibility,
+            fetch_ordinals_in_scan,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
             score_threshold: None,
             tagged_queries: Vec::new(),
             current_segment_ord: None,
             active_tag_scorers: Vec::new(),
+        }
+    }
+
+    /// Resolve the named deferred columns' term ordinals inside the scan, while the rows are
+    /// still in doc order, so only their dictionary decode is deferred.
+    pub fn fetch_ordinals_in_scan(&mut self, field_names: &[String]) {
+        for (ff_index, wff) in self.which_fast_fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, _) = wff
+                && field_names.contains(name)
+            {
+                self.fetch_ordinals_in_scan[ff_index] = true;
+            }
         }
     }
 
@@ -537,9 +567,14 @@ impl Scanner {
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
-        // Pre-fetch any Named columns that weren't already fetched by pre-filters.
+        // Pre-fetch any Named or Array columns that weren't already fetched by pre-filters,
+        // plus the deferred columns whose ordinals are fetched here rather than above.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
-            if matches!(which_ff, WhichFastField::Named(_, _)) {
+            if matches!(
+                which_ff,
+                WhichFastField::Named(_, _) | WhichFastField::Array(_, _)
+            ) || self.fetch_ordinals_in_scan[ff_index]
+            {
                 ensure_column_fetched(
                     &mut memoized_columns,
                     &self.which_fast_fields,
@@ -595,9 +630,68 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
+                WhichFastField::Array(_, _) => {
+                    let col_array = memoized_columns[ff_index].clone().unwrap();
+                    match ffhelper.column(segment_ord, ff_index) {
+                        FFType::Text(str_column) => {
+                            let list_array = col_array
+                                .as_any()
+                                .downcast_ref::<arrow_array::ListArray>()
+                                .expect("Expected ListArray for Array Text ordinals");
+                            let ords_array = list_array
+                                .values()
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for inner ordinals");
+                            let string_views = ords_to_string_array(str_column.clone(), ords_array)
+                                .expect("Failed to lookup ordinals");
+                            let field = Arc::new(arrow_schema::Field::new(
+                                "item",
+                                arrow_schema::DataType::Utf8View,
+                                true,
+                            ));
+                            let final_list = arrow_array::ListArray::try_new(
+                                field,
+                                list_array.offsets().clone(),
+                                string_views,
+                                list_array.nulls().cloned(),
+                            )
+                            .expect("Failed to build ListArray with strings");
+                            Some(Arc::new(final_list) as ArrayRef)
+                        }
+                        FFType::Bytes(bytes_column) => {
+                            let list_array = col_array
+                                .as_any()
+                                .downcast_ref::<arrow_array::ListArray>()
+                                .expect("Expected ListArray for Array Bytes ordinals");
+                            let ords_array = list_array
+                                .values()
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for inner ordinals");
+                            let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
+                                .expect("Failed to lookup ordinals");
+                            let field = Arc::new(arrow_schema::Field::new(
+                                "item",
+                                arrow_schema::DataType::BinaryView,
+                                true,
+                            ));
+                            let final_list = arrow_array::ListArray::try_new(
+                                field,
+                                list_array.offsets().clone(),
+                                byte_views,
+                                list_array.nulls().cloned(),
+                            )
+                            .expect("Failed to build ListArray with bytes");
+                            Some(Arc::new(final_list) as ArrayRef)
+                        }
+                        _ => Some(col_array),
+                    }
+                }
                 // When resolving the data block, we build a 2-state UnionArray:
                 // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
-                // 1. Some(UInt64) -> The pre-filter already resolved term ordinals. Emit State 1.
+                // 1. Some(UInt64) -> The term ordinals are already resolved, by a pre-filter
+                //    or because this column is fetched in the scan. Emit State 1.
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),

@@ -109,7 +109,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -155,7 +155,7 @@ LIMIT 5;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
@@ -197,7 +197,7 @@ LIMIT 5;
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[supplier_id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)]
            :           CooperativeExec
            :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -243,7 +243,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -303,15 +303,15 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
 WHERE p.description @@@ 'wireless'
-ORDER BY p.id
+ORDER BY p.id, s.name
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, s)
+WARNING:  JoinScan not used: ORDER BY column 'name' is not columnar indexed (fast = true) (tables: p, s)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
  206 | Headphones     | TechCorp
- 207 | Mouse Pad      | TechCorp
  207 | Mouse Pad      | GlobalSupply
+ 207 | Mouse Pad      | TechCorp
 (4 rows)
 
 -- =============================================================================
@@ -339,7 +339,7 @@ LIMIT 3;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
@@ -383,7 +383,7 @@ LIMIT 3;
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=3), expr=[price@2 DESC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[s, p]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@3, ctid_1@0, price@2]
                  :           CooperativeExec
                  :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
@@ -404,10 +404,10 @@ LIMIT 3;
 (2 rows)
 
 -- =============================================================================
--- TEST 8: Cross join (no equi-join keys) - JoinScan NOT proposed
+-- TEST 8: Cross join (no equi-join keys) - JoinScan with CrossJoinExec
 -- =============================================================================
--- Verify JoinScan does NOT handle cross joins (no equi-join conditions).
--- Cross joins require O(N*M) comparisons and are better handled by PostgreSQL.
+-- Verify JoinScan handles cross joins (no equi-join conditions).
+-- Cross joins with search predicates on both sides execute via DataFusion's CrossJoinExec.
 DROP TABLE IF EXISTS colors CASCADE;
 DROP TABLE IF EXISTS sizes CASCADE;
 CREATE TABLE colors (
@@ -431,42 +431,35 @@ INSERT INTO sizes (id, name, description) VALUES
 CREATE INDEX colors_bm25_idx ON colors USING paradedb (id, name, description) WITH (key_field = 'id');
 CREATE INDEX sizes_bm25_idx ON sizes USING paradedb (id, name, description) WITH (key_field = 'id');
 -- Cross join with search predicates on both sides
--- JoinScan should NOT be proposed - falls back to PostgreSQL's Nested Loop
+-- JoinScan is used and executes CrossJoinExec in DataFusion
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c, s)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.name, s.name, c.id, s.id
-   ->  Sort
+   ->  Result
          Output: c.name, s.name, c.id, s.id
-         Sort Key: c.id, s.id
-         ->  Nested Loop
-               Output: c.name, s.name, c.id, s.id
-               ->  Custom Scan (ParadeDB Base Scan) on public.colors c
-                     Output: c.name, c.id
-                     Table: colors
-                     Index: colors_bm25_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     Output: s.name, s.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.sizes s
-                           Output: s.name, s.id
-                           Table: sizes
-                           Index: sizes_bm25_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.name, c.id, s.name, s.id
+               Relation Tree: c INNER s
+               Limit: 10
+               Order By: c.id asc, s.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, id@3 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[c, s]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         CrossJoinExec
+                 :           CooperativeExec
+                 :             PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- =============================================================================
 -- TEST 9: Mixed-case column names (regression test for quoting issues)
@@ -506,7 +499,7 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, ID@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[ID@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[s, m]
-                 :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(JoinKey@1, id@1)], projection=[ctid_0@3, ctid_1@0, ID@2]
                  :           CooperativeExec
                  :             PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}

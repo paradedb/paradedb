@@ -69,7 +69,7 @@
 
 use crate::api::FieldName;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{is_agg_funcoid, visibility_from_agg_arg};
+use crate::api::{is_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
@@ -324,21 +324,8 @@ unsafe fn convert_window_func_to_aggregate_type(
             return None;
         }
 
-        // Extract the jsonb argument (first arg)
-        let first_arg = args.get_ptr(0)?;
-        let const_node = nodecast!(Const, T_Const, first_arg)?;
-        let json_value = {
-            if (*const_node).constisnull {
-                return None;
-            }
-            let jsonb_datum = (*const_node).constvalue;
-            let jsonb = <pgrx::JsonB as pgrx::FromDatum>::from_datum(jsonb_datum, false)?;
-            jsonb.0
-        };
-
-        // Decode the visibility argument (second arg) of the two-arg overloads;
-        // the one-arg overload has none and takes the default.
-        let mvcc_visibility = visibility_from_agg_arg(aggfnoid, args.get_ptr(1));
+        let (json_value, mvcc_visibility) =
+            pdb_agg_spec(aggfnoid, args.get_ptr(0)?, args.get_ptr(1))?;
 
         // Validate that the JSON is a valid Tantivy aggregation
         // It should be a single aggregation definition (e.g., {"terms": {...}}, {"avg": {...}})

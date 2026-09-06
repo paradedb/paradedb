@@ -26,13 +26,14 @@ CREATE TABLE aog_notes (
     note TEXT
 );
 
--- Several segments, so the same category groups per segment before the merge.
+-- Three insert batches, each its own segment, so the same category groups per
+-- segment before the merge. A few categories and brands repeat across many rows,
+-- which is the case grouping on ordinals is for.
 CREATE INDEX aog_products_idx ON aog_products
 USING bm25 (id, description, category, brand, price)
 WITH (key_field='id',
       text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
-      numeric_fields='{"price": {"fast": true}}',
-      mutable_segment_rows=6);
+      numeric_fields='{"price": {"fast": true}}');
 CREATE INDEX aog_reviews_idx ON aog_reviews
 USING bm25 (id, product_id, stars)
 WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
@@ -40,29 +41,31 @@ CREATE INDEX aog_notes_idx ON aog_notes
 USING bm25 (id, product_id, note)
 WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
 
-INSERT INTO aog_products (description, category, brand, price) VALUES
-    ('widget small', 'Tools', 'Acme', 10),
-    ('widget large', 'Tools', 'Bolt', 20),
-    ('widget blue', 'Toys', 'Acme', 5),
-    ('widget red', 'Toys', 'Acme', 6),
-    ('widget green', NULL, 'Bolt', 7),
-    ('gadget small', 'Tools', 'Acme', 30);
-INSERT INTO aog_products (description, category, brand, price) VALUES
-    ('widget steel', 'Tools', 'Cog', 40),
-    ('widget wood', 'Garden', 'Cog', 15),
-    ('widget clay', 'Garden', 'Acme', 12),
-    ('widget glass', NULL, 'Cog', 9),
-    ('gadget large', 'Toys', 'Bolt', 8),
-    ('widget gold', 'Tools', 'Bolt', 99);
-INSERT INTO aog_products (description, category, brand, price) VALUES
-    ('widget tiny', 'Toys', 'Cog', 3),
-    ('widget huge', 'Garden', 'Bolt', 50),
-    ('widget plain', 'Tools', 'Acme', 11),
-    ('gadget plain', 'Garden', 'Cog', 13);
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(1, 60) AS i;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(61, 120) AS i;
+INSERT INTO aog_products (description, category, brand, price)
+SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,
+       (ARRAY['Tools', 'Toys', 'Garden', NULL])[1 + i % 4],
+       (ARRAY['Acme', 'Bolt', 'Cog'])[1 + i % 3],
+       (i % 9) + 1
+FROM generate_series(121, 180) AS i;
+RESET paradedb.global_mutable_segment_rows;
 
 INSERT INTO aog_reviews (product_id, stars)
 SELECT id, s FROM aog_products, generate_series(1, 3) AS s WHERE id % 3 <> 0;
-INSERT INTO aog_notes (product_id, note) VALUES (1, 'fragile'), (2, 'heavy'), (7, 'fragile');
+INSERT INTO aog_notes (product_id, note)
+SELECT id, (ARRAY['fragile', 'heavy'])[1 + id % 2] FROM aog_products WHERE id % 5 = 1;
 
 -- =============================================================================
 -- One table: the fetch runs below the partial aggregate, the decode above it

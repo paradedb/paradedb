@@ -25,7 +25,6 @@
 //! lower into a DataFusion plan.
 
 use super::privdat::{CompareOp, FilterExpr};
-use crate::api::operator::SearchPredicate;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -46,6 +45,7 @@ use crate::postgres::customscan::qual_inspect::{
     extract_quals,
 };
 use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
     expr_collect_rtis, expr_collect_vars, missing_partial_index_predicate,
@@ -826,7 +826,7 @@ unsafe fn extract_non_equi_filter_from_quals(
             continue;
         }
 
-        if SearchPredicate::contained_by(node) {
+        if node.contains_search_predicate() {
             return Err("search operators in join ON clause are not supported".into());
         }
 
@@ -1195,7 +1195,7 @@ unsafe fn classify_path_restrictinfo(
             || on_clauses
                 .iter()
                 .any(|&on_node| pg_sys::equal(clause.cast(), on_node.cast()));
-        if is_on_clause && !SearchPredicate::contained_by(clause) {
+        if is_on_clause && !clause.contains_search_predicate() {
             // ON-clause predicate (for inner or outer join) - handled in JoinNode.filter during
             // join execution. Decline only if columns are not columnar fields.
             if !all_vars_are_fast_fields_for_agg(clause, sources) {
@@ -1206,7 +1206,7 @@ unsafe fn classify_path_restrictinfo(
 
         let rtis = expr_collect_rtis(clause);
         if !rtis.is_empty() {
-            let has_search = SearchPredicate::contained_by(clause);
+            let has_search = clause.contains_search_predicate();
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
             } else {

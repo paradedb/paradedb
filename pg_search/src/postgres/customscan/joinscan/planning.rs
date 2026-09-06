@@ -34,7 +34,6 @@ use super::predicate::{
 use super::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 
-use crate::api::operator::SearchPredicate;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -51,6 +50,7 @@ use crate::postgres::customscan::pullup::{
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, missing_partial_index_predicate, strip_wrappers};
@@ -794,7 +794,7 @@ unsafe fn collect_join_sources_join_rel(
             if clause.is_null() {
                 continue;
             }
-            if SearchPredicate::contained_by(clause.cast())
+            if clause.contains_search_predicate()
                 || (all_vars_are_fast_fields_recursive(clause.cast(), &all_sources, None)
                     && PredicateTranslator::can_translate(
                         Some(root),
@@ -1418,7 +1418,7 @@ unsafe fn extract_join_conditions_from_list(
             }
         }
 
-        let has_search_op = SearchPredicate::contained_by(clause.cast());
+        let has_search_op = clause.contains_search_predicate();
         if has_search_op {
             result.has_search_predicate = true;
         }

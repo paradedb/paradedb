@@ -26,7 +26,7 @@ INSERT INTO rls_native_new_row VALUES
 INSERT INTO rls_pdb_new_row TABLE rls_native_new_row;
 
 CREATE INDEX rls_pdb_new_row_idx ON rls_pdb_new_row
-USING paradedb (id, body) WITH (key_field = id);
+USING paradedb (id, (body::pdb.simple));
 
 GRANT SELECT, UPDATE ON rls_native_new_row TO rls_new_row_user;
 GRANT SELECT, UPDATE ON rls_pdb_new_row TO rls_new_row_user;
@@ -45,7 +45,7 @@ WITH CHECK (true);
 
 CREATE POLICY pdb_select_policy ON rls_pdb_new_row
 FOR SELECT TO rls_new_row_user
-USING (id @@@ paradedb.term('body', 'allowed'));
+USING (body === 'allowed');
 
 CREATE POLICY pdb_update_policy ON rls_pdb_new_row
 FOR UPDATE TO rls_new_row_user
@@ -84,7 +84,7 @@ TABLE rls_pdb_new_row;
 -- A keyless partial index must not hide existing or NEW rows from the search policy.
 DROP INDEX rls_pdb_new_row_idx;
 CREATE INDEX rls_pdb_new_row_idx ON rls_pdb_new_row
-USING paradedb (id, body) WHERE note = 'before';
+USING paradedb (id, (body::pdb.simple)) WHERE note = 'before';
 
 SET client_min_messages = ERROR;
 SET ROLE rls_new_row_user;

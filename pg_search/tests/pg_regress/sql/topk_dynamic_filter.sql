@@ -53,10 +53,8 @@ SELECT
     round((10.0 + (i * 9.8))::numeric, 2)
 FROM generate_series(1, 30) AS i;
 
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, region)
-WITH (key_field = 'id');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, (name::pdb.simple), (description::pdb.simple), supplier_id, price);
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, (name::pdb.simple), (region::pdb.simple));
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -68,14 +66,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.id
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.id
 LIMIT 3;
 
@@ -90,14 +88,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE s.region @@@ 'wireless'
+WHERE s.region ||| 'wireless'
 ORDER BY p.id
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE s.region @@@ 'wireless'
+WHERE s.region ||| 'wireless'
 ORDER BY p.id
 LIMIT 3;
 
@@ -110,7 +108,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE s.region @@@ 'wireless'
+WHERE s.region ||| 'wireless'
 ORDER BY p.id
 LIMIT 3;
 
@@ -122,14 +120,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
 
@@ -141,14 +139,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
 
@@ -161,14 +159,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
+WHERE p.description ||| 'premium' AND s.region ||| 'global'
 ORDER BY p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
+WHERE p.description ||| 'premium' AND s.region ||| 'global'
 ORDER BY p.id
 LIMIT 5;
 
@@ -187,7 +185,7 @@ FROM products p
 WHERE p.supplier_id IN (
     SELECT s.id
     FROM suppliers s
-    WHERE s.region @@@ 'wireless'
+    WHERE s.region ||| 'wireless'
 )
 ORDER BY p.id ASC
 LIMIT 3;
@@ -197,7 +195,7 @@ FROM products p
 WHERE p.supplier_id IN (
     SELECT s.id
     FROM suppliers s
-    WHERE s.region @@@ 'wireless'
+    WHERE s.region ||| 'wireless'
 )
 ORDER BY p.id ASC
 LIMIT 3;
@@ -210,7 +208,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'premium'
+WHERE p.description ||| 'premium'
 ORDER BY p.id;
 
 -- =============================================================================
@@ -285,11 +283,9 @@ SELECT
     'file content for item ' || i
 FROM generate_series(1, 200) AS i;
 
-CREATE INDEX bench_documents_bm25_idx ON bench_documents USING paradedb (id, category, title)
-WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX bench_documents_bm25_idx ON bench_documents USING paradedb ((id::pdb.literal), (category::pdb.simple), (title::pdb.simple));
 
-CREATE INDEX bench_files_bm25_idx ON bench_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+CREATE INDEX bench_files_bm25_idx ON bench_files USING paradedb (id, (document_id::pdb.literal), (title::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
 
 -- ----- TEST 8a: Wide-range build side -----
 -- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.
@@ -300,7 +296,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
 FROM bench_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM bench_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -308,7 +304,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM bench_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM bench_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -323,7 +319,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
 FROM bench_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+    SELECT d.id FROM bench_documents d WHERE d.title ||| 'intro'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -331,7 +327,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM bench_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+    SELECT d.id FROM bench_documents d WHERE d.title ||| 'intro'
 )
 ORDER BY f.title ASC
 LIMIT 3;

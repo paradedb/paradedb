@@ -95,40 +95,13 @@ INSERT INTO pages (id, "fileId", content, title) VALUES
 ('page-7', 'file-6', 'page replacement algorithms',            'Page Eviction');
 
 CREATE INDEX pages_bm25 ON pages
-USING paradedb (id, content, title, "fileId")
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "fileId": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "content": {"tokenizer": {"type": "default"}, "fast": true},
-        "title": {"tokenizer": {"type": "default"}, "fast": true}
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), (title::pdb.simple('columnar=true')), ("fileId"::pdb.literal));
 
 CREATE INDEX files_bm25 ON files
-USING paradedb (id, content, "documentId", title)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "documentId": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "content": {"tokenizer": {"type": "default"}, "fast": true},
-        "title": {"tokenizer": {"type": "default"}, "fast": true}
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), ("documentId"::pdb.literal), (title::pdb.simple('columnar=true')));
 
 CREATE INDEX documents_bm25 ON documents
-USING paradedb (id, content, title, parents)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "content": {"tokenizer": {"type": "default"}, "fast": true},
-        "title": {"tokenizer": {"type": "default"}, "fast": true},
-        "parents": {"tokenizer": {"type": "default"}, "fast": true}
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')));
 
 -- =============================================================================
 -- PREAMBLE: Baseline BM25 scores on individual tables (no joins)
@@ -139,29 +112,29 @@ WITH (
 
 -- Baseline 1: Single-table scores for the conjunctive join terms
 SELECT 'documents' AS tbl, id, 'postgres' AS query, paradedb.score(id) AS score
-FROM documents WHERE content @@@ 'postgres'
+FROM documents WHERE content ||| 'postgres'
 UNION ALL
 SELECT 'files' AS tbl, id, 'index' AS query, paradedb.score(id) AS score
-FROM files WHERE content @@@ 'index'
+FROM files WHERE content ||| 'index'
 UNION ALL
 SELECT 'pages' AS tbl, id, 'vector' AS query, paradedb.score(id) AS score
-FROM pages WHERE content @@@ 'vector'
+FROM pages WHERE content ||| 'vector'
 ORDER BY tbl, score DESC, id ASC;
 
 -- Baseline 2: Single-table scores for the disjunctive cross-table term ('search')
 SELECT 'documents' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
-FROM documents WHERE content @@@ 'search'
+FROM documents WHERE content ||| 'search'
 UNION ALL
 SELECT 'files' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
-FROM files WHERE content @@@ 'search'
+FROM files WHERE content ||| 'search'
 UNION ALL
 SELECT 'pages' AS tbl, id, 'search' AS query, paradedb.score(id) AS score
-FROM pages WHERE content @@@ 'search'
+FROM pages WHERE content ||| 'search'
 ORDER BY tbl, score DESC, id ASC;
 
 -- Baseline 3: Single-table scores for within-table disjunction ('postgres OR search')
 SELECT 'documents' AS tbl, id, 'postgres OR search' AS query, paradedb.score(id) AS score
-FROM documents WHERE content @@@ 'postgres OR search'
+FROM documents WHERE content ||| 'postgres search'
 ORDER BY score DESC, id ASC;
 
 SET paradedb.enable_join_custom_scan = on;
@@ -188,9 +161,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY score DESC
 LIMIT 10;
 
@@ -204,9 +177,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY score DESC
 LIMIT 10;
 
@@ -228,8 +201,8 @@ SELECT documents.id AS doc_id,
        paradedb.score(documents.id) + paradedb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
 
@@ -240,8 +213,8 @@ SELECT documents.id AS doc_id,
        paradedb.score(documents.id) + paradedb.score(files.id) AS score
 FROM documents
 JOIN files ON documents.id = files."documentId"
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
 ORDER BY score DESC
 LIMIT 10;
 
@@ -259,9 +232,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
 
@@ -272,9 +245,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
 
@@ -299,9 +272,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'search'
-   OR files.content @@@ 'search'
-   OR pages.content @@@ 'search'
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -315,9 +288,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'search'
-   OR files.content @@@ 'search'
-   OR pages.content @@@ 'search'
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -335,9 +308,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'search'
-   OR files.content @@@ 'search'
-   OR pages.content @@@ 'search'
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -348,16 +321,16 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'search'
-   OR files.content @@@ 'search'
-   OR pages.content @@@ 'search'
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
 -- =============================================================================
 -- TEST 5: Mixed conjunctive and disjunctive join across 3 tables (A AND (B OR C))
 -- =============================================================================
--- Requires documents.content @@@ 'postgres' (mandatory) AND either files or pages
+-- Requires documents.content ||| 'postgres' (mandatory) AND either files or pages
 -- matches 'search'. Documents matching more terms across joined tables rank higher.
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -371,8 +344,8 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND (files.content @@@ 'search' OR pages.content @@@ 'search')
+WHERE documents.content ||| 'postgres'
+  AND (files.content ||| 'search' OR pages.content ||| 'search')
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -386,8 +359,8 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND (files.content @@@ 'search' OR pages.content @@@ 'search')
+WHERE documents.content ||| 'postgres'
+  AND (files.content ||| 'search' OR pages.content ||| 'search')
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -406,9 +379,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -420,9 +393,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY paradedb.score(pages.id) DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -443,9 +416,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres OR search'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres search'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
@@ -459,9 +432,9 @@ SELECT documents.id AS doc_id,
 FROM documents
 JOIN files ON documents.id = files."documentId"
 JOIN pages ON pages."fileId" = files.id
-WHERE documents.content @@@ 'postgres OR search'
-  AND files.content @@@ 'index'
-  AND pages.content @@@ 'vector'
+WHERE documents.content ||| 'postgres search'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
 ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 

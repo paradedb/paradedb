@@ -10,38 +10,21 @@ CREATE TABLE test_index_config_errors
 );
 
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
-    USING paradedb (id, name)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "some_wrong_key": {"tokenizer": {"type": "default"}}
-    }'
-    );
+    USING paradedb (id, (some_wrong_key::pdb.simple));
 
 
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
-    USING paradedb (id, name)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "name": {"tokenizer": {"type": "some_wrong_type"}}
-    }'
-    );
+    USING paradedb (id, (name::pdb.some_wrong_type));
 
 
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
-    USING paradedb (id, name)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "id": {"tokenizer": {"type": "default"}}
-    }'
-    );
+    USING paradedb (id, (name::pdb.simple('columnar=invalid')));
 
 
 
-CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING paradedb (id, name);
-CREATE INDEX idx_chunks_bm25_configured ON test_index_config_errors USING paradedb (id, name) WITH (text_fields ='{"id": {"tokenizer": {"type": "default"}}}');
+CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING paradedb (id, (name::pdb.simple));
+CREATE INDEX idx_chunks_bm25_configured ON test_index_config_errors
+    USING paradedb (id, (name::pdb.simple('alias=id')));
 
 
 DROP TABLE test_index_config_errors CASCADE;

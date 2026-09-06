@@ -14,18 +14,7 @@ CREATE TABLE comments (
 );
 -- add search index
 CREATE INDEX comments_search ON comments USING paradedb (
-	id, customer_id, text
-)
-WITH (
-	key_field='id',
-	text_fields='{
-		"id": {"tokenizer": {"type": "keyword"}, "fast": true},
-		"customer_id": {
-			"fast":true,
-			"tokenizer": {"type": "keyword"},
-			"record": "basic"
-		}
-	}'
+	(id::pdb.literal), (customer_id::pdb.literal), (text::pdb.simple)
 );
 -- populate the table with faulty data
 INSERT INTO comments (id, customer_id) VALUES ('ctx_01ifsur2egUPnbJOAiHv', 'customer_1');
@@ -36,7 +25,7 @@ INSERT INTO comments (id, customer_id) VALUES ('ctx_01iso5q4prkOQVGKK0ue', 'cust
 -- Select w limit. This will return
 -- "ctx_01ifsur2egUPnbJOAiHv" first despite it being second in the order
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id desc
 LIMIT 2;
             id            | customer_id | text 
@@ -47,7 +36,7 @@ LIMIT 2;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id desc
 LIMIT 2;
                                               QUERY PLAN                                               
@@ -66,7 +55,7 @@ LIMIT 2;
 -- Select w/o limit, returns correctly ordered results,
 -- "ctx_01iso5q4prkOQVGKK0ue" first
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id DESC;
             id            | customer_id | text 
 --------------------------+-------------+------
@@ -78,7 +67,7 @@ ORDER BY id DESC;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
-WHERE id @@@ paradedb.term('customer_id', 'customer_1')
+WHERE customer_id === 'customer_1'
 ORDER BY id DESC;
                                               QUERY PLAN                                               
 -------------------------------------------------------------------------------------------------------

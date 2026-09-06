@@ -164,7 +164,7 @@ impl ReturnedNodePointer {
 
         let lhs = make_lhs(&indexrel, base_var);
         let rhs = wrap_with_index(&indexrel, rhs);
-        let ctid = pg_sys::copyObjectImpl(lhs.cast()).cast::<pg_sys::Var>();
+        let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
         (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
         (*ctid).varattnosyn = (*ctid).varattno;
         (*ctid).vartype = pg_sys::TIDOID;
@@ -1085,6 +1085,26 @@ pub unsafe fn field_name_from_node(
 unsafe fn make_lhs(indexrel: &PgSearchRelation, base_var: *mut pg_sys::Var) -> *mut pg_sys::Node {
     let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
+
+    // Zero denotes an indexed expression, not a whole-row Var. Preserve the expression
+    // for heap evaluation and index matching, remapping its Vars to this table reference.
+    if heap_attno == 0 {
+        let expression = indexrel
+            .index_expressions()
+            .get_ptr(0)
+            .expect("first index attribute must have an expression");
+        let expression = pg_sys::copyObjectImpl(expression.cast()).cast::<pg_sys::Node>();
+        for var in find_vars(expression) {
+            (*var).varno = (*base_var).varno;
+            (*var).varnosyn = (*base_var).varnosyn;
+            (*var).varlevelsup = (*base_var).varlevelsup;
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            {
+                (*var).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
+            }
+        }
+        return expression;
+    }
 
     let tupdesc = indexrel.tuple_desc();
     let att = tupdesc

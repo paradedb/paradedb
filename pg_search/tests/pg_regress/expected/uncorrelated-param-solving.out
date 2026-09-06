@@ -9,18 +9,10 @@ CREATE TABLE items (
 ALTER TABLE ONLY items
     ADD CONSTRAINT items_pkey PRIMARY KEY (id);
 CREATE INDEX items_idx ON items USING paradedb (
-    id,
-    group_id,
-    status,
+    (id::pdb.literal),
+    (group_id::pdb.literal),
+    (status::pdb.literal),
     created_at
-)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "group_id": { "fast": true, "tokenizer": { "type": "keyword" } },
-        "status": { "fast": true, "tokenizer": { "type": "keyword" } }
-    }'
 );
 INSERT INTO items (id, group_id, status, created_at)
 VALUES
@@ -37,7 +29,7 @@ FROM items
 WHERE
     group_id = 'g1'
     AND (id @@@ paradedb.all())
-    AND status @@@ 'IN [posted pending]'
+    AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (
         created_at < (SELECT created_at FROM items WHERE id = '4')
@@ -46,8 +38,8 @@ WHERE
     )
 ORDER BY created_at DESC, id DESC
 LIMIT 100;
-                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: items.id, items.status, items.created_at
    InitPlan 1
@@ -71,7 +63,7 @@ LIMIT 100;
          Scores: false
             TopK Order By: created_at desc, id desc
             TopK Limit: 100
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"term_set":{"field":"status","terms":["posted","pending"]}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1"}}]}}
 (24 rows)
 
 SELECT id, status, created_at
@@ -79,7 +71,7 @@ FROM items
 WHERE
     group_id = 'g1'
     AND (id @@@ paradedb.all())
-    AND status @@@ 'IN [posted pending]'
+    AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (
         created_at < (SELECT created_at FROM items WHERE id = '4')

@@ -19,7 +19,7 @@ SELECT
     'original',
     true
 FROM generate_series(1, 20000) g;
-CREATE INDEX sequential_scan_idx ON sequential_scan USING paradedb (anchor, id, body) WHERE keep;
+CREATE INDEX sequential_scan_idx ON sequential_scan USING paradedb ((anchor::pdb.simple), id, (body::pdb.simple)) WHERE keep;
 CREATE INDEX sequential_scan_anchor_idx ON sequential_scan (anchor) INCLUDE (id);
 
 -- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
@@ -79,16 +79,16 @@ SET enable_mergejoin = off;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body @@@ t.term WHERE s.keep$$);
+SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
 
 SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 RESET enable_seqscan;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body @@@ t.term WHERE s.keep$$);
+SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
 SELECT s.id
 FROM sequential_scan_terms t
-JOIN sequential_scan s ON s.body @@@ t.term
+JOIN sequential_scan s ON s.body ||| t.term
 WHERE s.keep
 ORDER BY s.id;
 RESET enable_indexonlyscan;
@@ -132,13 +132,11 @@ DROP EXTENSION pageinspect;
 CREATE TABLE sequential_scan_nulls (id int PRIMARY KEY, color text, covered boolean);
 INSERT INTO sequential_scan_nulls VALUES (1, 'blue', true), (2, 'red', true), (3, NULL, true);
 CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
-USING paradedb (id, color) WITH (
-    text_fields = '{"color":{"tokenizer":{"type":"keyword"},"fast":true}}'
-);
+USING paradedb (id, (color::pdb.literal));
 
 CREATE VIEW sequential_scan_null_checks AS
 SELECT id, covered,
-       color @@@ 'blue' AS field_match,
+       color ||| 'blue' AS field_match,
        id @@@ paradedb.boost(2.0, paradedb.const_score(1.0, paradedb.term('color', 'blue'))) AS wrapped_match,
        NOT (id @@@ paradedb.const_score(1.0, paradedb.boost(2.0, paradedb.exists('color')))) AS missing,
        id @@@ paradedb.boolean(
@@ -190,9 +188,7 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 SET paradedb.enable_custom_scan = off;
 DROP INDEX sequential_scan_nulls_idx;
 CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
-USING paradedb (id, color) WITH (
-    text_fields = '{"color":{"tokenizer":{"type":"keyword"},"fast":true}}'
-) WHERE covered;
+USING paradedb (id, (color::pdb.literal)) WHERE covered;
 UPDATE sequential_scan_nulls SET covered = false;
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;

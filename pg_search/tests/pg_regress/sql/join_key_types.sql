@@ -45,24 +45,22 @@ INSERT INTO orders (id, customer_code, description, amount) VALUES
 (5, 'CUST-002', 'cable wireless charger', 19.99);
 
 -- Note: orders.customer_code must be a fast field for the join key
-CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, description, customer_code)
-WITH (key_field = 'id', text_fields = '{"customer_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-CREATE INDEX customers_bm25_idx ON customers USING paradedb (customer_code, name, email)
-WITH (text_fields = '{"customer_code": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, (description::pdb.simple), (customer_code::pdb.literal));
+CREATE INDEX customers_bm25_idx ON customers USING paradedb ((customer_code::pdb.literal), (name::pdb.simple), (email::pdb.simple));
 
 -- TEXT join key test
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
 JOIN customers c ON o.customer_code = c.customer_code
-WHERE o.description @@@ 'wireless'
+WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
 JOIN customers c ON o.customer_code = c.customer_code
-WHERE o.description @@@ 'wireless'
+WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
 
@@ -104,26 +102,22 @@ INSERT INTO inventory (id, region_id, warehouse_code, product_name, quantity) VA
 (5, 2, 'WH-B', 'wireless charger', 200);
 
 -- Note: inventory needs region_id and warehouse_code as fast fields for composite join keys
-CREATE INDEX inventory_bm25_idx ON inventory USING paradedb (id, product_name, region_id, warehouse_code)
-WITH (key_field = 'id', numeric_fields = '{"region_id": {"fast": true}}',
-      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-CREATE INDEX warehouses_bm25_idx ON warehouses USING paradedb (region_id, warehouse_code, name, description)
-WITH (key_field = 'region_id',
-      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX inventory_bm25_idx ON inventory USING paradedb (id, (product_name::pdb.simple), region_id, (warehouse_code::pdb.literal));
+CREATE INDEX warehouses_bm25_idx ON warehouses USING paradedb (region_id, (warehouse_code::pdb.literal), (name::pdb.simple), (description::pdb.simple));
 
 -- Composite key join test (region_id AND warehouse_code)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
 JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
-WHERE i.product_name @@@ 'wireless'
+WHERE i.product_name ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
 JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
-WHERE i.product_name @@@ 'wireless'
+WHERE i.product_name ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -161,23 +155,22 @@ INSERT INTO items (id, type_id, name, details) VALUES
 (4, 2, 'Phone Case', 'protective case');
 
 -- Note: items.type_id must be a fast field for the join key
-CREATE INDEX items_bm25_idx ON items USING paradedb (id, name, details, type_id)
-WITH (key_field = 'id', numeric_fields = '{"type_id": {"fast": true}}');
-CREATE INDEX item_types_bm25_idx ON item_types USING paradedb (type_id, type_name, description) WITH (key_field = 'type_id');
+CREATE INDEX items_bm25_idx ON items USING paradedb (id, (name::pdb.simple), (details::pdb.simple), type_id);
+CREATE INDEX item_types_bm25_idx ON item_types USING paradedb (type_id, (type_name::pdb.simple), (description::pdb.simple));
 
 -- Test that items with type_id = 0 are correctly joined (not treated as cross-join)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, t.type_name
 FROM items i
 JOIN item_types t ON i.type_id = t.type_id
-WHERE i.details @@@ 'wireless'
+WHERE i.details ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.name, t.type_name
 FROM items i
 JOIN item_types t ON i.type_id = t.type_id
-WHERE i.details @@@ 'wireless'
+WHERE i.details ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -221,24 +214,22 @@ INSERT INTO docs (title, content, author_code) VALUES
 ('ML Basics', 'Introduction to machine learning concepts', 'AUTH003');
 
 -- Note: docs.author_code must be a fast field for the join key
-CREATE INDEX docs_bm25_idx ON docs USING paradedb (id, title, content, author_code)
-WITH (key_field = 'id', text_fields = '{"author_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-CREATE INDEX authors_bm25_idx ON authors USING paradedb (author_code, name, bio)
-WITH (text_fields = '{"author_code": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX docs_bm25_idx ON docs USING paradedb (id, (title::pdb.simple), (content::pdb.simple), (author_code::pdb.literal));
+CREATE INDEX authors_bm25_idx ON authors USING paradedb ((author_code::pdb.literal), (name::pdb.simple), (bio::pdb.simple));
 
 -- JoinScan with TEXT join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
-WHERE d.content @@@ 'search'
+WHERE d.content ||| 'search'
 ORDER BY d.id
 LIMIT 10;
 
 SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
-WHERE d.content @@@ 'search'
+WHERE d.content ||| 'search'
 ORDER BY d.id
 LIMIT 10;
 
@@ -276,16 +267,15 @@ INSERT INTO items_with_nulls (id, name, content, category_id) VALUES
 (105, 'Another Orphan', 'Another uncategorized item', NULL);     -- NULL category
 
 -- Note: items.category_id must be a fast field for the join key
-CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING paradedb (id, name, content, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX categories_nulls_bm25_idx ON categories_with_nulls USING paradedb (id, name, description) WITH (key_field = 'id');
+CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING paradedb (id, (name::pdb.simple), (content::pdb.simple), category_id);
+CREATE INDEX categories_nulls_bm25_idx ON categories_with_nulls USING paradedb (id, (name::pdb.simple), (description::pdb.simple));
 
 -- Query should NOT return items with NULL category_id
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.name AS item_name, c.name AS category_name
 FROM items_with_nulls i
 JOIN categories_with_nulls c ON i.category_id = c.id
-WHERE i.content @@@ 'item OR laptop OR novel'
+WHERE i.content ||| 'item laptop novel'
 ORDER BY i.id
 LIMIT 10;
 
@@ -294,7 +284,7 @@ LIMIT 10;
 SELECT i.name AS item_name, c.name AS category_name
 FROM items_with_nulls i
 JOIN categories_with_nulls c ON i.category_id = c.id
-WHERE i.content @@@ 'item OR laptop OR novel'
+WHERE i.content ||| 'item laptop novel'
 ORDER BY i.id
 LIMIT 10;
 
@@ -335,24 +325,22 @@ INSERT INTO order_items (order_id, line_num, quantity, notes) VALUES
 (2, 2, 7, 'Bulk order');
 
 -- Note: Both tables need order_id and line_num as fast fields for composite join keys
-CREATE INDEX order_details_bm25_idx ON order_details USING paradedb (order_id, product_name, description, line_num)
-WITH (key_field = 'order_id', numeric_fields = '{"line_num": {"fast": true}}');
-CREATE INDEX order_items_bm25_idx ON order_items USING paradedb (id, notes, order_id, line_num)
-WITH (key_field = 'id', numeric_fields = '{"order_id": {"fast": true}, "line_num": {"fast": true}}');
+CREATE INDEX order_details_bm25_idx ON order_details USING paradedb (order_id, (product_name::pdb.simple), (description::pdb.simple), line_num);
+CREATE INDEX order_items_bm25_idx ON order_items USING paradedb (id, (notes::pdb.simple), order_id, line_num);
 
 -- Join on composite key (order_id, line_num)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
 JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
-WHERE od.description @@@ 'wireless'
+WHERE od.description ||| 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
 JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
-WHERE od.description @@@ 'wireless'
+WHERE od.description ||| 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
@@ -390,25 +378,23 @@ INSERT INTO uuid_orders (customer_id, description, amount) VALUES
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.69);
 
 -- Note: uuid_orders.customer_id must be a fast field for the join key
--- UUID columns use key_field which is implicitly fast, or explicit text_fields config
-CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING paradedb (id, description, customer_id)
-WITH (key_field = 'id', text_fields = '{"customer_id": {"fast": true, "tokenizer": {"type": "keyword"}}}');
--- uuid_customers.id is the key_field, which is implicitly fast
-CREATE INDEX uuid_customers_bm25_idx ON uuid_customers USING paradedb (id, name, email) WITH (key_field = 'id');
+-- UUID columns are columnar by default; the explicit cast preserves exact join keys too.
+CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING paradedb (id, (description::pdb.simple), (customer_id::pdb.literal));
+CREATE INDEX uuid_customers_bm25_idx ON uuid_customers USING paradedb (id, (name::pdb.simple), (email::pdb.simple));
 
 -- JoinScan with UUID join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT o.description, c.name
 FROM uuid_orders o
 JOIN uuid_customers c ON o.customer_id = c.id
-WHERE o.description @@@ 'wireless'
+WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
 
 SELECT o.description, c.name
 FROM uuid_orders o
 JOIN uuid_customers c ON o.customer_id = c.id
-WHERE o.description @@@ 'wireless'
+WHERE o.description ||| 'wireless'
 ORDER BY o.id
 LIMIT 10;
 
@@ -445,18 +431,15 @@ INSERT INTO numeric_transactions (account_num, description, amount) VALUES
 (11111111111111111111, 'Stock purchase wire', 5000.00);
 
 -- Note: numeric_transactions.account_num must be a fast field for the join key
-CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING paradedb (id, description, account_num)
-WITH (key_field = 'id', numeric_fields = '{"account_num": {"fast": true}}');
--- numeric_accounts.account_num is the key_field, which is implicitly fast
-CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING paradedb (account_num, holder_name, account_type)
-WITH (key_field = 'account_num');
+CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING paradedb (id, (description::pdb.simple), account_num);
+CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING paradedb (account_num, (holder_name::pdb.simple), (account_type::pdb.simple));
 
 -- JoinScan with NUMERIC join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
 JOIN numeric_accounts a ON t.account_num = a.account_num
-WHERE t.description @@@ 'wire'
+WHERE t.description ||| 'wire'
 ORDER BY t.id
 LIMIT 10;
 

@@ -1391,7 +1391,19 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
             let funcexpr = node.cast::<pg_sys::FuncExpr>();
             PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
                 .iter_ptr()
-                .all(|arg| is_node_range_table_entry(arg, rti))
+                // Tokenizer casts carry a constant typmod alongside the column.
+                .all(|arg| {
+                    is_node_range_table_entry(arg, rti)
+                        || matches!((*arg).type_, pg_sys::NodeTag::T_Const)
+                })
+        }
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel = node.cast::<pg_sys::RelabelType>();
+            is_node_range_table_entry((*relabel).arg.cast(), rti)
+        }
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let coerce = node.cast::<pg_sys::CoerceViaIO>();
+            is_node_range_table_entry((*coerce).arg.cast(), rti)
         }
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr = node.cast::<pg_sys::OpExpr>();

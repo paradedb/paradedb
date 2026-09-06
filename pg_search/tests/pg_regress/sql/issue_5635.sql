@@ -48,29 +48,29 @@ FROM generate_series(1, 50) AS i;
 
 CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
 USING paradedb (
-    id,
+    (id::pdb.literal),
     (category::pdb.unicode_words('columnar=true'))
-) WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+);
 
 CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
 USING paradedb (
     id,
     (document_id::pdb.literal),
     (title::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id');
+);
 
 SET paradedb.enable_join_custom_scan = on;
 
 -- ORDER BY on the deferred `title` column with LIMIT triggers `SegmentedTopKRule`
 -- to inject `SegmentedTopKExec` and unwrap the SortExec. The join is a
--- HashJoinExec across the two `@@@` scans. Prior to the fix the inner
+-- HashJoinExec across the two search scans. Prior to the fix the inner
 -- PgSearchScan reported `dynamic_filters=3` (SortExec's orphaned filter + STK
 -- threshold + HashJoin bounds); with the fix, it reports `dynamic_filters=2`.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM issue5635_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM issue5635_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -78,7 +78,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM issue5635_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM issue5635_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;

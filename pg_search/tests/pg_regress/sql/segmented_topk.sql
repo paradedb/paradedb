@@ -48,11 +48,9 @@ SELECT
     'file content for item ' || i
 FROM generate_series(1, 100) AS i;
 
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
-WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb ((id::pdb.literal), (category::pdb.simple('columnar=true')));
 
-CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, (document_id::pdb.literal), (title::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -64,7 +62,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -72,7 +70,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -85,7 +83,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title DESC
 LIMIT 3;
@@ -93,7 +91,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title DESC
 LIMIT 3;
@@ -106,7 +104,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -118,7 +116,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 1000;
@@ -130,7 +128,7 @@ LIMIT 1000;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 1;
@@ -144,7 +142,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.id ASC
 LIMIT 3;
@@ -157,7 +155,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC;
 
@@ -171,7 +169,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -180,7 +178,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -213,7 +211,7 @@ SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
@@ -225,7 +223,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
@@ -233,7 +231,7 @@ LIMIT 5;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
@@ -247,7 +245,7 @@ SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title, f.content
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
@@ -258,7 +256,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, f.content
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
@@ -266,7 +264,7 @@ LIMIT 5;
 SELECT f.id, f.title, f.content
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
@@ -282,7 +280,7 @@ SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title, d.category
 FROM stk_files f
 JOIN stk_documents d ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
 
@@ -292,14 +290,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, d.category
 FROM stk_files f
 JOIN stk_documents d ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title, d.category
 FROM stk_files f
 JOIN stk_documents d ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
 
@@ -338,11 +336,9 @@ CREATE TABLE stk_files (
 
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.
-CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
-WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb ((id::pdb.literal), (category::pdb.simple('columnar=true')));
 
-CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
+CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, (document_id::pdb.literal), (title::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true'))) WITH (mutable_segment_rows = 5000);
 
 -- Insert 50K files across multiple segments (mutable_segment_rows=5000).
 -- Round-robin across the 5 documents. Titles zero-padded for clean sort.
@@ -362,7 +358,7 @@ SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 5;
@@ -374,7 +370,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 5;
@@ -382,7 +378,7 @@ LIMIT 5;
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM stk_documents d WHERE d.category &&& 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 5;

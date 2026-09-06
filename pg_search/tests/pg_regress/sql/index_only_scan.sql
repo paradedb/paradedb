@@ -19,7 +19,7 @@ INSERT INTO index_only_scan VALUES
 
 CREATE INDEX index_only_scan_idx
 ON index_only_scan
-USING paradedb (id, tenant_id, score, active, body);
+USING paradedb (id, tenant_id, score, active, (body::pdb.simple));
 
 VACUUM (FREEZE, ANALYZE) index_only_scan;
 
@@ -39,33 +39,33 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 
 -- A non-first fast field is returnable without a configured key field.
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle'$$);
 
 -- Multiple fast fields are populated in index tuple order, including NULL values.
-SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body ||| 'needle'$$);
 SELECT id, tenant_id, score, active
 FROM index_only_scan
-WHERE body @@@ 'needle'
+WHERE body ||| 'needle'
 ORDER BY tenant_id;
 
 -- A tokenized-only field is not losslessly returnable.
-SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body ||| 'needle'$$);
 
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
-USING paradedb (id, tenant_id, score, active, body) WHERE active;
+USING paradedb (id, tenant_id, score, active, (body::pdb.simple)) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
 
 -- A NOT NULL anchor selects the strict helper without requiring the CTID or whole row.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
-USING paradedb (tenant_id, id, score, active, body) WHERE active;
+USING paradedb (tenant_id, id, score, active, (body::pdb.simple)) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
 
 -- Deleted mutable-segment rows can have missing fast values before PostgreSQL checks visibility.
 CREATE TABLE index_only_uuid (id bigint, uuid uuid, body text, age integer)

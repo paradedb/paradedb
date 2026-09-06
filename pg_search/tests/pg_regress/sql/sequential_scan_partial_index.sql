@@ -20,7 +20,7 @@ INSERT INTO partial_index_fallback (id, anchor, body, active, priority) VALUES
 
 -- Predicate columns need not be indexed; FALSE and NULL both require inline evaluation.
 CREATE INDEX partial_index_fallback_idx ON partial_index_fallback
-USING paradedb (anchor, id, body) WHERE active AND priority > 0;
+USING paradedb ((anchor::pdb.simple), id, (body::pdb.simple)) WHERE active AND priority > 0;
 
 SET paradedb.enable_custom_scan = off;
 SET enable_indexonlyscan = off;
@@ -49,7 +49,7 @@ $$;
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE partial_index_lookup(text) AS
-SELECT id FROM partial_index_fallback WHERE body @@@ $1 ORDER BY id;
+SELECT id FROM partial_index_fallback WHERE body ||| $1 ORDER BY id;
 EXECUTE partial_index_lookup('allowed');
 EXECUTE partial_index_lookup('denied');
 DEALLOCATE partial_index_lookup;
@@ -86,7 +86,7 @@ SELECT id FROM partial_index_fallback WHERE body === 'allowed' ORDER BY id;
 DROP INDEX partial_index_fallback_idx;
 UPDATE partial_index_fallback SET body = upper(body), active = (id % 2 = 1);
 CREATE INDEX partial_index_fallback_idx ON partial_index_fallback
-USING paradedb (anchor, id, (lower(body)::pdb.literal('alias=lower_body')))
+USING paradedb ((anchor::pdb.simple), id, (lower(body)::pdb.literal('alias=lower_body')))
 WHERE active AND priority > 0;
 SELECT id FROM partial_index_fallback WHERE lower(body) === 'allowed' ORDER BY id;
 
@@ -99,7 +99,7 @@ USING paradedb (id, (lower(body)::pdb.literal('alias=lower_body')))
 WHERE active AND priority > 0;
 SET plan_cache_mode = force_generic_plan;
 PREPARE strict_partial_lookup(text) AS
-SELECT id, lower(body) @@@ $1 AS search_match FROM partial_index_fallback ORDER BY id;
+SELECT id, lower(body) ||| $1 AS search_match FROM partial_index_fallback ORDER BY id;
 EXECUTE strict_partial_lookup('allowed');
 EXECUTE strict_partial_lookup('denied');
 DEALLOCATE strict_partial_lookup;

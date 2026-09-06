@@ -306,15 +306,12 @@ impl PdbOwnedValue {
             }
 
             // String/Text types
-            (ScalarValue::Utf8(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
-            (ScalarValue::LargeUtf8(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
-            (ScalarValue::Utf8View(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
+            (
+                ScalarValue::Utf8(Some(v))
+                | ScalarValue::LargeUtf8(Some(v))
+                | ScalarValue::Utf8View(Some(v)),
+                SearchFieldType::Text(_) | SearchFieldType::Tokenized(..),
+            ) => Some(PdbOwnedValue::Str(v.clone())),
 
             // Numeric64 (scaled integers)
             (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {

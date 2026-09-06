@@ -625,8 +625,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.name, s.name
    Sort Key: p.name
@@ -636,16 +636,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
          Indexes: dist_products_bm25_idx (p), dist_suppliers_bm25_idx (s)
          Group By: name
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[name@0 as name, name@1 as name], aggr=[]
-           :   TantivyDecodeExec: decode=[name, name]
-           :     AggregateExec: mode=Partial, gby=[name@0 as name, name@1 as name], aggr=[]
-           :       TantivyFetchExec: fetch=[name]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, fetch=[name], visibility=eager, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+           : AggregateExec: mode=Single, gby=[name@0 as name, name@1 as name], aggr=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[name@2, name@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- =============================================================================
 -- TEST 14: DISTINCT with search predicates on both sides

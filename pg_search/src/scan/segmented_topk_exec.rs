@@ -81,12 +81,8 @@ use crate::postgres::customscan::joinscan::visibility_filter::{
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
-use crate::scan::deferred_lookup::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
+use crate::scan::deferred_lookup::{open_rebuilt_ffhelper, rebuild_mvcc, LookupRebuildContext};
 use crate::scan::execution_plan::UnsafeSendStream;
-<<<<<<< HEAD
-use crate::scan::tantivy_lookup_exec::{open_rebuilt_ffhelper, rebuild_mvcc, LookupRebuildContext};
-=======
->>>>>>> 1c2667ad (refactor: decouple column fetching from string decoding (#6219))
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
 };

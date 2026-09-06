@@ -81,14 +81,9 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::is_reduction_node;
-<<<<<<< HEAD
 use crate::scan::table_provider::{pg_search_provider_from_scan, VisibilitySourceMetadata};
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
-=======
-use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::{CtidColumnLookup, TantivyFetchExec};
->>>>>>> 1c2667ad (refactor: decouple column fetching from string decoding (#6219))
 use arrow_select::filter::filter_record_batch;
 use tantivy::DocId;
 

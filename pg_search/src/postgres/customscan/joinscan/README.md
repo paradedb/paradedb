@@ -89,30 +89,17 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 
 Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 
-<<<<<<< HEAD
 | File                                                  | Purpose                                                                                                                             |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | [`segmented_topk_exec.rs`][topk-exec]                 | [`SegmentedTopKExec`][topk-exec] — per-segment heaps, [global heap][global-heap], [`build_global_filter_expression`][global-filter] |
 | [`segmented_topk_rule.rs`][topk-rule]                 | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                                              |
-| [`tantivy_lookup_exec.rs`][lookup-exec]               | Dictionary decode + [filter passthrough][lookup-passthrough]                                                                        |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                 | Fast-field fetch: doc address → term ordinal, packed ctid → ctid                                                                    |
+| [`tantivy_decode_exec.rs`][decode-exec]               | Dictionary decode: term ordinal → string/bytes                                                                                      |
 | [`filter_passthrough_exec.rs`][filter-passthrough]    | Transparent wrapper enabling filter pushdown through blocking nodes                                                                 |
 | [`batch_scanner.rs`](../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
 | [`execution_plan.rs`](../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
 | [`pre_filter.rs`](../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
 | [`deferred_encode.rs`](../../scan/deferred_encode.rs) | 2-way UnionArray construction and unpacking                                                                                         |
-=======
-| File                                                     | Purpose                                                                                                                             |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [`segmented_topk_exec.rs`][topk-exec]                    | [`SegmentedTopKExec`][topk-exec] — per-segment heaps, [global heap][global-heap], [`build_global_filter_expression`][global-filter] |
-| [`segmented_topk_rule.rs`][topk-rule]                    | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                                              |
-| [`tantivy_fetch_exec.rs`][fetch-exec]                    | Fast-field fetch: doc address → term ordinal, packed ctid → ctid                                                                    |
-| [`tantivy_decode_exec.rs`][decode-exec]                  | Dictionary decode: term ordinal → string/bytes                                                                                      |
-| [`filter_passthrough_exec.rs`][filter-passthrough]       | Transparent wrapper enabling filter pushdown through blocking nodes                                                                 |
-| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
-| [`execution_plan.rs`](../../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
-| [`pre_filter.rs`](../../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
-| [`deferred_encode.rs`](../../../scan/deferred_encode.rs) | 2-way UnionArray construction and unpacking                                                                                         |
->>>>>>> 1c2667ad (refactor: decouple column fetching from string decoding (#6219))
 
 ## GUCs
 
@@ -123,7 +110,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | `paradedb.enable_segmented_topk`         | `true`  | `SegmentedTopKExec` injection                                         |
 | `paradedb.defer_column_fetch`            | `true`  | Fetch term ordinals at the decode point (`on`) or in the scan (`off`) |
 
-<<<<<<< HEAD
 [activation]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/mod.rs#L317
 [relnode]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/build.rs#L575
 [joincsc]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/build.rs#L796
@@ -134,31 +120,11 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 [topk-rule]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_rule.rs#L63
 [wrap-blocking]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_rule.rs#L284
 [filter-passthrough]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/filter_passthrough_exec.rs#L39
-[lookup-exec]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/tantivy_lookup_exec.rs#L60
-[lookup-passthrough]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/tantivy_lookup_exec.rs#L232
+[fetch-exec]: ../../scan/tantivy_fetch_exec.rs
+[decode-exec]: ../../scan/tantivy_decode_exec.rs
 [scan-plan]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/execution_plan.rs#L89
 [scanner-next]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/batch_scanner.rs#L259
 [rewrite-binary]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L383
 [collect-filters]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L254
 [defer-decision]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/table_provider.rs#L126
 [try-pushdown]: ../../scan/pre_filter.rs
-=======
-[activation]: mod.rs
-[relnode]: build.rs
-[joincsc]: build.rs
-[optimizer-rules]: scan_state.rs
-[topk-exec]: ../../../scan/segmented_topk_exec.rs
-[global-filter]: ../../../scan/segmented_topk_exec.rs
-[global-heap]: ../../../scan/segmented_topk_exec.rs
-[topk-rule]: ../../../scan/segmented_topk_rule.rs
-[wrap-blocking]: ../../../scan/segmented_topk_rule.rs
-[filter-passthrough]: ../../../scan/filter_passthrough_exec.rs
-[fetch-exec]: ../../../scan/tantivy_fetch_exec.rs
-[decode-exec]: ../../../scan/tantivy_decode_exec.rs
-[scan-plan]: ../../../scan/execution_plan.rs
-[scanner-next]: ../../../scan/batch_scanner.rs
-[rewrite-binary]: ../../../scan/pre_filter.rs
-[collect-filters]: ../../../scan/pre_filter.rs
-[defer-decision]: ../../../scan/table_provider.rs
-[try-pushdown]: ../../../scan/pre_filter.rs
->>>>>>> 1c2667ad (refactor: decouple column fetching from string decoding (#6219))

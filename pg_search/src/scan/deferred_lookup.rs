@@ -209,10 +209,10 @@ pub(crate) fn preserved_ordering(
                 })
             })
             .collect();
-        if rewritten.len() == input_ordering.len()
-            && let Some(lex) = LexOrdering::new(rewritten)
-        {
-            eq_props.add_ordering(lex);
+        if rewritten.len() == input_ordering.len() {
+            if let Some(lex) = LexOrdering::new(rewritten) {
+                eq_props.add_ordering(lex);
+            }
         }
     }
     eq_props

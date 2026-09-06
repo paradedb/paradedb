@@ -30,17 +30,17 @@
 use std::sync::{Arc, Mutex};
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{FFHelper, FFType, for_each_segment};
+use crate::index::fast_fields_helper::{for_each_segment, FFHelper, FFType};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::visibility_filter::{
-    DeferredCtidMaterializationState, materialize_deferred_ctid,
+    materialize_deferred_ctid, DeferredCtidMaterializationState,
 };
 use crate::scan::deferred_encode::{
-    DeferredUnion, DeferredValue, build_state_term_ordinals_per_row, unpack_doc_address,
+    build_state_term_ordinals_per_row, unpack_doc_address, DeferredUnion, DeferredValue,
 };
 use crate::scan::deferred_lookup::{
-    LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
-    preserved_ordering, rebuild_missing_ffhelpers,
+    ffhelper_for, open_rebuilt_ffhelper, preserved_ordering, rebuild_missing_ffhelpers,
+    LookupRebuildContext, PhysicalDeferredField,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
@@ -58,8 +58,8 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use tantivy::DocId;
 use tantivy::termdict::TermOrdinal;
+use tantivy::DocId;
 
 /// A `ctid_<plan_position>` column (packed doc-addresses) that a `TantivyFetchExec` resolves
 /// to real ctids, so a `VisibilityFilterExec` above it consumes real ctids directly.

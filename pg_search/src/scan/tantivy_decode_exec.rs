@@ -30,16 +30,16 @@ use std::sync::Arc;
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
+    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
 };
 use crate::scan::deferred_encode::{DeferredUnion, DeferredValue};
 use crate::scan::deferred_lookup::{
-    LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
-    rebuild_missing_ffhelpers,
+    ffhelper_for, preserved_ordering, rebuild_missing_ffhelpers, LookupRebuildContext,
+    PhysicalDeferredField,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{ArrayRef, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{new_null_array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
@@ -54,8 +54,8 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use tantivy::SegmentOrdinal;
 use tantivy::termdict::TermOrdinal;
+use tantivy::SegmentOrdinal;
 
 pub struct TantivyDecodeExec {
     input: Arc<dyn ExecutionPlan>,

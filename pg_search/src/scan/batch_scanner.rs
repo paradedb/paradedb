@@ -325,10 +325,10 @@ impl Scanner {
     /// still in doc order, so only their dictionary decode is deferred.
     pub fn fetch_ordinals_in_scan(&mut self, field_names: &[String]) {
         for (ff_index, wff) in self.which_fast_fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _) = wff
-                && field_names.contains(name)
-            {
-                self.fetch_ordinals_in_scan[ff_index] = true;
+            if let WhichFastField::Deferred(name, _) = wff {
+                if field_names.contains(name) {
+                    self.fetch_ordinals_in_scan[ff_index] = true;
+                }
             }
         }
     }

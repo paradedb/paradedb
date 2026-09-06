@@ -54,7 +54,7 @@ CREATE INDEX documents_search ON documents USING paradedb (
     content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
 CREATE INDEX files_search ON files USING paradedb (
@@ -65,7 +65,7 @@ CREATE INDEX files_search ON files USING paradedb (
     file_size
 ) WITH (
     key_field = 'id',
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
 CREATE INDEX pages_search ON pages USING paradedb (
@@ -75,7 +75,7 @@ CREATE INDEX pages_search ON pages USING paradedb (
     page_number
 ) WITH (
     key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
 

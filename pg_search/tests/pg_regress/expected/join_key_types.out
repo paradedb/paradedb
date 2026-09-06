@@ -37,7 +37,8 @@ INSERT INTO orders (id, customer_code, description, amount) VALUES
 -- Note: orders.customer_code must be a fast field for the join key
 CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, description, customer_code)
 WITH (key_field = 'id', text_fields = '{"customer_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-CREATE INDEX customers_bm25_idx ON customers USING paradedb (customer_code, name, email) WITH (key_field = 'customer_code');
+CREATE INDEX customers_bm25_idx ON customers USING paradedb (customer_code, name, email)
+WITH (text_fields = '{"customer_code": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 -- TEXT join key test
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT o.id, o.description, c.name AS customer_name
@@ -277,7 +278,8 @@ INSERT INTO docs (title, content, author_code) VALUES
 -- Note: docs.author_code must be a fast field for the join key
 CREATE INDEX docs_bm25_idx ON docs USING paradedb (id, title, content, author_code)
 WITH (key_field = 'id', text_fields = '{"author_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-CREATE INDEX authors_bm25_idx ON authors USING paradedb (author_code, name, bio) WITH (key_field = 'author_code');
+CREATE INDEX authors_bm25_idx ON authors USING paradedb (author_code, name, bio)
+WITH (text_fields = '{"author_code": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 -- JoinScan with TEXT join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.title, a.name

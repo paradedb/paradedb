@@ -222,7 +222,7 @@ CREATE INDEX conversion_search ON conversion_test USING paradedb (
     content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{
         "smallint_field": {"fast": true}, 
         "integer_field": {"fast": true}, 

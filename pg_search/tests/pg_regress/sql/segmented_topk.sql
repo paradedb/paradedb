@@ -49,7 +49,7 @@ SELECT
 FROM generate_series(1, 100) AS i;
 
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
 
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
@@ -339,7 +339,7 @@ CREATE TABLE stk_files (
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments.
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
 
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);

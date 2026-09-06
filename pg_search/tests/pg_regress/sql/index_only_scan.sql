@@ -67,6 +67,28 @@ VACUUM (FREEZE, ANALYZE) index_only_scan;
 SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
 SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
 
+-- Deleted mutable-segment rows can have missing fast values before PostgreSQL checks visibility.
+CREATE TABLE index_only_uuid (id bigint, uuid uuid, body text, age integer)
+WITH (autovacuum_enabled = false);
+CREATE INDEX index_only_uuid_idx ON index_only_uuid
+USING paradedb (id, uuid, (body::pdb.simple), age);
+INSERT INTO index_only_uuid VALUES
+    (1, '550e8400-e29b-41d4-a716-446655440000', 'needle', 1),
+    (2, '550e8400-e29b-41d4-a716-446655440001', 'needle', 2);
+DELETE FROM index_only_uuid WHERE id = 2;
+SELECT explain_index_only($$SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0$$);
+SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0;
+SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
+
+-- A nullable UUID must also be returnable, including on all-visible heap pages.
+INSERT INTO index_only_uuid VALUES (3, NULL, 'needle', 3);
+SELECT explain_index_only($$SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all()$$);
+SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
+VACUUM (FREEZE, ANALYZE) index_only_uuid;
+SELECT explain_index_only($$SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all()$$);
+SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
+DROP TABLE index_only_uuid;
+
 RESET enable_bitmapscan;
 RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;

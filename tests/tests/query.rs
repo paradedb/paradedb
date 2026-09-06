@@ -459,8 +459,8 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index ON test_more_like_this_table
+        USING paradedb (id, (flavour::pdb.simple));
     "#
     .execute(&mut conn);
 
@@ -492,7 +492,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ pdb.more_like_this(
+    WHERE id @@@ pdb.more_like_this(
         min_doc_frequency => 0,
         min_term_frequency => 0,
         key_value => 2

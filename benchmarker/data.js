@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788638116687,
+  "lastUpdate": 1788653454817,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -2585,6 +2585,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.174,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c807edea84cc882673003f352eeb05a77bdaf8dc",
+          "message": "fix: keep the pdb.agg join proptest inside work_mem (#6235)\n\n## Ticket(s) Closed\n\nNone.\n\n## What\n\nThis PR keeps `generated_pdb_agg_join` inside `work_mem`.\n\n## Why\n\nThe proptest can draw a join with a step joined on a non-equi condition\nalone, such as `users.age <> products.age`, which fans out to nearly the\ncross product of its two sides. Under a SQL `GROUP BY` and two nested\n`terms`, that yields tens of thousands of buckets. The DataFusion\naggregate runs with the `DiskManager` disabled, so it fails once its\nstate outgrows `work_mem` instead of spilling. In addition,\n`create_memory_pool` in\n`pg_search/src/postgres/customscan/datafusion/memory.rs` grows the pool\nonly for a `HashJoinExec` or a `SortExec`, so under a\n`NestedLoopJoinExec` the pool is the default 4MB.\n\nBoth reproduction scripts from run 33983476495 (PG16 system and PG18\npgrx) fail on a local instance at `work_mem = 4MB` every time, so this\nwas never a flake. Measured on the PG18 data:\n\n| Shape | Buckets | Fails at | Passes at |\n| --- | --- | --- | --- |\n| PG18 seed: `GROUP BY` + 2 `terms`, 2 `cardinality` | 982 | 8MB | 16MB\n|\n| 3 keys, `sum`/`min`/`max` on NUMERIC, keyless 3-way join | 55035 |\n16MB | 24MB |\n| 3 keys, 3 `cardinality`, keyless 3-way join | 55035 | 256MB | 1GB |\n\n## How\n\n- The oracle closure sets `work_mem` to `64MB`, the way\n`generated_joins_small` does. That covers every shape without a sketch\nwith about 3x margin.\n- `arb_pdb_agg_join` passes the join into the spec shape. Over a join\nwith a keyless step, a spec with `cardinality` keeps to at most one\nbucket key; with more keys the metric becomes `value_count` on the same\nfield. Equi and mixed joins keep every shape, since their equality\nbounds the fan-out.\n- `JoinExpr::has_keyless_step` is the new predicate.\n\nWhether `create_memory_pool` should also budget for a\n`NestedLoopJoinExec` is a separate question.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-09-05T16:51:04-07:00",
+          "tree_id": "6838bea4ae00cc689285536c21323d19e40b89ce",
+          "url": "https://github.com/paradedb/paradedb/commit/c807edea84cc882673003f352eeb05a77bdaf8dc"
+        },
+        "date": 1788653450496,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.637833305807866,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.042,
             "unit": "ms"
           }
         ]

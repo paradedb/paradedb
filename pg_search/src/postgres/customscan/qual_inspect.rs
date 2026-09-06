@@ -23,6 +23,7 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{PushdownField, is_complex, try_build_pushdown_qual};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
@@ -1197,7 +1198,7 @@ unsafe fn node_opexpr(
         // that we'll need to execute during query execution, if we can
 
         if is_our_operator {
-            if contains_var(rhs) {
+            if rhs.contains_type(pg_sys::NodeTag::T_Var) {
                 // it contains a Var, and that means some kind of sequential scan will be required
                 // so indicate we can't handle this expression at all
                 return None;
@@ -1213,7 +1214,7 @@ unsafe fn node_opexpr(
             }
         } else {
             // it doesn't use our operator
-            if contains_var(rhs) {
+            if rhs.contains_type(pg_sys::NodeTag::T_Var) {
                 // the rhs is (or contains) a Var. If it's part of a join condition,
                 // select everything in this situation
                 if convert_external_to_special_qual {
@@ -1317,7 +1318,7 @@ unsafe fn try_pushdown(
 
     if pushdown_result.is_none() {
         let references_relation = contains_relation_reference(opexpr_node, rti);
-        let has_param = contains_param(opexpr_node);
+        let has_param = opexpr_node.contains_type(pg_sys::NodeTag::T_Param);
         // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
         if references_relation {
@@ -1412,61 +1413,20 @@ pub unsafe fn contains_correlated_param(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        let root = context as *mut pg_sys::PlannerInfo;
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
-        {
-            let param_is_from_init_plan = PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
-                .iter_ptr()
-                .any(|subplan| pg_sys::list_member_int((*subplan).setParam, (*param).paramid));
-
-            if !param_is_from_init_plan {
-                // If this PARAM_EXEC param is not from any init plan, then we have to assume
-                // that it is correlated.
-                return true;
-            }
-        }
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    if node.is_null() {
-        return false;
-    }
-
-    walker(node, root as *mut core::ffi::c_void)
-}
-
-unsafe fn contains_param_of_kind(root: *mut pg_sys::Node, kind: pg_sys::ParamKind::Type) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        let kind = &*data.cast::<pg_sys::ParamKind::Type>();
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == *kind
-        {
-            return true;
-        }
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::from_ref(&kind).cast_mut().cast())
+    node.any(|node| {
+        nodecast!(Param, T_Param, node).is_some_and(|param| {
+            (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+                && !PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                    .iter_ptr()
+                    .any(|subplan| pg_sys::list_member_int((*subplan).setParam, (*param).paramid))
+        })
+    })
 }
 
 /// Returns true if the expression contains any `PARAM_EXEC` parameter.
 /// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
 pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
-    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXEC)
+    root.contains_param_kind(pg_sys::ParamKind::PARAM_EXEC)
 }
 
 /// Returns true if the expression contains a prepared-statement parameter.
@@ -1475,7 +1435,7 @@ pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 /// custom scan needs an executor-side contract for resolving them; planner-time
 /// translation alone is not sufficient.
 pub unsafe fn contains_extern_param(root: *mut pg_sys::Node) -> bool {
-    contains_param_of_kind(root, pg_sys::ParamKind::PARAM_EXTERN)
+    root.contains_param_kind(pg_sys::ParamKind::PARAM_EXTERN)
 }
 
 /// Flatten PostgreSQL's two representations of an implicit conjunction into
@@ -1513,40 +1473,6 @@ pub unsafe fn collect_implicit_and_conjuncts(
     }
 
     conjuncts.push(node);
-}
-
-unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        nodecast!(Var, T_Var, node).is_some()
-            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::null_mut())
-}
-
-unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        nodecast!(Param, T_Param, node).is_some()
-            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::null_mut())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1759,7 +1685,7 @@ unsafe fn simplify_node_for_relation(
     if contains_relation_reference(node, current_rti) {
         // Keep the original expression if it involves our relation
         Some(node)
-    } else if contains_any_relation_reference(node) {
+    } else if node.contains_type(pg_sys::NodeTag::T_Var) {
         // Replace with TRUE if it only involves other relations
         create_bool_const_true()
     } else {
@@ -1835,27 +1761,9 @@ unsafe fn create_bool_expr(
 
 /// Check if a node contains a reference to the specified relation
 unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sys::Index) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        let target_rti = context as pg_sys::Index;
-
-        if let Some(var) = nodecast!(Var, T_Var, node)
-            && (*var).varno as pg_sys::Index == target_rti
-        {
-            return true;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    walker(node, target_rti as *mut core::ffi::c_void)
+    node.any(|node| {
+        nodecast!(Var, T_Var, node).is_some_and(|var| (*var).varno as pg_sys::Index == target_rti)
+    })
 }
 
 /// Optimize qual tree by converting ExternalVar and ExternalExpr to HeapExpr where possible
@@ -2028,26 +1936,6 @@ unsafe fn try_create_heap_expr_from_null_test(
     } else {
         None
     }
-}
-
-unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _context: *mut core::ffi::c_void,
-    ) -> bool {
-        if nodecast!(Var, T_Var, node).is_some() {
-            return true;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    walker(node, std::ptr::null_mut())
 }
 
 #[cfg(any(test, feature = "pg_test"))]

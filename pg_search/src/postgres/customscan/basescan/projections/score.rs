@@ -17,9 +17,8 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
-use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_guard, pg_sys};
-use std::ptr::addr_of_mut;
+use crate::postgres::node::NodeExt;
+use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_sys};
 
 #[pgrx::pg_schema]
 mod pdb {
@@ -66,42 +65,17 @@ pub unsafe fn uses_scores(
     score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
 ) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
+    node.any(|node| {
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && score_funcoids.contains(&(*funcexpr).funcid)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            assert!(args.len() == 1, "score function must have 1 argument");
+            return nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                .is_some_and(|var| (*var).varno as i32 == rti as i32);
         }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = data.cast::<Data>();
-            if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                assert!(args.len() == 1, "score function must have 1 argument");
-                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                    && (*var).varno as i32 == (*data).rti as i32
-                {
-                    return true;
-                }
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        score_funcoids: [pg_sys::Oid; 2],
-        rti: pg_sys::Index,
-    }
-
-    let mut data = Data {
-        score_funcoids,
-        rti,
-    };
-
-    walker(node, addr_of_mut!(data).cast())
+        false
+    })
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
@@ -118,27 +92,4 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool
     }
 
     false
-}
-
-/// Check if an expression tree contains any `pdb.score()` or `paradedb.score()` function calls.
-pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && score_funcoids().contains(&(*funcexpr).funcid)
-        {
-            return true;
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    walker(node, std::ptr::null_mut())
 }

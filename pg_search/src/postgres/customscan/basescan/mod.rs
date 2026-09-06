@@ -24,6 +24,7 @@ pub mod projections;
 mod scan_state;
 pub(crate) mod telemetry;
 
+use crate::postgres::node::NodeExt;
 use cost::{
     CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
@@ -400,9 +401,6 @@ impl BaseScan {
 /// TopK query), and we reject it. Recursive detection is only for window_agg()
 /// placeholders because plan_custom_path deserializes those recursively later.
 pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
-    use pgrx::pg_guard;
-    use pgrx::pg_sys::expression_tree_walker;
-
     if root.is_null() || (*root).parse.is_null() {
         return false;
     }
@@ -439,54 +437,9 @@ pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerIn
         }
     }
 
-    struct Context {
-        window_agg_func_oid: u32,
-        found: bool,
-    }
-
-    // window_agg() can appear nested inside CASE expressions, arithmetic,
-    // coercions, etc. The deserialize_window_agg_placeholders pass that runs
-    // later in plan_custom_path walks the tree recursively; this detector must
-    // do the same so the cost-model gate matches that pass's reality.
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let context = data.cast::<Context>();
-        if (*context).found {
-            return true;
-        }
-
-        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let func_oid = (*func_expr).funcid.to_u32();
-            if func_oid == (*context).window_agg_func_oid {
-                (*context).found = true;
-                return true;
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    let mut context = Context {
-        window_agg_func_oid: window_agg_func_oid.to_u32(),
-        found: false,
-    };
-
-    if !(*parse).targetList.is_null() {
-        expression_tree_walker(
-            (*parse).targetList.cast(),
-            Some(walker),
-            (&mut context as *mut Context).cast(),
-        );
-    }
-
-    context.found
+    (*parse)
+        .targetList
+        .contains_functions(&[window_agg_func_oid])
 }
 
 /// Classification of any set-returning function found in the target list,
@@ -1990,59 +1943,20 @@ unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
 /// Returns true if every window function in `parse` derives solely from a row's position in the
 /// window ordering (`row_number`, `rank`, `dense_rank`).
 unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
-    use pgrx::pg_guard;
-
-    struct Context {
-        position_only: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let ctx = context.cast::<Context>();
-
-        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node)
-            && !matches!(
-                (*wfunc).winfnoid.to_u32(),
-                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
-            )
-        {
-            (*ctx).position_only = false;
-            return true;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
     let Some(parse) = parse.as_ref() else {
         return false;
     };
     if parse.targetList.is_null() {
         return false;
     }
-
-    let mut context = Context {
-        position_only: true,
-    };
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
-    for te in tlist.iter_ptr() {
-        if (*te).expr.is_null() {
-            continue;
-        }
-        walker(
-            (*te).expr.cast::<pg_sys::Node>(),
-            addr_of_mut!(context).cast::<core::ffi::c_void>(),
-        );
-        if !context.position_only {
-            return false;
-        }
-    }
-    context.position_only
+    !parse.targetList.any(|node| {
+        nodecast!(WindowFunc, T_WindowFunc, node).is_some_and(|wfunc| {
+            !matches!(
+                (*wfunc).winfnoid.to_u32(),
+                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
+            )
+        })
+    })
 }
 
 ///
@@ -3052,27 +2966,8 @@ unsafe fn where_clause_only_references_left(
         return true; // No WHERE clause means it only references left
     };
 
-    // Walk the quals to check if they only reference our relation
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let rti = *(data as *const pg_sys::Index);
-            // If we find a Var that's not from our relation, return true (fail)
-            if (*var).varno as i32 != rti as i32 && (*var).varno > 0 {
-                return true;
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    // If walker returns true, it found a reference to another relation
-    !walker(quals, &rti as *const _ as *mut _)
+    !quals.any(|node| {
+        nodecast!(Var, T_Var, node)
+            .is_some_and(|var| (*var).varno as i32 != rti as i32 && (*var).varno > 0)
+    })
 }

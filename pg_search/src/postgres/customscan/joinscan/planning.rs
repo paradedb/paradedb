@@ -39,9 +39,7 @@ use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::customscan::basescan::projections::score::{
-    expr_contains_any_score, is_score_func,
-};
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
@@ -71,52 +69,18 @@ pub(super) unsafe fn expr_uses_scores_from_source(
     node: *mut pg_sys::Node,
     source: &JoinSource,
 ) -> bool {
-    // We use a walker to find score functions
-    use pgrx::pg_sys::expression_tree_walker;
-    use std::ptr::addr_of_mut;
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
+    let funcoids = score_funcoids();
+    node.any(|node| {
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+            && funcoids.contains(&(*funcexpr).funcid)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            return args.len() == 1
+                && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                    .is_some_and(|var| source.contains_rti((*var).varno as pg_sys::Index));
         }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = context.cast::<Data>();
-            if (*data).funcoids.contains(&(*funcexpr).funcid) {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if args.len() == 1
-                    && let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                {
-                    let varno = (*var).varno as pg_sys::Index;
-                    if (*data).source.contains_rti(varno) {
-                        (*data).found = true;
-                        return true; // Abort traversal, found it
-                    }
-                }
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), context)
-    }
-
-    struct Data<'a> {
-        source: &'a JoinSource,
-        funcoids: [pg_sys::Oid; 2],
-        found: bool,
-    }
-
-    let mut data = Data {
-        source,
-        funcoids: score_funcoids(),
-        found: false,
-    };
-
-    walker(node, addr_of_mut!(data).cast());
-    data.found
+        false
+    })
 }
 
 pub(super) struct JoinConditions {
@@ -1930,7 +1894,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     continue 'pathkey;
                 }
 
-                if expr_contains_any_score(expr.cast()) {
+                if expr.contains_score() {
                     candidate_decline = Some(JoinDeclineReason::new(
                         "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
                     ));

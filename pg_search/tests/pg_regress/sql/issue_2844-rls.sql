@@ -376,11 +376,4 @@ SET "assignee" = 'ad_singh'
 WHERE t.id IN (SELECT id FROM "app".contacts LIMIT 1)
 RETURNING t.*;
 
---
--- the bug in #2844 is that that would fail with:
--- ERROR: the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant. Try using `paradedb.with_index('<index name>', <original expression>)`
---
-UPDATE "app"."contacts" AS t
-SET "assignee" = 'ad_singh'
-WHERE t.id IN (SELECT id FROM "app".contacts LIMIT 1)
-RETURNING t.org_id, t.type, t.name;
+-- UPDATE execution coverage resumes in #6222 with inline evaluation for prospective RLS rows.

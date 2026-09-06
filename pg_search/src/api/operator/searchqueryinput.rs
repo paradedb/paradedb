@@ -383,7 +383,22 @@ pub fn query_input_restrict(
                     estimate_selectivity(&indexrel, search_query_input)
                 }
                 pg_sys::NodeTag::T_Param => Some(PARAMETERIZED_SELECTIVITY),
-                _ => None,
+                _ => {
+                    // The RHS is neither a Const nor a Param: typically a STABLE function
+                    // call that is solved at execution time, such as an RLS policy's
+                    // `id @@@ acl.rls_query()` or `current_setting(...)::searchqueryinput`.
+                    // For estimation, fold it the way core's restriction estimators do in
+                    // `get_restriction_variable()`: `estimate_expression_value()` evaluates
+                    // STABLE functions at plan time for costing purposes only. An expression
+                    // that still does not fold keeps UNKNOWN_SELECTIVITY.
+                    let estimated = pg_sys::estimate_expression_value(info, rhs);
+                    let const_ = nodecast!(Const, T_Const, estimated)?;
+                    let (heaprelid, _, _) = find_var_relation(var, info);
+                    let indexrel = rel_get_bm25_index(heaprelid)?.1;
+                    let search_query_input =
+                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                    estimate_selectivity(&indexrel, search_query_input)
+                }
             }
         }
     }

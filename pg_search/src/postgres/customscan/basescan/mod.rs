@@ -881,8 +881,21 @@ impl CustomScan for BaseScan {
                 // relation are visible) then we end up returning *everything* from _this_ relation
                 FULL_RELATION_SELECTIVITY
             } else if quals.contains_exprs() {
-                // if the query has expressions then it's parameterized and we have to guess something
-                PARAMETERIZED_SELECTIVITY
+                // The query contains expressions that are solved at execution time: a STABLE
+                // function call such as an RLS policy's `id @@@ acl.rls_query()`, or
+                // `current_setting(...)`. For estimation only, fold them the way core does for
+                // STABLE functions (`estimate_expression_value()`) and ask the index with the
+                // folded query. Anything that does not fold (a true runtime Param) keeps the
+                // parameterized guess. Execution still solves the original expressions at scan
+                // start, so a cached plan never carries a folded value.
+                match fold_postgres_expressions_for_estimation(root, &query) {
+                    Some(folded) => {
+                        let (sel, cost) = estimate_selectivity_and_cost(&bm25_index, folded);
+                        precomputed_query_cost = cost;
+                        sel.unwrap_or(PARAMETERIZED_SELECTIVITY)
+                    }
+                    None => PARAMETERIZED_SELECTIVITY,
+                }
             } else {
                 // Ask the index. This is the one branch that opens, so reuse that same
                 // open's cost for the TopK worker decision instead of opening twice.
@@ -3075,4 +3088,45 @@ unsafe fn where_clause_only_references_left(
 
     // If walker returns true, it found a reference to another relation
     !walker(quals, &rti as *const _ as *mut _)
+}
+
+/// A copy of `query` for selectivity estimation, with every `PostgresExpression` replaced by
+/// the value Postgres's `estimate_expression_value()` folds it to at plan time.
+///
+/// `estimate_expression_value()` evaluates STABLE functions (an RLS policy's query-returning
+/// function, `current_setting(...)`) for costing purposes only, the same way core's restriction
+/// estimators treat `col = stable_fn()`. Returns `None` if any expression does not fold to a
+/// non-null `Const`, or if the query carries a heap filter (which needs an executor expression
+/// context), in which case the caller keeps its parameterized guess. The returned query must
+/// never be used for execution: the original expressions are solved at scan start.
+unsafe fn fold_postgres_expressions_for_estimation(
+    root: *mut pg_sys::PlannerInfo,
+    query: &SearchQueryInput,
+) -> Option<SearchQueryInput> {
+    let mut folded = query.clone();
+    let mut all_folded = true;
+    folded.visit(&mut |sqi| {
+        if !all_folded {
+            return;
+        }
+        match sqi {
+            SearchQueryInput::PostgresExpression { expr } => {
+                let resolved = unsafe {
+                    let estimated = pg_sys::estimate_expression_value(root, expr.node());
+                    nodecast!(Const, T_Const, estimated).and_then(|const_| {
+                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                    })
+                };
+                match resolved {
+                    Some(resolved) => *sqi = resolved,
+                    None => all_folded = false,
+                }
+            }
+            // A heap filter runs against heap tuples with an executor expression context,
+            // which the estimator does not have at plan time. Keep the parameterized guess.
+            SearchQueryInput::HeapFilter { .. } => all_folded = false,
+            _ => {}
+        }
+    });
+    all_folded.then_some(folded)
 }

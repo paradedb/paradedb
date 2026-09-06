@@ -31,7 +31,9 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::logical_expr::{
+    Expr, Extension, JoinType, LogicalPlan, UserDefinedLogicalNodeCore,
+};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -277,10 +279,29 @@ fn get_column_refs(node: &LogicalPlan) -> HashSet<Column> {
     cols.into_iter().cloned().collect()
 }
 
-/// Determines whether a `LateMaterializeNode` must be anchored *below* the given logical plan node.
+/// Whether `input_idx` of `join` is the side an outer join null-extends.
+///
+/// The physical join fills those rows by `take` over the other side's batch, and a dense
+/// `UnionArray` has no validity bitmap: the taken slot comes out as a copy of the first
+/// build row's doc address or ordinal, not as a NULL. A deferred column must therefore
+/// be materialized before it enters the join from that side.
+fn join_null_extends_input(
+    join: &datafusion::logical_expr::logical_plan::Join,
+    input_idx: usize,
+) -> bool {
+    match join.join_type {
+        JoinType::Left => input_idx == 1,
+        JoinType::Right => input_idx == 0,
+        JoinType::Full => true,
+        _ => false,
+    }
+}
+
+/// Determines whether a `LateMaterializeNode` must be anchored *below* the given logical plan node,
+/// on its `input_idx`-th input.
 /// If `true`, the `Union` values will be materialized into standard strings before this node executes.
 /// If `false`, the `Union` schema will bubble straight through it.
-fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool {
+fn should_anchor(node: &LogicalPlan, input_idx: usize, deferred_fields: &[DeferredField]) -> bool {
     let refs = get_column_refs(node);
 
     let references_deferred = refs.iter().any(|c| {
@@ -337,6 +358,9 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
         }
         LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
+            if join_null_extends_input(join, input_idx) {
+                return true;
+            }
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
                 l.add_column_refs(&mut join_refs);
@@ -382,12 +406,12 @@ pub(crate) fn is_reduction_node(node: &LogicalPlan) -> bool {
 /// when nothing stops it. That intervening reduction is what makes deferring the
 /// scan's output past it worthwhile.
 pub(crate) fn has_reduction_before_stop(
-    ancestors: &[&LogicalPlan],
-    is_stop: impl Fn(&LogicalPlan) -> bool,
+    ancestors: &[(&LogicalPlan, usize)],
+    is_stop: impl Fn(&LogicalPlan, usize) -> bool,
 ) -> bool {
     let mut has_reduction = false;
-    for ancestor in ancestors.iter().rev() {
-        if is_stop(ancestor) {
+    for (ancestor, child_idx) in ancestors.iter().rev() {
+        if is_stop(ancestor, *child_idx) {
             break;
         }
         if is_reduction_node(ancestor) {
@@ -400,17 +424,18 @@ pub(crate) fn has_reduction_before_stop(
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
 /// For each deferred field of a `TableScan`, checks if there is any intermediate reduction
 /// node (`Filter`, `Join`, `Limit`, etc.) on the path between the scan and the first ancestor
-/// that anchors the field (or the root).
+/// that anchors the field (or the root). Each ancestor is paired with the index of the
+/// child the path descends into, since a join anchors its inputs asymmetrically.
 fn collect_beneficial_deferred_fields_inner<'a>(
     node: &'a LogicalPlan,
-    ancestors: &mut Vec<&'a LogicalPlan>,
+    ancestors: &mut Vec<(&'a LogicalPlan, usize)>,
     beneficial: &mut HashSet<CanonicalColumn>,
 ) {
     if let LogicalPlan::TableScan(scan) = node {
         if let Some(provider) = pg_search_provider_from_scan(scan) {
             for df in provider.deferred_fields() {
-                if has_reduction_before_stop(ancestors, |ancestor| {
-                    should_anchor(ancestor, std::slice::from_ref(&df))
+                if has_reduction_before_stop(ancestors, |ancestor, child_idx| {
+                    should_anchor(ancestor, child_idx, std::slice::from_ref(&df))
                 }) {
                     beneficial.insert(df.canonical);
                 }
@@ -419,11 +444,11 @@ fn collect_beneficial_deferred_fields_inner<'a>(
         return;
     }
 
-    ancestors.push(node);
-    for child in node.inputs() {
+    for (child_idx, child) in node.inputs().into_iter().enumerate() {
+        ancestors.push((node, child_idx));
         collect_beneficial_deferred_fields_inner(child, ancestors, beneficial);
+        ancestors.pop();
     }
-    ancestors.pop();
 }
 
 /// Collects the set of `CanonicalColumn`s for deferred fields that actually benefit from
@@ -506,10 +531,10 @@ impl OptimizerRule for LateMaterializationRule {
             let mut needs_anchor = false;
             let mut new_inputs = Vec::new();
 
-            for input in node.inputs() {
+            for (input_idx, input) in node.inputs().into_iter().enumerate() {
                 let input_plan = input.clone();
                 if let Some((deferred_fields, output_schema)) = get_union_info(&input_plan) {
-                    if should_anchor(&node, &deferred_fields) {
+                    if should_anchor(&node, input_idx, &deferred_fields) {
                         let extension_node = LogicalPlan::Extension(Extension {
                             node: Arc::new(LateMaterializeNode {
                                 input: input_plan,

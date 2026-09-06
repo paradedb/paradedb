@@ -1,0 +1,563 @@
+-- A deferred string column of an outer join's nullable side must come out NULL for
+-- the null-extended rows, both as a Top-K sort key and as an output column.
+-- `oj_dim` row 1 carries the smallest `tag`, so a null-extended row that borrows the
+-- first document's ordinal would sort ahead of every real row.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS oj_dim CASCADE;
+DROP TABLE IF EXISTS oj_fact CASCADE;
+DROP TABLE IF EXISTS oj_side CASCADE;
+CREATE TABLE oj_dim (id INT PRIMARY KEY, k INT, txt TEXT, tag TEXT);
+CREATE TABLE oj_fact (id INT PRIMARY KEY, k INT, txt TEXT);
+CREATE TABLE oj_side (id INT PRIMARY KEY, txt TEXT);
+-- oj_fact rows 21..40 have no oj_dim partner.
+INSERT INTO oj_dim
+SELECT g, g, 'alpha item ' || g, CASE WHEN g = 1 THEN 'aaa' ELSE 'tag' || lpad(g::text, 2, '0') END
+FROM generate_series(1, 20) g;
+INSERT INTO oj_fact
+SELECT g, g, 'beta item ' || g
+FROM generate_series(1, 40) g;
+INSERT INTO oj_side
+SELECT g, 'gamma item ' || g
+FROM generate_series(1, 3) g;
+CREATE INDEX oj_dim_idx ON oj_dim
+USING paradedb (id, k, txt, tag)
+WITH (key_field='id', numeric_fields='{"k":{"fast":true}}', text_fields='{"txt":{"fast":true},"tag":{"fast":true}}');
+CREATE INDEX oj_fact_idx ON oj_fact
+USING paradedb (id, k, txt)
+WITH (key_field='id', numeric_fields='{"k":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+CREATE INDEX oj_side_idx ON oj_side
+USING paradedb (id, txt)
+WITH (key_field='id', text_fields='{"txt":{"fast":true}}');
+ANALYZE oj_dim;
+ANALYZE oj_fact;
+ANALYZE oj_side;
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- RIGHT JOIN: the left input is null-extended
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Limit: 25
+               Order By: d.tag asc, f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=25), expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+  6 | tag06 |  6
+  7 | tag07 |  7
+  8 | tag08 |  8
+  9 | tag09 |  9
+ 10 | tag10 | 10
+ 11 | tag11 | 11
+ 12 | tag12 | 12
+ 13 | tag13 | 13
+ 14 | tag14 | 14
+ 15 | tag15 | 15
+ 16 | tag16 | 16
+ 17 | tag17 | 17
+ 18 | tag18 | 18
+ 19 | tag19 | 19
+ 20 | tag20 | 20
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+(25 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Limit: 25
+               Order By: d.tag desc, f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=25), expr=[tag@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+    |       | 26
+    |       | 27
+    |       | 28
+    |       | 29
+    |       | 30
+    |       | 31
+    |       | 32
+    |       | 33
+    |       | 34
+    |       | 35
+    |       | 36
+    |       | 37
+    |       | 38
+    |       | 39
+    |       | 40
+ 20 | tag20 | 20
+ 19 | tag19 | 19
+ 18 | tag18 | 18
+ 17 | tag17 | 17
+ 16 | tag16 | 16
+(25 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Limit: 25
+               Order By: d.tag asc nulls first, f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=25), expr=[tag@1 ASC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+    |       | 26
+    |       | 27
+    |       | 28
+    |       | 29
+    |       | 30
+    |       | 31
+    |       | 32
+    |       | 33
+    |       | 34
+    |       | 35
+    |       | 36
+    |       | 37
+    |       | 38
+    |       | 39
+    |       | 40
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+(25 rows)
+
+-- A mixed ON condition keeps the nullable side deferred as well.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Join Filter: (d.id <= f.id)
+               Limit: 25
+               Order By: d.tag asc, f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@4 as col_1, id@1 as col_2, tag@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=25), expr=[tag@2 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], filter=id@0 <= id@1, projection=[ctid_0@0, id@2, tag@3, ctid_1@4, id@6]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+  6 | tag06 |  6
+  7 | tag07 |  7
+  8 | tag08 |  8
+  9 | tag09 |  9
+ 10 | tag10 | 10
+ 11 | tag11 | 11
+ 12 | tag12 | 12
+ 13 | tag13 | 13
+ 14 | tag14 | 14
+ 15 | tag15 | 15
+ 16 | tag16 | 16
+ 17 | tag17 | 17
+ 18 | tag18 | 18
+ 19 | tag19 | 19
+ 20 | tag20 | 20
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+(25 rows)
+
+-- =============================================================================
+-- LEFT JOIN: the right input is null-extended
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Limit: 25
+               Order By: d.tag asc, f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=25), expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+  6 | tag06 |  6
+  7 | tag07 |  7
+  8 | tag08 |  8
+  9 | tag09 |  9
+ 10 | tag10 | 10
+ 11 | tag11 | 11
+ 12 | tag12 | 12
+ 13 | tag13 | 13
+ 14 | tag14 | 14
+ 15 | tag15 | 15
+ 16 | tag16 | 16
+ 17 | tag17 | 17
+ 18 | tag18 | 18
+ 19 | tag19 | 19
+ 20 | tag20 | 20
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+(25 rows)
+
+-- =============================================================================
+-- FULL JOIN: both inputs are null-extended
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' OR d.txt @@@ 'alpha' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: d.id, d.tag, f.id
+         Relation Tree: f FULL d
+         Join Cond: d.k = f.k
+         Join Predicate: (f:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}} OR d:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}})
+         Limit: 25
+         Order By: d.tag asc, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, tag@3 as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=25), expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     FilterExec: __f_0_tag_0@2 OR __d_1_tag_0@5, projection=[ctid_0@0, id@1, ctid_1@3, tag@4]
+           :       HashJoinExec: mode=CollectLeft, join_type=Full, on=[(k@1, k@1)], projection=[ctid_0@4, id@6, __f_0_tag_0@7, ctid_1@0, tag@2, __d_1_tag_0@3]
+           :         CooperativeExec
+           :           PgSearchScan: table=d, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=f, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' OR d.txt @@@ 'alpha' ORDER BY d.tag, f.id LIMIT 25;
+ id |  tag  | id 
+----+-------+----
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+  6 | tag06 |  6
+  7 | tag07 |  7
+  8 | tag08 |  8
+  9 | tag09 |  9
+ 10 | tag10 | 10
+ 11 | tag11 | 11
+ 12 | tag12 | 12
+ 13 | tag13 | 13
+ 14 | tag14 | 14
+ 15 | tag15 | 15
+ 16 | tag16 | 16
+ 17 | tag17 | 17
+ 18 | tag18 | 18
+ 19 | tag19 | 19
+ 20 | tag20 | 20
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+(25 rows)
+
+-- =============================================================================
+-- A third relation under the outer join, and the column as plain output
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id, s.id
+   ->  Result
+         Output: d.id, d.tag, f.id, s.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag, s.id
+               Relation Tree: d RIGHT (f INNER s)
+               Join Cond: d.k = f.k
+               Limit: 70
+               Order By: d.tag asc, f.id asc, s.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, id@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+                 :   SortExec: TopK(fetch=70), expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f, s]
+                 :       TantivyFetchExec: fetch=[ctid_1, ctid_2]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5, ctid_2@6, id@7]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           ProjectionExec: expr=[ctid_1@2 as ctid_1, k@3 as k, id@4 as id, ctid_2@0 as ctid_2, id@1 as id]
+                 :             CrossJoinExec
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=s, segments=1, query="all"
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(24 rows)
+
+SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
+ id |  tag  | id | id 
+----+-------+----+----
+  1 | aaa   |  1 |  1
+  1 | aaa   |  1 |  2
+  1 | aaa   |  1 |  3
+  2 | tag02 |  2 |  1
+  2 | tag02 |  2 |  2
+  2 | tag02 |  2 |  3
+  3 | tag03 |  3 |  1
+  3 | tag03 |  3 |  2
+  3 | tag03 |  3 |  3
+  4 | tag04 |  4 |  1
+  4 | tag04 |  4 |  2
+  4 | tag04 |  4 |  3
+  5 | tag05 |  5 |  1
+  5 | tag05 |  5 |  2
+  5 | tag05 |  5 |  3
+  6 | tag06 |  6 |  1
+  6 | tag06 |  6 |  2
+  6 | tag06 |  6 |  3
+  7 | tag07 |  7 |  1
+  7 | tag07 |  7 |  2
+  7 | tag07 |  7 |  3
+  8 | tag08 |  8 |  1
+  8 | tag08 |  8 |  2
+  8 | tag08 |  8 |  3
+  9 | tag09 |  9 |  1
+  9 | tag09 |  9 |  2
+  9 | tag09 |  9 |  3
+ 10 | tag10 | 10 |  1
+ 10 | tag10 | 10 |  2
+ 10 | tag10 | 10 |  3
+ 11 | tag11 | 11 |  1
+ 11 | tag11 | 11 |  2
+ 11 | tag11 | 11 |  3
+ 12 | tag12 | 12 |  1
+ 12 | tag12 | 12 |  2
+ 12 | tag12 | 12 |  3
+ 13 | tag13 | 13 |  1
+ 13 | tag13 | 13 |  2
+ 13 | tag13 | 13 |  3
+ 14 | tag14 | 14 |  1
+ 14 | tag14 | 14 |  2
+ 14 | tag14 | 14 |  3
+ 15 | tag15 | 15 |  1
+ 15 | tag15 | 15 |  2
+ 15 | tag15 | 15 |  3
+ 16 | tag16 | 16 |  1
+ 16 | tag16 | 16 |  2
+ 16 | tag16 | 16 |  3
+ 17 | tag17 | 17 |  1
+ 17 | tag17 | 17 |  2
+ 17 | tag17 | 17 |  3
+ 18 | tag18 | 18 |  1
+ 18 | tag18 | 18 |  2
+ 18 | tag18 | 18 |  3
+ 19 | tag19 | 19 |  1
+ 19 | tag19 | 19 |  2
+ 19 | tag19 | 19 |  3
+ 20 | tag20 | 20 |  1
+ 20 | tag20 | 20 |  2
+ 20 | tag20 | 20 |  3
+    |       | 21 |  1
+    |       | 21 |  2
+    |       | 21 |  3
+    |       | 22 |  1
+    |       | 22 |  2
+    |       | 22 |  3
+    |       | 23 |  1
+    |       | 23 |  2
+    |       | 23 |  3
+    |       | 24 |  1
+(70 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY f.id LIMIT 40;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.id, d.tag, f.id
+   ->  Result
+         Output: d.id, d.tag, f.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: f.id, d.id, d.tag
+               Relation Tree: d RIGHT f
+               Join Cond: d.k = f.k
+               Limit: 40
+               Order By: f.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=40), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[f]
+                 :       TantivyFetchExec: fetch=[ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY f.id LIMIT 40;
+ id |  tag  | id 
+----+-------+----
+  1 | aaa   |  1
+  2 | tag02 |  2
+  3 | tag03 |  3
+  4 | tag04 |  4
+  5 | tag05 |  5
+  6 | tag06 |  6
+  7 | tag07 |  7
+  8 | tag08 |  8
+  9 | tag09 |  9
+ 10 | tag10 | 10
+ 11 | tag11 | 11
+ 12 | tag12 | 12
+ 13 | tag13 | 13
+ 14 | tag14 | 14
+ 15 | tag15 | 15
+ 16 | tag16 | 16
+ 17 | tag17 | 17
+ 18 | tag18 | 18
+ 19 | tag19 | 19
+ 20 | tag20 | 20
+    |       | 21
+    |       | 22
+    |       | 23
+    |       | 24
+    |       | 25
+    |       | 26
+    |       | 27
+    |       | 28
+    |       | 29
+    |       | 30
+    |       | 31
+    |       | 32
+    |       | 33
+    |       | 34
+    |       | 35
+    |       | 36
+    |       | 37
+    |       | 38
+    |       | 39
+    |       | 40
+(40 rows)
+
+DROP TABLE oj_side;
+DROP TABLE oj_fact;
+DROP TABLE oj_dim;

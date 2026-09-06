@@ -998,9 +998,12 @@ impl CustomScan for AggregateScan {
         }
         state.custom_state_mut().state = ExecutionState::NotStarted;
         // Reset DataFusion state so rescan rebuilds the plan and stream.
-        // Drop stream before runtime to avoid tokio panics.
+        // physical_plan is cleared before runtime -- not because the old plan would
+        // otherwise leak (rescan reassigns physical_plan before it's read again), but
+        // so it drops before runtime instead of after.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
@@ -1063,9 +1066,17 @@ impl CustomScan for AggregateScan {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
-            // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
-            // (physical plan, session) via `drop(df_state)`, before destroying the DSM below.
+            // Drop order matters here for two independent reasons:
+            //
+            // 1. The physical plan and session hold a mesh reference, and both must be
+            //    dropped before the DSM is destroyed below.
+            // 2. Anything holding a BufFile-backed spill Arc (see datafusion/spill.rs) must
+            //    be freed before `runtime` drops. `stream` and `physical_plan` are the two
+            //    fields that can reach a spill Arc, so both are cleared explicitly here
+            //    rather than left to `drop(df_state)` -- struct field order alone isn't a
+            //    safe thing to rely on for this.
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.runtime = None;
             drop(df_state);

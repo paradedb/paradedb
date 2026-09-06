@@ -49,6 +49,7 @@ pub mod shared_threshold;
 mod vacuum;
 mod validate;
 
+pub mod buffile;
 mod build_parallel;
 mod build_partitioning;
 pub mod catalog;

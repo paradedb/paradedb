@@ -15,6 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+macro_rules! operator_support {
+    ($vis:vis fn $name:ident, $operator:ident) => {
+        #[pgrx::pg_extern(immutable, parallel_safe)]
+        $vis fn $name(arg: pgrx::Internal) -> ReturnedNodePointer {
+            unsafe {
+                ReturnedNodePointer::for_support_operator(arg, super::SearchOperator::$operator)
+            }
+        }
+    };
+}
+
 mod andandand;
 mod atatat;
 pub(crate) mod boost;
@@ -24,11 +35,13 @@ pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
 mod proximity;
+mod rewrite;
 mod searchqueryinput;
 pub(crate) mod slop;
 
 use crate::api::operator::boost::{BoostType, boost_to_boost};
 use crate::api::operator::fuzzy::{FuzzyType, fuzzy_to_fuzzy};
+use crate::api::operator::rewrite::SearchOperator;
 use crate::api::operator::slop::{SlopType, slop_to_slop};
 use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};
@@ -73,15 +86,9 @@ enum RHSValue {
     ProximityClause(ProximityClause),
 }
 
-type ConstRewrite = fn(*mut pg_sys::Node, Option<FieldName>, RHSValue) -> SearchQueryInput;
-type ExecRewrite = fn(Option<FieldName>, *mut pg_sys::Node, *mut pg_sys::Node) -> pg_sys::FuncExpr;
-
 enum SimplifyRhs {
     SearchQueryInput,
-    Rewrite {
-        const_rewrite: ConstRewrite,
-        exec_rewrite: ExecRewrite,
-    },
+    Rewrite(SearchOperator),
 }
 
 #[derive(Debug)]
@@ -95,6 +102,13 @@ impl ReturnedNodePointer {
 
     pub(crate) fn from_node(node: *mut pg_sys::Node) -> Self {
         Self(NonNull::new(node))
+    }
+
+    unsafe fn for_support_operator(arg: Internal, operator: SearchOperator) -> Self {
+        Self::for_support_simplify(
+            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
+            SimplifyRhs::Rewrite(operator),
+        )
     }
 
     unsafe fn for_support_simplify(arg: *mut pg_sys::Node, rhs_rewrite: SimplifyRhs) -> Self {
@@ -135,12 +149,8 @@ impl ReturnedNodePointer {
                 }
                 rhs
             }
-            SimplifyRhs::Rewrite {
-                const_rewrite,
-                exec_rewrite,
-            } => rewrite_rhs_to_search_query_input(
-                const_rewrite,
-                exec_rewrite,
+            SimplifyRhs::Rewrite(operator) => rewrite_rhs_to_search_query_input(
+                operator,
                 search_query_input_typoid,
                 lhs,
                 rhs,
@@ -1108,8 +1118,7 @@ unsafe fn wrap_with_index(
 }
 
 unsafe fn rewrite_rhs_to_search_query_input(
-    const_rewrite: ConstRewrite,
-    exec_rewrite: ExecRewrite,
+    operator: SearchOperator,
     search_query_input_typoid: pg_sys::Oid,
     lhs: *mut pg_sys::Node,
     rhs: *mut pg_sys::Node,
@@ -1119,10 +1128,6 @@ unsafe fn rewrite_rhs_to_search_query_input(
         // the rhs is already of type SearchQueryInput, so we can use it directly
         rhs
     } else if let Some(const_) = nodecast!(Const, T_Const, rhs) {
-        // the rhs is a Const of some other type.  The caller gets the opportunity to rewrite the
-        // user-provided Const to a SearchQueryInput.
-        //
-        // we currently only support rewriting Consts of type TEXT or TEXT[]
         let rhs_value = match (*const_).consttype {
             // these are used for the @@@, &&&, |||, ###, and === operators
             pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(
@@ -1133,13 +1138,11 @@ unsafe fn rewrite_rhs_to_search_query_input(
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
-            // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text array value must not be NULL"),
             ),
 
-            // this is specifically used for the `@@@(anyelement, pdb.query)` operator
             other if other == pdb_query_typoid() => RHSValue::PdbQuery(
                 pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
@@ -1175,12 +1178,12 @@ unsafe fn rewrite_rhs_to_search_query_input(
             other => panic!("operator does not support rhs type {other}"),
         };
 
-        let query: *mut pg_sys::Const = const_rewrite(lhs, field, rhs_value).into();
+        let query: *mut pg_sys::Const = operator.rewrite_const(lhs, field, rhs_value).into();
         query.cast()
     } else {
         // the rhs is a complex expression that needs to be evaluated at runtime
         // but its return type is not SearchQueryInput, so we need to rewrite it
-        exec_rewrite(field, lhs, rhs).palloc().cast()
+        operator.rewrite_exec(field, lhs, rhs).palloc().cast()
     };
     rhs
 }
@@ -1195,7 +1198,7 @@ fn is_text_array_like(oid: pg_sys::Oid) -> bool {
     oid == pg_sys::TEXTARRAYOID || oid == pg_sys::VARCHARARRAYOID
 }
 
-/// Build a [`pg_sys::FuncExpr`] for a text-or-text-array RHS in an `exec_rewrite` callback.
+/// Build a runtime [`pg_sys::FuncExpr`] for a text-or-text-array RHS.
 ///
 /// Checks the RHS expression type and dispatches to the appropriate builder function.
 /// `text_fn` and `array_fn` are `regprocedure` strings for the scalar and array variants.
@@ -1240,7 +1243,7 @@ unsafe fn build_text_funcexpr(
 
 /// Return `true` if `oid` names a ParadeDB `pdb.*` type that participates as an operator RHS,
 /// either directly (`pdb.query`) or via an implicit cast to `pdb.query` (`pdb.fuzzy`,
-/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator `exec_rewrite` paths to decide
+/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator runtime rewrite paths to decide
 /// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
 /// rather than the text/text[] dispatch.
 pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
@@ -1253,7 +1256,7 @@ pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
 
 /// Build a [`pg_sys::FuncExpr`] that calls `outer_sig(fieldname, pdb.query)` on an RHS whose
 /// declared type is one of `pdb.query`, `pdb.fuzzy`, `pdb.boost`, `pdb.slop`, or `pdb.const`.
-/// This is the `exec_rewrite` counterpart to the const-folding path in
+/// This is the runtime counterpart to the const-folding path in
 /// [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param` (generic prepared plan)
 /// keeps the RHS as a non-Const node so const folding does not apply.
 ///

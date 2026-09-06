@@ -30,9 +30,10 @@ use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
+use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
+use crate::postgres::utils::pg_search_extension_installed;
 use once_cell::sync::Lazy;
 use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
 use std::collections::{HashMap, hash_map::Entry};
@@ -621,47 +622,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 /// Check if the target list contains any window functions (WindowFunc nodes)
 /// This is called BEFORE window function replacement in the planner hook
 unsafe fn targetlist_has_window_func_nodes(target_list: *mut pg_sys::List) -> bool {
-    struct WalkerContext {
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check if this node is a WindowFunc
-        if nodecast!(WindowFunc, T_WindowFunc, node).is_some() {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext { found: false };
-
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-    for te in tlist.iter_ptr() {
-        if !(*te).expr.is_null() {
-            walker(
-                (*te).expr as *mut pg_sys::Node,
-                &mut context as *mut _ as *mut core::ffi::c_void,
-            );
-            if context.found {
-                return true;
-            }
-        }
-    }
-
-    false
+    target_list.contains_type(pg_sys::NodeTag::T_WindowFunc)
 }
 
 /// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)
@@ -708,7 +669,6 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 /// Detects: `@@@`, `|||`, `&&&`, `===`, `###`, and proximity operators (`##`, `##>`).
 /// Covers all argument type variants (text, text[], pdb.query, pdb.boost, pdb.fuzzy, proximityclause).
 /// This indicates that our custom scans will likely handle this query.
-/// Uses expression_tree_walker via expr_contains_any_operator for complete traversal.
 /// Recursively checks subqueries and CTEs.
 ///
 /// Note: This function checks for the *presence* of search operators anywhere in the query,
@@ -724,7 +684,7 @@ pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> boo
     // Helper closure to check if expression contains our operators
     let contains_search_op = |node: *mut pg_sys::Node| -> bool {
         // Fast path: check for common @@@(anyelement, searchqueryinput) first
-        if expr_contains_any_operator(node, &target_ops) {
+        if node.contains_operators(&target_ops) {
             return true;
         }
 
@@ -784,36 +744,10 @@ pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> boo
 /// Recursively check if an expression tree contains any ParadeDB search operator.
 /// Uses expression tree walker to examine all OpExpr nodes.
 unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
-    struct WalkerContext {
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check if this is an OpExpr
-        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node)
-            && is_paradedb_search_operator((*opexpr).opno)
-        {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext { found: false };
-    walker(node, &mut context as *mut _ as *mut core::ffi::c_void);
-    context.found
+    node.any(|node| {
+        nodecast!(OpExpr, T_OpExpr, node)
+            .is_some_and(|expr| is_paradedb_search_operator((*expr).opno))
+    })
 }
 
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)
@@ -835,88 +769,24 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
     let paradedb_agg_oids = agg_funcoids();
     let window_agg_proc_oid = window_agg_oid();
 
-    struct WalkerContext {
-        paradedb_agg_oids: [u32; 3],
-        window_agg_proc_oid: pg_sys::Oid,
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check for window function usage (before planner hook replacement)
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node)
-            && (*ctx)
-                .paradedb_agg_oids
-                .contains(&(*window_func).winfnoid.to_u32())
-        {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Check for aggregate function usage (GROUP BY context)
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node)
-            && (*ctx)
-                .paradedb_agg_oids
-                .contains(&(*aggref).aggfnoid.to_u32())
-        {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Check for window_agg() placeholder (after planner hook replacement)
-        // This allows detection even after WindowFunc → window_agg() replacement
-        if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid
-            && let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && (*funcexpr).funcid == (*ctx).window_agg_proc_oid
-        {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext {
-        paradedb_agg_oids,
-        window_agg_proc_oid,
-        found: false,
+    let contains_agg = |node: *mut pg_sys::Node| {
+        node.any(|node| {
+            nodecast!(WindowFunc, T_WindowFunc, node)
+                .is_some_and(|expr| paradedb_agg_oids.contains(&(*expr).winfnoid.to_u32()))
+                || nodecast!(Aggref, T_Aggref, node)
+                    .is_some_and(|expr| paradedb_agg_oids.contains(&(*expr).aggfnoid.to_u32()))
+                || (window_agg_proc_oid != pg_sys::InvalidOid
+                    && nodecast!(FuncExpr, T_FuncExpr, node)
+                        .is_some_and(|expr| (*expr).funcid == window_agg_proc_oid))
+        })
     };
-
-    // Check target list
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-        for te in target_list.iter_ptr() {
-            if !(*te).expr.is_null() {
-                walker(
-                    (*te).expr as *mut pg_sys::Node,
-                    &mut context as *mut _ as *mut core::ffi::c_void,
-                );
-                if context.found {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // Check HAVING clause
-    if !(*parse).havingQual.is_null() {
-        walker(
-            (*parse).havingQual,
-            &mut context as *mut _ as *mut core::ffi::c_void,
-        );
-        if context.found {
-            return true;
-        }
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    if target_list
+        .iter_ptr()
+        .any(|te| contains_agg((*te).expr.cast()))
+        || contains_agg((*parse).havingQual)
+    {
+        return true;
     }
 
     // Only check subqueries and CTEs if recursive mode is enabled

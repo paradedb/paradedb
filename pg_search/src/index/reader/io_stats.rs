@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Attributes Postgres buffer hits/reads to tantivy segment components, keyed
-//! by [`tantivy::index::SegmentComponent`]. For vector search, `centroids`
-//! reads are routing and `vec` reads are probing; the text components
-//! (`term`, `idx`, `fast`, ...) are counted the same way.
+//! by [`tantivy::index::SegmentComponent`], with an independent vector-stage axis.
+//! Collection requires an active executor instrumentation request. Ordinary queries
+//! bypass buffer snapshots, component-name allocation, and counter maps.
 //!
 //! Like `block_tracker`, this is compiled out unless the `io_stats` feature is
 //! enabled, in which case the per-segment counters are merged into the
@@ -52,10 +52,26 @@ mod imp {
     }
 
     thread_local! {
+        static ACTIVE: Cell<bool> = const { Cell::new(false) };
         static CURRENT: RefCell<SegmentIo> = RefCell::default();
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
         static PRE_SCAN_INIT: Cell<bool> = const { Cell::new(false) };
         static PRESERVE_NEXT_RESET: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Scoped to executor callbacks so interleaved/nested plans cannot leave
+    /// collection enabled for a subsequent ordinary query. Restored on unwind.
+    pub struct InstrumentationGuard(bool);
+
+    impl Drop for InstrumentationGuard {
+        fn drop(&mut self) {
+            ACTIVE.set(self.0);
+        }
+    }
+
+    #[inline]
+    pub fn instrumentation_request(requested: bool) -> InstrumentationGuard {
+        InstrumentationGuard(ACTIVE.replace(requested))
     }
 
     pub struct ScanInitGuard {
@@ -93,16 +109,23 @@ mod imp {
 
     /// Start the query-level reader-open window. The next collector reset is
     /// suppressed so these counters join the first collected segment.
-    pub fn begin_scan_init() -> ScanInitGuard {
+    pub fn begin_scan_init() -> Option<ScanInitGuard> {
+        if !ACTIVE.get() {
+            return None;
+        }
         CURRENT.take();
         PER_SEGMENT.take();
         PRESERVE_NEXT_RESET.set(false);
         PRE_SCAN_INIT.set(true);
         let (hit0, read0) = snapshot();
-        ScanInitGuard { hit0, read0 }
+        Some(ScanInitGuard { hit0, read0 })
     }
 
+    #[inline]
     pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+        if !ACTIVE.get() {
+            return read();
+        }
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
@@ -143,6 +166,9 @@ mod imp {
 
     /// Forget any counts from outside a segment-collection window.
     pub fn reset() {
+        if !ACTIVE.get() {
+            return;
+        }
         if PRESERVE_NEXT_RESET.replace(false) {
             return;
         }
@@ -152,6 +178,9 @@ mod imp {
 
     /// Close the current segment's collection window, banking its counters.
     pub fn end_segment(segment_id: SegmentId) {
+        if !ACTIVE.get() {
+            return;
+        }
         let current = CURRENT.take();
         PER_SEGMENT.with_borrow_mut(|per_segment| per_segment.push((segment_id, current)));
     }
@@ -159,6 +188,9 @@ mod imp {
     /// Merge the banked per-segment counters into the per-segment JSON built
     /// from tantivy's `ProbeStats`.
     pub fn attach(segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {
+        if !ACTIVE.get() {
+            return;
+        }
         for (segment_id, io) in PER_SEGMENT.take() {
             if io.is_empty() {
                 continue;
@@ -228,6 +260,45 @@ mod imp {
             }
         }
     }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    #[pgrx::pg_schema]
+    mod tests {
+        use super::*;
+
+        #[pgrx::pg_test]
+        fn ordinary_reads_bypass_collection_and_reader_open_snapshots() {
+            let _request = instrumentation_request(false);
+            CURRENT.take();
+            assert_eq!(record(&SegmentComponent::FastFields, || 42), 42);
+            assert!(begin_scan_init().is_none());
+            assert!(
+                CURRENT.with_borrow(
+                    |current| current.components.is_empty() && current.stages.is_empty()
+                )
+            );
+        }
+
+        #[pgrx::pg_test]
+        fn instrumentation_request_restores_nested_state_and_unwinds() {
+            assert!(!ACTIVE.get());
+            {
+                let _outer = instrumentation_request(true);
+                assert!(ACTIVE.get());
+                {
+                    let _inner = instrumentation_request(false);
+                    assert!(!ACTIVE.get());
+                }
+                assert!(ACTIVE.get());
+            }
+            assert!(!ACTIVE.get());
+            let _ = std::panic::catch_unwind(|| {
+                let _request = instrumentation_request(true);
+                panic!("test unwind");
+            });
+            assert!(!ACTIVE.get());
+        }
+    }
 }
 
 #[cfg(not(feature = "io_stats"))]
@@ -236,6 +307,12 @@ mod imp {
     use tantivy::index::{SegmentComponent, SegmentId};
 
     pub struct ScanInitGuard;
+    pub struct InstrumentationGuard;
+
+    #[inline(always)]
+    pub fn instrumentation_request(_requested: bool) -> InstrumentationGuard {
+        InstrumentationGuard
+    }
 
     #[inline(always)]
     pub fn begin_scan_init() -> ScanInitGuard {
@@ -257,4 +334,4 @@ mod imp {
     pub fn attach(_segment_info: &mut BTreeMap<SegmentId, serde_json::Value>) {}
 }
 
-pub use imp::{attach, begin_scan_init, end_segment, record, reset};
+pub use imp::{attach, begin_scan_init, end_segment, instrumentation_request, record, reset};

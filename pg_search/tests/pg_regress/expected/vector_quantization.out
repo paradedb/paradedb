@@ -80,10 +80,10 @@ INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
 VACUUM q_cal_unquantized;
 SELECT
-    bool_and(NOT quantized) AS unquantized_false,
-    bool_and(layers IS NULL) AS unquantized_layers_null,
-    bool_and(bytes_per_row IS NULL) AS unquantized_bytes_null,
-    bool_and(format IS NULL) AS unquantized_format_null
+    bool_and(NOT configured_quantized) AS unquantized_false,
+    bool_and(configured_layers IS NULL) AS unquantized_layers_null,
+    bool_and(configured_bytes_per_row IS NULL) AS unquantized_bytes_null,
+    bool_and(configured_format IS NULL) AS unquantized_format_null
 FROM paradedb.vector_info('q_cal_unquantized_idx', 'vec');
  unquantized_false | unquantized_layers_null | unquantized_bytes_null | unquantized_format_null 
 -------------------+-------------------------+------------------------+-------------------------
@@ -159,10 +159,10 @@ SELECT g, quant_isotropic_vector(768, g) FROM generate_series(129, 256) g;
 VACUUM q_estimator;
 SELECT
     bool_or(vector_format = 'ivf') AS cosine_has_ivf,
-    bool_and(quantized) AS cosine_quantized,
-    bool_and(layers = ARRAY[1, 1]) AS cosine_layers,
-    bool_and(bytes_per_row = 212) AS cosine_bytes_per_row,
-    bool_and(format = 3) AS cosine_format
+    bool_and(configured_quantized) AS cosine_quantized,
+    bool_and(configured_layers = ARRAY[1, 1]) AS cosine_layers,
+    bool_and(configured_bytes_per_row = 212) AS cosine_bytes_per_row,
+    bool_and(configured_format = 3) AS cosine_format
 FROM paradedb.vector_info('q_cosine_idx', 'vec');
  cosine_has_ivf | cosine_quantized | cosine_layers | cosine_bytes_per_row | cosine_format 
 ----------------+------------------+---------------+----------------------+---------------

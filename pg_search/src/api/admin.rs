@@ -410,10 +410,11 @@ fn vector_info(
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
             name!(vector_total_rows, Option<AnyNumeric>),
-            name!(quantized, bool),
-            name!(layers, Option<Vec<i32>>),
-            name!(bytes_per_row, Option<i32>),
-            name!(format, Option<i32>),
+            name!(configured_quantized, bool),
+            name!(configured_layers, Option<Vec<i32>>),
+            name!(configured_bytes_per_row, Option<i32>),
+            name!(configured_format, Option<i32>),
+            name!(quantized_storage, bool),
         ),
     >,
 > {
@@ -498,6 +499,7 @@ fn vector_info(
                 layers.clone(),
                 bytes_per_row,
                 format,
+                vector_index.has_quantized_storage(),
             ));
         }
     }

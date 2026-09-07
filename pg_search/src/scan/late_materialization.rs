@@ -72,6 +72,21 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
     fields
 }
 
+/// The scan column a plan column comes from. Two tables can share a column name, and a
+/// plain `UInt64` column (an `oid`, say) can share one with a deferred string column, so
+/// the index tells their fields apart; a self-join's two scans share both.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BaseColumn {
+    pub indexrelid: u32,
+    pub name: String,
+}
+
+impl BaseColumn {
+    fn is(&self, field: &DeferredField) -> bool {
+        field.canonical.indexrelid == self.indexrelid && field.name == self.name
+    }
+}
+
 /// Traces a column backward through a logical plan down to the originating `TableScan`.
 ///
 /// This is necessary because DataFusion does not natively preserve custom metadata (like our
@@ -82,8 +97,8 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
 ///
 /// Instead of relying on brittle string suffix matching (`ends_with`) or unsafe positional
 /// indices, this function explicitly recursively traces the `Column`'s lineage back down the
-/// plan tree to find its exact root `Column` at the `TableScan` level, allowing robust exact matching.
-pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
+/// plan tree to find its exact root column at the `TableScan` level, allowing robust exact matching.
+pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColumn> {
     match plan {
         LogicalPlan::TableScan(scan) => {
             if scan.projected_schema.has_column(col) {
@@ -92,7 +107,11 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
                     .projected_schema
                     .qualified_field_from_column(col)
                     .ok()?;
-                Some(Column::from_name(field.name()))
+                let provider = pg_search_provider_from_scan(scan)?;
+                Some(BaseColumn {
+                    indexrelid: provider.scan_info.indexrelid.to_u32(),
+                    name: field.name().clone(),
+                })
             } else {
                 None
             }
@@ -203,9 +222,9 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
 }
 
 /// The deferred field a plan column carries, if it is one. A deferred column is a
-/// `UInt64` whose lineage ends at a deferred field of its scan. The match is by name, and
-/// entries are consumed from `pool` one by one, so a self-join's two identical entries
-/// each claim their own column.
+/// `UInt64` whose lineage ends at a deferred field of its scan. The match is by index and
+/// name, and entries are consumed from `pool` one by one, so a self-join's two identical
+/// entries each claim their own column.
 fn take_deferred_field(
     plan: &LogicalPlan,
     qualifier: Option<&datafusion::common::TableReference>,
@@ -217,7 +236,7 @@ fn take_deferred_field(
     }
     let col = datafusion::common::Column::from((qualifier, field));
     let base_col = trace_column(plan, &col)?;
-    let pos = pool.iter().position(|d| d.name == base_col.name)?;
+    let pos = pool.iter().position(|d| base_col.is(d))?;
     Some(pool.remove(pos))
 }
 
@@ -295,7 +314,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
 
     let references_deferred = refs.iter().any(|c| {
         if let Some(base_col) = trace_column(node, c) {
-            deferred_fields.iter().any(|df| df.name == base_col.name)
+            deferred_fields.iter().any(|df| base_col.is(df))
         } else {
             false
         }
@@ -312,7 +331,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
                 expr.add_column_refs(&mut cols);
                 let uses_deferred = cols.iter().any(|c| {
                     if let Some(base_col) = trace_column(node, c) {
-                        deferred_fields.iter().any(|df| df.name == base_col.name)
+                        deferred_fields.iter().any(|df| base_col.is(df))
                     } else {
                         false
                     }
@@ -358,7 +377,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             let join_cols: HashSet<Column> = join_refs.into_iter().cloned().collect();
             join_cols.iter().any(|c| {
                 if let Some(base_col) = trace_column(node, c) {
-                    deferred_fields.iter().any(|df| df.name == base_col.name)
+                    deferred_fields.iter().any(|df| base_col.is(df))
                 } else {
                     false
                 }
@@ -769,7 +788,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     let col =
                         datafusion::common::Column::from((q.cloned().as_ref(), field.as_ref()));
                     if let Some(base_col) = trace_column(&mat_node.input, &col)
-                        && base_col.name == deferred.name
+                        && base_col.is(deferred)
                     {
                         found_col_idx = Some(i);
                         break;

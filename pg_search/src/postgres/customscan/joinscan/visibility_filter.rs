@@ -511,10 +511,10 @@ fn extract_ctid_lineage(schema: &DFSchemaRef) -> BTreeSet<usize> {
         .fields()
         .iter()
         .filter_map(|field| {
-            // Only match UInt64 fields to avoid misclassifying user columns
-            // that happen to be named `ctid_<n>`. Internal ctid columns are
-            // always UInt64 (real ctids or packed DocAddresses); no user-facing
-            // Postgres type maps to Arrow UInt64.
+            // The `ctid_<n>` name is what identifies an internal ctid column
+            // (a real ctid or a packed doc address); the type check only skips
+            // columns that cannot be one. `oid`, `xid` and deferred string
+            // columns are UInt64 as well.
             if field.data_type() == &arrow_schema::DataType::UInt64 {
                 CtidColumn::try_from(field.name().as_str())
                     .ok()

@@ -262,4 +262,7 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
         .with_centroid_ratio(options.centroid_ratio())
         .with_training_samples_per_centroid(options.training_samples_per_centroid());
     index.set_ivf_clusterer(Arc::new(clusterer));
+    index
+        .set_ivf_router(RouterKind::Rng)
+        .expect("ParadeDB indexes use the RNG router");
 }

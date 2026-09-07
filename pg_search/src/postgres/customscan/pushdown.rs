@@ -24,13 +24,12 @@ use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
 use crate::postgres::deparse::deparse_expr;
-use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{VarContext, find_json_path, find_vars};
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -506,9 +505,20 @@ unsafe fn make_opexpr(
 }
 
 pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
-    root.any(|node| {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || nodecast!(Param, T_Param, node).is_some()
             || pg_sys::contain_volatile_functions(node)
-    })
+            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
+    if root.is_null() {
+        return false;
+    }
+
+    walker(root, std::ptr::null_mut())
 }

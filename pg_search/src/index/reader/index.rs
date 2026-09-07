@@ -502,6 +502,7 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
+        index.set_ivf_router(tantivy::vector::RouterKind::Rng)?;
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);

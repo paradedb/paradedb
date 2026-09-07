@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex};
 
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
-    IvfCentroids, IvfClusterer, IvfMatrix, IvfTrainingVectors, IvfVectors, Metric, VectorOptions,
+    IvfCentroids, IvfClusterer, IvfMatrix, IvfTrainingVectors, IvfVectors, Metric, RouterKind,
+    VectorOptions,
 };
 use tantivy::{Index, TantivyError};
 
@@ -243,10 +244,13 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     }
 }
 
-/// Installs the configured IVF clusterer on an index.
+/// Installs the configured IVF clusterer and the RNG router used by ParadeDB.
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
         .with_training_samples_per_centroid(options.training_samples_per_centroid());
     index.set_ivf_clusterer(Arc::new(clusterer));
+    index
+        .set_ivf_router(RouterKind::Rng)
+        .expect("ParadeDB indexes use the RNG router");
 }

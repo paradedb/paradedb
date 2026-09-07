@@ -119,7 +119,12 @@ pub unsafe fn extract_join_level_conditions(
         // into the sub-join and are delayed to the outer join level. Therefore, any clause
         // whose referenced RTIs are all contained within this plan must be absorbed here.
         if !rtis.iter().all(|rti| join_clause.plan.contains_rti(*rti)) {
-            continue;
+            let formatted =
+                crate::postgres::deparse::deparse_planner_expr_or_raw(root, clause.cast());
+            return Err(format!(
+                "Join predicate '{}' references relation outside the join plan",
+                formatted
+            ));
         }
         let already_present = multi_table_predicate_clauses.iter().any(|c| {
             std::ptr::eq((*c).cast::<pg_sys::Node>(), clause.cast())

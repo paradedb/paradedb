@@ -849,6 +849,9 @@ pub unsafe fn extract_quals(
         return None;
     }
 
+    let external_is_special =
+        convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join);
+
     match (*node).type_ {
         pg_sys::NodeTag::T_FuncExpr => {
             // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
@@ -958,9 +961,7 @@ pub unsafe fn extract_quals(
                 if let Some(field) = PushdownField::try_new(root, node, indexrel) {
                     // Check if this is a boolean field reference to our relation
                     if field.varno() != rti {
-                        return if convert_external_to_special_qual
-                            || matches!(ri_type, RestrictInfoType::Join)
-                        {
+                        return if external_is_special {
                             Some(Qual::ExternalVar)
                         } else {
                             None
@@ -991,9 +992,7 @@ pub unsafe fn extract_quals(
                     &mut state.uses_tantivy_to_query,
                 ) {
                     Some(qual)
-                } else if convert_external_to_special_qual
-                    || matches!(ri_type, RestrictInfoType::Join)
-                {
+                } else if external_is_special {
                     if (*var_node).varno as pg_sys::Index != rti {
                         Some(Qual::ExternalVar)
                     } else {
@@ -1012,9 +1011,7 @@ pub unsafe fn extract_quals(
                 let var_node = nodecast!(Var, T_Var, node)?;
                 // Check if this var references our relation
                 if (*var_node).varno as pg_sys::Index != rti {
-                    return if convert_external_to_special_qual
-                        || matches!(ri_type, RestrictInfoType::Join)
-                    {
+                    return if external_is_special {
                         Some(Qual::ExternalVar)
                     } else {
                         None
@@ -1049,9 +1046,7 @@ pub unsafe fn extract_quals(
                         } else {
                             return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
                         }
-                    } else if convert_external_to_special_qual
-                        || matches!(ri_type, RestrictInfoType::Join)
-                    {
+                    } else if external_is_special {
                         // From this relation's perspective, a NullTest referencing another relation
                         // in a join is an external variable; report as ExternalVar so the join level
                         // can process it rather than declining the scan.
@@ -1069,9 +1064,7 @@ pub unsafe fn extract_quals(
                     &mut state.uses_tantivy_to_query,
                 ) {
                     Some(qual)
-                } else if convert_external_to_special_qual
-                    || matches!(ri_type, RestrictInfoType::Join)
-                {
+                } else if external_is_special {
                     if !contains_relation_reference((*nulltest).arg.cast(), rti) {
                         Some(Qual::ExternalVar)
                     } else {
@@ -1088,9 +1081,7 @@ pub unsafe fn extract_quals(
                 }
 
                 if !contains_relation_reference((*nulltest).arg.cast(), rti) {
-                    return if convert_external_to_special_qual
-                        || matches!(ri_type, RestrictInfoType::Join)
-                    {
+                    return if external_is_special {
                         Some(Qual::ExternalVar)
                     } else {
                         None
@@ -1110,15 +1101,9 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            context,
-            node,
-            rti,
-            ri_type,
-            indexrel,
-            convert_external_to_special_qual,
-            state,
-        ),
+        pg_sys::NodeTag::T_BooleanTest => {
+            booltest(context, node, rti, indexrel, external_is_special, state)
+        }
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -1704,9 +1689,8 @@ unsafe fn booltest(
     context: &PlannerContext,
     node: *mut pg_sys::Node,
     rti: pg_sys::Index,
-    ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
-    convert_external_to_special_qual: bool,
+    external_is_special: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
@@ -1735,7 +1719,7 @@ unsafe fn booltest(
                 state.uses_tantivy_to_query = true;
             }
             return qual;
-        } else if convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join) {
+        } else if external_is_special {
             return Some(Qual::ExternalVar);
         } else {
             return None;
@@ -1754,7 +1738,7 @@ unsafe fn booltest(
                 search_query_input: Box::new(SearchQueryInput::All),
             });
         }
-    } else if convert_external_to_special_qual || matches!(ri_type, RestrictInfoType::Join) {
+    } else if external_is_special {
         return Some(Qual::ExternalVar);
     }
     None

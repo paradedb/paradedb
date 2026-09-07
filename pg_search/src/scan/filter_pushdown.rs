@@ -314,8 +314,8 @@ pub fn combine_with_and(queries: Vec<SearchQueryInput>) -> Option<SearchQueryInp
 }
 
 /// Build a `ChildFilterDescription` for a unary execution plan node that preserves its child's
-/// schema identically (e.g. `VisibilityFilterExec`, `TantivyLookupExec`, `FilterPassthroughExec`,
-/// `SegmentedTopKExec`).
+/// schema identically (e.g. `VisibilityFilterExec`, `TantivyFetchExec`, `TantivyDecodeExec`,
+/// `FilterPassthroughExec`, `SegmentedTopKExec`).
 ///
 /// DataFusion's `ChildFilterDescription::from_child` uses `FilterRemapper`, which looks up columns
 /// by name via `child_schema.index_of(col.name())`. When the child plan has duplicate column names
@@ -390,7 +390,7 @@ pub fn schema_preserving_child_filter_description(
     let disambiguated_schema = Arc::new(arrow_schema::Schema::new(disambiguated_fields));
     let dummy_child = Arc::new(EmptyExec::new(disambiguated_schema)) as Arc<dyn ExecutionPlan>;
 
-    let allowed: HashSet<usize> = match allowed_indices {
+    let mut allowed: HashSet<usize> = match allowed_indices {
         Some(indices) => indices
             .iter()
             .copied()
@@ -398,6 +398,14 @@ pub fn schema_preserving_child_filter_description(
             .collect(),
         None => (0..schema.fields().len()).collect(),
     };
+
+    if !conflicting_names.is_empty() {
+        for (idx, field) in schema.fields().iter().enumerate() {
+            if conflicting_names.contains(field.name()) {
+                allowed.remove(&idx);
+            }
+        }
+    }
 
     ChildFilterDescription::from_child_with_allowed_indices(parent_filters, allowed, &dummy_child)
 }
@@ -499,5 +507,53 @@ mod tests {
             parent_filters_allowed[0][1].discriminant,
             PushedDown::Yes
         ));
+    }
+
+    #[test]
+    fn test_schema_preserving_child_filter_description_conflicting_indices() {
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_plan::filter_pushdown::{FilterDescription, PushedDown};
+
+        // A join schema with duplicate column names: "id" at index 2 and index 5
+        let schema = Schema::new(vec![
+            Field::new("ctid_1", DataType::UInt64, false),
+            Field::new("tags", DataType::Utf8, true),
+            Field::new("id", DataType::Int64, false),
+            Field::new("ctid_2", DataType::UInt64, false),
+            Field::new("tags", DataType::Utf8, true),
+            Field::new("id", DataType::Int64, false),
+        ]);
+
+        let col_id_2 =
+            Arc::new(Column::new("id", 2)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let col_id_5 =
+            Arc::new(Column::new("id", 5)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let col_tags_1 =
+            Arc::new(Column::new("tags", 1)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+
+        // When filters contain both id@2 and id@5, the conflicting name "id" cannot be
+        // safely disambiguated via index_of, so both must fail validation.
+        let filters = vec![
+            Arc::clone(&col_id_2),
+            Arc::clone(&col_id_5),
+            Arc::clone(&col_tags_1),
+        ];
+
+        let desc = schema_preserving_child_filter_description(&filters, &schema, None).unwrap();
+        let parent_filters = FilterDescription::new().with_child(desc).parent_filters();
+
+        // Both conflicting id filters are NOT pushed down
+        assert!(matches!(parent_filters[0][0].discriminant, PushedDown::No));
+        assert!(matches!(parent_filters[0][1].discriminant, PushedDown::No));
+
+        // Unconflicted tags@1 is still pushed down
+        assert!(matches!(parent_filters[0][2].discriminant, PushedDown::Yes));
+        let preserved_tags = parent_filters[0][2]
+            .predicate
+            .downcast_ref::<Column>()
+            .unwrap();
+        assert_eq!(preserved_tags.name(), "tags");
+        assert_eq!(preserved_tags.index(), 1);
     }
 }

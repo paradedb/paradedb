@@ -725,23 +725,9 @@ unsafe fn collect_join_sources_join_rel(
         } else {
             extract_join_conditions_from_list(root, (*join_path).joinrestrictinfo, &all_sources)
         };
-        if !restrictlist.is_null() && !(*join_path).joinrestrictinfo.is_null() {
-            // Merge any clauses from joinrestrictinfo that may not be in restrictlist
-            for ri in
-                PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo).iter_ptr()
-            {
-                if !(*ri).clause.is_null()
-                    && !join_conditions.other_conditions.contains(&ri)
-                    && (*ri).can_join
-                {
-                    join_conditions.other_conditions.push(ri);
-                }
-            }
-        }
-
-        // Also inspect inner/outer param_info to recover any join conditions
-        // that PostgreSQL placed in PPI clauses rather than on joinrestrictinfo
-        // (e.g. multi-table joins where a parameterized index scan enforces one of the join keys).
+        // Also inspect joinrestrictinfo and inner/outer param_info to recover any
+        // join conditions that PostgreSQL placed in PPI clauses or joinrestrictinfo
+        // rather than on restrictlist.
         // A condition is only valid for this join level if it connects outer_node and inner_node.
         let mut merge_extra = |extra: JoinConditions| {
             for k in extra.equi_keys {
@@ -768,6 +754,14 @@ unsafe fn collect_join_sources_join_rel(
             join_conditions.has_search_predicate |= extra.has_search_predicate;
         };
 
+        if !restrictlist.is_null() && !(*join_path).joinrestrictinfo.is_null() {
+            merge_extra(extract_join_conditions_from_list(
+                root,
+                (*join_path).joinrestrictinfo,
+                &all_sources,
+            ));
+        }
+
         let inner_param = (*inner_path).param_info;
         if !inner_param.is_null() && !(*inner_param).ppi_clauses.is_null() {
             merge_extra(extract_join_conditions_from_list(
@@ -783,28 +777,6 @@ unsafe fn collect_join_sources_join_rel(
                 (*outer_param).ppi_clauses,
                 &all_sources,
             ));
-        }
-
-        // For HashPath and MergePath, PostgreSQL places the hashable/mergeable equi-join
-        // clauses in `path_hashclauses` / `path_mergeclauses` rather than `joinrestrictinfo`.
-        if (*path).type_ == pg_sys::NodeTag::T_HashPath {
-            let hash_path = path as *mut pg_sys::HashPath;
-            if !(*hash_path).path_hashclauses.is_null() {
-                merge_extra(extract_join_conditions_from_list(
-                    root,
-                    (*hash_path).path_hashclauses,
-                    &all_sources,
-                ));
-            }
-        } else if (*path).type_ == pg_sys::NodeTag::T_MergePath {
-            let merge_path = path as *mut pg_sys::MergePath;
-            if !(*merge_path).path_mergeclauses.is_null() {
-                merge_extra(extract_join_conditions_from_list(
-                    root,
-                    (*merge_path).path_mergeclauses,
-                    &all_sources,
-                ));
-            }
         }
 
         let jointype = (*join_path).jointype;

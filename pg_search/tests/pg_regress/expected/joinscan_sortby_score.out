@@ -214,7 +214,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), (paradedb.score(documents.id)), files.id, (paradedb.score(files.id)), (paradedb.score(files.id)), pages.id, (paradedb.score(pages.id)), (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Limit: 10
                Order By: sum(pdb.score()) desc
                DataFusion Physical Plan: 
@@ -226,14 +225,14 @@ LIMIT 10;
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
                  :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :               CooperativeExec
-                 :                 PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
+                 :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :               CooperativeExec
                  :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId]
                  :             CooperativeExec
                  :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(26 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -304,7 +303,7 @@ LIMIT 10;
                  :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, documentId@2 as documentId]
                  :             CooperativeExec
-                 :               PgSearchScan: table=files, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
+                 :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 SELECT documents.id AS doc_id,
@@ -345,8 +344,8 @@ WHERE documents.content @@@ 'postgres'
   AND pages.content @@@ 'vector'
 ORDER BY pdb_score DESC, pages.id ASC
 LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: documents.id, files.id, pages.id, ((((paradedb.score(documents.id)) + (paradedb.score(files.id))) + (paradedb.score(pages.id))))
    ->  Result
@@ -355,7 +354,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), files.id, (paradedb.score(files.id)), pages.id, (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Limit: 10
                Order By: sum(pdb.score()) desc, pages.id asc
                DataFusion Physical Plan: 
@@ -367,14 +365,14 @@ LIMIT 10;
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, documentId@2)], projection=[score@0, ctid_0@1, id@2, score@3, ctid_2@4, id@6]
                  :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_0@1 as ctid_0, id@2 as id]
                  :               CooperativeExec
-                 :                 PgSearchScan: table=documents, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
+                 :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"postgres","lenient":null,"conjunction_mode":null}}}}
                  :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_2@1 as ctid_2, documentId@2 as documentId, id@3 as id]
                  :               CooperativeExec
                  :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"index","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :             CooperativeExec
                  :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(26 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -433,7 +431,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), (paradedb.score(documents.id)), files.id, (paradedb.score(files.id)), (paradedb.score(files.id)), pages.id, (paradedb.score(pages.id)), (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Join Predicate: (documents:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR files:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR pages:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: sum(pdb.score()) desc, documents.id asc, pages.fileId asc, pages.id asc
@@ -453,7 +450,7 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
                  :             CooperativeExec
                  :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+(27 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -504,7 +501,6 @@ LIMIT 10;
          Output: documents.id, files.id, pages.id, (paradedb.score(pages.id))
          Relation Tree: documents INNER (pages INNER files)
          Join Cond: documents.id = files.documentId, files.id = pages.fileId
-         Join Filter: (files.id = pages."fileId")
          Join Predicate: (documents:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR files:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}} OR pages:{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: pdb.score() desc, documents.id asc, pages.fileId asc, pages.id asc
@@ -522,7 +518,7 @@ LIMIT 10;
            :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
            :             CooperativeExec
            :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+(23 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -574,7 +570,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), (paradedb.score(documents.id)), files.id, (paradedb.score(files.id)), (paradedb.score(files.id)), pages.id, (paradedb.score(pages.id)), (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Limit: 10
                Order By: sum(pdb.score()) desc, documents.id asc, pages.fileId asc, pages.id asc
                DataFusion Physical Plan: 
@@ -593,7 +588,7 @@ LIMIT 10;
                  :             ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id, __pages_1_tag_0@4 as __pages_1_tag_0]
                  :               CooperativeExec
                  :                 PgSearchScan: table=pages, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(26 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -646,7 +641,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), files.id, pages.id, (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Limit: 10
                Order By: pdb.score() desc, documents.id asc, pages.fileId asc, pages.id asc
                DataFusion Physical Plan: 
@@ -664,7 +658,7 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :             CooperativeExec
                  :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(25 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,
@@ -720,7 +714,6 @@ LIMIT 10;
                Output: documents.id, (paradedb.score(documents.id)), (paradedb.score(documents.id)), files.id, (paradedb.score(files.id)), (paradedb.score(files.id)), pages.id, (paradedb.score(pages.id)), (paradedb.score(pages.id))
                Relation Tree: documents INNER (pages INNER files)
                Join Cond: documents.id = files.documentId, files.id = pages.fileId
-               Join Filter: (files.id = pages."fileId")
                Limit: 10
                Order By: sum(pdb.score()) desc, documents.id asc, pages.fileId asc, pages.id asc
                DataFusion Physical Plan: 
@@ -739,7 +732,7 @@ LIMIT 10;
                  :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, fileId@2 as fileId, id@3 as id]
                  :             CooperativeExec
                  :               PgSearchScan: table=pages, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"vector","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(26 rows)
 
 SELECT documents.id AS doc_id,
        files.id AS file_id,

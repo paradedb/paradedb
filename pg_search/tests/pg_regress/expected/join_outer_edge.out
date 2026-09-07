@@ -311,7 +311,6 @@ LIMIT 8;
          Output: a.id, b.id, s.id
          Relation Tree: (s RIGHT b) RIGHT a
          Join Cond: a.dim_id = b.id, b.id = s.dim_id
-         Join Filter: (b.id = s.dim_id)
          Join Predicate: heap:(s.val IS NULL)
          Limit: 8
          Order By: a.id asc, b.id asc, s.id asc
@@ -324,14 +323,14 @@ LIMIT 8;
            :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@4, dim_id@1)], projection=[ctid_0@0, val@1, id@2, ctid_1@3, id@4, ctid_2@5, id@7]
            :             VisibilityFilterExec: tables=[b]
            :               TantivyFetchExec: fetch=[ctid_1]
-           :                 HashJoinExec: mode=CollectLeft, join_type=Right, on=[(dim_id@1, id@1), (dim_id@1, id@1)], projection=[ctid_0@0, val@2, id@3, ctid_1@4, id@5]
+           :                 HashJoinExec: mode=CollectLeft, join_type=Right, on=[(dim_id@1, id@1)], projection=[ctid_0@0, val@2, id@3, ctid_1@4, id@5]
            :                   CooperativeExec
            :                     PgSearchScan: table=s, segments=1, visibility=eager, query="all"
            :                   CooperativeExec
            :                     PgSearchScan: table=b, segments=1, query="all"
            :             CooperativeExec
            :               PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-(26 rows)
+(25 rows)
 
 SELECT a.id, b.id, s.id
 FROM oj_fact a

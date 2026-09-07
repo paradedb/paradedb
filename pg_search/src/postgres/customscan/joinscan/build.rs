@@ -662,7 +662,10 @@ pub enum JoinLevelExpr {
         /// The search predicate to evaluate against Tantivy.
         predicate: Box<JoinLevelSearchPredicate>,
     },
-    /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
+    /// Leaf: multi-table or post-join predicate evaluated at runtime against the joined row pair.
+    /// Also carries single-table post-join predicates (e.g. `o.name IS NULL` over a `LEFT JOIN`)
+    /// that cannot be pushed down to a base scan and must be evaluated post-join to preserve NULL semantics.
+    /// Rendered in `EXPLAIN` as `Multi-Table Filter`.
     MultiTablePredicate {
         predicate: Box<MultiTablePredicateInfo>,
     },

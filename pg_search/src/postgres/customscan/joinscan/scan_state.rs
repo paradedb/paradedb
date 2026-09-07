@@ -32,11 +32,8 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::tree_node::Transformed;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{EmptyRelation, Expr, LogicalPlan, col};
-use datafusion::optimizer::OptimizerConfig;
-use datafusion::optimizer::optimizer::{ApplyOrder, OptimizerRule};
+use datafusion::logical_expr::{Expr, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -73,8 +70,6 @@ use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
-/// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
-/// by walking the join's plan sources and finding the first one that claims it.
 /// Resolve a PostgreSQL Var (`rti`, `attno`) to a DataFusion column expression (`col("...")`).
 ///
 /// Uses `output_sources()` rather than `sources()` to ensure only output-visible relations
@@ -330,61 +325,13 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
-/// Optimizer rule that propagates [`EmptyRelation`] through [`LogicalPlan::Unnest`].
-///
-/// DataFusion's built-in `PropagateEmptyRelation` rule does not handle `LogicalPlan::Unnest`,
-/// leaving `Unnest` sitting on top of `EmptyRelation`. Because `datafusion-proto` drops
-/// schema information when serializing `EmptyRelation`, deserializing `Unnest` subsequently
-/// fails looking for its unnest column in the empty schema.
-///
-/// Unnesting zero rows always produces zero rows with the schema of the `Unnest` node.
-#[derive(Default, Debug)]
-pub struct PropagateEmptyUnnestRule;
-
-impl OptimizerRule for PropagateEmptyUnnestRule {
-    fn name(&self) -> &str {
-        "propagate_empty_unnest"
-    }
-
-    fn apply_order(&self) -> Option<ApplyOrder> {
-        Some(ApplyOrder::BottomUp)
-    }
-
-    fn supports_rewrite(&self) -> bool {
-        true
-    }
-
-    fn rewrite(
-        &self,
-        plan: LogicalPlan,
-        _config: &dyn OptimizerConfig,
-    ) -> Result<Transformed<LogicalPlan>> {
-        match plan {
-            LogicalPlan::Unnest(ref unnest) => {
-                if let LogicalPlan::EmptyRelation(empty) = unnest.input.as_ref()
-                    && !empty.produce_one_row
-                {
-                    Ok(Transformed::yes(LogicalPlan::EmptyRelation(
-                        EmptyRelation {
-                            produce_one_row: false,
-                            schema: Arc::clone(&unnest.schema),
-                        },
-                    )))
-                } else {
-                    Ok(Transformed::no(plan))
-                }
-            }
-            _ => Ok(Transformed::no(plan)),
-        }
-    }
-}
-
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
 /// - `PgSearchQueryPlanner`
 pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
+    use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
     let mut builder = SessionStateBuilder::new()
@@ -1334,66 +1281,4 @@ fn build_source_df<'a>(
         Ok(df)
     }
     .boxed_local()
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::common::DFSchema;
-    use datafusion::logical_expr::builder::LogicalPlanBuilder;
-    use datafusion::optimizer::OptimizerContext;
-    use pgrx::prelude::*;
-
-    #[pg_test]
-    fn propagate_empty_unnest_rule_transforms_empty_child() -> Result<()> {
-        let schema = Arc::new(DFSchema::try_from(Schema::new(vec![Field::new(
-            "tags",
-            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
-            true,
-        )]))?);
-        let empty_input = LogicalPlan::EmptyRelation(EmptyRelation {
-            produce_one_row: false,
-            schema: Arc::clone(&schema),
-        });
-        let unnest_plan = LogicalPlanBuilder::from(empty_input)
-            .unnest_column("tags")?
-            .build()?;
-
-        let rule = PropagateEmptyUnnestRule;
-        let config = OptimizerContext::default();
-        let transformed = rule.rewrite(unnest_plan, &config)?;
-        assert!(transformed.transformed);
-        assert!(matches!(
-            transformed.data,
-            LogicalPlan::EmptyRelation(EmptyRelation {
-                produce_one_row: false,
-                ..
-            })
-        ));
-        Ok(())
-    }
-
-    #[pg_test]
-    fn propagate_empty_unnest_rule_ignores_produce_one_row() -> Result<()> {
-        let schema = Arc::new(DFSchema::try_from(Schema::new(vec![Field::new(
-            "tags",
-            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
-            true,
-        )]))?);
-        let empty_input = LogicalPlan::EmptyRelation(EmptyRelation {
-            produce_one_row: true,
-            schema: Arc::clone(&schema),
-        });
-        let unnest_plan = LogicalPlanBuilder::from(empty_input)
-            .unnest_column("tags")?
-            .build()?;
-
-        let rule = PropagateEmptyUnnestRule;
-        let config = OptimizerContext::default();
-        let transformed = rule.rewrite(unnest_plan, &config)?;
-        assert!(!transformed.transformed);
-        Ok(())
-    }
 }

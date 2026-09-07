@@ -393,7 +393,9 @@ impl PgSearchTableProvider {
         let mut deferred = Vec::new();
         let ctid_col_name = self
             .configured_deferred_ctid_plan_position()
-            .map(|pos| format!("ctid_{pos}"))
+            .map(|pos| {
+                crate::postgres::customscan::joinscan::build::CtidColumn::new(pos).to_string()
+            })
             .or_else(|| {
                 self.fields.iter().find_map(|wff| match wff {
                     WhichFastField::DeferredCtid(name) => Some(name.clone()),

@@ -396,11 +396,27 @@ fn fetch_batch(
     let mut columns = batch.columns().to_vec();
     for field in fetch_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        let ctid_col = field
-            .ctid_col_name
-            .as_deref()
-            .and_then(|name| batch.schema().index_of(name).ok())
-            .and_then(|idx| batch.column(idx).as_any().downcast_ref::<UInt64Array>());
+        let ctid_col = match field.ctid_col_name.as_deref() {
+            Some(name) => {
+                let idx = batch.schema().index_of(name).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "CTID column '{name}' for deferred field '{}' not found in batch: {e}",
+                        field.display_name
+                    ))
+                })?;
+                let col = batch
+                    .column(idx)
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "CTID column '{name}' at index {idx} is not a UInt64Array"
+                        ))
+                    })?;
+                Some(col)
+            }
+            None => None,
+        };
         columns[field.col_idx] =
             fetch_term_ordinals(ffhelper, field, &columns[field.col_idx], ctid_col)?;
     }

@@ -1329,30 +1329,6 @@ unsafe fn walk_path_restrictinfo(
         info,
     );
 
-    if tag == pg_sys::NodeTag::T_HashPath {
-        let hash_path = path as *mut pg_sys::HashPath;
-        classify_path_restrictinfo(
-            (*hash_path).path_hashclauses,
-            source_type,
-            RestrictInfoOrigin::JoinRestrictInfo,
-            sources,
-            search_op,
-            on_clauses,
-            info,
-        );
-    } else if tag == pg_sys::NodeTag::T_MergePath {
-        let merge_path = path as *mut pg_sys::MergePath;
-        classify_path_restrictinfo(
-            (*merge_path).path_mergeclauses,
-            source_type,
-            RestrictInfoOrigin::JoinRestrictInfo,
-            sources,
-            search_op,
-            on_clauses,
-            info,
-        );
-    }
-
     walk_path_restrictinfo(
         (*join_path).outerjoinpath,
         behind_transparent_wrapper,

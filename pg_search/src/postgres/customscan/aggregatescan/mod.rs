@@ -28,7 +28,6 @@ pub mod json_rewrite;
 pub mod limit_offset;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
-use crate::postgres::node::NodeExt;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -2742,7 +2741,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     let has_unpushable = targetlist.iter_ptr().any(|te| {
         !te.is_null()
             && !(*te).expr.is_null()
-            && ((*te).expr.contains_type(pg_sys::NodeTag::T_Aggref)
+            && (expr_contains_aggref((*te).expr as *mut pg_sys::Node)
                 || expr_contains_unnest((*te).expr as *mut pg_sys::Node))
     });
 
@@ -2767,10 +2766,61 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
 
 /// Check if an expression tree contains any UNNEST nodes
 unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
-    node.any(|node| {
-        crate::nodecast!(FuncExpr, T_FuncExpr, node)
-            .is_some_and(|expr| is_unnest_func((*expr).funcid))
-    })
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let func_expr = node as *mut pg_sys::FuncExpr;
+            if is_unnest_func((*func_expr).funcid) {
+                let ctx = &mut *(context as *mut bool);
+                *ctx = true;
+                return true; // Stop walking
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut found = false;
+    walker(node, addr_of_mut!(found).cast());
+    found
+}
+
+/// Check if an expression tree contains any Aggref nodes
+unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            let ctx = &mut *(context as *mut bool);
+            *ctx = true;
+            return true; // Stop walking
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut found = false;
+    walker(node, addr_of_mut!(found).cast());
+    found
 }
 
 /// Creates a placeholder `FuncExpr` for a PostgreSQL `Aggref`.

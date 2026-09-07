@@ -25,11 +25,11 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
 use pgrx::pg_sys;
+use std::ptr::addr_of_mut;
 
 /// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
 /// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
@@ -37,9 +37,41 @@ use pgrx::pg_sys;
 pub(super) unsafe fn find_single_aggref_in_expr(
     expr: *mut pg_sys::Node,
 ) -> Option<*mut pg_sys::Aggref> {
-    let aggrefs = expr.collect_nodes::<pg_sys::Aggref>();
-    if aggrefs.len() == 1 {
-        aggrefs.into_iter().next()
+    use pgrx::pg_guard;
+
+    struct WalkerContext {
+        aggrefs: Vec<*mut pg_sys::Aggref>,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn aggref_walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let ctx = &mut *(context as *mut WalkerContext);
+
+        // Check if this node is an Aggref
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            ctx.aggrefs.push(node as *mut pg_sys::Aggref);
+            // Continue walking to find any other Aggrefs (don't stop early)
+        }
+
+        // Continue walking into child nodes
+        pg_sys::expression_tree_walker(node, Some(aggref_walker), context)
+    }
+
+    let mut context = WalkerContext {
+        aggrefs: Vec::new(),
+    };
+    aggref_walker(expr, addr_of_mut!(context).cast());
+
+    // Only return an Aggref if exactly one was found
+    if context.aggrefs.len() == 1 {
+        context.aggrefs.into_iter().next()
     } else {
         None
     }

@@ -62,7 +62,6 @@ pub mod heap;
 pub mod index;
 mod jsonb_support;
 pub mod locks;
-pub(crate) mod node;
 mod parallel;
 pub mod pdb_owned_value;
 pub mod planner_warnings;

@@ -18,6 +18,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::api::CTID_FIELD_NAME;
     use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
@@ -753,7 +754,7 @@ mod tests {
         use datafusion::physical_plan::Partitioning;
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new("ctid", DataType::UInt64, true),
+            Field::new(CTID_FIELD_NAME, DataType::UInt64, true),
             Field::new("id", DataType::Int64, true),
         ]));
 

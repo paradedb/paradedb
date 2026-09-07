@@ -182,8 +182,8 @@ impl ReturnedNodePointer {
         args.push(ctid.cast());
 
         let inline_row = MaybeInlineRow::new((*request).root, base_var, ctid, &indexrel);
-        if let Some(inline_row) = &inline_row {
-            args.push(inline_row.as_ptr());
+        if let Some(row) = inline_row.as_ptr() {
+            args.push(row);
         }
 
         // Index tuple descriptors do not preserve the heap column's NOT NULL flag.
@@ -199,21 +199,8 @@ impl ReturnedNodePointer {
                     .is_some_and(|attribute| attribute.attnotnull)
             });
 
-        let [
-            nullable_procoid,
-            strict_procoid,
-            row_procoid,
-            strict_row_procoid,
-        ] = search_with_query_input_exec_procoids();
         let function = pg_sys::makeFuncExpr(
-            // Strictness lets PostgreSQL reduce outer joins. MaybeInlineRow's empty-array
-            // marker keeps the ordinary heap path callable even with a strict row argument.
-            match (inline_row.is_some(), anchor_is_not_null) {
-                (true, true) => strict_row_procoid,
-                (true, false) => row_procoid,
-                (false, true) => strict_procoid,
-                (false, false) => nullable_procoid,
-            },
+            inline_row.procoid(anchor_is_not_null),
             pg_sys::BOOLOID,
             args.into_pg(),
             pg_sys::Oid::INVALID,
@@ -321,7 +308,7 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 4] {
+pub(crate) fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 4] {
     static CACHE: OnceLock<[pg_sys::Oid; 4]> = OnceLock::new();
     *CACHE.get_or_init(|| unsafe {
         [

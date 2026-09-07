@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::search_with_query_input_exec_procoids;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -26,6 +27,7 @@ use crate::postgres::utils::{resolve_field_value, row_to_search_document};
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::{IntoDatum, PgBox, PgList, direct_function_call, pg_sys};
+use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::TantivyDocument;
 use tantivy::directory::RamDirectory;
@@ -39,7 +41,7 @@ use tantivy::query::Weight;
 /// - the index predicate is not satisfied
 ///
 /// The expression is `CASE WHEN ctid_is_valid(ctid) AND index_predicate THEN '{}' ELSE ARRAY[table_row] END`.
-pub(crate) struct MaybeInlineRow(*mut pg_sys::CaseExpr);
+pub(crate) struct MaybeInlineRow(Option<NonNull<pg_sys::CaseExpr>>);
 
 impl MaybeInlineRow {
     pub(crate) unsafe fn new(
@@ -47,7 +49,7 @@ impl MaybeInlineRow {
         base_var: *mut pg_sys::Var,
         ctid: *mut pg_sys::Var,
         indexrel: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Self {
         // Building a whole-row reference requires a planner query and a Var that names an
         // entry in its range table; outer-query Vars and varno 0 cannot be resolved here.
         if root.is_null()
@@ -55,11 +57,13 @@ impl MaybeInlineRow {
             || (*base_var).varlevelsup != 0
             || (*base_var).varno == 0
         {
-            return None;
+            return Self(None);
         }
 
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
-        let rte = rtable.get_ptr((*base_var).varno as usize - 1)?;
+        let Some(rte) = rtable.get_ptr((*base_var).varno as usize - 1) else {
+            return Self(None);
+        };
 
         // The index can answer for an existing heap row that satisfies its predicate.
         let mut valid_args = PgList::<pg_sys::Node>::new();
@@ -141,11 +145,29 @@ impl MaybeInlineRow {
         )
         .cast();
         case.location = (*whole_row).location;
-        Some(Self(case.into_pg()))
+        Self(NonNull::new(case.into_pg()))
     }
 
-    pub(crate) fn as_ptr(&self) -> *mut pg_sys::Node {
-        self.0.cast()
+    pub(crate) fn as_ptr(&self) -> Option<*mut pg_sys::Node> {
+        self.0.map(|case| case.as_ptr().cast())
+    }
+
+    pub(crate) fn procoid(&self, anchor_is_not_null: bool) -> pg_sys::Oid {
+        let [
+            nullable_procoid,
+            strict_procoid,
+            row_procoid,
+            strict_row_procoid,
+        ] = search_with_query_input_exec_procoids();
+
+        // Strictness lets PostgreSQL reduce outer joins. The empty-array marker
+        // keeps the ordinary heap path callable even with a strict row argument.
+        match (self.0.is_some(), anchor_is_not_null) {
+            (true, true) => strict_row_procoid,
+            (true, false) => row_procoid,
+            (false, true) => strict_procoid,
+            (false, false) => nullable_procoid,
+        }
     }
 }
 

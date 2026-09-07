@@ -34,12 +34,15 @@ use super::predicate::{
 use super::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 
+use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::basescan::projections::score::{
+    expr_contains_any_score, is_score_func,
+};
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
@@ -48,7 +51,6 @@ use crate::postgres::customscan::pullup::{
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
 use crate::postgres::customscan::score_funcoids;
-use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, missing_partial_index_predicate, strip_wrappers};
@@ -69,18 +71,52 @@ pub(super) unsafe fn expr_uses_scores_from_source(
     node: *mut pg_sys::Node,
     source: &JoinSource,
 ) -> bool {
-    let funcoids = score_funcoids();
-    node.any(|node| {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && funcoids.contains(&(*funcexpr).funcid)
-        {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            return args.len() == 1
-                && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                    .is_some_and(|var| source.contains_rti((*var).varno as pg_sys::Index));
+    // We use a walker to find score functions
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ptr::addr_of_mut;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
-        false
-    })
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let data = context.cast::<Data>();
+            if (*data).funcoids.contains(&(*funcexpr).funcid) {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                if args.len() == 1
+                    && let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                {
+                    let varno = (*var).varno as pg_sys::Index;
+                    if (*data).source.contains_rti(varno) {
+                        (*data).found = true;
+                        return true; // Abort traversal, found it
+                    }
+                }
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    struct Data<'a> {
+        source: &'a JoinSource,
+        funcoids: [pg_sys::Oid; 2],
+        found: bool,
+    }
+
+    let mut data = Data {
+        source,
+        funcoids: score_funcoids(),
+        found: false,
+    };
+
+    walker(node, addr_of_mut!(data).cast());
+    data.found
 }
 
 pub(super) struct JoinConditions {
@@ -758,7 +794,7 @@ unsafe fn collect_join_sources_join_rel(
             if clause.is_null() {
                 continue;
             }
-            if clause.contains_search_predicate()
+            if expr_contains_search_predicate(clause.cast())
                 || (all_vars_are_fast_fields_recursive(clause.cast(), &all_sources, None)
                     && PredicateTranslator::can_translate(
                         Some(root),
@@ -1382,7 +1418,7 @@ unsafe fn extract_join_conditions_from_list(
             }
         }
 
-        let has_search_op = clause.contains_search_predicate();
+        let has_search_op = expr_contains_search_predicate(clause.cast());
         if has_search_op {
             result.has_search_predicate = true;
         }
@@ -1930,7 +1966,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     continue 'pathkey;
                 }
 
-                if expr.contains_score() {
+                if expr_contains_any_score(expr.cast()) {
                     candidate_decline = Some(JoinDeclineReason::new(
                         "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
                     ));

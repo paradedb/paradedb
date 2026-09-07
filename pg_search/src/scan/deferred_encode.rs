@@ -40,8 +40,9 @@ const EXTENSION_KEY: &str = "ARROW:extension:name";
 
 /// Set on a packed term ordinal, clear on a packed doc address.
 const TERM_ORDINAL_BIT: u64 = 1 << 63;
-/// A term ordinal keeps the low 40 bits of the word and the segment ordinal the 23 above
-/// them. A segment holds fewer than 2^32 documents, so no dictionary comes near 2^40 terms.
+/// A term ordinal keeps the low 40 bits of the word, and the 23 bits above them hold the
+/// segment ordinal. A segment holds fewer than 2^32 documents, so no dictionary comes near
+/// 2^40 terms.
 const TERM_ORDINAL_BITS: u32 = 40;
 const TERM_ORDINAL_MASK: u64 = (1 << TERM_ORDINAL_BITS) - 1;
 const MAX_STATE1_SEGMENT_ORD: u64 = (1 << (63 - TERM_ORDINAL_BITS)) - 1;
@@ -179,19 +180,23 @@ impl<'a> DeferredColumn<'a> {
         let mut valid: Vec<bool> = (0..words.len())
             .map(|row| self.values.is_valid(row))
             .collect();
+        let mut has_nulls = self.values.null_count() > 0;
         for (row, segment_ord, term_ord) in resolved {
             match term_ord {
                 Some(term_ord) => {
                     words[row] = pack_term_ordinal(segment_ord, term_ord);
                     valid[row] = true;
                 }
-                None => valid[row] = false,
+                None => {
+                    valid[row] = false;
+                    has_nulls = true;
+                }
             }
         }
-        Arc::new(UInt64Array::new(
-            ScalarBuffer::from(words),
-            Some(NullBuffer::from(valid)),
-        ))
+        // A missing bitmap reads as all valid, so a column without NULLs skips the
+        // bit-packing pass.
+        let nulls = has_nulls.then(|| NullBuffer::from(valid));
+        Arc::new(UInt64Array::new(ScalarBuffer::from(words), nulls))
     }
 }
 

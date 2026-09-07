@@ -165,6 +165,7 @@ if [[ $ORMS =~ "rails" ]]; then
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
     "rails-paradedb:0.12.0" \
+    "json:~>2.0" \
     "pg"
 
   while IFS= read -r snippet_file; do
@@ -184,9 +185,9 @@ if [[ $ORMS =~ "rails" ]]; then
 RUBY
       cat "$snippet_file"
     } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
-        GEM_HOME="$RUBY_GEM_HOME" \
-        GEM_PATH="$RUBY_GEM_HOME" \
-        ruby - >/dev/null; then
+      GEM_HOME="$RUBY_GEM_HOME" \
+      GEM_PATH="$RUBY_GEM_HOME" \
+      ruby - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       rails_pass_count=$((rails_pass_count + 1))
     else
@@ -227,7 +228,7 @@ from sqlalchemy_snippet_harness import MockItem, Order, ArrayDemo, engine
 # Source: $rel_snippet
 PY
       cat "$snippet_file"
-    } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
+      } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
     else
@@ -268,7 +269,7 @@ TS
 
 await client.end();
 TS
-    } | (cd "$JAVASCRIPT_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
+      } | (cd "$JAVASCRIPT_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       drizzle_pass_count=$((drizzle_pass_count + 1))
     else

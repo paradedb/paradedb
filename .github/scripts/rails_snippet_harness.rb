@@ -1,3 +1,5 @@
+gem "json", "~> 2.0"
+
 require "active_record"
 require "parade_db"
 

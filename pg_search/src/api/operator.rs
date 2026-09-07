@@ -389,6 +389,24 @@ impl SearchPredicate {
     }
 }
 
+pub(crate) unsafe fn expr_contains_search_predicate(node: *mut pg_sys::Node) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if SearchPredicate::from_node(node).is_some() {
+            return true;
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    walker(node, std::ptr::null_mut())
+}
+
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     anyelement_search_opoids()[0]
 }

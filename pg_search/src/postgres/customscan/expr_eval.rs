@@ -7,8 +7,8 @@
 //! These are scan-type-agnostic — usable by JoinScan, BaseScan, or any
 //! future scan that evaluates PG expressions on Arrow data.
 
-use crate::postgres::node::NodeExt;
 use std::collections::HashMap;
+use std::ptr::addr_of_mut;
 
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -53,25 +53,52 @@ impl PreparedPgExpr {
     }
 }
 
+// --- Private to this module ---
+
+struct VarRewriteCtx {
+    var_map: HashMap<(i32, pg_sys::AttrNumber), pg_sys::AttrNumber>,
+}
+
 /// Rewrite all Var nodes in an expression tree to reference sequential positions
 /// in a synthetic tuple slot.
 ///
 /// # Safety
 /// `expr` must be a valid, mutable PG Node tree (freshly deserialized).
 unsafe fn rewrite_var_nodes(expr: *mut pg_sys::Node, input_vars: &[InputVarInfo]) {
-    let var_map: HashMap<_, _> = input_vars
-        .iter()
-        .enumerate()
-        .map(|(i, v)| ((v.rti as i32, v.attno), (i + 1) as pg_sys::AttrNumber))
-        .collect();
-    expr.visit(|node| {
-        if let Some(var) = crate::nodecast!(Var, T_Var, node)
-            && let Some(&new_attno) = var_map.get(&((*var).varno, (*var).varattno))
-        {
-            (*var).varno = pg_sys::INNER_VAR;
-            (*var).varattno = new_attno;
-            (*var).varnosyn = pg_sys::INNER_VAR as pg_sys::Index;
-            (*var).varattnosyn = new_attno;
+    use pgrx::pg_sys::expression_tree_walker;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
-    });
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let ctx = &*(context as *const VarRewriteCtx);
+            let key = ((*var).varno, (*var).varattno);
+            if let Some(&new_attno) = ctx.var_map.get(&key) {
+                (*var).varno = pg_sys::INNER_VAR;
+                (*var).varattno = new_attno;
+                (*var).varnosyn = pg_sys::INNER_VAR as pg_sys::Index;
+                (*var).varattnosyn = new_attno;
+            }
+            return false;
+        }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut ctx = VarRewriteCtx {
+        var_map: input_vars
+            .iter()
+            .enumerate()
+            .map(|(i, v)| ((v.rti as i32, v.attno), (i + 1) as pg_sys::AttrNumber))
+            .collect(),
+    };
+
+    walker(expr, addr_of_mut!(ctx).cast());
 }

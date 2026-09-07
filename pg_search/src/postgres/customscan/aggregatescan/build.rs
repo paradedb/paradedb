@@ -17,7 +17,7 @@
 
 use crate::api::SortDirection;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -198,7 +198,7 @@ impl CollectAggregations for AggregateCSClause {
                     DocCountKey::NAME.to_string(),
                     Aggregation {
                         agg: AggregationVariants::Count(CountAggregation {
-                            field: "ctid".to_string(),
+                            field: CTID_FIELD_NAME.to_string(),
                             missing: None,
                         }),
                         sub_aggregation: Default::default(),
@@ -365,7 +365,7 @@ impl AggregateCSClause {
         {
             return false;
         }
-        if field == "ctid" {
+        if field == CTID_FIELD_NAME {
             return true;
         }
         let indexrel = PgSearchRelation::with_lock(self.indexrelid, pg_sys::AccessShareLock as _);

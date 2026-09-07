@@ -46,7 +46,7 @@ GROUP BY DATE(created_at);
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nn_0.created_at)], aggr=[count(1) as agg_0]
      :   CooperativeExec
-     :     PgSearchScan: table=events_nn, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=events_nn, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
@@ -81,7 +81,7 @@ GROUP BY created_at::date;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nn_0.created_at)], aggr=[count(1) as agg_0]
      :   CooperativeExec
-     :     PgSearchScan: table=events_nn, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=events_nn, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT created_at::date AS day, COUNT(*) AS cnt
@@ -135,7 +135,7 @@ GROUP BY DATE(created_at);
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at)], aggr=[count(1) as agg_0, sum(events_nullable_0.amount) as agg_1]
      :   CooperativeExec
-     :     PgSearchScan: table=events_nullable, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt, SUM(amount) AS total
@@ -178,7 +178,7 @@ LIMIT 2;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at)], aggr=[count(1) as agg_0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=events_nullable, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+                 :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (15 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
@@ -214,7 +214,7 @@ GROUP BY DATE(created_at);
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at)], aggr=[count(1) FILTER (WHERE events_nullable_0.amount > Int64(50)) as agg_0]
      :   CooperativeExec
-     :     PgSearchScan: table=events_nullable, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) FILTER (WHERE amount > 50) AS cnt
@@ -250,7 +250,7 @@ GROUP BY DATE(created_at), region;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at), region@1 as region], aggr=[count(1) as agg_0]
      :   CooperativeExec
-     :     PgSearchScan: table=events_nullable, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 SELECT DATE(created_at) AS day, region, COUNT(*) AS cnt

@@ -92,6 +92,9 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       # HEAD is the benchmarked commit, even for a custom ref.
       - name: Derive Short Commit
         id: commit_info
@@ -199,14 +202,9 @@ jobs:
         if: failure()
         run: docker logs paradedb || true
 
-      # runs-on's s3-cache proxies ACTIONS_RESULTS_URL; upload-artifact POSTs
-      # there and fails, so pin it back to GitHub's receiver (see test-pg_search.yml).
       - name: Upload dashboards
         if: always()
         continue-on-error: true # Best effort: the gh-pages HTML + comment are the real deliverables.
-        env:
-          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
-          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}

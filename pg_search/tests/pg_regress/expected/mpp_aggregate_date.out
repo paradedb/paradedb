@@ -88,7 +88,7 @@ GROUP BY DATE(created_at);
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
      :   CooperativeExec
-     :     PgSearchScan: table=mpp_date_events, segments=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (10 rows)
 
 CREATE TEMP TABLE mpp_date_serial AS
@@ -151,8 +151,8 @@ GROUP BY DATE(created_at);
      :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
      :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
      :     │       DistributedLeafExec:
-     :     │         t0: PgSearchScan: table=mpp_date_events, segments=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :     │         t1: PgSearchScan: table=mpp_date_events, segments=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │         t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │         t1: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :     └──────────────────────────────────────────────────
 (23 rows)
 

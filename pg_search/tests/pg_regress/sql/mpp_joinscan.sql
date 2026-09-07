@@ -259,6 +259,25 @@ WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
+-- With the fetch in the scan, only the decode sits above the shuffle. Its worker
+-- has no scan of `f` in its stage, so it rebuilds the dictionary reader itself.
+SET paradedb.defer_column_fetch TO off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+RESET paradedb.defer_column_fetch;
+
 SET max_parallel_workers_per_gather TO 0;
 
 SELECT f.title, p.size_bytes

@@ -42,12 +42,13 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::SegmentView;
 use crate::postgres::ParallelScanState;
-use crate::postgres::customscan::datafusion::numeric_agg;
+use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 use crate::scan::udf_codec::{
     is_pg_search_udf, try_decode_pg_search_udf, try_encode_pg_search_udf,
 };
@@ -56,8 +57,9 @@ use crate::scan::udf_codec::{
 /// records which codec decoded a node; the tag picks the exec within this codec.
 const TAG_PG_SEARCH_SCAN: u8 = 2;
 const TAG_VISIBILITY_FILTER: u8 = 4;
-const TAG_TANTIVY_LOOKUP: u8 = 5;
+const TAG_TANTIVY_FETCH: u8 = 5;
 const TAG_SEGMENTED_TOPK: u8 = 6;
+const TAG_TANTIVY_DECODE: u8 = 7;
 
 /// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
 /// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
@@ -100,25 +102,32 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 ctx,
                 proto_converter,
             ),
-            // The deferred execs (visibility ctid resolvers, tantivy lookup, segmented top-k)
-            // carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans below
-            // are already rebuilt; pull their helpers out of the decoded subtree. A column whose
-            // scan sits behind a network boundary rebuilds its helper from the column's
+            // The deferred execs (visibility ctid resolvers, tantivy fetch/decode, segmented
+            // top-k) carry live `FFHelper`s that can't travel. Decode is bottom-up, so the scans
+            // below are already rebuilt; pull their helpers out of the decoded subtree. A column
+            // whose scan sits behind a network boundary rebuilds its helper from the column's
             // `DeferredLookupRebuild` instead.
             TAG_VISIBILITY_FILTER => {
                 let input = single_input(inputs)?;
-                let resolvers = collect_ctid_resolvers(&input);
-                VisibilityFilterExec::decode_for_dispatch(
-                    payload,
-                    input,
-                    resolvers,
-                    &self.index_segment_views,
-                )
+                VisibilityFilterExec::decode_for_dispatch(payload, input)
             }
-            TAG_TANTIVY_LOOKUP => {
+            TAG_TANTIVY_FETCH => {
                 let input = single_input(inputs)?;
                 let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
-                TantivyLookupExec::decode_for_dispatch(
+                let resolvers = collect_ctid_resolvers(&input);
+                TantivyFetchExec::decode_for_dispatch(
+                    payload,
+                    input,
+                    ffhelpers,
+                    resolvers,
+                    &self.index_segment_views,
+                    self.parallel_state,
+                )
+            }
+            TAG_TANTIVY_DECODE => {
+                let input = single_input(inputs)?;
+                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                TantivyDecodeExec::decode_for_dispatch(
                     payload,
                     input,
                     ffhelpers,
@@ -164,9 +173,14 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             buf.extend_from_slice(&vis.encode_for_dispatch()?);
             return Ok(());
         }
-        if let Some(lookup) = node.downcast_ref::<TantivyLookupExec>() {
-            buf.push(TAG_TANTIVY_LOOKUP);
-            buf.extend_from_slice(&lookup.encode_for_dispatch()?);
+        if let Some(fetch) = node.downcast_ref::<TantivyFetchExec>() {
+            buf.push(TAG_TANTIVY_FETCH);
+            buf.extend_from_slice(&fetch.encode_for_dispatch()?);
+            return Ok(());
+        }
+        if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
+            buf.push(TAG_TANTIVY_DECODE);
+            buf.extend_from_slice(&decode.encode_for_dispatch()?);
             return Ok(());
         }
         if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
@@ -198,10 +212,10 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         name: &str,
         _buf: &[u8],
     ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
-        // The numeric aggregate UDAFs are stateless singletons resolved by
-        // name; they are not in any session registry, so a dispatched plan
-        // that references them must decode through here.
-        numeric_agg::udaf_by_name(name).ok_or_else(|| {
+        // The pg_search UDAFs are stateless singletons resolved by name; they
+        // are not in any session registry, so a dispatched plan that references
+        // them must decode through here.
+        udaf_by_name(name).ok_or_else(|| {
             DataFusionError::NotImplemented(format!(
                 "UDAF '{name}' deserialization not implemented"
             ))
@@ -267,7 +281,7 @@ fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Ar
         .collect()
 }
 
-/// `indexrelid -> ffhelper` for the tantivy lookup exec.
+/// `indexrelid -> ffhelper` for the tantivy fetch and decode execs.
 fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u32, Arc<FFHelper>> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
@@ -277,7 +291,31 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
             map.insert(s.indexrelid, ff);
         }
     }
+    collect_lookup_ffhelpers(input, &mut map);
     map
+}
+
+/// A lookup node decoded below this one already rebuilt the helper for an index whose scan
+/// sits behind a network boundary, so the decode above a fetch reuses it instead of opening
+/// the index a second time. The reuse relies on every deferred column of a provider sharing
+/// one `fetch_at_scan` (the setting is read once per provider), so a fetch below a decode
+/// lays out exactly the columns the decode reads.
+fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32, Arc<FFHelper>>) {
+    let helpers = if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
+        Some(fetch.ffhelpers())
+    } else {
+        plan.downcast_ref::<TantivyDecodeExec>()
+            .map(TantivyDecodeExec::ffhelpers)
+    };
+    if let Some(helpers) = helpers {
+        for (indexrelid, ffhelper) in helpers {
+            out.entry(*indexrelid)
+                .or_insert_with(|| Arc::clone(ffhelper));
+        }
+    }
+    for child in plan.children() {
+        collect_lookup_ffhelpers(child, out);
+    }
 }
 
 /// [`DistributedCodec`] with the pg_search UDF names carved out of its UDF/UDAF handling.
@@ -331,9 +369,9 @@ impl PhysicalExtensionCodec for DistributedCodecHostingPgSearchUdfs {
     ) -> Result<()> {
         // Same shadowing hazard as `try_encode_udf`: accepting the encode here
         // would record this codec's index, and its decode has no resolver for
-        // the numeric aggregate UDAFs. Decline ours so composition falls
+        // the pg_search UDAFs. Decline ours so composition falls
         // through to `PgSearchPhysicalExtensionCodec`.
-        if numeric_agg::udaf_by_name(node.name()).is_some() {
+        if udaf_by_name(node.name()).is_some() {
             return Err(DataFusionError::NotImplemented(format!(
                 "UDAF '{}' is encoded by the pg_search codec",
                 node.name()

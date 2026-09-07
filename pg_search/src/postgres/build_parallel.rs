@@ -19,7 +19,7 @@ use crate::api::version::Version;
 use crate::gucs;
 use crate::index::kdtree::KdTree;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::stats::{LogicalBounds, LogicalBoundsByField};
+use crate::index::stats::partition_box;
 use crate::index::writer::index::{
     DiskSpaceGuard, IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -58,7 +58,7 @@ use std::ffi::CString;
 use std::num::NonZeroUsize;
 use std::os::raw::c_int;
 use std::ptr::{NonNull, addr_of_mut};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -226,6 +226,8 @@ fn deserialize_partitioning(bytes: &[u8]) -> Option<KdTree> {
 struct BuildWorker<'a> {
     config: WorkerConfig,
     table_scan_desc: Option<NonNull<pg_sys::TableScanDescData>>,
+    /// The build's snapshot on the serial path, where no shared scan descriptor carries it.
+    serial_snapshot: Option<pg_sys::Snapshot>,
     coordination: &'a mut WorkerCoordination,
     heaprel: PgSearchRelation,
     indexrel: PgSearchRelation,
@@ -289,6 +291,7 @@ impl ParallelWorker for BuildWorker<'_> {
             Self {
                 config: *config,
                 table_scan_desc: NonNull::new(table_scan_desc),
+                serial_snapshot: None,
                 coordination,
                 heaprel,
                 indexrel,
@@ -317,6 +320,7 @@ impl<'a> BuildWorker<'a> {
     fn new(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
         config: WorkerConfig,
         coordination: &'a mut WorkerCoordination,
         partitioning: Option<KdTree>,
@@ -325,6 +329,7 @@ impl<'a> BuildWorker<'a> {
         Self {
             config,
             table_scan_desc: None,
+            serial_snapshot: Some(snapshot),
             heaprel: Clone::clone(heaprel),
             indexrel: Clone::clone(indexrel),
             coordination,
@@ -356,12 +361,25 @@ impl<'a> BuildWorker<'a> {
                 "build_worker {worker_number}: target_segment_count: {target_segment_count}, nlaunched: {nlaunched}, worker_segment_target: {worker_segment_target}"
             );
 
-            // `build_index` plans boundaries only for a non-concurrent build, so this is `None`
-            // under CONCURRENTLY and the worker takes the regular per-row path.
+            // `None` without `partition_by`: the worker then takes the regular per-row path.
             let partitioning = self.partitioning.take();
             if let Some(partitioning) = &partitioning {
                 pgrx::debug1!("build_worker {worker_number}: partition boundaries: {partitioning}");
             }
+
+            // Only a partitioned drain re-fetches, and only a concurrent one has to land on the
+            // versions its scan chose. The snapshot for that comes off the shared scan
+            // descriptor on the parallel path, and from `build_index` on the serial one. The
+            // scan ends before the drain runs and unregisters what it registered, so this
+            // registration keeps the snapshot alive until the drain is done with it.
+            let build_snapshot = (partitioning.is_some() && self.config.concurrent)
+                .then(|| {
+                    self.table_scan_desc
+                        .map(|scan| (*scan.as_ptr()).rs_snapshot)
+                        .or(self.serial_snapshot)
+                })
+                .flatten()
+                .map(|snapshot| pg_sys::RegisterSnapshot(snapshot));
 
             let mut build_state = WorkerBuildState::new(
                 &self.heaprel,
@@ -377,6 +395,7 @@ impl<'a> BuildWorker<'a> {
                 is_leader,
                 partitioning,
                 PartitionSpillFiles::new(self.fileset, participant, nlaunched),
+                build_snapshot,
             )?;
 
             set_ps_display_suffix(INDEXING.as_ptr());
@@ -400,15 +419,28 @@ impl<'a> BuildWorker<'a> {
                 scan.elapsed().as_secs_f64()
             );
 
-            if build_state.partitioning.is_some() {
-                build_state.drain_partitioned()?;
+            let drained = if build_state.partitioning.is_some() {
+                build_state.drain_partitioned()
             } else {
-                build_state.commit()?;
+                build_state.commit()
+            };
+            if let Some(snapshot) = build_snapshot {
+                pg_sys::UnregisterSnapshot(snapshot);
             }
+            drained?;
             Ok((reltuples as f64, build_state.nmerges))
         }
     }
 }
+
+/// Pops the snapshot a partitioned drain made active, on every path out of it.
+struct ActiveSnapshotGuard;
+
+crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    unsafe {
+        pg_sys::PopActiveSnapshot();
+    }
+});
 
 /// One spill record: a ctid as 8 bytes.
 const CTID_RECORD_LEN: usize = 8;
@@ -423,19 +455,6 @@ fn decode_ctid_record(bytes: &[u8]) -> u64 {
             .try_into()
             .expect("a ctid record should be CTID_RECORD_LEN bytes"),
     )
-}
-
-/// The kd-tree box of `partition`, keyed by field name, the way the `.stats` component records
-/// it.
-fn partition_box(tree: &KdTree, partition: usize) -> Option<Arc<LogicalBoundsByField>> {
-    let bounds = tree.partition_bounds(partition)?;
-    Some(Arc::new(
-        tree.dims()
-            .iter()
-            .zip(bounds)
-            .map(|(dim, (lower, upper))| (dim.as_ref().to_string(), LogicalBounds { lower, upper }))
-            .collect(),
-    ))
 }
 
 /// `open(2)` flag for `BufFileOpenFileSet`, and `whence` for `BufFileSeek`. pgrx binds no
@@ -743,6 +762,10 @@ struct WorkerBuildState<'a> {
     // drain hands each participant its own share of the partitions.
     participant: usize,
     nparticipants: usize,
+    // The scan's snapshot, for a concurrent build. Its partitioned drain re-fetches rows after
+    // the scan, while other transactions keep writing, so the fetch must resolve each HOT
+    // chain to the version the scan saw: the one visible to this snapshot.
+    build_snapshot: Option<pg_sys::Snapshot>,
 }
 
 impl<'a> WorkerBuildState<'a> {
@@ -760,6 +783,7 @@ impl<'a> WorkerBuildState<'a> {
         is_leader: bool,
         partitioning: Option<KdTree>,
         spill_files: PartitionSpillFiles,
+        build_snapshot: Option<pg_sys::Snapshot>,
     ) -> anyhow::Result<Self> {
         // If we're making more than one segment, do an early cutoff based on doc
         // count in case the memory budget is so high that all the docs fit into one
@@ -836,6 +860,7 @@ impl<'a> WorkerBuildState<'a> {
             worker_number,
             participant,
             nparticipants,
+            build_snapshot,
         })
     }
 
@@ -1085,13 +1110,20 @@ impl<'a> WorkerBuildState<'a> {
             &heaptupdesc,
             &categorized_fields,
             self.index_created_by_version,
-            // Like any CREATE INDEX, the build must index every live row so that the
-            // segments can serve future snapshots: fetch with maintenance semantics.
-            false,
+            // A plain build must index every live row, so that the segments can serve future
+            // snapshots: it fetches with maintenance semantics. A concurrent build's scan
+            // indexed the versions visible to its snapshot, and the drain has to re-fetch
+            // those same versions: it fetches under that snapshot, made active below.
+            self.build_snapshot.is_some(),
         )
-        // The scan callback spilled HOT chain root ctids; index each chain's live tail,
-        // as the inline callback would have.
+        // The scan callback spilled HOT chain root ctids; index the member of each chain the
+        // inline callback would have delivered for the root.
         .with_root_ctids();
+        // The drain returns early on an error, so the pop has to ride a guard.
+        let _active_snapshot = self.build_snapshot.map(|snapshot| unsafe {
+            pg_sys::PushActiveSnapshot(snapshot);
+            ActiveSnapshotGuard
+        });
 
         let prefetch_distance = unsafe { pg_sys::maintenance_io_concurrency }.max(0) as usize;
         let (first_partition, owned_partitions) =
@@ -1348,25 +1380,19 @@ pub(super) fn build_index(
     };
 
     // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
-    // Partitioned builds cover only non-concurrent CREATE INDEX for now: a concurrent build's
-    // deferred re-fetch could index row versions newer than its registered snapshot, so under
-    // CONCURRENTLY skip the planning entirely: no heap sample, and no tree in the DSM for
-    // workers to deserialize and drop.
+    // A concurrent build samples under its registered snapshot, and its drain re-fetches
+    // under the same one, so it partitions like a plain build.
     // TODO(M3): the target segment count doubles as the partition count for now; rename the
     // reloption to `partition_count` once partitioned storage lands.
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     // An index that declares `partition_by` is always built partitioned, however the target and
     // the workers come out; the partitioned path handles a single partition too.
-    let partitioning = if concurrent {
-        None
-    } else {
-        plan_partition_boundaries(
-            &heaprel,
-            &indexrel,
-            snapshot.0,
-            plan::adjusted_target_segment_count(&heaprel, &indexrel),
-        )?
-    };
+    let partitioning = plan_partition_boundaries(
+        &heaprel,
+        &indexrel,
+        snapshot.0,
+        plan::adjusted_target_segment_count(&heaprel, &indexrel),
+    )?;
     if let Some(partitioning) = &partitioning {
         pgrx::debug1!(
             "build_index: {} partition boundaries:\n{}",
@@ -1467,6 +1493,7 @@ pub(super) fn build_index(
         let mut worker = BuildWorker::new(
             &heaprel,
             &indexrel,
+            snapshot.0,
             config,
             &mut coordination,
             partitioning,
@@ -1482,7 +1509,7 @@ pub(super) fn build_index(
     Ok(total_tuples)
 }
 
-mod plan {
+pub(crate) mod plan {
     use super::*;
 
     pub(super) const MAX_VECTOR_BUILD_WORKERS: usize = 4;
@@ -1575,7 +1602,7 @@ mod plan {
     }
 
     /// If we determine that the table is very small, we should just create a single segment
-    pub(super) fn adjusted_target_segment_count(
+    pub(crate) fn adjusted_target_segment_count(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
     ) -> usize {
@@ -2199,7 +2226,7 @@ mod tests {
         // Ground truth: a non-partitioned index over the same rows.
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id');",
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
         )
         .unwrap();
         let expected_alpha = ids_for("message:alpha");
@@ -2228,7 +2255,7 @@ mod tests {
                 "{label}: full set differs"
             );
         };
-        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', partition_by = 'tenant_id, message', target_segment_count = 8);";
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (key_field = 'id', partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
 
         // Serial build.
         Spi::run(create_partitioned).unwrap();

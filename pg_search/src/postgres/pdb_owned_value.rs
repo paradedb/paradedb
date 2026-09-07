@@ -17,8 +17,10 @@
 
 #![allow(dead_code)]
 
+use std::hash::{Hash, Hasher};
 use std::net::Ipv6Addr;
 
+use arrow_array::Array;
 use arrow_schema::DataType;
 use datafusion::common::ScalarValue;
 use serde::ser::SerializeMap;
@@ -53,7 +55,66 @@ pub enum PdbOwnedValue {
 
 impl Eq for PdbOwnedValue {}
 
+/// Agrees with the derived `PartialEq`: a float hashes by value, so `0.0` and
+/// `-0.0` collide the way they compare equal, and pre-tokenized text hashes by
+/// its text alone, a coarser key than the equality that also compares tokens.
+impl Hash for PdbOwnedValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            PdbOwnedValue::Null => {}
+            PdbOwnedValue::Str(v) => v.hash(state),
+            PdbOwnedValue::PreTokStr(v) => v.text.hash(state),
+            PdbOwnedValue::U64(v) => v.hash(state),
+            PdbOwnedValue::I64(v) => v.hash(state),
+            PdbOwnedValue::F64(v) => (if *v == 0.0 { 0.0f64 } else { *v }).to_bits().hash(state),
+            PdbOwnedValue::Bool(v) => v.hash(state),
+            PdbOwnedValue::Date(v) => v.hash(state),
+            PdbOwnedValue::Facet(v) => v.hash(state),
+            PdbOwnedValue::Bytes(v) => v.hash(state),
+            PdbOwnedValue::Array(v) => v.hash(state),
+            PdbOwnedValue::Object(v) => v.hash(state),
+            PdbOwnedValue::IpAddr(v) => v.hash(state),
+        }
+    }
+}
+
 impl PdbOwnedValue {
+    /// The value of an Arrow cell, for a column whose field type is not at hand:
+    /// integers widen to `I64` or `U64`, floats to `F64`, a microsecond timestamp
+    /// becomes a `Date`, and a `Date32` day count stays an `I64`. `None` for an
+    /// Arrow type with no variant here.
+    pub fn from_arrow(array: &dyn Array, row: usize) -> Option<Self> {
+        if array.is_null(row) {
+            return Some(Self::Null);
+        }
+        Some(match ScalarValue::try_from_array(array, row).ok()? {
+            ScalarValue::Utf8(Some(v))
+            | ScalarValue::LargeUtf8(Some(v))
+            | ScalarValue::Utf8View(Some(v)) => Self::Str(v),
+            ScalarValue::Int8(Some(v)) => Self::I64(v as i64),
+            ScalarValue::Int16(Some(v)) => Self::I64(v as i64),
+            ScalarValue::Int32(Some(v)) => Self::I64(v as i64),
+            ScalarValue::Int64(Some(v)) => Self::I64(v),
+            ScalarValue::UInt8(Some(v)) => Self::U64(v as u64),
+            ScalarValue::UInt16(Some(v)) => Self::U64(v as u64),
+            ScalarValue::UInt32(Some(v)) => Self::U64(v as u64),
+            ScalarValue::UInt64(Some(v)) => Self::U64(v),
+            ScalarValue::Float32(Some(v)) => Self::F64(v as f64),
+            ScalarValue::Float64(Some(v)) => Self::F64(v),
+            ScalarValue::Boolean(Some(v)) => Self::Bool(v),
+            // A value outside the timestamp range keeps its raw microseconds.
+            ScalarValue::TimestampMicrosecond(Some(v), _) => PostgresDateTime::try_from_raw(v)
+                .map(Self::Date)
+                .unwrap_or(Self::I64(v)),
+            ScalarValue::Date32(Some(v)) => Self::I64(v as i64),
+            ScalarValue::Binary(Some(v))
+            | ScalarValue::LargeBinary(Some(v))
+            | ScalarValue::BinaryView(Some(v)) => Self::Bytes(v),
+            _ => return None,
+        })
+    }
+
     /// A total order for sorting and range routing. NULL sorts first. Floats use the same
     /// monotonic `u64` mapping as `TopK` and `RangeQuery`, so a boundary orders the way the scans
     /// that read it do, `NaN` included. A merged two-side join sample can tag one integer column

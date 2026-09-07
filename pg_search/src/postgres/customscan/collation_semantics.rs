@@ -132,3 +132,49 @@ fn is_byte_ordered_collation(collation: pg_sys::Oid) -> bool {
         _ => false,
     }
 }
+
+unsafe extern "C-unwind" fn check_unsupported_collation_walker(
+    node: *mut pg_sys::Node,
+    context: *mut std::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if (*node).type_ == pg_sys::NodeTag::T_OpExpr {
+        let op_expr = node as *mut pg_sys::OpExpr;
+        let collid = (*op_expr).inputcollid;
+        if collid != pg_sys::Oid::INVALID {
+            let op_name_ptr = pg_sys::get_opname((*op_expr).opno);
+            let is_unsupported = (!op_name_ptr.is_null())
+                .then(|| std::ffi::CStr::from_ptr(op_name_ptr).to_str().ok())
+                .flatten()
+                .and_then(|op_str| match op_str {
+                    "=" | "<>" | "!=" => Some(CollationOperation::Equality),
+                    "<" | "<=" | ">" | ">=" => Some(CollationOperation::Ordering),
+                    _ => None,
+                })
+                .is_some_and(|op_type| !collation_supports(collid, op_type));
+
+            if is_unsupported {
+                let has_unsupported = context as *mut bool;
+                *has_unsupported = true;
+                return true;
+            }
+        }
+    }
+    pg_sys::expression_tree_walker(node, Some(check_unsupported_collation_walker), context)
+}
+
+/// Check if an expression contains an operator on a collation that cannot be
+/// safely delegated to DataFusion.
+pub unsafe fn expr_has_unsupported_collation(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let mut has_unsupported = false;
+    check_unsupported_collation_walker(
+        node,
+        &mut has_unsupported as *mut bool as *mut std::ffi::c_void,
+    );
+    has_unsupported
+}

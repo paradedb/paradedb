@@ -117,7 +117,7 @@ FROM docs_nullable
 WHERE body @@@ pdb.all();
                                                                                                          agg                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": null, "doc_count": 2}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ {"buckets": [{"key": null, "doc_count": 2}, {"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- 4e: Verify pdb.agg terms on nullable bool includes all docs and the null sentinel is scrubbed
@@ -128,7 +128,7 @@ FROM docs_nullable
 WHERE body @@@ pdb.all();
                                                                                                          agg                                                                                                         
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": null, "doc_count": 2}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ {"buckets": [{"key": null, "doc_count": 2}, {"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- Test 5: Nested terms sub-aggregation over a nullable bool — sentinel must be
@@ -138,7 +138,7 @@ FROM docs_nullable
 WHERE body @@@ pdb.all();
                                                                                                                                                                                                                                             agg                                                                                                                                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "x", "by_flag": {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": null, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 3}, {"key": "y", "by_flag": {"buckets": [{"key": 0, "doc_count": 1, "key_as_string": "false"}, {"key": null, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ {"buckets": [{"key": "x", "by_flag": {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": null, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 3}, {"key": "y", "by_flag": {"buckets": [{"key": null, "doc_count": 1}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 DROP TABLE docs_nullable CASCADE;

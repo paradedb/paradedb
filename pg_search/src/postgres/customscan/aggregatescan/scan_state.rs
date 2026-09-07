@@ -21,6 +21,7 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggPlan;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
@@ -78,6 +79,13 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
+    /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
+    pub pdb_plan: Option<PdbAggPlan>,
+    /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.
+    pub pdb_root_having: Option<datafusion::logical_expr::Expr>,
+    /// Assembled `pdb.agg()` documents for each row of `current_batch`, which then
+    /// holds the SQL-level rows only.
+    pub pdb_agg_json: Option<Vec<Vec<serde_json::Value>>>,
     /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
     /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
     /// workers spawn only after it exists). Stays `Inactive` on the serial path.

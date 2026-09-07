@@ -675,6 +675,15 @@ impl PdbAggRoute {
             .flat_map(PdbAggRequest::fields)
             .any(|field| field.field_type.is_numeric())
     }
+
+    /// A spec reads an array field, which on a single table is handled natively
+    /// by Tantivy and cannot route to DataFusion without mutating relation cardinality.
+    pub fn references_array(&self) -> bool {
+        self.requests
+            .values()
+            .flat_map(PdbAggRequest::fields)
+            .any(|field| field.is_array)
+    }
 }
 
 /// Lower every `pdb.agg()` in the grouping output, fields included, to decide
@@ -697,7 +706,11 @@ pub unsafe fn pdb_agg_route(
         }
         requests.insert(idx, lower_pdb_agg(aggref, &sources).ok()?);
     }
-    Some(PdbAggRoute { requests })
+    let route = PdbAggRoute { requests };
+    if route.references_array() {
+        return None;
+    }
+    Some(route)
 }
 
 /// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a
@@ -720,6 +733,7 @@ unsafe fn lower_pdb_agg(
             field_name: resolved.field_name,
             field_type: resolved.field_type,
             plan_position: 0,
+            is_array: resolved.is_array,
         })
     })
 }

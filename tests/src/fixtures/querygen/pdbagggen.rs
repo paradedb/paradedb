@@ -77,13 +77,19 @@ pub struct Metric {
     pub field: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PdbTerm {
+    pub field: String,
+    pub is_array: bool,
+}
+
 /// One `pdb.agg()` call and the shape of its result.
 #[derive(Clone, Debug)]
 pub struct PdbAggExpr {
     /// A SQL `GROUP BY` column beside the call, which becomes the root grouping set.
     pub outer_group: Option<String>,
     /// `terms` levels, outermost first. Empty for a spec that is one metric.
-    pub terms: Vec<String>,
+    pub terms: Vec<PdbTerm>,
     /// A `size` cut on one level, under the default `_count desc` order.
     pub size: Option<(usize, u32)>,
     /// Metrics under the innermost level; the whole spec when there are no levels.
@@ -109,14 +115,14 @@ impl PdbAggExpr {
             return json!({ metric.kind.spec_name(): { "field": metric.field } });
         }
         let mut node = Value::Null;
-        for (level, field) in self.terms.iter().enumerate().rev() {
+        for (level, term) in self.terms.iter().enumerate().rev() {
             let terms = match self.size {
                 // Every segment keeps every term, so the cut is exact and its
                 // error bound zero, the same as a backend that has every group.
                 Some((cut_level, size)) if level == cut_level => {
-                    json!({ "field": field, "size": size, "segment_size": NO_CUT })
+                    json!({ "field": &term.field, "size": size, "segment_size": NO_CUT })
                 }
-                _ => json!({ "field": field, "size": NO_CUT, "order": { "_key": "asc" } }),
+                _ => json!({ "field": &term.field, "size": NO_CUT, "order": { "_key": "asc" } }),
             };
             let aggs = if node.is_null() {
                 Value::Object(self.metric_aggs())
@@ -153,30 +159,44 @@ impl PdbAggExpr {
     /// [`Self::rows`] flattens the JSON into. Only a cut on a lone top level has a
     /// SQL form.
     pub fn pg_query(&self, from_clause: &str, where_clause: &str) -> String {
-        let keys: Vec<&str> = self
-            .outer_group
-            .iter()
-            .chain(self.terms.iter())
-            .map(String::as_str)
-            .collect();
-        let mut select: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+        let mut from = from_clause.to_string();
+        let mut keys: Vec<String> = self.outer_group.iter().cloned().collect();
+        for term in &self.terms {
+            if term.is_array {
+                let alias = format!("_{}", term.field.replace('.', "_"));
+                // Tantivy and DataFusion (via PreserveAndExpandEmpty) preserve documents
+                // with empty or NULL arrays, assigning them to the NULL/missing bucket
+                // rather than discarding them from the query or outer groupings.
+                // Using `LEFT JOIN LATERAL ... ON true` mimics this: an inner unnest
+                // (e.g. `CROSS JOIN LATERAL`) would drop rows with empty/NULL arrays.
+                from.push_str(&format!(
+                    " LEFT JOIN LATERAL unnest({}) AS {alias} ON true",
+                    term.field
+                ));
+                keys.push(alias);
+            } else {
+                keys.push(term.field.clone());
+            }
+        }
+        let mut select: Vec<String> = keys.clone();
         if !self.terms.is_empty() {
             select.push("COUNT(*)".to_string());
         }
         select.extend(self.metrics.iter().map(|m| m.kind.sql(&m.field)));
-        let mut sql = format!(
-            "SELECT {} {from_clause} WHERE {where_clause}",
-            select.join(", ")
-        );
+        let mut sql = format!("SELECT {} {from} WHERE {where_clause}", select.join(", "));
         if !keys.is_empty() {
             sql.push_str(&format!(" GROUP BY {}", keys.join(", ")));
         }
         if let Some((cut_level, size)) = self.size {
             assert_eq!(cut_level, 0, "SQL can only mirror a cut on the top level");
             // Tantivy breaks count ties on the key and puts the NULL bucket last.
+            let order_key = if self.terms[0].is_array {
+                format!("_{}", self.terms[0].field.replace('.', "_"))
+            } else {
+                self.terms[0].field.clone()
+            };
             sql.push_str(&format!(
-                " ORDER BY COUNT(*) DESC, {} ASC NULLS LAST LIMIT {size}",
-                self.terms[0]
+                " ORDER BY COUNT(*) DESC, {order_key} ASC NULLS LAST LIMIT {size}",
             ));
         }
         sql
@@ -291,6 +311,8 @@ struct SpecShape {
     /// carries its own sketch, and the DataFusion aggregate holds them all in
     /// `work_mem` with no spill.
     sketch_keys: usize,
+    /// Array columns may be used as terms fields.
+    allow_arrays: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -351,6 +373,7 @@ pub fn arb_pdb_agg_join(
                 } else {
                     usize::MAX
                 },
+                allow_arrays: true,
             };
             let agg = arb_pdb_agg(joined.clone(), shape);
             let outer_strat = arb_wheres(vec![joined[0].clone()], &where_cols).boxed();
@@ -382,6 +405,7 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
             numeric_metrics: false,
             size_anywhere: true,
             sketch_keys: usize::MAX,
+            allow_arrays: false,
         },
     )
 }
@@ -399,6 +423,7 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
     };
     // `color` and `quantity` carry NULLs, which become a bucket of their own.
     let key_fields = qualify(&["color", "age", "quantity"]);
+    let array_fields = qualify(&["tags"]);
     let int_fields = qualify(&["age", "quantity"]);
     let metric_fields = if shape.numeric_metrics {
         qualify(&["age", "quantity", "price"])
@@ -430,9 +455,23 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
         proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
     };
 
+    let mut all_terms: Vec<PdbTerm> = key_fields
+        .iter()
+        .map(|f| PdbTerm {
+            field: f.clone(),
+            is_array: false,
+        })
+        .collect();
+    if shape.allow_arrays {
+        all_terms.extend(array_fields.iter().map(|f| PdbTerm {
+            field: f.clone(),
+            is_array: true,
+        }));
+    }
+
     (
         outer_group,
-        proptest::sample::subsequence(key_fields, 0..=2),
+        proptest::sample::subsequence(all_terms, 0..=2),
         proptest::option::weighted(0.4, (0..2usize, 1..4u32)),
         proptest::collection::vec(metric, 0..=3),
     )
@@ -569,6 +608,43 @@ mod tests {
         assert!(
             generated_is_null,
             "Expected at least one IS NULL/IS NOT NULL predicate to be generated"
+        );
+    }
+
+    #[test]
+    fn test_pg_query_unnests_array_terms() {
+        let agg = PdbAggExpr {
+            outer_group: Some("users.color".to_string()),
+            terms: vec![
+                PdbTerm {
+                    field: "users.tags".to_string(),
+                    is_array: true,
+                },
+                PdbTerm {
+                    field: "users.age".to_string(),
+                    is_array: false,
+                },
+            ],
+            size: Some((0, 10)),
+            metrics: vec![Metric {
+                name: "m0".to_string(),
+                kind: MetricKind::Sum,
+                field: "users.quantity".to_string(),
+            }],
+        };
+
+        let pg_sql = agg.pg_query("FROM users JOIN products ON users.id = products.id", "TRUE");
+        assert!(
+            pg_sql.contains("LEFT JOIN LATERAL unnest(users.tags) AS _users_tags ON true"),
+            "Expected LEFT JOIN LATERAL unnest for array term, got: {pg_sql}"
+        );
+        assert!(
+            pg_sql.contains("GROUP BY users.color, _users_tags, users.age"),
+            "Expected GROUP BY with unnested alias, got: {pg_sql}"
+        );
+        assert!(
+            pg_sql.contains("ORDER BY COUNT(*) DESC, _users_tags ASC NULLS LAST LIMIT 10"),
+            "Expected ORDER BY with unnested alias for size cut, got: {pg_sql}"
         );
     }
 }

@@ -377,9 +377,121 @@ fn apply_pdb_aggregate(
     };
     let mut all_agg_exprs = agg_exprs;
     all_agg_exprs.extend(metric_exprs);
+    struct UnnestTarget {
+        source_alias: String,
+        field_name: String,
+        temp_col_name: String,
+    }
+
+    let unnest_targets: Vec<UnnestTarget> = {
+        let mut targets = Vec::new();
+        for key in &pdb_plan.keys {
+            if key.field.is_array
+                && !plan
+                    .lateral_unnests()
+                    .iter()
+                    .any(|u| u.field_name == key.field.field_name)
+            {
+                let source = plan
+                    .source_at_plan_position(key.field.plan_position)
+                    .unwrap_or_else(|| {
+                        panic!("no source at plan_position {}", key.field.plan_position)
+                    });
+                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                    .execution(source.plan_position);
+                let temp_col_name = format!("{}_{}", alias, key.field.field_name);
+                if !targets
+                    .iter()
+                    .any(|t: &UnnestTarget| t.temp_col_name == temp_col_name)
+                {
+                    targets.push(UnnestTarget {
+                        source_alias: alias,
+                        field_name: key.field.field_name.clone(),
+                        temp_col_name,
+                    });
+                }
+            }
+        }
+        targets
+    };
+
     // `DataFrame::aggregate` projects `__grouping_id` away; the assembler needs it,
     // so build the aggregate node directly.
     let (session_state, input) = df.into_parts();
+    let input = if unnest_targets.is_empty() {
+        input
+    } else {
+        use datafusion::common::{NullHandling, UnnestOptions};
+        let unnest_options =
+            UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty);
+
+        // Pre-project to alias qualified columns (e.g. `users_0.tags`) to unique temporary
+        // column names (e.g. `users_0_tags`). This avoids ambiguity errors during `Unnest`
+        // if another joined table has a column with the same name (e.g. `products_1.tags`).
+        let pre_project_exprs: Vec<Expr> = input
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| {
+                let col = Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ));
+                if let Some(target) = unnest_targets.iter().find(|t| {
+                    qualifier.as_ref().map(|q| q.to_string()) == Some(t.source_alias.clone())
+                        && field.name() == &t.field_name
+                }) {
+                    col.alias(&target.temp_col_name)
+                } else {
+                    col
+                }
+            })
+            .collect();
+        let pre_unnest = LogicalPlanBuilder::from(input)
+            .project(pre_project_exprs)?
+            .build()?;
+
+        // Unnest each column in its own Unnest node. When multiple array columns are
+        // unnested together in DataFusion, UnnestExec locks them in step (per-row zip)
+        // instead of forming their Cartesian product. Chaining them sequentially unnests
+        // each array across the already-expanded rows of prior ones, matching the
+        // semantics of PostgreSQL's independent LEFT JOIN LATERAL unnest clauses.
+        let mut unnested = pre_unnest;
+        for target in &unnest_targets {
+            let unnest_col = datafusion::common::Column::from_name(&target.temp_col_name);
+            unnested = LogicalPlanBuilder::from(unnested)
+                .unnest_columns_with_options(vec![unnest_col], unnest_options.clone())?
+                .build()?;
+        }
+
+        // Post-project to re-qualify each unnested temporary column back to its original
+        // table reference and field name (e.g. `users_0.tags`).
+        let post_project_exprs: Vec<Expr> = unnested
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| {
+                let col = Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ));
+                if let Some(target) = unnest_targets
+                    .iter()
+                    .find(|t| field.name() == &t.temp_col_name)
+                {
+                    col.alias_qualified(
+                        Some(datafusion::common::TableReference::Bare {
+                            table: target.source_alias.clone().into(),
+                        }),
+                        &target.field_name,
+                    )
+                } else {
+                    col
+                }
+            })
+            .collect();
+        LogicalPlanBuilder::from(unnested)
+            .project(post_project_exprs)?
+            .build()?
+    };
     let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
     let aggregated = LogicalPlanBuilder::from(input)
         .with_options(options)

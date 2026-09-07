@@ -68,6 +68,7 @@ pub struct PdbAggFieldRef {
     pub field_type: SearchFieldType,
     /// Where the source sits in the plan tree, assigned once the tree exists.
     pub plan_position: usize,
+    pub is_array: bool,
 }
 
 impl PdbAggFieldRef {
@@ -378,6 +379,12 @@ fn check_node(
                 ));
             }
             let field = resolve_field(resolve, fields, name, kind.is_numeric())?;
+            if field.is_array {
+                return Err(format!(
+                    "Field '{name}' is an array, which cannot be used in a `{}` metric aggregation",
+                    variant_name(other)
+                ));
+            }
             check_missing(&field, missing.as_ref())
         }
     }
@@ -1112,6 +1119,7 @@ mod tests {
             field_name: name.to_string(),
             field_type: SearchFieldType::I64(pg_sys::INT8OID),
             plan_position: 0,
+            is_array: false,
         }
     }
 

@@ -144,13 +144,34 @@ pub fn resolve_fast_field_by_name(
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field_name)?;
     if search_field.is_fast() {
-        Some(WhichFastField::Named(
-            field_name.to_string(),
-            search_field.field_type(),
-        ))
+        let is_array = schema
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, data)| data.is_array)
+            .unwrap_or(false);
+        if is_array {
+            Some(WhichFastField::Array(
+                field_name.to_string(),
+                search_field.field_type(),
+            ))
+        } else {
+            Some(WhichFastField::Named(
+                field_name.to_string(),
+                search_field.field_type(),
+            ))
+        }
     } else {
         None
     }
+}
+
+/// Resolved index field metadata returned by [`resolve_index_field_by_name`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedIndexField {
+    pub attno: pg_sys::AttrNumber,
+    pub field_type: SearchFieldType,
+    pub is_array: bool,
 }
 
 /// Resolve an index field name, dotted for a JSON sub-field, to the heap column it
@@ -158,12 +179,12 @@ pub fn resolve_fast_field_by_name(
 /// has no such fast field, `Err` when it has one the scan cannot read, so the
 /// caller can say why rather than that the field does not exist. Resolution goes
 /// through the index schema because a field name can be an alias of a column.
-/// The gates match [`resolve_fast_field`]: an expression-indexed or array column
+/// The gates match [`resolve_fast_field`]: an expression-indexed column
 /// is turned down, and a JSON column is only reachable through a sub-field.
 pub fn resolve_index_field_by_name(
     index: &PgSearchRelation,
     field: &str,
-) -> Result<Option<(pg_sys::AttrNumber, SearchFieldType)>, String> {
+) -> Result<Option<ResolvedIndexField>, String> {
     let Some(schema) = index.schema().ok() else {
         return Ok(None);
     };
@@ -180,11 +201,6 @@ pub fn resolve_index_field_by_name(
             "Field '{field}' is an expression index, which cannot be read back as a column"
         ));
     };
-    if data.is_array {
-        return Err(format!(
-            "Field '{field}' is an array, which cannot be read as a single column"
-        ));
-    }
     let field_type = if field == root {
         match field_type_for_pullup(search_field.field_type(), false) {
             Some(field_type) => field_type,
@@ -199,7 +215,11 @@ pub fn resolve_index_field_by_name(
         check_json_sub_field_is_text(index, field)?;
         search_field.field_type()
     };
-    Ok(Some((attno as pg_sys::AttrNumber + 1, field_type)))
+    Ok(Some(ResolvedIndexField {
+        attno: attno as pg_sys::AttrNumber + 1,
+        field_type,
+        is_array: data.is_array,
+    }))
 }
 
 /// A columnar scan reads every JSON sub-field as text, while the index stores

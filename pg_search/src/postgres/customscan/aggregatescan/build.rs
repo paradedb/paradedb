@@ -26,15 +26,14 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{FilterQuery, new_filter_query};
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
-use crate::postgres::customscan::aggregatescan::targetlist::{
-    TargetList, TargetListEntry, find_single_aggref_in_expr,
-};
+use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
+use crate::postgres::node::NodeExt;
 use crate::postgres::utils::sort_json_keys;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -561,7 +560,7 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
 
     // The sort expression must BE an aggregate — not merely contain one.
-    let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
+    let Some(aggref) = sort_expr.find_single_node::<pg_sys::Aggref>() else {
         return false;
     };
     aggref as *mut pg_sys::Node == sort_expr
@@ -598,7 +597,7 @@ unsafe fn detect_aggregate_orderby(
     // The sort expression must BE an aggregate — not merely contain one.
     // e.g. ORDER BY COUNT(*) DESC is safe, but ORDER BY ABS(SUM(score)) DESC
     // is not: ABS() breaks monotonicity, so Tantivy's ordering wouldn't match.
-    let aggref = find_single_aggref_in_expr(sort_expr)?;
+    let aggref = sort_expr.find_single_node::<pg_sys::Aggref>()?;
     if aggref as *mut pg_sys::Node != sort_expr {
         return None;
     }

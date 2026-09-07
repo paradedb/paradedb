@@ -31,6 +31,7 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
@@ -626,11 +627,7 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
-                let has_score = members.iter_ptr().any(|m| {
-                    crate::postgres::customscan::basescan::projections::score::expr_contains_any_score(
-                        (*m).em_expr.cast(),
-                    )
-                });
+                let has_score = members.iter_ptr().any(|m| (*m).em_expr.contains_score());
                 if has_score {
                     return PathKeyInfo::Unusable(UnusableReason::UnsupportedScoreExpression);
                 }

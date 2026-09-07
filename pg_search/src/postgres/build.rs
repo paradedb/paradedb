@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
 use crate::api::version::VersionInfo;
+use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
@@ -406,8 +406,8 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
 
     // Add ctid field
     builder.add_u64_field(
-        "ctid",
-        options.field_config_or_default(&FieldName::from("ctid")),
+        CTID_FIELD_NAME,
+        options.field_config_or_default(&FieldName::from(CTID_FIELD_NAME)),
     );
 
     builder.build()
@@ -500,19 +500,19 @@ mod tests {
     #[pg_test]
     fn test_build_sort_by_field_ctid_explicit() {
         let mut builder = Schema::builder();
-        builder.add_u64_field("ctid", FAST);
+        builder.add_u64_field(CTID_FIELD_NAME, FAST);
         let schema = builder.build();
 
         // Explicit ctid sort_by
         let sort_by = vec![SortByField::new(
-            FieldName::from("ctid".to_string()),
+            FieldName::from(CTID_FIELD_NAME),
             SortByDirection::Asc,
         )];
 
         let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
         assert!(result.is_some());
         let sort_field = result.unwrap();
-        assert_eq!(sort_field.field, "ctid");
+        assert_eq!(sort_field.field, CTID_FIELD_NAME);
         assert_eq!(sort_field.order, Order::Asc);
     }
 

@@ -152,6 +152,9 @@ impl MaybeInlineRow {
         self.0.map(|case| case.as_ptr().cast())
     }
 
+    /// Returns the `pg_proc` OID of the search execution function to call.
+    /// Selects a row-fallback variant when an inline row is available, and a strict
+    /// variant when the anchor column is known to be NOT NULL.
     pub(crate) fn procoid(&self, anchor_is_not_null: bool) -> pg_sys::Oid {
         let [
             nullable_procoid,

@@ -122,13 +122,8 @@ impl ReturnedNodePointer {
             return Self::unsupported();
         }
 
-        // CTID-aware execution functions must not be simplified a second time.
-        if matches!(&rhs_rewrite, SimplifyRhs::SearchQueryInput)
-            && (*(*request).fcall).funcid != anyelement_query_input_procoid()
-        {
-            return Self::unsupported();
-        }
-
+        // EXISTS conversion can first simplify a child qual with its parent's root.
+        // Rebind execution helpers too, so the child's later pass corrects the index.
         let input_args = PgList::<pg_sys::Node>::from_pg((*(*request).fcall).args);
         // A malformed search call has no predicate to simplify.
         let (Some(lhs), Some(rhs)) = (input_args.get_ptr(0), input_args.get_ptr(1)) else {
@@ -1057,13 +1052,31 @@ unsafe fn wrap_with_index(
         // Const nodes are always of type SearchQueryInput, so we can instantiate a new Const version
         let query = SearchQueryInput::from_datum((*rhs_const).constvalue, (*rhs_const).constisnull)
             .unwrap();
+        let query = match query {
+            SearchQueryInput::WithIndex { query, .. } => query,
+            query => Box::new(query),
+        };
         let query = SearchQueryInput::WithIndex {
             oid: indexrel.oid(),
-            query: Box::new(query),
+            query,
         };
         let as_const: *mut pg_sys::Const = query.into();
         as_const.cast()
     } else {
+        // Replace constant index bindings, but preserve user expressions and their effects.
+        let mut rhs = rhs;
+        if let Some(function) = nodecast!(FuncExpr, T_FuncExpr, rhs)
+            && (*function).funcid == with_index_procoid()
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*function).args);
+            if let Some(index) = args.get_ptr(0)
+                && nodecast!(Const, T_Const, index).is_some()
+            {
+                rhs = args
+                    .get_ptr(1)
+                    .expect("with_index must have a query argument");
+            }
+        }
         // otherwise we need to wrap the rhs in a `FuncExpr` that calls `paradedb.with_index()`
         let mut args = PgList::<pg_sys::Node>::new();
         args.push(

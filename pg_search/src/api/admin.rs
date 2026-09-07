@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::{HashMap, HashSet};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -563,7 +562,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let ctid_u64 = item_pointer_to_u64(ctid);
     let query = SearchQueryInput::FieldedQuery {
-        field: "ctid".into(),
+        field: CTID_FIELD_NAME.into(),
         query: pdb_query::Query::Term {
             value: ctid_u64.into(),
         },
@@ -1413,7 +1412,7 @@ pub mod pdb {
 
                 // Check if fast fields are accessible (specifically ctid)
                 let fast_fields = segment_reader.fast_fields();
-                if fast_fields.u64("ctid").is_err() {
+                if fast_fields.u64(CTID_FIELD_NAME).is_err() {
                     segment_issues.push(format!(
                         "Segment {} ({}): ctid fast field not accessible",
                         idx, segment_id

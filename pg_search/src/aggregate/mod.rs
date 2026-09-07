@@ -1071,6 +1071,7 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
+    use crate::api::CTID_FIELD_NAME;
     use crate::index::fast_fields_helper::FFType;
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
@@ -1100,7 +1101,7 @@ pub mod mvcc_collector {
             Ok(MVCCFilterSegmentCollector {
                 inner,
                 lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
+                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
                 doc_buffer: Vec::with_capacity(BATCH_SIZE),
                 score_buffer: if requires_scoring {
                     Vec::with_capacity(BATCH_SIZE)

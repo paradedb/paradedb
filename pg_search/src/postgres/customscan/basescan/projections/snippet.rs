@@ -15,14 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ptr::addr_of_mut;
+
 use crate::api::{FieldName, HashMap, Varno};
 use crate::nodecast;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
-use crate::postgres::node::NodeExt;
 use crate::postgres::var::find_one_var;
 
+use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    AnyElement, IntoDatum, PgList, default, direct_function_call, extension_sql, pg_extern, pg_sys,
+    AnyElement, IntoDatum, PgList, default, direct_function_call, extension_sql, pg_extern,
+    pg_guard, pg_sys,
 };
 use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
@@ -237,6 +240,15 @@ impl SnippetType {
             }
         };
     }
+}
+
+struct Context<'a> {
+    planning_rti: pg_sys::Index,
+    attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
+    snippet_funcoids: [pg_sys::Oid; 2],
+    snippets_funcoids: [pg_sys::Oid; 2],
+    snippet_positions_funcoids: [pg_sys::Oid; 2],
+    snippet_type: Vec<SnippetType>,
 }
 
 #[pgrx::pg_schema]
@@ -538,30 +550,60 @@ pub unsafe fn uses_snippets(
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
 ) -> Vec<SnippetType> {
-    let mut snippet_types = Vec::new();
-    node.visit(|node| {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            if let Some(snippet_type) =
-                extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
-            {
-                snippet_types.push(snippet_type);
+            let context = data.cast::<Context>();
+
+            if let Some(snippet_type) = extract_snippet(
+                funcexpr,
+                (*context).planning_rti,
+                (*context).snippet_funcoids,
+                (*context).attname_lookup,
+            ) {
+                (*context).snippet_type.push(snippet_type);
             }
-            if let Some(snippet_type) =
-                extract_snippets(funcexpr, planning_rti, snippets_funcoids, attname_lookup)
-            {
-                snippet_types.push(snippet_type);
+
+            if let Some(snippet_type) = extract_snippets(
+                funcexpr,
+                (*context).planning_rti,
+                (*context).snippets_funcoids,
+                (*context).attname_lookup,
+            ) {
+                (*context).snippet_type.push(snippet_type);
             }
+
             if let Some(snippet_type) = extract_snippet_positions(
                 funcexpr,
-                planning_rti,
-                snippet_positions_funcoids,
-                attname_lookup,
+                (*context).planning_rti,
+                (*context).snippet_positions_funcoids,
+                (*context).attname_lookup,
             ) {
-                snippet_types.push(snippet_type);
+                (*context).snippet_type.push(snippet_type);
             }
         }
-    });
-    snippet_types
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut context = Context {
+        planning_rti,
+        attname_lookup,
+        snippet_funcoids,
+        snippets_funcoids,
+        snippet_positions_funcoids,
+        snippet_type: vec![],
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.snippet_type
 }
 
 /// Resolve the field arg (always arg 0) of a snippet function to its

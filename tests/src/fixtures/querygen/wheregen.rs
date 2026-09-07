@@ -123,6 +123,16 @@ impl Expr {
             }
         }
     }
+
+    /// Check if this expression contains a null-testing predicate (`IS NULL` or `IS NOT NULL`).
+    pub fn has_null_predicate(&self) -> bool {
+        match self {
+            Expr::Atom { .. } | Expr::All { .. } => false,
+            Expr::IsNull(_) | Expr::IsNotNull(_) => true,
+            Expr::Not(e) => e.has_null_predicate(),
+            Expr::And(l, r) | Expr::Or(l, r) => l.has_null_predicate() || r.has_null_predicate(),
+        }
+    }
 }
 
 // `tables` is a named generic rather than `impl AsRef<str>` so the return type can use precise
@@ -254,6 +264,32 @@ mod tests {
 
         let combined = Expr::And(Box::new(is_null), Box::new(all));
         assert!(combined.has_search_operator());
+    }
+
+    #[test]
+    fn test_has_null_predicate() {
+        let atom = Expr::Atom {
+            name: "users.name".to_string(),
+            value: "'alice'".to_string(),
+            is_indexed: false,
+        };
+        let all = Expr::All {
+            table: "users".to_string(),
+            key_col: "id".to_string(),
+        };
+        assert!(!atom.has_null_predicate());
+        assert!(!all.has_null_predicate());
+
+        let is_null = Expr::IsNull("products.color".to_string());
+        let is_not_null = Expr::IsNotNull("orders.id".to_string());
+        assert!(is_null.has_null_predicate());
+        assert!(is_not_null.has_null_predicate());
+
+        let not_is_not_null = Expr::Not(Box::new(is_not_null.clone()));
+        assert!(not_is_not_null.has_null_predicate());
+
+        let and_expr = Expr::And(Box::new(atom), Box::new(not_is_not_null));
+        assert!(and_expr.has_null_predicate());
     }
 
     proptest! {

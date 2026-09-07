@@ -378,6 +378,14 @@ async fn generated_joins_small(database: Db) {
                 return false;
             }
 
+            // Multi-unnest queries: PostgreSQL's optimizer can pair unnest function scans together
+            // into intermediate unnest sub-joins (e.g. `users_tags JOIN products_tags`), which
+            // JoinScan cannot absorb because neither side is a base table provider containing the array source.
+            // TODO: https://github.com/paradedb/paradedb/pull/6239
+            if join.unnest_aliases().len() > 1 {
+                return false;
+            }
+
             let has_null_ordering = order_parts
                 .iter()
                 .any(|p| p.contains("IS NULL") || p.contains("IS NOT NULL"));
@@ -403,6 +411,15 @@ async fn generated_joins_small(database: Db) {
             // guaranteed across outer join boundaries.
             let has_expr_ordering = has_null_ordering || order_parts.iter().any(|p| p.contains("upper("));
             if has_expr_ordering {
+                return false;
+            }
+
+            // Outer joins: null-testing predicates (`IS NULL`, `IS NOT NULL`) in WHERE can cause
+            // PostgreSQL to simplify outer joins into anti-joins. If subsequent joins reference
+            // columns from the pruned relation, JoinScan intentionally declines because the join keys
+            // cannot be resolved to output-visible equivalents.
+            // TODO: https://github.com/paradedb/paradedb/pull/6239
+            if where_expr.has_null_predicate() {
                 return false;
             }
 

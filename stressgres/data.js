@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788831615084,
+  "lastUpdate": 1788832683844,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -341630,6 +341630,60 @@ window.BENCHMARK_DATA = {
             "value": 23.1073003631879,
             "unit": "median tps",
             "extra": "avg tps: 39.66866551401277, max tps: 595.8245664649171, count: 59238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788832679420,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3918.6107497182147,
+            "unit": "median tps",
+            "extra": "avg tps: 3920.0485927483223, max tps: 5393.353770149045, count: 59241"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4650.096854243814,
+            "unit": "median tps",
+            "extra": "avg tps: 4662.655608269066, max tps: 7722.584182603077, count: 59241"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.51603703272052,
+            "unit": "median tps",
+            "extra": "avg tps: 191.23203130085787, max tps: 3232.84669224724, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 22.97216131676109,
+            "unit": "median tps",
+            "extra": "avg tps: 39.21708465924361, max tps: 565.6881271995201, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.05354160571548,
+            "unit": "median tps",
+            "extra": "avg tps: 39.71411170917808, max tps: 595.0967837671557, count: 59241"
           }
         ]
       }

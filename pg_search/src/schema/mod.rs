@@ -19,7 +19,7 @@ mod anyenum;
 mod config;
 pub mod range;
 
-use crate::api::version::{KEY_FIELD_REMOVAL_VERSION, Version, VersionInfo};
+use crate::api::version::{Version, VersionInfo};
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
@@ -409,7 +409,6 @@ pub struct CategorizedFieldData {
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,
-    index_created_by_version: Option<Version>,
     categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
 }
 
@@ -421,18 +420,15 @@ impl From<SearchIndexSchema> for Schema {
 
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
-        let index_created_by_version = indexrel.created_by_version();
         Ok(load_index_schema(indexrel)?
             .map(|schema| Self {
                 schema,
                 bm25_options: indexrel.options().clone(),
-                index_created_by_version,
                 categorized: Default::default(),
             })
             .unwrap_or_else(|| Self {
                 schema: Schema::builder().build(),
                 bm25_options: indexrel.options().clone(),
-                index_created_by_version,
                 categorized: Default::default(),
             }))
     }
@@ -525,12 +521,7 @@ impl SearchIndexSchema {
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {
-            Ok(field) => Some(SearchField::new(
-                field,
-                &self.bm25_options,
-                &self.schema,
-                self.index_created_by_version,
-            )),
+            Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
             Err(_) => None,
         }
     }
@@ -718,12 +709,7 @@ impl PartialEq for SearchField {
 }
 
 impl SearchField {
-    pub fn new(
-        field: Field,
-        options: &BM25IndexOptions,
-        schema: &Schema,
-        index_created_by_version: Option<Version>,
-    ) -> Self {
+    pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let field_config = options.field_config_or_default(&field_name);
@@ -732,64 +718,12 @@ impl SearchField {
         // This ensures backwards compatibility with legacy indexes.
         let field_type = derive_field_type_from_schema(&field_entry, options, &field_name);
 
-        let is_first_attribute = options
-            .attributes()
-            .get(&field_name)
-            .is_some_and(|attribute| attribute.attno == 0);
-        let mut search_field = Self {
+        Self {
             field,
             field_name,
             field_entry,
             field_type,
             field_config,
-        };
-        search_field
-            .restore_legacy_key_field_tokenizer(index_created_by_version, is_first_attribute);
-        search_field
-    }
-
-    #[allow(deprecated)]
-    fn restore_legacy_key_field_tokenizer(
-        &mut self,
-        index_created_by_version: Option<Version>,
-        is_first_attribute: bool,
-    ) {
-        if !is_first_attribute
-            || index_created_by_version.is_some_and(|version| version >= KEY_FIELD_REMOVAL_VERSION)
-        {
-            return;
-        }
-
-        let (stored_tokenizer, tokenizer) =
-            match (self.field_entry.field_type(), &mut self.field_config) {
-                (FieldType::Str(options), SearchFieldConfig::Text { tokenizer, .. }) => (
-                    options
-                        .get_indexing_options()
-                        .map(|options| options.tokenizer()),
-                    tokenizer,
-                ),
-                (FieldType::JsonObject(options), SearchFieldConfig::Json { tokenizer, .. }) => (
-                    options
-                        .get_text_indexing_options()
-                        .map(|options| options.tokenizer()),
-                    tokenizer,
-                ),
-                _ => return,
-            };
-
-        let filters = if self.field_entry.field_type().is_json() {
-            SearchTokenizerFilters::default()
-        } else {
-            SearchTokenizerFilters::keyword().clone()
-        };
-        for legacy_tokenizer in [
-            SearchTokenizer::Raw(filters),
-            SearchTokenizer::Raw(SearchTokenizerFilters::keyword_deprecated().clone()),
-        ] {
-            if stored_tokenizer == Some(legacy_tokenizer.name().as_str()) {
-                *tokenizer = legacy_tokenizer;
-                return;
-            }
         }
     }
 
@@ -949,13 +883,8 @@ impl SearchField {
             .tokenizer()
             .map(|tokenizer| {
                 (*tokenizer == SearchTokenizer::Keyword)
-                    || (*tokenizer == SearchTokenizer::KeywordDeprecated)
                     || (*tokenizer
                         == SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()))
-                    || (*tokenizer
-                        == SearchTokenizer::Raw(
-                            SearchTokenizerFilters::keyword_deprecated().clone(),
-                        ))
             })
             .unwrap_or(false)
     }
@@ -1038,130 +967,7 @@ mod tests {
     use rstest::rstest;
     use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
-    use crate::api::version::Version;
-    use crate::schema::{SearchField, SearchFieldConfig, SearchFieldType};
-    use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing};
-    use tokenizers::{SearchTokenizer, create_tokenizer_manager};
-
-    #[rstest]
-    #[case(None, true, true)]
-    #[case(Some(Version::new(0, 25, 5)), true, true)]
-    #[case(Some(Version::new(0, 25, 6)), true, false)]
-    #[case(Some(Version::new(1, 0, 0)), true, false)]
-    #[case(None, false, false)]
-    #[case(Some(Version::new(0, 25, 5)), false, false)]
-    fn legacy_key_field_tokenizer(
-        #[case] version: Option<Version>,
-        #[case] is_first_attribute: bool,
-        #[case] restored: bool,
-        #[values(
-            SearchFieldType::Text(pg_sys::TEXTOID),
-            SearchFieldType::Uuid(pg_sys::UUIDOID),
-            SearchFieldType::Json(pg_sys::JSONBOID)
-        )]
-        field_type: SearchFieldType,
-    ) {
-        let mut builder = Schema::builder();
-        builder.add_u64_field("other", NumericOptions::default());
-        let is_json = matches!(field_type, SearchFieldType::Json(_));
-        let stored_tokenizer = if is_json {
-            "raw"
-        } else {
-            "raw[lowercase=false]"
-        };
-        let indexing = TextFieldIndexing::default()
-            .set_tokenizer(stored_tokenizer)
-            .set_index_option(IndexRecordOption::Basic);
-        let field = if is_json {
-            builder.add_json_field(
-                "id",
-                JsonObjectOptions::default().set_indexing_options(indexing),
-            )
-        } else {
-            builder.add_text_field("id", TextOptions::default().set_indexing_options(indexing))
-        };
-        let schema = builder.build();
-        let original_config = match field_type {
-            SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
-            SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
-            _ => SearchFieldConfig::default_text(),
-        };
-        let mut search_field = SearchField {
-            field,
-            field_name: "id".into(),
-            field_entry: schema.get_field_entry(field).clone(),
-            field_type,
-            field_config: original_config.clone(),
-        };
-
-        search_field.restore_legacy_key_field_tokenizer(version, is_first_attribute);
-
-        let tokenizer = search_field.field_config().tokenizer().unwrap();
-        let manager = create_tokenizer_manager(vec![tokenizer.clone()]);
-        if restored {
-            assert_eq!(tokenizer.name(), stored_tokenizer);
-            assert!(manager.get(stored_tokenizer).is_some());
-            assert_eq!(search_field.is_keyword(), !is_json);
-            assert!(search_field.with_positions().is_ok());
-        } else {
-            assert_eq!(search_field.field_config(), &original_config);
-        }
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn legacy_key_field_deprecated_tokenizer_remains_keyword() {
-        let tokenizer = SearchTokenizer::Raw(
-            tokenizers::manager::SearchTokenizerFilters::keyword_deprecated().clone(),
-        );
-        let mut builder = Schema::builder();
-        let field = builder.add_text_field(
-            "id",
-            TextOptions::default().set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer(&tokenizer.name())
-                    .set_index_option(IndexRecordOption::Basic),
-            ),
-        );
-        let schema = builder.build();
-        let mut search_field = SearchField {
-            field,
-            field_name: "id".into(),
-            field_entry: schema.get_field_entry(field).clone(),
-            field_type: SearchFieldType::Text(pg_sys::TEXTOID),
-            field_config: SearchFieldConfig::default_text(),
-        };
-
-        search_field.restore_legacy_key_field_tokenizer(None, true);
-
-        assert_eq!(search_field.field_config().tokenizer(), Some(&tokenizer));
-        assert!(search_field.is_keyword());
-        assert!(search_field.with_positions().is_ok());
-    }
-
-    #[test]
-    fn legacy_first_text_field_preserves_explicit_tokenizer() {
-        let mut builder = Schema::builder();
-        let field = builder.add_text_field(
-            "body",
-            TextOptions::default().set_indexing_options(
-                TextFieldIndexing::default().set_tokenizer(&SearchTokenizer::default().name()),
-            ),
-        );
-        let schema = builder.build();
-        let original_config = SearchFieldConfig::default_text();
-        let mut search_field = SearchField {
-            field,
-            field_name: "body".into(),
-            field_entry: schema.get_field_entry(field).clone(),
-            field_type: SearchFieldType::Text(pg_sys::TEXTOID),
-            field_config: original_config.clone(),
-        };
-
-        search_field.restore_legacy_key_field_tokenizer(None, true);
-
-        assert_eq!(search_field.field_config(), &original_config);
-    }
+    use crate::schema::{SearchFieldConfig, SearchFieldType};
 
     #[rstest]
     fn test_search_text_options() {

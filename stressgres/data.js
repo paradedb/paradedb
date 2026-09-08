@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788832683844,
+  "lastUpdate": 1788832693102,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345256,6 +345256,108 @@ window.BENCHMARK_DATA = {
             "value": 47.77734375,
             "unit": "median mem",
             "extra": "avg mem: 46.17675738387943, max mem: 56.96484375, count: 59238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788832688606,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606202884922407, max cpu: 4.7952046, count: 59241"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.31220096987306, max mem: 17.34375, count: 59241"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.461741170117324, max cpu: 4.743083, count: 59241"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.252641751489676, max mem: 17.26171875, count: 59241"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.593229134212253, max cpu: 32.668934, count: 59241"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.66051910838777, max mem: 17.83203125, count: 59241"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.916915649634, max document_count: 10002.0, count: 59241"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.915109468106, max document_count: 10002.0, count: 59241"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.572224623913424, max cpu: 33.168808, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.88345058479347, max mem: 56.765625, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.55748699341529, max cpu: 33.07087, count: 59241"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.95495755684408, max mem: 57.2890625, count: 59241"
           }
         ]
       }

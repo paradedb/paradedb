@@ -32,14 +32,14 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
 };
-use crate::scan::deferred_encode::{DeferredUnion, DeferredValue};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
     rebuild_missing_ffhelpers,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{ArrayRef, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
@@ -108,6 +108,15 @@ impl TantivyDecodeExec {
         &self.ffhelpers
     }
 
+    /// Rebuilds this node over `input` with `deferred_fields`.
+    pub(crate) fn with_input_and_fields(
+        &self,
+        input: Arc<dyn ExecutionPlan>,
+        deferred_fields: Vec<PhysicalDeferredField>,
+    ) -> Result<Self> {
+        TantivyDecodeExec::new(input, deferred_fields, self.ffhelpers.clone())
+    }
+
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
     /// pulls them from the scans in its decoded subtree, keyed by index relid.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
@@ -139,7 +148,7 @@ impl TantivyDecodeExec {
     }
 }
 
-/// The input schema with each deferred union column replaced by its decoded type.
+/// The input schema with each deferred column replaced by its decoded type.
 fn build_output_schema(
     input_schema: SchemaRef,
     deferred: &[PhysicalDeferredField],
@@ -156,9 +165,9 @@ fn build_output_schema(
                 d.col_idx, d.display_name
             ))
         })?;
-        if !matches!(field.data_type(), DataType::Union(_, _)) {
+        if field.data_type() != &DataType::UInt64 {
             return Err(DataFusionError::Plan(format!(
-                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred union",
+                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred UInt64 column",
                 d.col_idx,
                 d.display_name,
                 field.data_type()
@@ -300,16 +309,16 @@ fn decode_term_ordinals(
     field: &PhysicalDeferredField,
     column: &ArrayRef,
 ) -> Result<ArrayRef> {
-    let union = DeferredUnion::try_new(column.as_ref())?;
+    let deferred = DeferredColumn::try_new(column.as_ref())?;
     let num_rows = column.len();
     let num_segments = ffhelper.num_segments();
     let mut by_segment: Vec<Vec<(usize, TermOrdinal)>> = vec![Vec::new(); num_segments];
     let mut null_rows: Vec<usize> = Vec::new();
-    for (row, value) in union.values().enumerate() {
+    for (row, value) in deferred.values().enumerate() {
         match value {
             DeferredValue::TermOrdinal {
                 segment_ord,
-                term_ord: Some(term_ord),
+                term_ord,
             } => {
                 let entry = by_segment.get_mut(segment_ord as usize).ok_or_else(|| {
                     DataFusionError::Execution(format!(
@@ -319,9 +328,7 @@ fn decode_term_ordinals(
                 })?;
                 entry.push((row, term_ord));
             }
-            DeferredValue::TermOrdinal { term_ord: None, .. } | DeferredValue::Null => {
-                null_rows.push(row)
-            }
+            DeferredValue::Null => null_rows.push(row),
             DeferredValue::DocAddress(_) => {
                 return Err(DataFusionError::Internal(format!(
                     "TantivyDecodeExec: column '{}' row {row} still carries a doc address; a TantivyFetchExec must resolve it first",

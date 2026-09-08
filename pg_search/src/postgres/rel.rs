@@ -17,11 +17,15 @@
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::CTID_FIELD_NAME;
 use crate::api::version::Version;
+use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::mvcc::MvccSatisfies;
-use crate::postgres::build::is_bm25_index;
+use crate::index::{index_settings, setup_tokenizers};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
+use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
@@ -31,6 +35,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
+use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, Order};
 
 type NeedClose = bool;
@@ -423,6 +428,56 @@ impl PgSearchRelation {
             .into_iter()
     }
 
+    /// Zero-based heap attributes that a single-column unique index proves unique. The
+    /// filter is the one `relation_has_unique_index_for` applies, minus partial indexes,
+    /// whose predicate the query would have to imply. A deferrable constraint allows
+    /// duplicates inside a transaction, so `indimmediate` is required as well.
+    pub fn unique_column_attnos(&self) -> HashSet<usize> {
+        self.indices(pg_sys::AccessShareLock as _)
+            .filter_map(|index| unsafe {
+                // SAFETY: rd_index is set for every index relation and lives as long as it.
+                let info = &*index.rd_index;
+                if !info.indisunique
+                    || !info.indisvalid
+                    || !info.indimmediate
+                    || info.indnkeyatts != 1
+                    || !pg_sys::RelationGetIndexPredicate(index.as_ptr()).is_null()
+                {
+                    return None;
+                }
+                // An expression key has no attribute number.
+                let attno = *info.indkey.values.as_ptr();
+                usize::try_from(attno - 1).ok()
+            })
+            .collect()
+    }
+
+    /// Search fields whose columnar value is unique across the heap. A normalizer folds
+    /// distinct heap values onto one term and an array field emits one term per element, so
+    /// neither carries the heap's constraint over; an expression field has no heap column to
+    /// carry it from.
+    pub fn unique_fields(&self) -> HashSet<String> {
+        let heap = self.heap_relation().expect("relation must be an index");
+        let unique_attnos = heap.unique_column_attnos();
+        let schema = self.schema().expect("relation must be a bm25 index");
+        let options = self.options();
+        options
+            .attributes()
+            .iter()
+            .filter_map(|(name, attr)| {
+                let FieldSource::Heap { attno } = attr.source else {
+                    return None;
+                };
+                (unique_attnos.contains(&attno)
+                    && !options.is_multi_valued(name)
+                    && schema
+                        .search_field(name)
+                        .is_some_and(|f| f.is_raw_sortable()))
+                .then(|| name.to_string())
+            })
+            .collect()
+    }
+
     pub fn options(&self) -> &BM25IndexOptions {
         unsafe {
             // SAFETY: self.0 is always Some
@@ -434,7 +489,7 @@ impl PgSearchRelation {
         let rc = self.0.as_ref().unwrap();
         let mut borrow = rc.3.borrow_mut();
         let schema = borrow.get_or_insert_with(|| {
-            if !is_bm25_index(self) {
+            if !unsafe { (*self.rd_rel).relam.is_paradedb_am() } {
                 return Err(SchemaError::RelationNotBM25Index);
             }
 
@@ -445,6 +500,19 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
+        let schema = self.schema()?;
+        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
+        let settings = index_settings(self.options(), &tantivy_schema);
+        // Throwaway materializations do not need the stats plugin.
+        let mut index = Index::create(directory, tantivy_schema, settings)?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index, self.options());
+        }
+        setup_tokenizers(self, &mut index)?;
+        Ok(index)
     }
 
     /// True when this ParadeDB index's segments were built in ascending ctid

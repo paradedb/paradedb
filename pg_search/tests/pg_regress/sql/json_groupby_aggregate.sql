@@ -100,7 +100,7 @@ GROUP BY metadata->>'category', metadata->>'brand'
 ORDER BY category, brand;
 
 -- =========================================
--- Test 3: JSON GROUP BY with various aggregate functions (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 3: JSON GROUP BY with various aggregate functions
 -- =========================================
 
 -- Create test table for aggregates
@@ -573,7 +573,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
 
--- Test GROUP BY with comprehensive aggregates on scores (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test GROUP BY with comprehensive aggregates on scores
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT document->'metrics'->>'category' AS metric_category,
        COUNT(*) AS total_records,
@@ -772,7 +772,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
 ORDER BY department, role, location;
 
--- Test 3: Mix subfields from different JSON fields (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 3: Mix subfields from different JSON fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     user_profile->>'department' AS department,
@@ -797,7 +797,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
 
--- Test 4: Complex query with subfields from both JSON fields plus aggregates (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 4: Complex query with subfields from both JSON fields plus aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     user_profile->>'department' AS department,

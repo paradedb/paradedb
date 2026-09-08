@@ -225,8 +225,8 @@ impl Ctid {
         fcinfo: pg_sys::FunctionCallInfo,
         argument_index: usize,
     ) -> Option<Self> {
-        let datum = unsafe { pg_getarg_datum_raw(fcinfo, argument_index) };
-        unsafe { pg_sys::ItemPointerData::from_datum(datum, datum.is_null()) }.map(Self::from)
+        let datum = unsafe { pg_getarg_datum(fcinfo, argument_index) }?;
+        unsafe { pg_sys::ItemPointerData::from_datum(datum, false) }.map(Self::from)
     }
 
     pub fn is_valid(self) -> bool {

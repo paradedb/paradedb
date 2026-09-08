@@ -163,8 +163,14 @@ if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
+<<<<<<< HEAD
     "rails-paradedb:0.9.0" \
     "pg"
+=======
+    "rails-paradedb:0.12.0" \
+    "pg" \
+    "json:<3"
+>>>>>>> 350dbfbc (ci: pin the json gem below 3 for the Rails docs snippets (#6248))
 
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"

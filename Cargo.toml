@@ -78,6 +78,39 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
 tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
+datafusion = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-catalog = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-catalog-listing = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-common-runtime = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-datasource = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-datasource-arrow = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-datasource-csv = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-datasource-json = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-doc = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-execution = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-expr = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-expr-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-aggregate = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-aggregate-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-nested = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-table = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-window = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-functions-window-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-macros = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-optimizer = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-physical-expr = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-physical-expr-adapter = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-physical-expr-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-physical-optimizer = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-physical-plan = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-proto = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-proto-common = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-proto-models = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-pruning = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-session = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
+datafusion-sql = { git = "https://github.com/goutamadwant/datafusion.git", branch = "feat/range-partitioning-scaling" }
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "de9405aaadcd9378bdeeea7a4247c7f72e25bbd5" }
 
 [workspace.lints.clippy]

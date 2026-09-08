@@ -479,7 +479,14 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
 /// Late materialization is not on the session; [`optimize_logical_plan`] runs it after the
 /// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
 /// columns are still present in the logical plan.
-pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
+pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
+    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
+    // worker process. Partitioning is used exclusively for MPP task distribution, never for
+    // intra-task CPU parallelization.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -497,12 +504,22 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
+    let mut physical_rules =
+        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    if let Some(pos) = physical_rules
+        .iter()
+        .position(|r| r.name() == "EnsureRequirements")
+    {
+        physical_rules.insert(pos, co_partitioned_rule);
+    } else {
+        physical_rules.push(co_partitioned_rule);
+    }
+    builder = builder.with_physical_optimizer_rules(physical_rules);
+
     // Placement reads the final join sides and modes, so it follows the co-partitioning
     // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
     builder
-        .with_physical_optimizer_rule(Arc::new(
-            super::range_partitioning_rule::RangeCoPartitionedJoinRule,
-        ))
         .with_physical_optimizer_rule(Arc::new(
             crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
@@ -518,6 +535,10 @@ pub fn create_datafusion_session_context() -> SessionContext {
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
     let mut config = SessionConfig::new().with_target_partitions(1);
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
 
     // Configure dynamic filter pushdown thresholds from our GUCs
     config
@@ -536,6 +557,16 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
         crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold_rows =
+        crate::gucs::hash_join_single_partition_threshold_rows() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold =
+        crate::gucs::hash_join_single_partition_threshold() as usize;
     config
         .options_mut()
         .optimizer

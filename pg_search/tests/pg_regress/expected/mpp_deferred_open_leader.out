@@ -20,8 +20,8 @@ CREATE INDEX mdo_small_idx ON mdo_small USING paradedb (id, val, (txt::pdb.liter
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mdo_items SELECT s, 'match' FROM generate_series(1, 2000) s;
 INSERT INTO mdo_items SELECT s, 'match' FROM generate_series(2001, 4000) s;
-INSERT INTO mdo_excl  SELECT s, s FROM generate_series(50, 300) s;
-INSERT INTO mdo_excl  SELECT s, s FROM generate_series(301, 600) s;
+INSERT INTO mdo_excl  SELECT s, s FROM generate_series(50, 3000) s;
+INSERT INTO mdo_excl  SELECT s, s FROM generate_series(3001, 6000) s;
 INSERT INTO mdo_small SELECT s, s, 'small' FROM generate_series(1, 20) s;
 INSERT INTO mdo_small SELECT s, s, 'small' FROM generate_series(21, 40) s;
 RESET paradedb.global_mutable_segment_rows;

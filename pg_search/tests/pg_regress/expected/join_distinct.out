@@ -897,11 +897,11 @@ LIMIT 50;
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@1)], projection=[ctid_0@2, id@3, name@4, ctid_2@0]
      :           CooperativeExec
      :             PgSearchScan: table=j, segments=1, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, person_id@0)], null_aware
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+     :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@1)], null_aware
      :             CooperativeExec
      :               PgSearchScan: table=j2, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT DISTINCT p.id, p.name
@@ -948,11 +948,11 @@ LIMIT 50;
                  :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(person_id@0, id@0)]
                  :       CooperativeExec
                  :         PgSearchScan: table=j, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}
-                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, person_id@0)], null_aware
-                 :         CooperativeExec
-                 :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=eager, query="all"
+                 :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@0)], null_aware
                  :         CooperativeExec
                  :           PgSearchScan: table=j2, segments=1, visibility=eager, query={"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=p, segments=1, dynamic_filters=2, visibility=eager, query="all"
 (18 rows)
 
 SELECT DISTINCT p.id, p.name

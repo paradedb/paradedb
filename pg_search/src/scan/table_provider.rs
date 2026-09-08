@@ -452,7 +452,7 @@ impl PgSearchTableProvider {
 
     fn projected_fields_and_schema(
         &self,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
         let is_late_active = self.late_materialization_active.load(Ordering::Relaxed);
         let active_fields: Vec<_> = self
@@ -692,7 +692,7 @@ impl TableProvider for PgSearchTableProvider {
     async fn scan(
         &self,
         state: &dyn Session,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -704,7 +704,7 @@ impl PgSearchTableProvider {
     async fn scan_inner(
         &self,
         state: &dyn Session,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
         filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {

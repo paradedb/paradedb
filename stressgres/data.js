@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788831589166,
+  "lastUpdate": 1788831597636,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -311190,6 +311190,66 @@ window.BENCHMARK_DATA = {
             "value": 169,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.89433822539382, max segment_count: 358.0, count: 59416"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788831584869,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.86163603647711, max cpu: 33.566433, count: 59419"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.70542362554486, max mem: 45.1796875, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.814308,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.741288793581756, max cpu: 43.049328, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.36865805497821, max mem: 102.36328125, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26714,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25469.567242801124, max block_count: 29205.0, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 169,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 196.1025429576398, max segment_count: 361.0, count: 59419"
           }
         ]
       }

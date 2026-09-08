@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788832732868,
+  "lastUpdate": 1788832766908,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -107634,6 +107634,54 @@ window.BENCHMARK_DATA = {
             "value": 2104.561970090528,
             "unit": "median tps",
             "extra": "avg tps: 2075.059471727043, max tps: 2283.139083963492, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788832761979,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1358.5297807309028,
+            "unit": "median tps",
+            "extra": "avg tps: 1375.8058778301572, max tps: 1479.9094375609143, count: 59409"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7133454154651324,
+            "unit": "median tps",
+            "extra": "avg tps: 2.969925958566992, max tps: 5.114187036631321, count: 59409"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1896.5812976642978,
+            "unit": "median tps",
+            "extra": "avg tps: 1886.1806937018432, max tps: 1902.5868144422698, count: 59409"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2143.3290098239936,
+            "unit": "median tps",
+            "extra": "avg tps: 2102.241568306307, max tps: 2324.0513787740715, count: 59409"
           }
         ]
       }

@@ -415,6 +415,82 @@ mod tests {
     use super::*;
     use datafusion::logical_expr::col;
 
+    #[rstest::rstest]
+    #[case::fetch(false)]
+    #[case::decode(true)]
+    fn lookup_dynamic_filter_preserves_duplicate_column_positions(#[case] decode: bool) {
+        use arrow_array::{BooleanArray, Int64Array, RecordBatch};
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::physical_expr::expressions::{
+            BinaryExpr, Column, DynamicFilterPhysicalExpr, lit,
+        };
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion::physical_plan::empty::EmptyExec;
+        use datafusion::physical_plan::filter_pushdown::{FilterPushdownPhase, PushedDown};
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(Int64Array::from(vec![1, 11])),
+                Arc::new(Int64Array::from(vec![1, 1])),
+            ],
+        )
+        .unwrap();
+        let input = Arc::new(EmptyExec::new(schema)) as Arc<dyn ExecutionPlan>;
+        let lookup: Arc<dyn ExecutionPlan> = if decode {
+            Arc::new(
+                crate::scan::tantivy_decode_exec::TantivyDecodeExec::new(
+                    input,
+                    vec![],
+                    Default::default(),
+                )
+                .unwrap(),
+            )
+        } else {
+            Arc::new(
+                crate::scan::tantivy_fetch_exec::TantivyFetchExec::new(
+                    input,
+                    vec![],
+                    Default::default(),
+                    vec![],
+                )
+                .unwrap(),
+            )
+        };
+        let column = Arc::new(Column::new("id", 1)) as Arc<dyn PhysicalExpr>;
+        let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            lit(true),
+        ));
+        let description = lookup
+            .gather_filters_for_pushdown(
+                FilterPushdownPhase::Post,
+                vec![filter.clone()],
+                &Default::default(),
+            )
+            .unwrap();
+        let filters = description.parent_filters();
+        assert!(matches!(filters[0][0].discriminant, PushedDown::Yes));
+
+        filter
+            .update(Arc::new(BinaryExpr::new(column, Operator::Eq, lit(1_i64))))
+            .unwrap();
+        let mask = filters[0][0]
+            .predicate
+            .evaluate(&batch)
+            .unwrap()
+            .into_array(batch.num_rows())
+            .unwrap();
+        assert_eq!(
+            mask.as_any().downcast_ref::<BooleanArray>().unwrap(),
+            &BooleanArray::from(vec![true, true])
+        );
+    }
+
     #[test]
     fn test_flip_operator() {
         assert_eq!(flip_operator(Operator::Eq), Some(Operator::Eq));

@@ -224,6 +224,77 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
 }
 
 #[rstest]
+fn joinscan_nested_join_filter_preserves_duplicate_ids(mut conn: PgConnection) {
+    r#"
+    SET max_parallel_workers_per_gather = 0;
+    SET paradedb.enable_custom_scan = off;
+    SET paradedb.enable_join_custom_scan = on;
+    SET enable_seqscan = off;
+    SET enable_indexscan = off;
+
+    CREATE TABLE users (id bigint PRIMARY KEY, name text, quantity integer);
+    CREATE TABLE products (id bigint PRIMARY KEY, name text, tags text[]);
+    CREATE TABLE orders (id bigint PRIMARY KEY, color text);
+
+    INSERT INTO users VALUES
+        (1, 'bob', 7), (2, 'sally', 99), (3, 'anchovy', 86),
+        (4, 'brisket', 72), (5, 'brisket', 19), (6, 'anchovy', 56),
+        (7, 'brisket', 7), (8, 'brisket', 95), (9, 'sally', 4),
+        (10, 'brisket', 19), (11, 'bob', 8);
+    INSERT INTO products VALUES
+        (1, 'bob', ARRAY['alpha', 'beta']), (2, 'sally', NULL),
+        (3, 'bob', ARRAY['delta', 'epsilon', 'zeta']), (4, 'sally', ARRAY['gamma']),
+        (5, 'cloe', NULL), (6, 'brisket', ARRAY['alpha', 'beta']),
+        (7, 'alice', ARRAY[]::text[]), (8, 'brandy', NULL),
+        (9, 'bob', ARRAY['delta', 'epsilon', 'zeta']),
+        (10, 'sally', ARRAY[]::text[]), (11, 'bob', ARRAY['gamma']);
+    INSERT INTO orders VALUES
+        (1, 'blue'), (2, 'orange'), (3, 'red'), (4, 'purple'),
+        (5, 'blue'), (6, 'pink'), (7, 'blue'), (8, 'red'),
+        (9, 'red'), (10, NULL), (11, 'green');
+
+    CREATE INDEX ON users USING paradedb (id, (name::pdb.literal), quantity)
+        WITH (key_field = 'id');
+    CREATE INDEX ON products USING paradedb (id, (name::pdb.literal), (tags::pdb.literal))
+        WITH (key_field = 'id');
+    CREATE INDEX ON orders USING paradedb (id, (color::pdb.literal))
+        WITH (key_field = 'id');
+    ANALYZE users;
+    ANALYZE products;
+    ANALYZE orders;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"
+        SELECT users.id, users.name, products_tags
+        FROM users
+        JOIN products ON users.name = products.name
+        RIGHT JOIN orders ON products.id = orders.id
+        CROSS JOIN LATERAL unnest(products.tags) AS products_tags
+        WHERE orders.color @@@ 'blue'
+        ORDER BY users.quantity IS NULL, users.quantity, users.id,
+                 products.id, orders.id, products_tags
+        LIMIT 8
+    "#;
+    let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+    assert!(plan.to_string().contains("ParadeDB Join Scan"), "{plan:#}");
+
+    let actual = query.fetch::<(i64, String, String)>(&mut conn);
+    "SET paradedb.enable_join_custom_scan = off;".execute(&mut conn);
+    let expected = query.fetch::<(i64, String, String)>(&mut conn);
+    assert_eq!(
+        expected,
+        vec![
+            (1, "bob".into(), "alpha".into()),
+            (1, "bob".into(), "beta".into()),
+            (11, "bob".into(), "alpha".into()),
+            (11, "bob".into(), "beta".into()),
+        ]
+    );
+    assert_eq!(actual, expected);
+}
+
+#[rstest]
 fn joinscan_self_join_duplicate_name_sort_matches_fallback(
     mut conn: PgConnection,
 ) -> Result<(), sqlx::Error> {

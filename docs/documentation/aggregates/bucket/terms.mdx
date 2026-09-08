@@ -200,5 +200,7 @@ WHERE id @@@ pdb.all();
 (1 row)
 ```
 
+Array fields (such as `text[]`) are also supported; each element is counted into its respective bucket.
+
 See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/bucket/struct.TermsAggregation.html)
 for all available options.

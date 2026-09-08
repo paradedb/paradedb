@@ -39,11 +39,11 @@ $$;
 SET work_mem = '64kB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                  explain_seqscan                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                      explain_seqscan                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
-         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END)
+         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW())
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
@@ -53,15 +53,61 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
  20000
 (1 row)
 
+-- A cursor's spilled cache survives rollback of the savepoint that first populated it.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id 
+----
+  1
+(1 row)
+
+ROLLBACK TO before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+ id 
+----
+  2
+(1 row)
+
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+-- Error cleanup may release the cursor's files before its cache is dropped.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id, 1 / (id - 2) FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id | ?column? 
+----+----------
+  1 |       -1
+(1 row)
+
+FETCH 1 FROM sequential_scan_cursor;
+ERROR:  division by zero
+ROLLBACK TO before_first_fetch;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
 SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
-                                                                                                                                                                                                  explain_seqscan                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                      explain_seqscan                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Bitmap Heap Scan on sequential_scan
          Recheck Cond: (id = ANY ('{1,10000,20000}'::integer[]))
-         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END)
+         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW())
          ->  Bitmap Index Scan on sequential_scan_pkey
                Index Cond: (id = ANY ('{1,10000,20000}'::integer[]))
 (7 rows)
@@ -80,11 +126,11 @@ WARNING:  the query's filter match set exceeded work_mem and spilled to a tempor
 -- Negation over the spilled set: everything matched, so NOT (...) excludes all rows.
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                     explain_seqscan                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                         explain_seqscan                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
-         Filter: (NOT paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END))
+         Filter: (NOT paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW()))
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword');
@@ -97,11 +143,11 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 -- A term matched by no row -> empty set -> nothing matches (no spill).
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                      explain_seqscan                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                          explain_seqscan                                                                                                                                                                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
-         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"nonexistentterm","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END)
+         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"nonexistentterm","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW())
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm';
@@ -127,11 +173,11 @@ RESET enable_indexscan;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target'$$);
-                                                                                                                                                                                              explain_seqscan                                                                                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                  explain_seqscan                                                                                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using sequential_scan_anchor_idx on sequential_scan
    Index Cond: (anchor = 'duplicate'::text)
-   Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"target","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END)
+   Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"target","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW())
 (3 rows)
 
 SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target';
@@ -175,10 +221,10 @@ SET enable_indexonlyscan = off;
 RESET enable_seqscan;
 SET enable_bitmapscan = off;
 SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body @@@ t.term WHERE s.keep$$);
-                                                                                                                                                               explain_seqscan                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                      explain_seqscan                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
-   Join Filter: paradedb.search_with_query_input_ctid_or_row(s.anchor, paradedb.with_index('sequential_scan_idx'::regclass, paradedb.parse_with_field('body'::paradedb.fieldname, t.term, NULL::boolean, NULL::boolean)), s.ctid, CASE WHEN (paradedb.ctid_is_valid(s.ctid) AND s.keep) THEN '{}'::record[] ELSE (ARRAY[s.*])::record[] END)
+   Join Filter: paradedb.search_with_query_input_ctid_or_row(s.anchor, paradedb.with_index('sequential_scan_idx'::regclass, paradedb.parse_with_field('body'::paradedb.fieldname, t.term, NULL::boolean, NULL::boolean)), s.ctid, CASE WHEN (paradedb.ctid_is_valid(s.ctid) IS NOT TRUE) THEN (ARRAY[s.*])::record[] WHEN (paradedb.xmin_is_visible(s.xmin) IS NOT TRUE) THEN (ARRAY[s.*])::record[] WHEN (s.keep IS NOT TRUE) THEN (ARRAY[s.*])::record[] ELSE '{}'::record[] END, ROW())
    ->  Seq Scan on sequential_scan_terms t
    ->  Seq Scan on sequential_scan s
          Filter: keep
@@ -252,11 +298,11 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 SET work_mem = '256MB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 WARNING:  Aggregate Scan not used: query does not imply the partial index predicate. To disable this warning: SET paradedb.planner_warnings = 'off' (table: sequential_scan)
-                                                                                                                                                                                                  explain_seqscan                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                      explain_seqscan                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Seq Scan on sequential_scan
-         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) AND keep) THEN '{}'::record[] ELSE (ARRAY[sequential_scan.*])::record[] END)
+         Filter: paradedb.search_with_query_input_ctid_or_row(anchor, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"keyword","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] WHEN (keep IS NOT TRUE) THEN (ARRAY[sequential_scan.*])::record[] ELSE '{}'::record[] END, ROW())
 (3 rows)
 
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
@@ -301,6 +347,21 @@ FROM sequential_scan_nulls;
 \pset null 'NULL'
 SET paradedb.enable_custom_scan = off;
 SET enable_bitmapscan = off;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all,
+       color @@@ pdb.all()::pdb.const(1) AS constant_all,
+       color @@@ pdb.empty() AS field_empty,
+       id @@@ paradedb.all() AS all_rows
+FROM sequential_scan_nulls ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | field_all | boosted_all | constant_all | field_empty | all_rows 
+----+-----------+-------------+--------------+-------------+----------
+  1 | t         | t           | t            | f           | t
+  2 | t         | t           | t            | f           | t
+  3 | NULL      | NULL        | NULL         | NULL        | t
+(3 rows)
+
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
@@ -329,10 +390,10 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (1 row)
 
 SELECT explain_seqscan($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
-                                                                                                                                                                            explain_seqscan                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                        explain_seqscan                                                                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on sequential_scan_nulls
-   Filter: (NOT paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":N,"query":{"boolean":{"must":[{"exists":{"field":"color"}}],"must_not":[{"term":{"field":"color","value":"red"}}]}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN paradedb.ctid_is_valid(ctid) THEN '{}'::record[] ELSE (ARRAY[sequential_scan_nulls.*])::record[] END))
+   Filter: (NOT paradedb.search_with_query_input_ctid_or_row_strict(id, '{"with_index":{"oid":N,"query":{"boolean":{"must":[{"exists":{"field":"color"}}],"must_not":[{"term":{"field":"color","value":"red"}}]}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_nulls.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan_nulls.*])::record[] ELSE '{}'::record[] END, ROW()))
 (2 rows)
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
@@ -516,7 +577,339 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 (0 rows)
 
 DROP VIEW sequential_scan_null_checks;
+UPDATE sequential_scan_nulls SET covered = true;
+SELECT paradedb.search_with_query_input_ctid(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid
+       ) IS NULL AS null_query,
+       paradedb.search_with_query_input_ctid(
+           1, paradedb.empty(), NULL::tid
+       ) IS NULL AS null_ctid,
+       paradedb.search_with_query_input_ctid(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS FALSE AS nullable_anchor,
+       paradedb.search_with_query_input_ctid_strict(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS NULL AS strict_anchor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ null_query | null_ctid | nullable_anchor | strict_anchor 
+------------+-----------+-----------------+---------------
+ t          | t         | t               | t
+(1 row)
+
+INSERT INTO sequential_scan_nulls VALUES
+    (4, repeat('a', 4000), true), (5, repeat('b', 4000), true);
+CREATE TABLE sequential_scan_queries (label text, query paradedb.searchqueryinput);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTENDED;
+INSERT INTO sequential_scan_queries VALUES (
+    'compressed', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('a', 4000)))
+);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTERNAL;
+INSERT INTO sequential_scan_queries VALUES (
+    'external', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('b', 4000)))
+);
+SELECT label, pg_column_size(query) < 4000 AS compressed
+FROM sequential_scan_queries ORDER BY label;
+   label    | compressed 
+------------+------------
+ compressed | t
+ external   | f
+(2 rows)
+
+SELECT q.label, t.id,
+       paradedb.search_with_query_input_ctid(t.id, q.query, t.ctid) AS matched
+FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+WHERE t.id IN (4, 5)
+ORDER BY q.label, t.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+   label    | id | matched 
+------------+----+---------
+ compressed |  4 | t
+ compressed |  5 | f
+ external   |  4 | f
+ external   |  5 | t
+(4 rows)
+
+DROP TABLE sequential_scan_queries;
+DROP INDEX sequential_scan_nulls_idx;
+CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
+USING paradedb (id, (color::pdb.literal)) WHERE covered;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all
+FROM sequential_scan_nulls WHERE covered AND id <= 3 ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | field_all | boosted_all 
+----+-----------+-------------
+  1 | t         | t
+  2 | t         | t
+  3 | NULL      | NULL
+(3 rows)
+
+-- The cached set of NULL rows must also survive a savepoint rollback.
+BEGIN;
+SET LOCAL work_mem = '64kB';
+INSERT INTO sequential_scan_nulls SELECT g, NULL, true FROM generate_series(6, 3005) g;
+DECLARE sequential_scan_null_cursor CURSOR FOR
+SELECT id, color @@@ pdb.all() IS NULL AS missing FROM sequential_scan_nulls WHERE covered;
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_null_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id | missing 
+----+---------
+  1 | f
+(1 row)
+
+ROLLBACK TO before_first_fetch;
+FETCH 2 FROM sequential_scan_null_cursor;
+ id | missing 
+----+---------
+  2 | f
+  3 | t
+(2 rows)
+
+CLOSE sequential_scan_null_cursor;
+ROLLBACK;
 DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;
 \pset null ''
+-- An expression in the first index slot must remain an expression, not a whole-row Var.
+CREATE TABLE sequential_scan_expr_first (id bigint, body text, note text);
+INSERT INTO sequential_scan_expr_first VALUES
+    (1, 'Alpha', 'needle'), (2, 'Beta', 'other'), (3, NULL, 'needle');
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first
+USING paradedb ((lower(body)::pdb.literal('alias=body_lower')));
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                                                                                                                                               explain_seqscan                                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on sequential_scan_expr_first
+   Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END, ROW())
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+(1 row)
+
+SELECT id, lower(body) === 'alpha' AS matches FROM sequential_scan_expr_first ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | matches 
+----+---------
+  1 | t
+  2 | f
+  3 | 
+(3 rows)
+
+-- Preserve the query's relation number and outer-join nulling.
+SELECT p.id, e.id, lower(e.body) === 'alpha' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | id | matches 
+----+----+---------
+  1 |  1 | t
+  2 |  2 | f
+  3 |  3 | 
+  4 |    | 
+(4 rows)
+
+SELECT p.term, (SELECT count(*) FROM sequential_scan_expr_first e WHERE lower(e.body) === p.term) AS matches
+FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
+  term   | matches 
+---------+---------
+ alpha   |       1
+ beta    |       1
+ missing |       0
+(3 rows)
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                 explain_seqscan                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
+   Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+ id 
+----
+  1
+(1 row)
+
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                                                                                                                                               explain_seqscan                                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on sequential_scan_expr_first
+   Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END, ROW())
+   ->  Bitmap Index Scan on sequential_scan_expr_first_idx
+         Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
+(4 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+(1 row)
+
+-- A NULL first expression must not suppress a match on another indexed expression.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    (lower(body)::pdb.literal('alias=body_lower')),
+    (lower(note)::pdb.literal('alias=note_lower'))
+);
+SET enable_indexscan = on;
+SET enable_bitmapscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+                                                                                  explain_seqscan                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
+   Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"note_lower","value":"needle"}}}}'::paradedb.searchqueryinput)
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+ id 
+----
+  1
+  3
+(2 rows)
+
+SET enable_indexscan = off;
+SET enable_seqscan = on;
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+  3
+(2 rows)
+
+-- Rebind every column in a multi-column expression to the searched table.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    ((lower(body) || ':' || note)::pdb.literal('alias=body_note'))
+);
+SELECT p.id, (lower(e.body) || ':' || e.note) === 'alpha:needle' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | matches 
+----+---------
+  1 | t
+  2 | f
+  3 | 
+  4 | 
+(4 rows)
+
+DROP TABLE sequential_scan_expr_first;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;
+CREATE TABLE sequential_scan_arrays (id int NOT NULL, body text);
+INSERT INTO sequential_scan_arrays VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma'), (4, NULL);
+CREATE INDEX sequential_scan_arrays_idx ON sequential_scan_arrays USING paradedb (id, body);
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+-- Native ANY/ALL cannot supply row identity to the per-row operator.
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'alpha')),
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'beta'))
+]);
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ALL(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())
+]);
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[paradedb.empty()]);
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+-- PostgreSQL handles these without invoking the operator.
+SELECT id,
+    id @@@ ANY('{}'::paradedb.searchqueryinput[]) AS any_empty,
+    id @@@ ALL('{}'::paradedb.searchqueryinput[]) AS all_empty,
+    id @@@ ANY(NULL::paradedb.searchqueryinput[]) AS null_array,
+    id @@@ ANY(ARRAY[NULL::paradedb.searchqueryinput]) AS null_element
+FROM sequential_scan_arrays WHERE id = 1;
+ id | any_empty | all_empty | null_array | null_element 
+----+-----------+-----------+------------+--------------
+  1 | f         | t         |            | 
+(1 row)
+
+SELECT id FROM sequential_scan_arrays
+WHERE body === 'alpha' OR body === 'beta' ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta'] ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
+    paradedb.search_with_query_input(1,
+        paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())) AS direct_all;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ direct_empty | direct_all 
+--------------+------------
+ f            | t
+(1 row)
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+])$$);
+                                                                             explain_seqscan                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using sequential_scan_arrays_idx on sequential_scan_arrays
+   Index Cond: (id @@@ ANY ('{"{\"term\":{\"field\":\"body\",\"value\":\"alpha\"}}","{\"term\":{\"field\":\"body\",\"value\":\"beta\"}}"}'::paradedb.searchqueryinput[]))
+(2 rows)
+
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+]) ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP TABLE sequential_scan_arrays;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;

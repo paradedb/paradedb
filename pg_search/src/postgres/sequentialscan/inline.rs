@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::api::operator::search_with_query_input_exec_procoids;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
@@ -26,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
-use pgrx::{IntoDatum, PgBox, PgList, direct_function_call, pg_sys};
+use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::TantivyDocument;
@@ -38,9 +39,8 @@ use tantivy::query::Weight;
 ///
 /// This happens when either:
 /// - the row's CTID is invalid
+/// - the row was created outside the search snapshot
 /// - the index predicate is not satisfied
-///
-/// The expression is `CASE WHEN ctid_is_valid(ctid) AND index_predicate THEN '{}' ELSE ARRAY[table_row] END`.
 pub(crate) struct MaybeInlineRow(Option<NonNull<pg_sys::CaseExpr>>);
 
 impl MaybeInlineRow {
@@ -65,7 +65,6 @@ impl MaybeInlineRow {
             return Self(None);
         };
 
-        // The index can answer for an existing heap row that satisfies its predicate.
         let mut valid_args = PgList::<pg_sys::Node>::new();
         valid_args.push(pg_sys::copyObjectImpl(ctid.cast()).cast());
         let valid_ctid = pg_sys::makeFuncExpr(
@@ -77,8 +76,24 @@ impl MaybeInlineRow {
             pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
         );
 
-        let mut coverage_checks = PgList::<pg_sys::Node>::new();
-        coverage_checks.push(valid_ctid.cast());
+        let xmin = pg_sys::copyObjectImpl(ctid.cast()).cast::<pg_sys::Var>();
+        (*xmin).varattno = pg_sys::MinTransactionIdAttributeNumber as _;
+        (*xmin).varattnosyn = (*xmin).varattno;
+        (*xmin).vartype = pg_sys::XIDOID;
+        let mut xmin_args = PgList::<pg_sys::Node>::new();
+        xmin_args.push(xmin.cast());
+        let visible_xmin = pg_sys::makeFuncExpr(
+            xmin_is_visible_procoid(),
+            pg_sys::BOOLOID,
+            xmin_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        );
+
+        // Requirements are checked in order: prospective RLS rows have no valid CTID,
+        // so we must take the fallback before attempting to read their xmin.
+        let mut requirements = vec![valid_ctid.cast::<pg_sys::Expr>(), visible_xmin.cast()];
         let predicate = pg_sys::RelationGetIndexPredicate(indexrel.as_ptr());
         if !predicate.is_null() {
             pg_sys::ChangeVarNodes(predicate.cast(), 1, (*base_var).varno, 0);
@@ -89,9 +104,8 @@ impl MaybeInlineRow {
                 (*base_var).varnullingrels,
             )
             .cast();
-            coverage_checks.push(pg_sys::make_ands_explicit(predicate).cast());
+            requirements.push(pg_sys::make_ands_explicit(predicate));
         }
-        let index_covers_row = pg_sys::make_ands_explicit(coverage_checks.into_pg());
 
         // Build the fallback row reference, preserving outer-join null extension.
         let whole_row = pg_sys::makeWholeRowVar(rte, (*base_var).varno, 0, false);
@@ -110,12 +124,39 @@ impl MaybeInlineRow {
         inline_row.elements = rows.into_pg();
         inline_row.location = (*whole_row).location;
 
-        // CASE takes the fallback for both FALSE and NULL index predicates.
-        let mut when_indexed = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
-        when_indexed.expr = index_covers_row;
+        // A shard has a different table row type from its coordinator relation.
+        // Keep every CASE result record[] when the expression is parsed on a worker.
+        let inline_row = pg_sys::makeRelabelType(
+            inline_row.into_pg().cast(),
+            pg_sys::RECORDARRAYOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
+        );
+
+        let mut when_list = PgList::<pg_sys::Node>::new();
+        for requirement in requirements {
+            // Both FALSE and NULL mean the index cannot answer for this row.
+            let mut failed =
+                PgBox::<pg_sys::BooleanTest>::alloc_node(pg_sys::NodeTag::T_BooleanTest);
+            failed.arg = requirement;
+            failed.booltesttype = pg_sys::BoolTestType::IS_NOT_TRUE;
+            failed.location = (*whole_row).location;
+
+            let mut when = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
+            when.expr = failed.into_pg().cast();
+            when.result = pg_sys::copyObjectImpl(inline_row.cast()).cast();
+            when.location = (*whole_row).location;
+            when_list.push(when.into_pg().cast());
+        }
+
+        let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
+        case.casetype = pg_sys::RECORDARRAYOID;
+        case.casecollid = pg_sys::Oid::INVALID;
+        case.args = when_list.into_pg();
         // Unlike an anonymous record constant ('()'::record), an empty array can be
         // deparsed and parsed by Citus workers. It stays non-NULL for strict helpers.
-        when_indexed.result = pg_sys::makeConst(
+        case.defresult = pg_sys::makeConst(
             pg_sys::RECORDARRAYOID,
             -1,
             pg_sys::Oid::INVALID,
@@ -123,25 +164,6 @@ impl MaybeInlineRow {
             pg_sys::Datum::from(pg_sys::construct_empty_array(pg_sys::RECORDOID)),
             false,
             false,
-        )
-        .cast();
-        when_indexed.location = (*whole_row).location;
-
-        let mut when_list = PgList::<pg_sys::Node>::new();
-        when_list.push(when_indexed.into_pg().cast());
-
-        let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
-        case.casetype = pg_sys::RECORDARRAYOID;
-        case.casecollid = pg_sys::Oid::INVALID;
-        case.args = when_list.into_pg();
-        // A shard has a different table row type from its coordinator relation.
-        // Keep both CASE arms record[] when the expression is parsed on a worker.
-        case.defresult = pg_sys::makeRelabelType(
-            inline_row.into_pg().cast(),
-            pg_sys::RECORDARRAYOID,
-            -1,
-            pg_sys::Oid::INVALID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
         )
         .cast();
         case.location = (*whole_row).location;
@@ -179,6 +201,7 @@ pub(super) struct RowMatcher {
     index_relation: PgSearchRelation,
     slot: *mut pg_sys::TupleTableSlot,
     expression_state: ExpressionState,
+    required_expressions: HashSet<usize>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     created_by_version: Option<Version>,
     weight: Box<dyn Weight>,
@@ -186,7 +209,8 @@ pub(super) struct RowMatcher {
 }
 
 impl RowMatcher {
-    pub(super) fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
+    /// CurrentMemoryContext must outlive the returned matcher.
+    pub(super) unsafe fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");
@@ -194,6 +218,27 @@ impl RowMatcher {
             .schema()
             .expect("a ParadeDB index must have a schema");
         let null_guard = schema.null_guard(&query);
+        let mut required_fields = HashSet::default();
+        let fields_known = query.extract_field_names(&schema, &mut required_fields)
+            && null_guard
+                .as_ref()
+                .is_none_or(|guard| guard.extract_field_names(&schema, &mut required_fields));
+        let categorized_fields: Vec<_> = schema
+            .categorized_fields()
+            .iter()
+            .filter(|(field, _)| {
+                !fields_known || required_fields.contains(&field.field_name().root())
+            })
+            .cloned()
+            .collect();
+        let required_expressions = categorized_fields
+            .iter()
+            .filter_map(|(_, categorized)| match categorized.source {
+                FieldSource::Heap { .. } => None,
+                FieldSource::Expression { att_idx } => Some(att_idx),
+                FieldSource::CompositeField { expression_idx, .. } => Some(expression_idx),
+            })
+            .collect();
         let reader =
             SearchIndexReader::open(&index_relation, query, false, MvccSatisfies::Snapshot)
                 .expect("row matcher should open the ParadeDB index");
@@ -203,15 +248,15 @@ impl RowMatcher {
                 .compile_match_weight(&guard, false)
                 .expect("row matcher exists query should be constructable")
         });
-        let slot = unsafe {
-            pgrx::PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                pg_sys::MakeSingleTupleTableSlot(heap_relation.rd_att, &pg_sys::TTSOpsVirtual)
-            })
-        };
+        let slot = pg_sys::MakeSingleTupleTableSlot(heap_relation.rd_att, &pg_sys::TTSOpsVirtual);
 
         Self {
-            expression_state: ExpressionState::new(&index_relation),
-            categorized_fields: schema.categorized_fields().clone(),
+            expression_state: ExpressionState::new_in_context(
+                &index_relation,
+                &mut pgrx::PgMemoryContexts::CurrentMemoryContext,
+            ),
+            required_expressions,
+            categorized_fields,
             created_by_version: index_relation.created_by_version(),
             weight,
             field_exists_weight,
@@ -221,13 +266,29 @@ impl RowMatcher {
     }
 
     pub(super) unsafe fn matches(&mut self, row: pg_sys::Datum) -> Option<bool> {
-        pg_sys::ExecStoreHeapTupleDatum(row, self.slot);
+        let header = pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast();
+        let row_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
+            pgrx::heap_tuple_header_get_type_id(header),
+            pgrx::heap_tuple_header_get_typmod(header),
+        ));
+        let conversion =
+            pg_sys::convert_tuples_by_name(row_desc.as_ptr(), (*self.slot).tts_tupleDescriptor);
+        if conversion.is_null() {
+            pg_sys::ExecStoreHeapTupleDatum(header.into(), self.slot);
+        } else {
+            let tuple = pgrx::composite_row_type_make_tuple(header.into());
+            let converted = pg_sys::execute_attr_map_tuple(tuple.as_ptr(), conversion);
+            pg_sys::ExecForceStoreHeapTuple(converted, self.slot, true);
+            pg_sys::free_conversion_map(conversion);
+        }
         pg_sys::slot_getallattrs(self.slot);
 
         let natts = (*self.slot).tts_nvalid as usize;
         let values = std::slice::from_raw_parts((*self.slot).tts_values, natts);
         let isnull = std::slice::from_raw_parts((*self.slot).tts_isnull, natts);
-        let expr_results = self.expression_state.evaluate(self.slot);
+        let expr_results = self.expression_state.evaluate_selected(self.slot, |index| {
+            self.required_expressions.contains(&index)
+        });
         let unpacked_composites =
             CompositeSlotValues::from_composites(self.categorized_fields.iter().filter_map(
                 |(_, categorized)| {
@@ -262,6 +323,9 @@ impl RowMatcher {
         )
         .unwrap_or_else(|error| panic!("failed to index row for inline evaluation: {error}"));
         pg_sys::ExecClearTuple(self.slot);
+        if header != row.cast_mut_ptr() {
+            pg_sys::pfree(header.cast());
+        }
 
         // Tantivy queries execute against segment readers, so expose the row as a temporary segment.
         let mut writer = SerialIndexWriter::in_memory(
@@ -317,5 +381,16 @@ fn ctid_is_valid_procoid() -> pg_sys::Oid {
             &[c"paradedb.ctid_is_valid(tid)".into_datum()],
         )
         .expect("the `paradedb.ctid_is_valid(tid)` function should exist")
+    })
+}
+
+fn xmin_is_visible_procoid() -> pg_sys::Oid {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.xmin_is_visible(xid)".into_datum()],
+        )
+        .expect("the `paradedb.xmin_is_visible(xid)` function should exist")
     })
 }

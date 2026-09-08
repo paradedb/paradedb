@@ -24,7 +24,7 @@ mod keyset;
 pub(crate) use inline::MaybeInlineRow;
 pub(crate) use keyset::KeySet;
 
-use self::args::{FakeAnyElement, FakeCtid, FakeRow, FakeSearchQueryInput};
+use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeRow, FakeSearchQueryInput};
 use self::inline::RowMatcher;
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
@@ -35,7 +35,11 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
-use pgrx::{Array, FromDatum, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_sys};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, default, function_name,
+    pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
+};
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -56,6 +60,19 @@ pub fn search_with_query_input(
     query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
+    if unsafe {
+        pgrx::is_a(
+            (*(*fcinfo).flinfo).fn_expr,
+            pg_sys::NodeTag::T_ScalarArrayOpExpr,
+        )
+    } {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+    }
     search_with_query_input_impl(fcinfo, None)
 }
 
@@ -65,6 +82,7 @@ pub fn search_with_query_input_ctid(
     element: Option<FakeAnyElement>,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
@@ -76,6 +94,7 @@ pub fn search_with_query_input_ctid_strict(
     element: FakeAnyElement,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
@@ -87,9 +106,17 @@ pub fn search_with_query_input_ctid_or_row_strict(
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
     fallback_row: FakeRow,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
-    search_with_query_input_ctid_or_row(Some(element), query, ctid, Some(fallback_row), fcinfo)
+    search_with_query_input_ctid_or_row(
+        Some(element),
+        query,
+        ctid,
+        Some(fallback_row),
+        original_lhs,
+        fcinfo,
+    )
 }
 
 #[allow(unused_variables)]
@@ -99,6 +126,7 @@ pub fn search_with_query_input_ctid_or_row(
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
     fallback_row: Option<FakeRow>,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     let ctid = unsafe { Ctid::from_fcinfo(fcinfo, 2) }?;
@@ -138,10 +166,17 @@ pub fn search_with_query_input_ctid_or_row(
         let index_oid = query.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")
         });
-        RowMatcher::new(
-            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE),
-            query,
-        )
+        unsafe {
+            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).switch_to(|_| {
+                RowMatcher::new(
+                    PgSearchRelation::with_lock(
+                        index_oid,
+                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                    ),
+                    query,
+                )
+            })
+        }
     });
 
     unsafe { matcher.matches(row) }
@@ -153,25 +188,42 @@ pub fn ctid_is_valid(ctid: FakeCtid, fcinfo: pg_sys::FunctionCallInfo) -> bool {
     unsafe { Ctid::from_fcinfo(fcinfo, 0) }.is_some_and(Ctid::is_valid)
 }
 
+#[pg_extern(stable, strict, parallel_safe)]
+pub fn xmin_is_visible(xmin: pg_sys::TransactionId) -> bool {
+    unsafe {
+        // EPQ may supply a version from a transaction that was still in progress
+        // at statement start. Our own transaction is not part of the snapshot's xip.
+        pg_sys::TransactionIdIsCurrentTransactionId(xmin)
+            || !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot())
+    }
+}
+
 fn search_with_query_input_impl(
     fcinfo: pg_sys::FunctionCallInfo,
     ctid: Option<Ctid>,
 ) -> Option<bool> {
+    let query_datum = unsafe { pg_getarg_datum(fcinfo, 1) }?;
+    let query_datum = unsafe { pg_sys::pg_detoast_datum(query_datum.cast_mut_ptr()) };
+
     // get the Cache attached to this instance of the function
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    // Planner-generated calls always provide a non-NULL query datum.
-    let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
-    let key = unsafe {
-        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
-        pgrx::varlena_to_byte_slice(varlena).to_vec()
-    };
+    let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
+    if cache.by_query.get(&key).is_some_and(|entry| {
+        !entry.matches.is_valid()
+            || entry
+                .missing_values
+                .as_ref()
+                .is_some_and(|missing_values| !missing_values.is_valid())
+    }) {
+        cache.by_query.remove(&key);
+    }
 
     let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
         newly_built = true;
         let search_query_input = unsafe {
-            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+            SearchQueryInput::from_datum(query_datum.into(), false)
                 .expect("the query argument cannot be NULL")
         };
 
@@ -191,9 +243,14 @@ fn search_with_query_input_impl(
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
         let is_partial =
             unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
+        let null_guard = index_relation
+            .schema()
+            .expect("a ParadeDB index must have a schema")
+            .null_guard(&search_query_input);
+        let is_match_all = search_query_input.is_match_all() && !is_partial;
 
         // `all()` matches every document, but a partial index may not contain every table row.
-        if search_query_input.is_match_all() && !is_partial {
+        if is_match_all && null_guard.is_none() {
             return QueryCacheEntry {
                 matches: KeySet::All,
                 missing_values: None,
@@ -209,23 +266,23 @@ fn search_with_query_input_impl(
         let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_relation, unsafe {
             pg_sys::GetActiveSnapshot()
         });
-
-        let null_guard = index_relation
-            .schema()
-            .expect("a ParadeDB index must have a schema")
-            .null_guard(&search_query_input);
-
-        let search_reader = SearchIndexReader::open(
-            &index_relation,
-            search_query_input,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .expect("search_with_query_input: should be able to open a SearchIndexReader");
+        let mut cache_context = unsafe { PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt) };
 
         // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
         // `work_mem`), reused for every row of the scan.
-        let matches = search_reader.collect_ctidset(&mut visibility);
+        let matches = if is_match_all {
+            KeySet::All
+        } else {
+            let search_reader = SearchIndexReader::open(
+                &index_relation,
+                search_query_input,
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .expect("search_with_query_input: should be able to open a SearchIndexReader");
+
+            unsafe { cache_context.switch_to(|_| search_reader.collect_ctidset(&mut visibility)) }
+        };
 
         let missing_values = if let Some(null_guard) = null_guard {
             // Collect rows where the field is absent (the complement of `exists`). Membership in
@@ -250,7 +307,9 @@ fn search_with_query_input_impl(
                 "search_with_query_input: should be able to open a complement SearchIndexReader",
             );
 
-            Some(complement_reader.collect_ctidset(&mut visibility))
+            Some(unsafe {
+                cache_context.switch_to(|_| complement_reader.collect_ctidset(&mut visibility))
+            })
         } else {
             None
         };
@@ -269,24 +328,21 @@ fn search_with_query_input_impl(
         && (matches!(query_cache.matches, KeySet::Spilled(_))
             || matches!(&query_cache.missing_values, Some(KeySet::Spilled(_))));
 
-    let result = match &query_cache.matches {
-        KeySet::All => Some(true),
-        KeySet::None => Some(false),
-        _ => {
+    let result = match (&query_cache.matches, &query_cache.missing_values) {
+        (KeySet::All, None) => Some(true),
+        (KeySet::None, None) => Some(false),
+        (matches, missing_values) => {
             let ctid = ctid.expect("heap-filter query should carry a CTID");
             let row_identity = TantivyValue::try_from(u64::from(ctid))
                 .expect("ctid should convert to a Tantivy value");
 
-            if query_cache.matches.contains(&row_identity) {
-                Some(true)
-            } else if let Some(missing_values) = &query_cache.missing_values {
-                if missing_values.contains(&row_identity) {
-                    None
-                } else {
-                    Some(false)
-                }
+            if missing_values
+                .as_ref()
+                .is_some_and(|missing_values| missing_values.contains(&row_identity))
+            {
+                None
             } else {
-                Some(false)
+                Some(matches.contains(&row_identity))
             }
         }
     };

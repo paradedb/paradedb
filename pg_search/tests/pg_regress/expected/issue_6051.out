@@ -206,7 +206,7 @@ ORDER BY amt_scaled ASC;
          Index: amounts_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Fast Fields: amt_scaled
+         Columnar: amt_scaled
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"amt_scaled","lower_bound":{"included":"-1"},"upper_bound":{"excluded":"-0.4"}}}}}
 (12 rows)
@@ -333,7 +333,7 @@ ORDER BY id;
          Index: amounts_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Fast Fields: amt_78, id
+         Columnar: amt_78, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"amt_78","value":"-49990"}}}}
 (12 rows)
@@ -378,7 +378,7 @@ ORDER BY id;
          Index: amounts_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Fast Fields: amt_78, id
+         Columnar: amt_78, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"amt_78","value":"-49999"},{"field":"amt_78","value":"-49990"},{"field":"amt_78","value":"5"}]}}]}}
 (12 rows)
@@ -456,7 +456,7 @@ ORDER BY id;
          Index: prices_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Fast Fields: id, price
+         Columnar: id, price
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"price","value":"1.23"},{"field":"price","value":"4.56"},{"field":"price","value":"-1.23"}]}}]}}
 (12 rows)

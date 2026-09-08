@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[pg_test]
-    #[should_panic(expected = "fast field")]
+    #[should_panic(expected = "columnar")]
     fn test_build_sort_by_field_not_fast() {
         let mut builder = Schema::builder();
         // Add field without FAST flag
@@ -584,7 +584,7 @@ mod tests {
 
     /// A key with no columnar field has no values to cut on, so the build refuses it up front.
     #[pg_test(
-        error = "partition_by field 'tenant_id' must be a columnar field. Add it to the index with 'fast: true'"
+        error = "partition_by field 'tenant_id' must be columnar. Add it to the index with 'columnar=true'"
     )]
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
@@ -601,7 +601,7 @@ mod tests {
     /// Every dimension has to carry its own box, so a key that mixes a usable dimension
     /// with a plain text one is refused as a whole.
     #[pg_test(
-        error = "partition_by field 'name' must be a columnar field. Add it to the index with 'fast: true'"
+        error = "partition_by field 'name' must be columnar. Add it to the index with 'columnar=true'"
     )]
     fn a_partly_unroutable_key_is_rejected() {
         Spi::run(

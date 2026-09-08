@@ -277,7 +277,7 @@ LIMIT 10;
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR riser OR mat","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
 (21 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
@@ -324,7 +324,7 @@ LIMIT 10;
                  :           CooperativeExec
                  :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"electronics OR keyboard OR headset","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
-                 :             PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
 (21 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, i.rating

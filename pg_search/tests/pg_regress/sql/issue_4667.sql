@@ -30,7 +30,9 @@ INSERT INTO people (id, company_id, full_name, linkedin_followers, seniority_slu
 
 CREATE INDEX people_search_idx ON people USING bm25 (id, ((full_name)::pdb.literal_normalized), linkedin_followers, ((seniority_slug)::pdb.literal_normalized), company_id) WITH (key_field=id);
 CREATE INDEX companies_search_idx ON companies USING bm25 (id) WITH (key_field=id);
-
+-- JoinScan cannot evaluate DISTINCT on derived expressions, deferring deduplication
+-- to a parent node. Truncating rows before that upper deduplication would be unsound,
+-- so LIMIT cannot be pushed down and JoinScan declines.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT
     p.id AS id,

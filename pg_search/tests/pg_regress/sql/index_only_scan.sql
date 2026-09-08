@@ -51,6 +51,126 @@ ORDER BY tenant_id;
 -- A tokenized-only field is not losslessly returnable.
 SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body @@@ 'needle'$$);
 
+-- Residual filters need returnable columns too.
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%';
+
+-- CTIDs and whole rows requested by the query still require the heap.
+SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' FOR UPDATE$$);
+
+SET enable_indexonlyscan = off;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
+RESET enable_indexonlyscan;
+
+-- A nonreturnable first column must not block covered queries or require a non-NULL anchor.
+CREATE TABLE index_only_anchor (body text NOT NULL, tenant_id bigint, row_id int NOT NULL, note text);
+INSERT INTO index_only_anchor VALUES
+    ('needle one', 10, 1, NULL),
+    ('needle two', NULL, 2, 'needle'),
+    ('other', 20, 3, 'other');
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%';
+
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT row_id, body @@@ 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
+FROM index_only_anchor ORDER BY row_id;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+SET enable_seqscan = off;
+
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (tenant_id, body, row_id, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+
+-- Numeric columns with fast fields disabled are not eligible anchors either.
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note)
+WITH (numeric_fields = '{"row_id": {"fast": false}}');
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note)
+WHERE row_id <= 2;
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2$$);
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 ORDER BY tenant_id;
+SET enable_indexonlyscan = off;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE row_id <= 2$$);
+SELECT body FROM index_only_anchor WHERE row_id <= 2 ORDER BY body;
+RESET enable_indexonlyscan;
+
+-- Indexes without returnable columns still support ordinary index scans.
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT body FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY body;
+DROP TABLE index_only_anchor;
+
+-- Allowing conditions on later columns also permits scans without search conditions.
+CREATE TABLE index_only_full_scan (body text, id bigint);
+INSERT INTO index_only_full_scan VALUES ('needle', 1), ('other', NULL), (NULL, NULL);
+CREATE INDEX index_only_full_scan_idx ON index_only_full_scan USING paradedb (body, id);
+VACUUM (FREEZE, ANALYZE) index_only_full_scan;
+SELECT explain_index_only($$SELECT count(*), count(id), sum(id) FROM index_only_full_scan$$);
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+INSERT INTO index_only_full_scan VALUES (NULL, NULL), ('new', 2);
+DELETE FROM index_only_full_scan WHERE id = 1;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+VACUUM (FREEZE, ANALYZE) index_only_full_scan;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+TRUNCATE index_only_full_scan;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+DROP TABLE index_only_full_scan;
+
+-- The final supported index column must be usable, including through the bm25 alias.
+DO $$
+DECLARE
+    max_keys int := current_setting('max_index_keys')::int;
+    text_columns text;
+    index_columns text;
+BEGIN
+    SELECT string_agg(format('text_%s text', i), ', ' ORDER BY i),
+           string_agg(format('text_%s', i), ', ' ORDER BY i)
+    INTO text_columns, index_columns
+    FROM generate_series(1, max_keys - 1) i;
+    EXECUTE format('CREATE TABLE index_only_max_keys (%s, last_value bigint)', text_columns);
+    INSERT INTO index_only_max_keys (text_1, last_value)
+    VALUES ('needle', 42), ('needle', NULL), ('other', 7);
+    EXECUTE format(
+        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING bm25 (%s, last_value)',
+        index_columns
+    );
+END;
+$$;
+VACUUM (FREEZE, ANALYZE) index_only_max_keys;
+SELECT bool_and(pg_index_column_has_property('index_only_max_keys_idx', i, 'returnable')
+                IS NOT DISTINCT FROM (i = current_setting('max_index_keys')::int)) AS correct_capabilities
+FROM generate_series(1, current_setting('max_index_keys')::int) i;
+SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle'$$);
+SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle' ORDER BY last_value;
+DROP TABLE index_only_max_keys;
+
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
@@ -75,6 +195,7 @@ USING paradedb (id, uuid, (body::pdb.simple), age);
 INSERT INTO index_only_uuid VALUES
     (1, '550e8400-e29b-41d4-a716-446655440000', 'needle', 1),
     (2, '550e8400-e29b-41d4-a716-446655440001', 'needle', 2);
+VACUUM (FREEZE, ANALYZE) index_only_uuid;
 DELETE FROM index_only_uuid WHERE id = 2;
 SELECT explain_index_only($$SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0$$);
 SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0;
@@ -88,6 +209,146 @@ VACUUM (FREEZE, ANALYZE) index_only_uuid;
 SELECT explain_index_only($$SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all()$$);
 SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
 DROP TABLE index_only_uuid;
+
+CREATE TABLE index_only_lifetime (id bigint, uuid uuid, nullable_uuid uuid, body text);
+INSERT INTO index_only_lifetime
+SELECT i, md5(i::text)::uuid, CASE WHEN i % 2 = 0 THEN md5(i::text)::uuid END, 'needle'
+FROM generate_series(1, 20000) i;
+CREATE INDEX index_only_lifetime_idx ON index_only_lifetime USING paradedb (id, uuid, nullable_uuid, body);
+VACUUM (FREEZE, ANALYZE) index_only_lifetime;
+
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+    INTO plan;
+    IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
+        OR (plan #>> '{0,Plan,Heap Fetches}')::int IS DISTINCT FROM 0
+        OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 20000
+    THEN
+        RAISE EXCEPTION 'expected an index-only scan without heap fetches: %', plan;
+    END IF;
+END;
+$$;
+
+-- UUID datums must survive caller resets without accumulating across rows.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    row_data record;
+    rows_seen int := 0;
+    warm_bytes bigint;
+    current_bytes bigint;
+BEGIN
+    OPEN scan;
+    LOOP
+        FETCH scan INTO row_data;
+        EXIT WHEN NOT FOUND;
+        IF row_data.uuid IS DISTINCT FROM md5(row_data.id::text)::uuid
+            OR row_data.nullable_uuid IS DISTINCT FROM
+                (CASE WHEN row_data.id % 2 = 0 THEN md5(row_data.id::text)::uuid END)
+        THEN
+            RAISE EXCEPTION 'incorrect UUID values: %', row_data;
+        END IF;
+        rows_seen := rows_seen + 1;
+        IF rows_seen IN (100, 20000) THEN
+            SELECT sum(total_bytes) INTO current_bytes FROM pg_backend_memory_contexts
+            WHERE name = 'pg_search index-only tuple';
+            IF current_bytes IS NULL THEN
+                RAISE EXCEPTION 'missing index-only tuple context';
+            END IF;
+            IF rows_seen = 100 THEN
+                warm_bytes := current_bytes;
+            ELSIF current_bytes > warm_bytes + 8192 THEN
+                RAISE EXCEPTION 'tuple memory grew from % to % bytes', warm_bytes, current_bytes;
+            END IF;
+        END IF;
+    END LOOP;
+    CLOSE scan;
+    IF rows_seen <> 20000 THEN
+        RAISE EXCEPTION 'expected 20000 rows, got %', rows_seen;
+    END IF;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived closing the exhausted scan';
+    END IF;
+END;
+$$;
+
+-- Closing an unfinished cursor must release its tuple and temporary datums too.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    value uuid;
+BEGIN
+    FOR i IN 1..100 LOOP
+        OPEN scan;
+        FETCH scan INTO value;
+        CLOSE scan;
+    END LOOP;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived early scan termination';
+    END IF;
+END;
+$$;
+
+-- Error cleanup deletes child contexts before dropping the Rust scan state.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body @@@ 'needle';
+    row_data record;
+BEGIN
+    BEGIN
+        OPEN scan;
+        FETCH scan INTO row_data;
+        RAISE EXCEPTION 'expected division by zero';
+    EXCEPTION WHEN division_by_zero THEN
+        NULL;
+    END;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived error cleanup';
+    END IF;
+END;
+$$;
+
+DROP TABLE index_only_lifetime;
+
+-- Lossy bitmap pages must recheck the original CTID-aware predicate.
+SET client_min_messages = error;
+CREATE TABLE index_only_bitmap (id bigint NOT NULL, body text, padding text);
+ALTER TABLE index_only_bitmap ALTER COLUMN padding SET STORAGE PLAIN;
+INSERT INTO index_only_bitmap
+SELECT i, CASE WHEN i % 2 = 0 THEN 'needle' ELSE 'other' END, repeat('x', 512)
+FROM generate_series(1, 30000) i;
+CREATE INDEX index_only_bitmap_idx ON index_only_bitmap USING paradedb (id, body);
+VACUUM (ANALYZE) index_only_bitmap;
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SET work_mem = '64kB';
+
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body @@@ ''needle'''
+    INTO plan;
+    IF (plan #>> '{0,Plan,Plans,0,Node Type}') IS DISTINCT FROM 'Bitmap Heap Scan'
+        OR COALESCE((plan #>> '{0,Plan,Plans,0,Lossy Heap Blocks}')::int, 0) = 0
+        OR (plan #>> '{0,Plan,Plans,0,Actual Rows}')::numeric IS DISTINCT FROM 15000
+    THEN
+        RAISE EXCEPTION 'expected a lossy bitmap scan returning 15000 matches: %', plan;
+    END IF;
+END;
+$$;
+
+SELECT count(*) FROM index_only_bitmap WHERE body @@@ 'needle';
+RESET client_min_messages;
+RESET work_mem;
+RESET enable_indexscan;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE index_only_bitmap;
 
 RESET enable_bitmapscan;
 RESET enable_seqscan;

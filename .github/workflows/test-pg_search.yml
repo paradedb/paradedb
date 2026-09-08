@@ -104,10 +104,12 @@ jobs:
           cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            lsof build-essential clang lld flex bison pkg-config ca-certificates git \
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: >-
+            --no-install-recommends
+            lsof build-essential clang lld flex bison pkg-config ca-certificates git
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
             libcurl4-openssl-dev libopenblas-dev
 
       - name: Install llvm-tools-preview

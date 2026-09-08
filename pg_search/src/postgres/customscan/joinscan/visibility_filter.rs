@@ -63,7 +63,7 @@ use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildFilterDescription, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
@@ -1071,10 +1071,10 @@ impl ExecutionPlan for VisibilityFilterExec {
             .filter(|(_, f)| !blocked_ctid_names.contains(f.name()))
             .map(|(i, _)| i)
             .collect();
-        let child_desc = ChildFilterDescription::from_child_with_allowed_indices(
+        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
             &parent_filters,
-            allowed_indices,
-            &self.input,
+            &schema,
+            Some(&allowed_indices),
         )?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

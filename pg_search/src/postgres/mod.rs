@@ -131,7 +131,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amgettuple = Some(scan::amgettuple);
     amroutine.amgetbitmap = Some(scan::amgetbitmap);
     amroutine.amendscan = Some(scan::amendscan);
-    amroutine.amcanreturn = Some(scan::amcanreturn);
+    amroutine.amcanreturn = Some(index_only::amcanreturn);
 
     amroutine.amcanparallel = true;
     amroutine.aminitparallelscan = Some(parallel::aminitparallelscan);

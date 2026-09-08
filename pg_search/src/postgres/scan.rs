@@ -16,15 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField, resolve_ctid};
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::postgres::index_only::IndexOnlyScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::FieldSource;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
@@ -38,154 +37,6 @@ pub struct Bm25ScanState {
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
-}
-
-struct IndexOnlyField {
-    tuple_index: usize,
-    fast_field: WhichFastField,
-    pg_type: PgOid,
-}
-
-impl IndexOnlyField {
-    fn from_schema(
-        indexrel: &PgSearchRelation,
-        schema: &SearchIndexSchema,
-        tuple_index: usize,
-    ) -> Option<Self> {
-        let tuple_desc = indexrel.tuple_desc();
-        let attribute = tuple_desc.get(tuple_index)?;
-        if ![
-            pg_sys::INT4OID,
-            pg_sys::INT8OID,
-            pg_sys::FLOAT4OID,
-            pg_sys::FLOAT8OID,
-            pg_sys::BOOLOID,
-            pg_sys::UUIDOID,
-        ]
-        .contains(&attribute.atttypid)
-        {
-            return None;
-        }
-
-        let search_field = schema.search_field(attribute.name())?;
-        let categorized = schema.categorized_fields();
-        let data = categorized.iter().find_map(|(field, data)| {
-            (field == &search_field && data.attno == tuple_index).then_some(data)
-        })?;
-        if !search_field.is_fast()
-            || data.is_array
-            || data.is_json
-            || !matches!(data.source, FieldSource::Heap { .. })
-        {
-            return None;
-        }
-
-        Some(Self {
-            tuple_index,
-            fast_field: WhichFastField::Named(
-                search_field.field_name().to_string(),
-                search_field.field_type(),
-            ),
-            pg_type: PgOid::from(attribute.atttypid),
-        })
-    }
-}
-
-#[repr(C)]
-struct AmCanReturnCache {
-    returnable: u32,
-}
-
-impl AmCanReturnCache {
-    unsafe fn get_or_init(indexrel: pg_sys::Relation) -> &'static Self {
-        if (*indexrel).rd_amcache.is_null() {
-            let relation = PgSearchRelation::from_pg(indexrel);
-            let mut returnable = 0;
-
-            if let Ok(schema) = relation.schema() {
-                let natts = relation.tuple_desc().len();
-                for tuple_index in 0..natts {
-                    if IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some() {
-                        returnable |= 1 << tuple_index;
-                    }
-                }
-            }
-
-            // PostgreSQL may call amcanreturn once per index attribute. Keep the capability
-            // mask in the relation's AM cache so those probes share one metadata read.
-            let cache = pg_sys::MemoryContextAllocZero(
-                (*indexrel).rd_indexcxt,
-                std::mem::size_of::<Self>(),
-            )
-            .cast::<Self>();
-            (*cache).returnable = returnable;
-            (*indexrel).rd_amcache = cache.cast();
-        }
-
-        &*(*indexrel).rd_amcache.cast::<Self>()
-    }
-
-    fn can_return(&self, tuple_index: usize) -> bool {
-        tuple_index < pg_sys::INDEX_MAX_KEYS as usize && self.returnable & (1 << tuple_index) != 0
-    }
-}
-
-struct IndexOnlyScanState {
-    fast_fields: FFHelper,
-    fields: Vec<IndexOnlyField>,
-    values: Vec<pg_sys::Datum>,
-    nulls: Vec<bool>,
-}
-
-impl IndexOnlyScanState {
-    fn new(reader: &SearchIndexReader, indexrel: &PgSearchRelation, natts: usize) -> Self {
-        let fields = (0..natts)
-            .filter_map(|tuple_index| {
-                IndexOnlyField::from_schema(indexrel, reader.schema(), tuple_index)
-            })
-            .collect::<Vec<_>>();
-        let fast_fields = fields
-            .iter()
-            .map(|field| field.fast_field.clone())
-            .collect::<Vec<_>>();
-
-        Self {
-            fast_fields: FFHelper::with_fields(reader, &fast_fields),
-            fields,
-            values: vec![pg_sys::Datum::null(); natts],
-            nulls: vec![true; natts],
-        }
-    }
-
-    unsafe fn form_tuple(
-        &mut self,
-        tuple_desc: pg_sys::TupleDesc,
-        doc_address: tantivy::DocAddress,
-    ) -> pg_sys::HeapTuple {
-        self.nulls.fill(true);
-        for (fast_field_index, field) in self.fields.iter().enumerate() {
-            let value = self
-                .fast_fields
-                .value(fast_field_index, doc_address)
-                .expect("index-only field should be a fast field");
-            match value
-                .try_into_datum(field.pg_type)
-                .expect("index-only field should convert to a Datum")
-            {
-                Some(datum) => {
-                    self.values[field.tuple_index] = datum;
-                    self.nulls[field.tuple_index] = false;
-                }
-                None => self.values[field.tuple_index] = pg_sys::Datum::null(),
-            }
-        }
-
-        pg_sys::heap_form_tuple(
-            tuple_desc,
-            self.values.as_mut_ptr(),
-            self.nulls.as_mut_ptr(),
-        )
-    }
 }
 
 #[pg_guard]
@@ -541,25 +392,4 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
         return true;
     }
     false
-}
-
-#[pg_guard]
-pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
-    if attno <= 0 {
-        return false;
-    }
-
-    unsafe {
-        assert!(!indexrel.is_null());
-        assert!(!(*indexrel).rd_att.is_null());
-        let indexrel = PgSearchRelation::from_pg(indexrel);
-
-        // A partitioned index has no physical storage to inspect. PostgreSQL asks each child
-        // index separately whether it supports index-only scans.
-        if pg_sys::get_rel_relkind(indexrel.oid()) as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
-            return false;
-        }
-
-        AmCanReturnCache::get_or_init(indexrel.as_ptr()).can_return((attno - 1) as usize)
-    }
 }

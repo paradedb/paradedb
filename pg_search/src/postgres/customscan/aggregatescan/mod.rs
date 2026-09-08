@@ -48,7 +48,6 @@ use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, get_plan_with_merged_metrics,
 };
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 
 use datafusion_distributed::{DistributedExt, DistributedTaskContext};
@@ -107,7 +106,9 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
+use crate::postgres::customscan::joinscan::scan_state::{
+    build_physical_plan, build_task_context, clone_task_context_with_config,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -1249,10 +1250,12 @@ impl AggregateScan {
     /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
+        expr_context: Option<*mut pg_sys::ExprContext>,
     ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_aggregate_session_context(),
             mesh,
+            expr_context,
         )
     }
 
@@ -1315,7 +1318,10 @@ impl AggregateScan {
             let plan_result = if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
                 // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
                 // Plan against the cap first; fall back to serial when launch would not run (#5784).
-                match build_with(&Self::build_mpp_session_context(None)) {
+                match build_with(&Self::build_mpp_session_context(
+                    None,
+                    Some(expr_context.as_ptr()),
+                )) {
                     Ok(mpp_plan) if mpp_plan_has_data_parallelism(&mpp_plan) => Ok(mpp_plan),
                     Ok(_) => build_with(&create_aggregate_session_context()),
                     Err(e) => Err(e),
@@ -1964,7 +1970,7 @@ impl AggregateScan {
             // once the workers are committed.
             let is_mpp = mpp_pending;
             let plan_ctx = if is_mpp {
-                Self::build_mpp_session_context(None)
+                Self::build_mpp_session_context(None, runtime_expr_context)
             } else {
                 create_aggregate_session_context()
             };
@@ -2016,9 +2022,11 @@ impl AggregateScan {
                     Some(leader) => {
                         let source =
                             crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                        let exec_ctx =
-                            Self::build_mpp_session_context(Some(Arc::clone(&leader.session.mesh)))
-                                .with_distributed_dispatch_plan_source(source);
+                        let exec_ctx = Self::build_mpp_session_context(
+                            Some(Arc::clone(&leader.session.mesh)),
+                            runtime_expr_context,
+                        )
+                        .with_distributed_dispatch_plan_source(source);
                         let mut timing = leader.timing;
                         timing.plan_us = plan_us;
                         df_state.launch_timing = Some(timing);
@@ -2062,11 +2070,7 @@ impl AggregateScan {
                         task_count: 1,
                     },
                 ));
-                Arc::new(
-                    TaskContext::default()
-                        .with_session_config(cfg)
-                        .with_runtime(task_ctx.runtime_env().clone()),
-                )
+                Arc::new(clone_task_context_with_config(&task_ctx, cfg))
             };
             let stream = {
                 let _guard = runtime.enter();

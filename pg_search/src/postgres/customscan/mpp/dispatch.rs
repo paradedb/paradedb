@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
 use datafusion::prelude::SessionContext;
+use pgrx::pg_sys;
 
 use datafusion_distributed::shm::{MppMesh, proc_for_task};
 
@@ -177,6 +178,7 @@ pub fn fragments_for_worker(
     mesh: Arc<MppMesh>,
     this_proc: u32,
     n_workers: u32,
+    expr_context: Option<*mut pg_sys::ExprContext>,
 ) -> Result<(Vec<FragmentAssignment>, SessionContext)> {
     let Some((&tag, body)) = plan_bytes.split_first() else {
         return Err(DataFusionError::Internal(
@@ -188,7 +190,7 @@ pub fn fragments_for_worker(
             "mpp dispatch: unexpected worker plan tag {tag}"
         )));
     }
-    let session = build_mpp_session_context(seed, Some(mesh));
+    let session = build_mpp_session_context(seed, Some(mesh), expr_context);
     let fragments = expand_to_assignments(body, this_proc, n_workers)?;
     Ok((fragments, session))
 }

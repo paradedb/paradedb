@@ -1870,9 +1870,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96f76f0167ed0842b29a3d1e41be3c034c0a46409a3a703cc4cc84ee8c24abf4"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.2.0",
@@ -1915,9 +1914,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-catalog"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d79ec3460f6ed5c58f9b3f2d873fbc77748b82653bff1b4cdaf06de33bb4e05f"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1940,9 +1938,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-catalog-listing"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b48cef241e2efcfd496fe05ae4d0d5de20793451862faefe406c397a467e12d4"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1964,9 +1961,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f72810485975c258f1b4d00baab31728470676c60c5546f366ebd0d99f05ab6"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -1989,9 +1985,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-common-runtime"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533c28e75dba52f41bde187d23a1cb24ab91c7c097966824fa471e67b60320ea"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "futures",
  "log",
@@ -2000,9 +1995,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b00a1fa0da26f6087136a82fea7f13c76a672cbab452d4086952a7cf770a19b"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2031,9 +2025,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-arrow"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ad17ec881bff2ed7768b4bfe971d3efbf3473f2fd1f9d365447bccbdf908678"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2056,9 +2049,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-csv"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5345285b0c3eaab412e7539b706973c083bd7e5bce575de5e0a3da488d08d1d"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2080,9 +2072,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-json"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da02fb9324f56bd8c53f1ee2e949547425cb66f76adc6832b10d44f80a1221d2"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2104,8 +2095,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-distributed"
-version = "3.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?tag=snapshot-main-2026-08-20-204632#4d870ae1a5abb23618eac0b1844c265ffa2991d8"
+version = "4.0.0"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?branch=stuhood.three-way-range#f35a8e5451899c844f03d46e8992e38065cbd79d"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2137,15 +2128,13 @@ dependencies = [
 
 [[package]]
 name = "datafusion-doc"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a88fd985bc0550c36f557db69543cc9d6393b1509783520b30e902f23c555da6"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 
 [[package]]
 name = "datafusion-execution"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a98f1052f91b4991f0bf2ce1e4e36dfbdcda454a956b8c8d562c7c845e8fce1d"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.2.0",
@@ -2169,9 +2158,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-expr"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "464625a1f0e4b9df552d894fafcc8aac953ebbc8b0fa0acdaf20975fd615040e"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.2.0",
@@ -2193,9 +2181,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-expr-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2604994999d5aeca1d1df645ffc98bc787447aaff05dde27aad0342b48fc1fe0"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2205,9 +2192,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051e97533e6af53e4aa0a0667cadc886abcaf36c4a5925019c55c0aa4c218fde"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.2.0",
@@ -2233,9 +2219,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-aggregate"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d0f1bb166d3572b6ed40e1afb2faaacade962abc08c2fcf04babee74681c56b"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2254,9 +2239,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-aggregate-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ed756770f5f98369e181d692fd5ee6b1127ffd7322caba92f3730f9f5c92333"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2266,9 +2250,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-nested"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91173fdb5c0ff2a41169a8ffa1b385b8844f18728747bb0a37e35ad7d5772a4f"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ord 59.2.0",
@@ -2291,9 +2274,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-table"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1bcdfb286a745461b126719c32700777e83df4f17cc44db5d71ebce5731e840"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2307,9 +2289,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-window"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ec4b508f1f93f00038ba3e737e894ec6c775528b4369413386655ae6125f0fc"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2324,9 +2305,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-window-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b352020834140073fbf5b46ee0ceb926e5074a9d0bcae1dbd91d0586d999cde"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2334,9 +2314,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-macros"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15192effab05d38cce10e92a6fb48c967b5f166b27b7195a165a72b232569c58"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -2345,9 +2324,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-optimizer"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "854445d9f7847e1e46089cf61b8d341a64382f14484e912c83a0f23b31216896"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2364,11 +2342,11 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-expr"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "671558dad1d2aa253c39c0a4c52515958b99eb91abf649f4b88d5e69cc55282f"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
+ "arrow-schema 59.2.0",
  "datafusion-common",
  "datafusion-expr",
  "datafusion-expr-common",
@@ -2386,9 +2364,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-expr-adapter"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffae3d78c2da80ecc829cb58536cc5aca2e99cf1365eda694fc75bfe288861e0"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2401,9 +2378,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-expr-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d9092ed15e7203fbd0903215172f7c9d18f10d94cba35137f3b3836f7c46f16"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2419,9 +2395,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-optimizer"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9005b6cf50b57b72d476c6ed4662b04be7ca6be5320ba9127c6d0b7e4218095b"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2438,9 +2413,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-plan"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5787e4fcff4adc4fce8948441103a99705018b49c8dff0720b650bd7a15da112"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-data 59.2.0",
@@ -2475,9 +2449,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-proto"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0df0504eb9028d5e01f481af3519cde3f97ab650fd50ce7b787e94b69a7a193c"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-catalog",
@@ -2501,9 +2474,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-proto-common"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b92415a2442964f180d39cdcd8ff1edd99f9260c1499ba80a396499c2154d11"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2512,9 +2484,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-proto-models"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62e4c0bd6af4fcabdbe201ee86fbeef2ac423a44e1d8fda56d994c9e2d1d3ad2"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-common",
  "datafusion-proto-common",
@@ -2523,9 +2494,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-pruning"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e651c8df0b90daed6a7be5921ec0ee379e6909705f063eeff70fd4e35010e4c"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2539,9 +2509,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-session"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb56667ee38217efab19b895d9a936052cfb47ed438a19663351bdc42a6214a1"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow-schema 59.2.0",
  "async-trait",
@@ -2554,9 +2523,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-sql"
-version = "55.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c29067cb9d32f8e603c45e15d61ea18f1069f96ceafeceb4e18466b8e5b31d9"
+version = "55.1.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "bigdecimal",
@@ -5762,7 +5730,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -7334,7 +7302,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

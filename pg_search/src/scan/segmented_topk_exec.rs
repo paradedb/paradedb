@@ -520,17 +520,20 @@ impl SegmentedTopKExec {
                     if ctid_resolvers.iter().any(|(pos, _, _)| *pos == plan_pos) {
                         continue;
                     }
-                    let view = index_segment_views.get(plan_pos).cloned().ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "SegmentedTopKExec dispatch: missing segment view for \
-                             plan_position {plan_pos}"
-                        ))
-                    })?;
-                    let ffhelper = open_rebuilt_ffhelper(
-                        indexrelid,
-                        &[],
-                        MvccSatisfies::ParallelWorker(view),
-                    )?;
+                    // When parallel_state is available, use the worker's segment view; otherwise
+                    // (e.g. during coordinator dynamic filter roundtrip or serial plans) use the
+                    // active transaction snapshot.
+                    let mvcc = match (parallel_state, index_segment_views.get(plan_pos)) {
+                        (Some(_), Some(view)) => MvccSatisfies::ParallelWorker(view.clone()),
+                        (None, _) => MvccSatisfies::Snapshot,
+                        (Some(_), None) => {
+                            return Err(DataFusionError::Internal(format!(
+                                "SegmentedTopKExec dispatch: missing segment view for \
+                                 plan_position {plan_pos}"
+                            )));
+                        }
+                    };
+                    let ffhelper = open_rebuilt_ffhelper(indexrelid, &[], mvcc)?;
                     vd.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
                 }
                 Some(Arc::new(vd))

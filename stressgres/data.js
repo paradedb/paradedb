@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788831597636,
+  "lastUpdate": 1788831606644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -325512,6 +325512,90 @@ window.BENCHMARK_DATA = {
             "value": 576.8780313737793,
             "unit": "median tps",
             "extra": "avg tps: 579.5803378258292, max tps: 659.626801270965, count: 55323"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788831547011,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 196.54317388136755,
+            "unit": "median tps",
+            "extra": "avg tps: 198.76180566097378, max tps: 220.85928692714626, count: 55359"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 200.80970776946523,
+            "unit": "median tps",
+            "extra": "avg tps: 202.70949114758068, max tps: 222.134576514342, count: 55359"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 175.97887113832607,
+            "unit": "median tps",
+            "extra": "avg tps: 176.91493364107595, max tps: 201.9334468596086, count: 55359"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 466.71579354440377,
+            "unit": "median tps",
+            "extra": "avg tps: 478.0813833737655, max tps: 680.827271646638, count: 55359"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 338.8611806100241,
+            "unit": "median tps",
+            "extra": "avg tps: 344.31411065492983, max tps: 453.9273325534387, count: 55359"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.877496822314363,
+            "unit": "median tps",
+            "extra": "avg tps: 14.86650903851575, max tps: 15.058683705458858, count: 55359"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 669.1998669382762,
+            "unit": "median tps",
+            "extra": "avg tps: 673.1076220450635, max tps: 817.2083352228065, count: 55359"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 675.9023403891655,
+            "unit": "median tps",
+            "extra": "avg tps: 680.2268999292238, max tps: 838.0453752236691, count: 55359"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 267.64758425257037,
+            "unit": "median tps",
+            "extra": "avg tps: 270.82447612869083, max tps: 335.3519458681149, count: 55359"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 581.6182293799816,
+            "unit": "median tps",
+            "extra": "avg tps: 585.6644979173083, max tps: 685.4986604784926, count: 55359"
           }
         ]
       }

@@ -208,9 +208,7 @@ struct ParallelBuild {
 
 impl ParallelState for pg_sys::SharedFileSet {
     fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self as *const _ as *const u8, size_of_val(self))
-        }
+        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, size_of_val(self)) }
     }
 }
 

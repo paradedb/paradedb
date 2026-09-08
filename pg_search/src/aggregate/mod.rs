@@ -598,7 +598,8 @@ pub fn execute_aggregate(
             if consumers == 0 {
                 return None;
             }
-            let segments: Vec<SegmentId> = segment_ids.iter().map(|entry| entry.segment_id()).collect();
+            let segments: Vec<SegmentId> =
+                segment_ids.iter().map(|entry| entry.segment_id()).collect();
             let handle = bitmap_exec.shared_source(consumers, &segments)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()

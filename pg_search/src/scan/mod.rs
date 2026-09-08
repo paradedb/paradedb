@@ -26,6 +26,7 @@ pub mod info;
 pub mod late_materialization;
 pub mod physical_codec;
 pub mod pre_filter;
+pub mod propagate_empty_unnest_rule;
 pub mod range_partitioning;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;

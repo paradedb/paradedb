@@ -113,33 +113,27 @@ WHERE id @@@ paradedb.exists('metadata.category')
 (1 row)
 
 -- =========================================
--- Test 4: SUM aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 4: SUM aggregate on JSON numeric fields
 -- =========================================
 -- Test SUM on JSON numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(10 rows)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('SUM'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: SUM(metadata.price)
+     Aggregate Definition: {"0":{"sum":{"field":"metadata.price","missing":null,"none_if_no_match":true}}}
+(6 rows)
 
 -- Execute the query
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  total_price 
 -------------
         3862
@@ -150,25 +144,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
-(10 rows)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('SUM'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
+     Applies to Aggregates: SUM(metadata.price)
+     Aggregate Definition: {"0":{"sum":{"field":"metadata.price","missing":null,"none_if_no_match":true}}}
+(6 rows)
 
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  electronics_total 
 -------------------
               3097
@@ -179,61 +167,49 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: data
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
-(10 rows)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('SUM'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
+     Applies to Aggregates: SUM(data.stock)
+     Aggregate Definition: {"0":{"sum":{"field":"data.stock","missing":null,"none_if_no_match":true}}}
+(6 rows)
 
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  total_stock 
 -------------
          125
 (1 row)
 
 -- =========================================
--- Test 5: AVG aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 5: AVG aggregate on JSON numeric fields
 -- =========================================
 -- Test AVG on JSON numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(10 rows)
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('AVG'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: AVG(metadata.price)
+     Aggregate Definition: {"0":{"avg":{"field":"metadata.price","missing":null}}}
+(6 rows)
 
 -- Execute the query
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-      avg_price       
-----------------------
- 482.7500000000000000
+ avg_price 
+-----------
+    482.75
 (1 row)
 
 -- Test AVG with brand filter
@@ -241,25 +217,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple"}}}}
-(10 rows)
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('AVG'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple"}}}}
+     Applies to Aggregates: AVG(metadata.price)
+     Aggregate Definition: {"0":{"avg":{"field":"metadata.price","missing":null}}}
+(6 rows)
 
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  apple_avg_price 
 -----------------
                 
@@ -270,32 +240,26 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: data
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing"}}}}
-(10 rows)
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('AVG'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing"}}}}
+     Applies to Aggregates: AVG(data.stock)
+     Aggregate Definition: {"0":{"avg":{"field":"data.stock","missing":null}}}
+(6 rows)
 
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-      avg_stock      
----------------------
- 25.0000000000000000
+ avg_stock 
+-----------
+        25
 (1 row)
 
 -- =========================================
--- Test 6: MIN/MAX aggregates on JSON fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 6: MIN/MAX aggregates on JSON fields
 -- =========================================
 -- Test MIN/MAX on price
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -304,20 +268,15 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(10 rows)
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: MIN(metadata.price), MAX(metadata.price)
+     Aggregate Definition: {"0":{"min":{"field":"metadata.price","missing":null}},"1":{"max":{"field":"metadata.price","missing":null}}}
+(6 rows)
 
 -- Execute the query
 SELECT 
@@ -325,7 +284,6 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  min_price | max_price 
 -----------+-----------
         79 |      1299
@@ -338,40 +296,34 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Worker Selection: Cost model
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
-(10 rows)
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics"}}}}
+     Applies to Aggregates: MIN(metadata.price), MAX(metadata.price)
+     Aggregate Definition: {"0":{"min":{"field":"metadata.price","missing":null}},"1":{"max":{"field":"metadata.price","missing":null}}}
+(6 rows)
 
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
                    799 |                  1299
 (1 row)
 
--- Test MIN/MAX on text fields (alphabetical)
+-- Test MIN/MAX on text fields falls back to Postgres
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
  Aggregate
@@ -391,14 +343,14 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  first_brand | last_brand 
 -------------+------------
  Adidas      | Samsung
 (1 row)
 
 -- =========================================
--- Test 7: Mixed aggregate functions in single query (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 7: Mixed numeric and text aggregate functions falls back to Postgres
 -- =========================================
 -- Test multiple aggregates in one query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -412,7 +364,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -438,7 +390,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: min. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_agg_test)
  item_count | total_value |      avg_price       | min_price | max_price | first_brand | last_brand 
 ------------+-------------+----------------------+-----------+-----------+-------------+------------
           8 |        3862 | 482.7500000000000000 |        79 |      1299 | Adidas      | Samsung

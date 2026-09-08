@@ -21,6 +21,7 @@ use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -29,7 +30,6 @@ use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
-use std::ffi::CStr;
 use tantivy::Index;
 use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
@@ -72,7 +72,7 @@ pub extern "C-unwind" fn ambuild(
                     continue;
                 }
 
-                if is_bm25_index(&existing_index) && !is_concurrent {
+                if (*existing_index.rd_rel).relam.is_paradedb_am() && !is_concurrent {
                     panic!("a relation may only have one ParadeDB index");
                 }
             }
@@ -278,39 +278,6 @@ fn validate_field_config(
         .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the USING clause"));
     if !matches(&field_type) {
         panic!("`{field_name}` was configured with the wrong type");
-    }
-}
-
-pub fn is_bm25_index(indexrel: &PgSearchRelation) -> bool {
-    indexrel.rd_amhandler == bm25_amhandler_oid().unwrap_or_default()
-}
-
-fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
-    // `paradedb` and its backwards-compatible alias `bm25` share the same handler
-    // function, so an index built with either access method has the same
-    // `rd_amhandler`. Resolve against whichever alias is present so index
-    // recognition is independent of the access method name.
-    am_handler_oid(c"paradedb").or_else(|| am_handler_oid(c"bm25"))
-}
-
-fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
-    unsafe {
-        let name = pg_sys::Datum::from(amname.as_ptr());
-        let pg_am_entry = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::AMNAME as _, name);
-        if pg_am_entry.is_null() {
-            return None;
-        }
-
-        let mut is_null = false;
-        let datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::AMNAME as _,
-            pg_am_entry,
-            pg_sys::Anum_pg_am_amhandler as _,
-            &mut is_null,
-        );
-        let oid = pg_sys::Oid::from_datum(datum, is_null);
-        pg_sys::ReleaseSysCache(pg_am_entry);
-        oid
     }
 }
 

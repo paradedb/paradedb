@@ -1,4 +1,5 @@
-gem "json", "~> 2.0"
+# ActiveSupport 8.1 passes JSON.parse a positional options hash, which json 3 rejects.
+gem "json", "< 3"
 
 require "active_record"
 require "parade_db"

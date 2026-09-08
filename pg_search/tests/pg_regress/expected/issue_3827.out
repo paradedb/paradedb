@@ -77,7 +77,7 @@ FROM issue_3827_t
 GROUP BY txt
 HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
 ORDER BY txt;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not columnar. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
  txt 
 -----
  foo
@@ -107,8 +107,9 @@ WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from i
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+(15 rows)
 
 SELECT not_indexed, COUNT(*)
 FROM issue_3827_t
@@ -130,7 +131,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not columnar. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -146,15 +147,16 @@ WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+(15 rows)
 
 SELECT txt, n, COUNT(*)
 FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not columnar. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_3827_t)
  txt | n | count 
 -----+---+-------
  foo | 1 |     1

@@ -342,8 +342,9 @@ WARNING:  Aggregate Scan (DataFusion) not used: DATE(timestamptz) grouping is no
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+(15 rows)
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
 FROM events_tz

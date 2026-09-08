@@ -202,7 +202,7 @@ impl OpExpr {
 /// ```
 pub trait UnwrapFromExpr: Sized {
     /// Try to extract this node type from the expression, unwrapping all coercion layers
-    /// including single-arg FuncExpr nodes (deep unwrapping).
+    /// including cast FuncExpr nodes (deep unwrapping).
     ///
     /// Use this when the expression might be wrapped in function-based type coercions
     /// (e.g., `float4` -> `float8` via a cast function).
@@ -259,7 +259,7 @@ impl UnwrapFromExpr for ConstNode {
 // Expression Unwrapping - Internal helpers
 // ============================================================================
 
-/// Unwrap an expression from type coercion wrappers (RelabelType, CoerceViaIO, single-arg FuncExpr).
+/// Unwrap an expression from type coercion wrappers (RelabelType, CoerceViaIO, cast FuncExpr).
 unsafe fn unwrap_expr<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
 where
     F: FnMut(*mut pg_sys::Expr) -> Option<T>,
@@ -280,7 +280,13 @@ where
             continue;
         }
         // Handle type coercion via single-arg function call (e.g., float4 -> float8)
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr)
+            && matches!(
+                (*func).funcformat,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
+                    | pg_sys::CoercionForm::COERCE_IMPLICIT_CAST
+            )
+        {
             let args = PgList::<pg_sys::Node>::from_pg((*func).args);
             if args.len() == 1
                 && let Some(arg) = args.get_ptr(0)

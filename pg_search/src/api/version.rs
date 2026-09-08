@@ -41,6 +41,9 @@ pub const DATETIME_I64_STORAGE_VERSION: Version = Version::new(0, 24, 1);
 /// can go from `decimal-bytes` at the same time.
 pub const NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION: Version = Version::new(0, 25, 5);
 
+/// The first version that no longer assigns a tokenizer to the key field implicitly.
+pub const KEY_FIELD_REMOVAL_VERSION: Version = Version::new(0, 25, 6);
+
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {

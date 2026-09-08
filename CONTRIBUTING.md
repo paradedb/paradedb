@@ -56,6 +56,22 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 
    - SQL migration fragment: If your PR modifies the SQL schema/DDL of `pg_search` (such as adding or modifying functions, procedures, types, or opclasses), add a migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<short_description>.sql`. SchemaBot enforces this in CI and will suggest the exact SQL statements if missing.
 
+     **Fragment Rules & Dependencies:**
+     - **Atomic & Identical:** Fragments on stable branches (`0.*.x`) must be byte-for-byte identical to their counterpart on `main`.
+     - **Separate Released vs. Unreleased Modifications:** Never modify an object introduced in an unreleased fragment in the same fragment that modifies previously released objects. If a PR touches both (e.g. adding `PARALLEL = SAFE` to an existing function and a newly introduced function), split them into two fragments:
+       1. `<PR_NUMBER>.<desc>.sql`: touches released objects only (can be safely backported to stable branches).
+       2. `<PR_NUMBER>.<desc>_<feature>.sql`: touches the unreleased object, with `-- depends-on: <ORIGINAL_PR>` in the header (remains on `main` only).
+     - **Declare Dependencies:** If a fragment depends on schema introduced in an earlier unreleased fragment, declare it at the top of the file:
+
+       ```sql
+       -- depends-on: 6099
+       CREATE OR REPLACE AGGREGATE ...
+       ```
+
+       Multiple dependencies can be comma-separated: `-- depends-on: 1234, 5678`.
+
+     - **Backport Constraints:** A fragment declaring `-- depends-on: <PR>` cannot be backported to a stable branch unless that dependency PR is already present on the branch.
+
 7. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 8. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.
 9. Congratulations! Our team will review your pull request.

@@ -486,7 +486,7 @@ impl pdb::Query {
                     "pdb::Query::UnclassifiedArray cannot be converted into a TantivyQuery"
                 )
             }
-            pdb::Query::Exists => exists(field, searcher),
+            pdb::Query::Exists => exists(field, searcher)?,
             pdb::Query::ScoreAdjusted { query, score } => score_adjust_query(
                 field,
                 schema,
@@ -2144,14 +2144,17 @@ fn fast_field_range_weight(
     Box::new(FastFieldRangeQuery::new(new_lower_bound, new_upper_bound))
 }
 
-fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
+fn exists(field: FieldName, searcher: &Searcher) -> anyhow::Result<Box<ExistsQuery>> {
     let schema_field = searcher.schema().get_field(&field.root()).unwrap();
-    let is_json = searcher
-        .schema()
-        .get_field_entry(schema_field)
-        .field_type()
-        .is_json();
-    Box::new(ExistsQuery::new(field.into_inner(), is_json))
+    let field_type = searcher.schema().get_field_entry(schema_field).field_type();
+    anyhow::ensure!(
+        field_type.is_fast(),
+        "exists field '{field}' must be columnar. Add it to the index with 'columnar=true'"
+    );
+    Ok(Box::new(ExistsQuery::new(
+        field.into_inner(),
+        field_type.is_json(),
+    )))
 }
 
 pub(super) fn parse_tantivy_query(

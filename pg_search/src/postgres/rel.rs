@@ -18,10 +18,12 @@
 use crate::api::CTID_FIELD_NAME;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
-use crate::postgres::build::is_bm25_index;
+use crate::index::{index_settings, setup_tokenizers};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
+use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
@@ -31,6 +33,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
+use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, Order};
 
 type NeedClose = bool;
@@ -434,7 +437,7 @@ impl PgSearchRelation {
         let rc = self.0.as_ref().unwrap();
         let mut borrow = rc.3.borrow_mut();
         let schema = borrow.get_or_insert_with(|| {
-            if !is_bm25_index(self) {
+            if !unsafe { (*self.rd_rel).relam.is_paradedb_am() } {
                 return Err(SchemaError::RelationNotBM25Index);
             }
 
@@ -445,6 +448,19 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
+        let schema = self.schema()?;
+        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
+        let settings = index_settings(self.options(), &tantivy_schema);
+        // Throwaway materializations do not need the stats plugin.
+        let mut index = Index::create(directory, tantivy_schema, settings)?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index, self.options());
+        }
+        setup_tokenizers(self, &mut index)?;
+        Ok(index)
     }
 
     /// True when this ParadeDB index's segments were built in ascending ctid

@@ -431,7 +431,10 @@ WHERE (a.bio @@@ 'British' AND b.is_published = true)
    OR (b.content @@@ 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ author_name | book_title | review_content | author_score | book_score | review_score 
+-------------+------------+----------------+--------------+------------+--------------
+(0 rows)
+
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
     a.name as author_name,
@@ -586,8 +589,12 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
-WARNING:  Aggregate Scan (DataFusion) not used: the selected lower join path contains a predicate that AggregateScan cannot classify (table: join)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  Aggregate Scan (DataFusion) not used: join predicates must reference columnar indexed fields (table: join)
+ total_results |  avg_author_score  |   avg_book_score   
+---------------+--------------------+--------------------
+             8 | 0.5164865255355835 | 0.2097555547952652
+(1 row)
+
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
     a.name as author_name,
@@ -632,7 +639,18 @@ WHERE (
 )
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC
 LIMIT 10;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ author_name  |      book_title      | review_content | author_score | book_score | review_score 
+--------------+----------------------+----------------+--------------+------------+--------------
+ J.K. Rowling | Harry Potter Magic   |                |            0 |          0 |             
+ J.K. Rowling | Magic Detective      |                |            0 |          0 |             
+ Stephen King | Harry Potter Horrors |                |            0 |          0 |             
+ Stephen King | The Shining Terror   |                |            0 |          0 |             
+ John Smith   | Smartphone Tech      |                |            0 |          0 |             
+ John Smith   | Future Technologies  |                |            0 |          0 |             
+(6 rows)
+
 -- Test 7.2: Conservative OR handling demonstration
 SELECT 
     a.name as author_name,

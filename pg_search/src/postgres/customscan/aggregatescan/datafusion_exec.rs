@@ -42,7 +42,7 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
-    build_join_df_with_filter, make_col, make_source_col,
+    build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::customscan::joinscan::build::{
@@ -55,7 +55,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
 use crate::scan::PgSearchTableProvider;
 use crate::schema::SearchFieldType;
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, Result, ScalarValue};
+use datafusion::common::{DataFusionError, NullHandling, Result, ScalarValue};
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -66,7 +66,8 @@ use datafusion::functions_aggregate::expr_fn::{
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{
-    Aggregate, Cast, Expr, GroupingSet, LogicalPlanBuilder, LogicalPlanBuilderOptions, col, lit,
+    Aggregate, Cast, Expr, GroupingSet, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions,
+    col, lit,
 };
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
@@ -335,6 +336,140 @@ pub async fn build_join_aggregate_plan(
     })
 }
 
+/// An array key in a `pdb.agg()` spec that must be unnested.
+struct ArrayKeyToUnnest {
+    key_idx: usize,
+    source_alias: String,
+    field_name: String,
+}
+
+/// Build the aggregate logical plan for `pdb.agg()`. When array keys are grouped,
+/// builds an `Aggregate` per level over the join input unnested only for array
+/// keys required by that level, projecting typed NULL placeholders for inactive keys
+/// and an explicit `__grouping_id` so all levels share the exact same output schema
+/// and grouping ID bit layout. The levels are then unioned together so outer grouping
+/// levels and root aggregates are not over-counted by unnesting.
+fn build_pdb_aggregate_plan(
+    input: LogicalPlan,
+    pdb_plan: &PdbAggPlan,
+    plan: &RelNode,
+    all_group_exprs: &[Expr],
+    all_agg_exprs: &[Expr],
+    grouping: &[Expr],
+) -> Result<LogicalPlan> {
+    let array_keys: Vec<ArrayKeyToUnnest> = pdb_plan
+        .keys
+        .iter()
+        .enumerate()
+        .filter(|(_, key)| {
+            key.field.is_array
+                && !is_lateral_unnest(plan, key.field.plan_position, &key.field.field_name)
+        })
+        .map(|(key_idx, key)| {
+            let source = plan
+                .source_at_plan_position(key.field.plan_position)
+                .unwrap_or_else(|| {
+                    panic!("no source at plan_position {}", key.field.plan_position)
+                });
+            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                .execution(source.plan_position);
+            ArrayKeyToUnnest {
+                key_idx,
+                source_alias: alias,
+                field_name: key.field.field_name.clone(),
+            }
+        })
+        .collect();
+
+    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
+    if array_keys.is_empty() {
+        return LogicalPlanBuilder::from(input)
+            .with_options(options)
+            .aggregate(grouping.to_vec(), all_agg_exprs.to_vec())?
+            .build();
+    }
+
+    let num_outer = pdb_plan.num_outer_group_cols();
+    let num_keys = pdb_plan.keys.len();
+    let mut level_plans = Vec::with_capacity(pdb_plan.levels.len());
+
+    for (level_idx, level) in pdb_plan.levels.iter().enumerate() {
+        let mut level_plan = input.clone();
+        for ak in &array_keys {
+            if level.contains(&(num_outer + ak.key_idx)) {
+                level_plan = unnest_plan_column(
+                    level_plan,
+                    &ak.source_alias,
+                    &ak.field_name,
+                    NullHandling::PreserveAndExpandEmpty,
+                )?;
+            }
+        }
+
+        let level_group_exprs: Vec<Expr> =
+            level.iter().map(|&p| all_group_exprs[p].clone()).collect();
+
+        let level_agg = LogicalPlanBuilder::from(level_plan)
+            .with_options(options.clone())
+            .aggregate(level_group_exprs, all_agg_exprs.to_vec())?
+            .build()?;
+
+        // Project level_agg output to the unified schema:
+        // [group_exprs..., key_exprs..., __grouping_id, all_agg_exprs...]
+        let mut project_exprs = Vec::with_capacity(num_outer + num_keys + 1 + all_agg_exprs.len());
+
+        let columns = level_agg.schema().columns();
+
+        // 1. Outer SQL group columns (always first in level_agg schema)
+        for col in columns.iter().take(num_outer) {
+            project_exprs.push(Expr::Column(col.clone()));
+        }
+
+        // 2. Key expressions (__pdb_k0, __pdb_k1, ...)
+        for k in 0..num_keys {
+            if level.contains(&(num_outer + k)) {
+                project_exprs.push(col(format!("__pdb_k{k}")));
+            } else {
+                let null_expr = Expr::Cast(Cast::new(
+                    Box::new(lit(ScalarValue::Null)),
+                    pdb_plan.keys[k].field.field_type.arrow_data_type(),
+                ))
+                .alias(format!("__pdb_k{k}"));
+                project_exprs.push(null_expr);
+            }
+        }
+
+        // 3. Constant grouping id for this level
+        project_exprs.push(
+            lit(pdb_plan.grouping_id_for_level(level_idx)).alias(Aggregate::INTERNAL_GROUPING_ID),
+        );
+
+        // 4. Aggregates and metrics (following the group columns in level_agg schema)
+        let aggs_offset = level.len();
+        for col in columns.iter().skip(aggs_offset).take(all_agg_exprs.len()) {
+            project_exprs.push(Expr::Column(col.clone()));
+        }
+
+        let projected_level = LogicalPlanBuilder::from(level_agg)
+            .project(project_exprs)?
+            .build()?;
+        level_plans.push(projected_level);
+    }
+
+    if level_plans.len() == 1 {
+        Ok(level_plans.into_iter().next().unwrap())
+    } else {
+        let mut it = level_plans.into_iter();
+        let mut combined = it.next().unwrap();
+        for next_level in it {
+            combined = LogicalPlanBuilder::from(combined)
+                .union(next_level)?
+                .build()?;
+        }
+        Ok(combined)
+    }
+}
+
 /// Aggregate with every `pdb.agg()` level folded in as grouping sets, then
 /// project to the column order [`PdbAggPlan`] documents.
 ///
@@ -377,126 +512,16 @@ fn apply_pdb_aggregate(
     };
     let mut all_agg_exprs = agg_exprs;
     all_agg_exprs.extend(metric_exprs);
-    struct UnnestTarget {
-        source_alias: String,
-        field_name: String,
-        temp_col_name: String,
-    }
 
-    let unnest_targets: Vec<UnnestTarget> = {
-        let mut targets = Vec::new();
-        for key in &pdb_plan.keys {
-            if key.field.is_array
-                && !plan
-                    .lateral_unnests()
-                    .iter()
-                    .any(|u| u.field_name == key.field.field_name)
-            {
-                let source = plan
-                    .source_at_plan_position(key.field.plan_position)
-                    .unwrap_or_else(|| {
-                        panic!("no source at plan_position {}", key.field.plan_position)
-                    });
-                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                    .execution(source.plan_position);
-                let temp_col_name = format!("{}_{}", alias, key.field.field_name);
-                if !targets
-                    .iter()
-                    .any(|t: &UnnestTarget| t.temp_col_name == temp_col_name)
-                {
-                    targets.push(UnnestTarget {
-                        source_alias: alias,
-                        field_name: key.field.field_name.clone(),
-                        temp_col_name,
-                    });
-                }
-            }
-        }
-        targets
-    };
-
-    // `DataFrame::aggregate` projects `__grouping_id` away; the assembler needs it,
-    // so build the aggregate node directly.
     let (session_state, input) = df.into_parts();
-    let input = if unnest_targets.is_empty() {
-        input
-    } else {
-        use datafusion::common::{NullHandling, UnnestOptions};
-        let unnest_options =
-            UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty);
-
-        // Pre-project to alias qualified columns (e.g. `users_0.tags`) to unique temporary
-        // column names (e.g. `users_0_tags`). This avoids ambiguity errors during `Unnest`
-        // if another joined table has a column with the same name (e.g. `products_1.tags`).
-        let pre_project_exprs: Vec<Expr> = input
-            .schema()
-            .iter()
-            .map(|(qualifier, field)| {
-                let col = Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ));
-                if let Some(target) = unnest_targets.iter().find(|t| {
-                    qualifier.as_ref().map(|q| q.to_string()) == Some(t.source_alias.clone())
-                        && field.name() == &t.field_name
-                }) {
-                    col.alias(&target.temp_col_name)
-                } else {
-                    col
-                }
-            })
-            .collect();
-        let pre_unnest = LogicalPlanBuilder::from(input)
-            .project(pre_project_exprs)?
-            .build()?;
-
-        // Unnest each column in its own Unnest node. When multiple array columns are
-        // unnested together in DataFusion, UnnestExec locks them in step (per-row zip)
-        // instead of forming their Cartesian product. Chaining them sequentially unnests
-        // each array across the already-expanded rows of prior ones, matching the
-        // semantics of PostgreSQL's independent LEFT JOIN LATERAL unnest clauses.
-        let mut unnested = pre_unnest;
-        for target in &unnest_targets {
-            let unnest_col = datafusion::common::Column::from_name(&target.temp_col_name);
-            unnested = LogicalPlanBuilder::from(unnested)
-                .unnest_columns_with_options(vec![unnest_col], unnest_options.clone())?
-                .build()?;
-        }
-
-        // Post-project to re-qualify each unnested temporary column back to its original
-        // table reference and field name (e.g. `users_0.tags`).
-        let post_project_exprs: Vec<Expr> = unnested
-            .schema()
-            .iter()
-            .map(|(qualifier, field)| {
-                let col = Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ));
-                if let Some(target) = unnest_targets
-                    .iter()
-                    .find(|t| field.name() == &t.temp_col_name)
-                {
-                    col.alias_qualified(
-                        Some(datafusion::common::TableReference::Bare {
-                            table: target.source_alias.clone().into(),
-                        }),
-                        &target.field_name,
-                    )
-                } else {
-                    col
-                }
-            })
-            .collect();
-        LogicalPlanBuilder::from(unnested)
-            .project(post_project_exprs)?
-            .build()?
-    };
-    let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(true);
-    let aggregated = LogicalPlanBuilder::from(input)
-        .with_options(options)
-        .aggregate(grouping, all_agg_exprs)?
-        .build()?;
+    let aggregated = build_pdb_aggregate_plan(
+        input,
+        pdb_plan,
+        plan,
+        &all_group_exprs,
+        &all_agg_exprs,
+        &grouping,
+    )?;
     let mut df = DataFrame::new(session_state, aggregated);
 
     if let Some(having) = having_expr {
@@ -549,7 +574,16 @@ fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
 }
 
 fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
-    let column = make_plan_position_col(plan, key.field.plan_position, &key.field.field_name);
+    let source = plan
+        .source_at_plan_position(key.field.plan_position)
+        .unwrap_or_else(|| panic!("no source at plan_position {}", key.field.plan_position));
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let column = if key.field.is_array {
+        col(format!("{alias}_{}", key.field.field_name))
+    } else {
+        make_col(&alias, &key.field.field_name)
+    };
     match &key.missing {
         None => column,
         Some(missing) => coalesce(vec![column, pdb_missing_lit(missing, &key.field)]),
@@ -1062,6 +1096,15 @@ async fn build_source_df(
     }
 }
 
+fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> bool {
+    let Some(source) = plan.source_at_plan_position(plan_position) else {
+        return false;
+    };
+    plan.lateral_unnests()
+        .iter()
+        .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
+}
+
 /// Build a DataFusion column expression for a targetlist ref by its
 /// previously-resolved `plan_position`.
 fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
@@ -1070,12 +1113,8 @@ fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str
         .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-    if plan
-        .lateral_unnests()
-        .iter()
-        .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
-    {
-        datafusion::logical_expr::col(format!("{alias}_{field_name}"))
+    if is_lateral_unnest(plan, plan_position, field_name) {
+        col(format!("{alias}_{field_name}"))
     } else {
         make_col(&alias, field_name)
     }

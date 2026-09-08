@@ -1596,6 +1596,8 @@ async fn generated_numeric_range_precision(database: Db) {
 /// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
 /// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
 /// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+/// TODO: Consider merging this property test with other "aggregate over join" tests
+/// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
 #[rstest]
 #[tokio::test]
 async fn generated_pdb_agg_join(database: Db) {
@@ -1626,6 +1628,25 @@ async fn generated_pdb_agg_join(database: Db) {
         gucs.aggregate_custom_scan = true;
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+
+        if !agg.outer_aggs.is_empty() {
+            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
+            qgen_oracle!("qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL", compare_outcome_retrying(
+                &pg_outer_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, conn| {
+                    "SET work_mem TO '64MB';".execute_result(conn)?;
+                    let rows = query.fetch_dynamic_result(conn)?;
+                    let is_pdb = query.contains("pdb.agg");
+                    let mut rows = agg.outer_rows(rows, is_pdb)?;
+                    rows.sort();
+                    Ok(rows)
+                },
+            ))?;
+        }
 
         qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
             &pg_query,

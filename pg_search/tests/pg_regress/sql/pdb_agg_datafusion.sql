@@ -619,6 +619,10 @@ SELECT pdb.agg('{"sum": {"field": "p.tags"}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title @@@ 'post';
 
+SELECT pdb.agg('{"cardinality": {"field": "p.tags"}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
 -- Test 6.8: nested terms over multiple array fields across joins (sequential unnesting)
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
@@ -662,5 +666,31 @@ WHERE title @@@ 'post'
 GROUP BY category;
 
 RESET paradedb.max_term_agg_buckets;
+
+-- Test 6.11: plain GROUP BY on array field over join runs on DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.tags, COUNT(*)
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post'
+GROUP BY p.tags
+ORDER BY p.tags;
+
+SELECT p.tags, COUNT(*)
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post'
+GROUP BY p.tags
+ORDER BY p.tags;
+
+-- Test 6.12: pdb.agg terms on a key that is also LATERAL unnested in FROM
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
+WHERE p.title @@@ 'post';
 
 DROP TABLE pa_posts, pa_authors CASCADE;

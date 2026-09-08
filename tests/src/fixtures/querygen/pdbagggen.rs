@@ -83,11 +83,52 @@ pub struct PdbTerm {
     pub is_array: bool,
 }
 
+impl PdbTerm {
+    pub fn sql_key(&self) -> String {
+        if self.is_array {
+            format!("_{}", self.field.replace('.', "_"))
+        } else {
+            self.field.clone()
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OuterAggKind {
+    CountStar,
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OuterAgg {
+    pub kind: OuterAggKind,
+    pub field: Option<String>,
+}
+
+impl OuterAgg {
+    pub fn sql(&self) -> String {
+        match self.kind {
+            OuterAggKind::CountStar => "COUNT(*)".to_string(),
+            OuterAggKind::Count => format!("COUNT({})", self.field.as_ref().unwrap()),
+            OuterAggKind::Sum => format!("SUM({})", self.field.as_ref().unwrap()),
+            OuterAggKind::Avg => format!("AVG({})", self.field.as_ref().unwrap()),
+            OuterAggKind::Min => format!("MIN({})", self.field.as_ref().unwrap()),
+            OuterAggKind::Max => format!("MAX({})", self.field.as_ref().unwrap()),
+        }
+    }
+}
+
 /// One `pdb.agg()` call and the shape of its result.
 #[derive(Clone, Debug)]
 pub struct PdbAggExpr {
     /// A SQL `GROUP BY` column beside the call, which becomes the root grouping set.
     pub outer_group: Option<String>,
+    /// SQL aggregates beside the call.
+    pub outer_aggs: Vec<OuterAgg>,
     /// `terms` levels, outermost first. Empty for a spec that is one metric.
     pub terms: Vec<PdbTerm>,
     /// A `size` cut on one level, under the default `_count desc` order.
@@ -145,13 +186,42 @@ impl PdbAggExpr {
 
     pub fn pdb_query(&self, from_clause: &str, where_clause: &str) -> String {
         let call = self.call();
+        let mut select = Vec::new();
+        if let Some(group) = &self.outer_group {
+            select.push(group.clone());
+        }
+        for agg in &self.outer_aggs {
+            select.push(agg.sql());
+        }
+        select.push(call);
+        let select_clause = select.join(", ");
         match &self.outer_group {
             Some(group) => {
                 format!(
-                    "SELECT {group}, {call} {from_clause} WHERE {where_clause} GROUP BY {group}"
+                    "SELECT {select_clause} {from_clause} WHERE {where_clause} GROUP BY {group}"
                 )
             }
-            None => format!("SELECT {call} {from_clause} WHERE {where_clause}"),
+            None => format!("SELECT {select_clause} {from_clause} WHERE {where_clause}"),
+        }
+    }
+
+    /// The outer group and outer aggregates without unnesting.
+    pub fn pg_outer_query(&self, from_clause: &str, where_clause: &str) -> String {
+        let mut select = Vec::new();
+        if let Some(group) = &self.outer_group {
+            select.push(group.clone());
+        }
+        for agg in &self.outer_aggs {
+            select.push(agg.sql());
+        }
+        let select_clause = select.join(", ");
+        match &self.outer_group {
+            Some(group) => {
+                format!(
+                    "SELECT {select_clause} {from_clause} WHERE {where_clause} GROUP BY {group}"
+                )
+            }
+            None => format!("SELECT {select_clause} {from_clause} WHERE {where_clause}"),
         }
     }
 
@@ -163,7 +233,7 @@ impl PdbAggExpr {
         let mut keys: Vec<String> = self.outer_group.iter().cloned().collect();
         for term in &self.terms {
             if term.is_array {
-                let alias = format!("_{}", term.field.replace('.', "_"));
+                let alias = term.sql_key();
                 // Tantivy and DataFusion (via PreserveAndExpandEmpty) preserve documents
                 // with empty or NULL arrays, assigning them to the NULL/missing bucket
                 // rather than discarding them from the query or outer groupings.
@@ -190,16 +260,24 @@ impl PdbAggExpr {
         if let Some((cut_level, size)) = self.size {
             assert_eq!(cut_level, 0, "SQL can only mirror a cut on the top level");
             // Tantivy breaks count ties on the key and puts the NULL bucket last.
-            let order_key = if self.terms[0].is_array {
-                format!("_{}", self.terms[0].field.replace('.', "_"))
-            } else {
-                self.terms[0].field.clone()
-            };
+            let order_key = self.terms[0].sql_key();
             sql.push_str(&format!(
                 " ORDER BY COUNT(*) DESC, {order_key} ASC NULLS LAST LIMIT {size}",
             ));
         }
         sql
+    }
+
+    /// The outer group and outer aggregates from either `pg_outer_query` or `pdb_query`.
+    /// When `is_pdb` is true, the trailing `pdb.agg()` JSON column is omitted.
+    pub fn outer_rows(&self, rows: Vec<PgRow>, is_pdb: bool) -> Result<Vec<String>, sqlx::Error> {
+        let mut out = Vec::new();
+        for row in rows {
+            let num_cols = if is_pdb { row.len() - 1 } else { row.len() };
+            let cells: Vec<String> = (0..num_cols).map(|i| column_string(&row, i)).collect();
+            out.push(cells.join("|"));
+        }
+        Ok(out)
     }
 
     /// The rows of either query as strings: the SQL result column by column, or
@@ -303,6 +381,8 @@ fn json_string(value: &Value) -> String {
 struct SpecShape {
     /// A SQL `GROUP BY` always sits beside the call.
     grouped: bool,
+    /// Standard SQL aggregates may sit beside the call.
+    allow_outer_aggs: bool,
     /// NUMERIC columns may be metric fields.
     numeric_metrics: bool,
     /// A `size` may cut any level, not only a lone top level under no group.
@@ -366,6 +446,7 @@ pub fn arb_pdb_agg_join(
         arb_joins(join_types, joined.clone(), &key_columns).prop_flat_map(move |join| {
             let shape = SpecShape {
                 grouped: false,
+                allow_outer_aggs: true,
                 numeric_metrics: true,
                 size_anywhere: false,
                 sketch_keys: if join.has_keyless_step() {
@@ -402,6 +483,7 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
         Vec::new(),
         SpecShape {
             grouped: true,
+            allow_outer_aggs: false,
             numeric_metrics: false,
             size_anywhere: true,
             sketch_keys: usize::MAX,
@@ -445,7 +527,7 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
             proptest::sample::select(kinds.to_vec()),
             proptest::sample::select(metric_fields),
         ),
-        1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields)),
+        1 => (Just(MetricKind::Avg), proptest::sample::select(int_fields.clone())),
     ];
     let outer_group = if shape.grouped {
         proptest::sample::select(key_fields.clone())
@@ -453,6 +535,39 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
             .boxed()
     } else {
         proptest::option::weighted(0.3, proptest::sample::select(key_fields.clone())).boxed()
+    };
+
+    let outer_aggs_strat = if shape.allow_outer_aggs {
+        let outer_agg_fields = int_fields.clone();
+        let outer_agg = prop_oneof![
+            Just(OuterAgg {
+                kind: OuterAggKind::CountStar,
+                field: None,
+            }),
+            proptest::sample::select(outer_agg_fields.clone()).prop_map(|f| OuterAgg {
+                kind: OuterAggKind::Sum,
+                field: Some(f),
+            }),
+            proptest::sample::select(outer_agg_fields.clone()).prop_map(|f| OuterAgg {
+                kind: OuterAggKind::Avg,
+                field: Some(f),
+            }),
+            proptest::sample::select(outer_agg_fields.clone()).prop_map(|f| OuterAgg {
+                kind: OuterAggKind::Min,
+                field: Some(f),
+            }),
+            proptest::sample::select(outer_agg_fields).prop_map(|f| OuterAgg {
+                kind: OuterAggKind::Max,
+                field: Some(f),
+            }),
+            proptest::sample::select(key_fields.clone()).prop_map(|f| OuterAgg {
+                kind: OuterAggKind::Count,
+                field: Some(f),
+            }),
+        ];
+        proptest::collection::vec(outer_agg, 0..=2).boxed()
+    } else {
+        Just(vec![]).boxed()
     };
 
     let mut all_terms: Vec<PdbTerm> = key_fields
@@ -471,11 +586,12 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
 
     (
         outer_group,
+        outer_aggs_strat,
         proptest::sample::subsequence(all_terms, 0..=2),
         proptest::option::weighted(0.4, (0..2usize, 1..4u32)),
         proptest::collection::vec(metric, 0..=3),
     )
-        .prop_map(move |(outer_group, terms, size, metrics)| {
+        .prop_map(move |(outer_group, outer_aggs, terms, size, metrics)| {
             let mut metrics: Vec<Metric> = metrics
                 .into_iter()
                 .enumerate()
@@ -510,6 +626,7 @@ fn arb_pdb_agg(tables: Vec<String>, shape: SpecShape) -> impl Strategy<Value = P
             });
             PdbAggExpr {
                 outer_group,
+                outer_aggs,
                 terms,
                 size,
                 metrics,
@@ -615,6 +732,7 @@ mod tests {
     fn test_pg_query_unnests_array_terms() {
         let agg = PdbAggExpr {
             outer_group: Some("users.color".to_string()),
+            outer_aggs: vec![],
             terms: vec![
                 PdbTerm {
                     field: "users.tags".to_string(),

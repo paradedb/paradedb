@@ -38,7 +38,8 @@ use crate::postgres::customscan::joinscan::planning::{
     wrap_with_semi_anti,
 };
 use crate::postgres::customscan::pullup::{
-    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name, resolve_index_field_by_name,
+    ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+    resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
@@ -164,13 +165,7 @@ pub fn resolve_source_field<'a>(
 fn source_field_candidates<'a>(
     sources: &'a [JoinAggSource],
     field: &str,
-) -> (
-    Vec<(
-        &'a JoinAggSource,
-        crate::postgres::customscan::pullup::ResolvedIndexField,
-    )>,
-    Vec<String>,
-) {
+) -> (Vec<(&'a JoinAggSource, ResolvedIndexField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {

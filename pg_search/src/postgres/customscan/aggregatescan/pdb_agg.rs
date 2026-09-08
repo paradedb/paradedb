@@ -667,6 +667,10 @@ impl PdbAggPlan {
         !self.keys.is_empty()
     }
 
+    pub fn num_outer_group_cols(&self) -> usize {
+        self.num_outer_group_cols
+    }
+
     fn num_group_exprs(&self) -> usize {
         self.num_outer_group_cols + self.keys.len()
     }
@@ -701,7 +705,7 @@ impl PdbAggPlan {
 
     /// The `__grouping_id` DataFusion assigns to a level: one bit per grouping
     /// expression, most significant first, set when the expression is absent.
-    fn grouping_id_for_level(&self, level: usize) -> u64 {
+    pub fn grouping_id_for_level(&self, level: usize) -> u64 {
         let n = self.num_group_exprs();
         (0..n)
             .filter(|position| !self.levels[level].contains(position))

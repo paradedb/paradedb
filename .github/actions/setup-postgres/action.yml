@@ -13,7 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Configure PGDG APT repository and install PostgreSQL
+    - name: Configure PGDG APT repository
       shell: bash
       run: |
         set -euo pipefail
@@ -22,9 +22,15 @@ runs:
           | sudo tee /usr/share/keyrings/postgresql.asc >/dev/null
         echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
           | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          "postgresql-${{ inputs.pg_version }}" \
-          "postgresql-server-dev-${{ inputs.pg_version }}" \
+
+    - name: Install PostgreSQL Packages
+      uses: paradedb/actions/apt-install@v11
+      with:
+        packages: >-
+          postgresql-${{ inputs.pg_version }}
+          postgresql-server-dev-${{ inputs.pg_version }}
           ${{ inputs.extra_packages }}
-        echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"
+
+    - name: Configure PostgreSQL PATH
+      shell: bash
+      run: echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"

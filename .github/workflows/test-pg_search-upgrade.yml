@@ -106,8 +106,9 @@ jobs:
           install_cargo_pgrx: "false"
 
       - name: Install required system tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y lsof libopenblas-dev lld
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: lsof libopenblas-dev lld
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres

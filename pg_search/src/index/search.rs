@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
@@ -135,6 +136,22 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
     ));
     // In 0.20.0 we changed the default tokenizer from `simple` to `unicode_words`
     tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
+
+    // Before 0.25.6, the first index attribute could use an implicit key-field tokenizer.
+    if let Some((field, _)) = categorized_fields
+        .iter()
+        .find(|(field, data)| data.attno == 0 && field.field_config().tokenizer().is_some())
+        && index_relation
+            .created_by_version()
+            .is_none_or(|version| version < Version::new(0, 25, 6))
+    {
+        #[allow(deprecated)]
+        tokenizers.push(SearchTokenizer::Raw(if field.is_json() {
+            SearchTokenizerFilters::default()
+        } else {
+            SearchTokenizerFilters::keyword().clone()
+        }));
+    }
 
     Ok(tokenizers)
 }

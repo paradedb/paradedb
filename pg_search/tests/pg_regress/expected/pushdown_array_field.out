@@ -65,7 +65,8 @@ LIMIT 10;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
+         Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"('dog'::text = ANY (description))"}]}}]}}
-(9 rows)
+(10 rows)
 
 DROP TABLE pushdown;

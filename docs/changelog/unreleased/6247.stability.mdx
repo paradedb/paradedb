@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+The join scan now returns the right rows when a `LIMIT` query sorts on a text columnar field of the nullable side of an outer join. Those rows used to sort as if they carried the first document's value.

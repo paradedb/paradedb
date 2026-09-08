@@ -1,7 +1,8 @@
 CREATE FUNCTION "search_with_query_input_ctid_strict"(
     "element" anyelement,
     "query" SearchQueryInput,
-    "ctid" tid
+    "ctid" tid,
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
 LANGUAGE c
@@ -10,7 +11,8 @@ AS 'MODULE_PATHNAME', 'search_with_query_input_ctid_strict_wrapper';
 CREATE FUNCTION "search_with_query_input_ctid"(
     "element" anyelement,
     "query" SearchQueryInput,
-    "ctid" tid
+    "ctid" tid,
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE PARALLEL SAFE COST 1000000000
 LANGUAGE c

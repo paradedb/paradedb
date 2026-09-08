@@ -47,8 +47,9 @@ SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
    Index: idx_dates
    Exec Method: NormalScanExecState
    Scores: false
+   Full Index Scan: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(d = '01-01-2025'::date)"}]}}]}}
-(6 rows)
+(7 rows)
 
 DROP TABLE dates;
 -- Integer expressions
@@ -65,8 +66,9 @@ SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
+   Full Index Scan: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(i = 1)"}]}}]}}
-(6 rows)
+(7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
@@ -77,8 +79,9 @@ SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
+   Full Index Scan: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"((i * 3) = 1)"}]}}]}}
-(6 rows)
+(7 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
@@ -108,8 +111,9 @@ SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all();
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
+   Full Index Scan: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"((i - j) = 1)"}]}}]}}
-(6 rows)
+(7 rows)
 
 SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all() ORDER BY id;
  id | i | j 

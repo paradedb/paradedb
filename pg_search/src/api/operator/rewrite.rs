@@ -27,6 +27,7 @@ use crate::api::builder_fns::{
 };
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, to_search_query_input};
+use crate::query::proximity::ProximityClause;
 use pgrx::{IntoDatum, PgList, direct_function_call, pg_sys};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,7 +133,9 @@ impl SearchOperator {
     fn invalid_rhs(self) -> ! {
         match self {
             Self::Parse => {
-                unreachable!("atatat_support should only ever be called with a text value")
+                panic!(
+                    "The right-hand side of the `@@@` operator must be a text value, pdb.query, or a complete proximity clause"
+                )
             }
             Self::Term => unreachable!(
                 "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value"
@@ -151,19 +154,18 @@ impl SearchOperator {
         rhs: RHSValue,
     ) -> SearchQueryInput {
         let field = if self == Self::Parse {
-            match rhs {
-                RHSValue::Text(text) if field.is_none() => return parse(text, None, None),
-                RHSValue::PdbQuery(query) if field.is_none() => {
-                    return SearchQueryInput::from_unfielded(query);
-                }
-                RHSValue::ProximityClause(_) if field.is_none() => panic!(
-                    "a proximity search requires an indexed field on the left-hand side, not a whole-row reference"
-                ),
-                RHSValue::TextArray(_) => self.invalid_rhs(),
-                _ => (),
+            if field.is_none() {
+                let query = match rhs {
+                    RHSValue::Text(text) => return parse(text, None, None),
+                    RHSValue::PdbQuery(query) => query,
+                    RHSValue::ProximityClause(prox @ ProximityClause::Proximity { .. }) => {
+                        proximity(prox)
+                    }
+                    RHSValue::ProximityClause(_) | RHSValue::TextArray(_) => self.invalid_rhs(),
+                };
+                return SearchQueryInput::from_unfielded(query);
             }
-            assert!(field.is_some());
-            field.unwrap()
+            field.expect("whole-row queries should have returned above")
         } else {
             self.require_field(lhs, field)
         };

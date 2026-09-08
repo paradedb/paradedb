@@ -95,7 +95,7 @@ static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>:
 /// For testing, ensures the same handling of null aggregates as Postgres
 static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// The number of fast-field columns below-which the ColumnarExecState will be used, rather
+/// The number of columnar fields below which the ColumnarExecState will be used, rather
 /// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
 ///
@@ -390,7 +390,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_fast_field_exec",
         c"Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
-        c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string fast field or multiple numeric fast fields",
+        c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string columnar field or multiple numeric columnar fields",
         &ENABLE_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
@@ -399,7 +399,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_exec",
         c"Enable ColumnarExecState executor",
-        c"Enable the ColumnarExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        c"Enable the ColumnarExecState executor for handling multiple string columnar fields or mixed string/numeric columnar fields",
         &ENABLE_COLUMNAR_EXEC,
         GucContext::Userset,
         GucFlags::default(),
@@ -407,7 +407,7 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
-        c"The number of fast-field columns below-which the ColumnarExecState will be used, rather \
+        c"The number of columnar fields below which the ColumnarExecState will be used, rather \
          than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
         &COLUMNAR_EXEC_COLUMN_THRESHOLD,
@@ -611,7 +611,7 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.defer_column_fetch",
-        c"Defer the fast-field fetch of late-materialized string columns to the decode point",
+        c"Defer the columnar fetch of late-materialized string columns to the decode point",
         c"When on, a scan emits doc addresses for its late-materialized string/bytes columns \
           and their term ordinals are resolved at the point where they are decoded. When off, \
           the scan resolves the term ordinals itself, in doc order, and only the dictionary \

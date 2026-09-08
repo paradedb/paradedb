@@ -583,6 +583,19 @@ impl JoinScan {
             return Err(JoinDeclineReason::ContainsAggregate);
         }
 
+        // Require LIMIT for top-level queries (without it, JoinScan's TopK
+        // optimization has no bound). Subqueries are exempt because the parent
+        // plan provides the cardinality constraint. Either a static or
+        // parameterized LIMIT is sufficient — the latter is resolved at
+        // execution time from EState::es_param_list_info.
+        let limit_offset = LimitOffset::from_root(root);
+        let is_subquery = !(*root).parent_root.is_null();
+        if limit_offset.is_none() && !is_subquery {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: LIMIT is required for top-level queries",
+            ));
+        }
+
         let parse = (*root).parse;
         let query_has_distinct = !(*parse).distinctClause.is_null();
 
@@ -672,19 +685,6 @@ impl JoinScan {
                     ));
                 }
             }
-        }
-
-        // Require LIMIT for top-level queries (without it, JoinScan's TopK
-        // optimization has no bound). Subqueries are exempt because the parent
-        // plan provides the cardinality constraint. Either a static or
-        // parameterized LIMIT is sufficient — the latter is resolved at
-        // execution time from EState::es_param_list_info.
-        let limit_offset = LimitOffset::from_root(root);
-        let is_subquery = !(*root).parent_root.is_null();
-        if limit_offset.is_none() && !is_subquery {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: LIMIT is required for top-level queries",
-            ));
         }
 
         // Why "derived" expressions in DISTINCT prevent LIMIT pushdown:

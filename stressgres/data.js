@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788832766908,
+  "lastUpdate": 1788832775859,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -141232,6 +141232,108 @@ window.BENCHMARK_DATA = {
             "value": 47.82421875,
             "unit": "median mem",
             "extra": "avg mem: 44.84068387517254, max mem: 51.46484375, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788832771612,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0846841387668535, max background_merging: 2.0, count: 59409"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.711996935837427, max cpu: 9.595202, count: 59409"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.66879183130923, max mem: 19.6875, count: 59409"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.955012848769071, max cpu: 28.458496, count: 59409"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 46.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.68921415000253, max mem: 51.828125, count: 59409"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52488,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52307.39882846033, max block_count: 52488.0, count: 59409"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 67.9901698395866, max segment_count: 105.0, count: 59409"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.587223,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.11542593589553, max cpu: 33.300297, count: 59409"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 80.22800502922537, max mem: 83.94140625, count: 59409"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.660149947069487, max cpu: 9.6725445, count: 59409"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.540055221010284, max mem: 33.7109375, count: 59409"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.778179620359881, max cpu: 23.680315, count: 59409"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 51.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.83689918615025, max mem: 51.93359375, count: 59409"
           }
         ]
       }

@@ -45,7 +45,7 @@ pub fn arrow_array_to_datum(
     oid: PgOid,
     numeric_scale: Option<i16>,
 ) -> anyhow::Result<Option<pg_sys::Datum>> {
-    if array.is_null(index) {
+    if array.is_null(index) || array.data_type() == &DataType::Null {
         return Ok(None);
     }
 

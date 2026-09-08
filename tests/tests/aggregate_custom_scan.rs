@@ -151,6 +151,47 @@ fn test_group_by(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_prepared_tantivy_groupby_survives_reuse(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    let query = r#"
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#;
+
+    assert_uses_custom_scan(&mut conn, true, query);
+    let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+    let plan = plan.to_string();
+    assert!(
+        !plan.contains("DataFusion Physical Plan"),
+        "expected the Tantivy aggregate backend:\n{plan}"
+    );
+
+    let expected: Vec<(i32, i64)> = query.fetch(&mut conn);
+    assert_eq!(expected, vec![(3, 1), (4, 1), (5, 1)]);
+
+    r#"
+        PREPARE group_by_rating AS
+        SELECT rating, COUNT(*)
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes'
+        GROUP BY rating
+        ORDER BY rating
+    "#
+    .execute(&mut conn);
+
+    for _ in 0..8 {
+        let actual: Vec<(i32, i64)> = "EXECUTE group_by_rating".fetch(&mut conn);
+        assert_eq!(actual, expected);
+    }
+}
+
+#[rstest]
 fn test_group_by_null_bucket(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

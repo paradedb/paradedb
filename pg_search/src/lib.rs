@@ -156,6 +156,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();
 
+    postgres::index_only::register_hook();
+
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::basescan::BaseScan);

@@ -219,7 +219,7 @@ ORDER BY id;
          Index: providers_paradedb
          Bitmap Intersection: providers_location
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}}]}}
          ->  Bitmap Index Scan on providers_location
@@ -272,7 +272,7 @@ ORDER BY id;
          Table: providers
          Index: providers_paradedb
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"with_index":{"query":{"term":{"field":"gender","value":"female"}}}}]}},"always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}
 (9 rows)
@@ -371,7 +371,7 @@ ORDER BY id;
          Index: providers_paradedb
          Bitmap Intersection: providers_loc_area
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(service_area && '<(50,50),1>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":0}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[],"recheck_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}],"uses_tid_bitmap":true,"bitmap_consumer_id":1}}]}}
          ->  Bitmap Index Scan on providers_loc_area
@@ -746,7 +746,7 @@ WARNING:  a faster query path is likely available for (location <@ '<(50,5),3>':
          Table: unsorted_providers
          Index: unsorted_paradedb
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(location <@ '<(50,5),3>'::circle)"}]}}]}}
 (9 rows)

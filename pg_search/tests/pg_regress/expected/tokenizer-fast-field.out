@@ -44,8 +44,9 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
          Scores: false
             TopK Order By: t asc, id asc
             TopK Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
  id |   t   |     t_long      |                metadata                
@@ -90,8 +91,9 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
          Scores: false
             TopK Order By: t_long asc, id asc
             TopK Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
  id |   t   |     t_long      |                metadata                
@@ -161,8 +163,9 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Index: idxtokenizer_fast
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: tokenizer_fast)

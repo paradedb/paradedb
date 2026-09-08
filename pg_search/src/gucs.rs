@@ -376,7 +376,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_aggregate_late_materialization",
         c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
+        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. The placement rule for deferred string columns does not cover this trade, so it stays off. Default is false.",
         &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),

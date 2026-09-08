@@ -34,7 +34,11 @@
 //! flip plans between runs; the key shape does not. The price of that is a join whose other
 //! side is far more selective than the keys suggest: the scan then decodes rows the join
 //! would have dropped. The join key `InList` pushed down into the probe scan covers the
-//! common case, since the scan prunes on it before it reads any column.
+//! common case, since the scan prunes on it before it reads any column. That pruning only
+//! reaches the probe side. The case it leaves open is a build-side column whose probe side
+//! is the selective one: the scan decodes rows the join then drops. An estimate would not
+//! close that case today either, because a scan reports no distinct count for a join key,
+//! and without one an equi-join has no row count of its own to compare against.
 //!
 //! The shape of the model follows Liu et al., "Selective Late Materialization in Modern
 //! Analytical Databases" (PVLDB 2025): each attribute picks its own point between its scan

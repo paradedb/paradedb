@@ -1,9 +1,13 @@
--- Merging an already-replicated IVF segment into a larger one (tantivy
--- c4582807: IVF count() returns distinct docs, not posting rows). At the
--- prior rev, a replicated segment's posting-row total was read where a doc
--- count was meant, tripping debug-build accounting asserts in tantivy's IVF
--- plugin when such a segment became a merge SOURCE. pgrx regress builds are
--- debug builds, so this test exercises those asserts for real.
+-- Merging an IVF segment into a larger one (tantivy c4582807: IVF count()
+-- returns distinct docs, not posting rows). At the prior rev, a segment's
+-- posting-row total was read where a doc count was meant, tripping
+-- debug-build accounting asserts in tantivy's IVF plugin when such a segment
+-- became a merge SOURCE. pgrx regress builds are debug builds, so this test
+-- exercises those asserts for real.
+--
+-- cluster_replication is accepted for compatibility but assignment is
+-- primary-only: every vector lands in exactly one cell, so per-cluster
+-- memberships sum to the distinct-doc count.
 --
 -- client_min_messages: the IVF merge emits a paradedb::ivf_build timings
 -- NOTICE with nondeterministic millisecond values — keep it out of the
@@ -28,7 +32,7 @@ CREATE TABLE remerge (
 -- keeps every merge in the foreground, deterministic. Inserts flush ~1000-doc
 -- segments of ~70kb, and a 600kb layer closes its first candidate at
 -- >= 10000 docs — at or above tantivy's vector_clustering_threshold, so the
--- merge target is written IVF (clustered), with every vector in 3 cells.
+-- merge target is written IVF (clustered) under the stacked centroid router.
 CREATE INDEX remerge_idx ON remerge
     USING paradedb (id, vec vector_l2_ops)
     WITH (
@@ -52,8 +56,7 @@ FROM paradedb.vector_info('remerge_idx', 'vec');
  t
 (1 row)
 
--- ...whose reported vector count is distinct docs (= its doc count), not the
--- 3x posting-row total that replication writes...
+-- ...whose reported vector count is distinct docs (= its doc count)...
 SELECT bool_and(v.vector_num_vectors = i.num_docs) AS num_vectors_is_distinct_docs
 FROM paradedb.vector_info('remerge_idx', 'vec') v
 JOIN paradedb.index_info('remerge_idx') i USING (segno)
@@ -63,9 +66,9 @@ WHERE v.vector_format = 'ivf';
  t
 (1 row)
 
--- ...while the per-cluster sizes deliberately stay memberships: their total
--- strictly exceeds the distinct-doc count under replication.
-SELECT sum(vector_total_memberships) > sum(vector_num_vectors)
+-- ...and the per-cluster sizes are memberships, which under primary-only
+-- assignment total exactly the distinct-doc count.
+SELECT sum(vector_total_memberships) = sum(vector_num_vectors)
          AS cluster_sizes_are_memberships
 FROM paradedb.vector_info('remerge_idx', 'vec')
 WHERE vector_format = 'ivf';
@@ -74,7 +77,7 @@ WHERE vector_format = 'ivf';
  t
 (1 row)
 
--- Wave 2: make the replicated IVF segment a merge SOURCE. The layer must
+-- Wave 2: make the IVF segment a merge SOURCE. The layer must
 -- admit it (it is ~2.5-3.1mb; 3500kb leaves headroom) and the total corpus
 -- must overfill the extended layer, which the extra 35000 rows guarantee.
 ALTER INDEX remerge_idx SET (layer_sizes = '3500kb');
@@ -99,9 +102,8 @@ WHERE v.vector_format = 'ivf';
 
 -- Exhaustive probing: the ceiling clamps to each segment's cluster count,
 -- and LIMIT 60000 widens the candidate floor (4 x top_n) past the corpus so
--- the distance gate cannot stop early. The twice-merged replicated index
--- must return every distinct row exactly once — replicas deduped, nothing
--- lost, nothing doubled.
+-- the distance gate cannot stop early. The twice-merged index must return
+-- every distinct row exactly once — nothing lost, nothing doubled.
 SET paradedb.vector_cluster_max_probe = 1.0;
 SELECT count(*) AS returned, count(DISTINCT id) AS distinct_ids
 FROM (

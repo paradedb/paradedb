@@ -486,7 +486,7 @@ impl pdb::Query {
                     "pdb::Query::UnclassifiedArray cannot be converted into a TantivyQuery"
                 )
             }
-            pdb::Query::Exists => exists(field, searcher),
+            pdb::Query::Exists => exists(field, searcher)?,
             pdb::Query::ScoreAdjusted { query, score } => score_adjust_query(
                 field,
                 schema,
@@ -728,25 +728,32 @@ impl pdb::Query {
 
     /// Returns a heuristic selectivity for this query type, avoiding expensive scorer construction.
     pub fn selectivity_heuristic(&self) -> f64 {
+        self.estimated_selectivity()
+            .unwrap_or(crate::UNKNOWN_SELECTIVITY)
+    }
+
+    /// The heuristic selectivity, or `None` for the leaves we have no heuristic for. See
+    /// [`crate::query::SearchQueryInput::estimated_selectivity`] for why the two are distinct.
+    pub(crate) fn estimated_selectivity(&self) -> Option<f64> {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
         match self {
             pdb::Query::FuzzyTerm { distance, .. } => {
                 let dist = distance.unwrap_or(1);
                 if dist <= 1 {
-                    FUZZY_LOW_SELECTIVITY
+                    Some(FUZZY_LOW_SELECTIVITY)
                 } else {
-                    FUZZY_HIGH_SELECTIVITY
+                    Some(FUZZY_HIGH_SELECTIVITY)
                 }
             }
 
-            pdb::Query::ParseWithField { .. } => FUZZY_LOW_SELECTIVITY,
+            pdb::Query::ParseWithField { .. } => Some(FUZZY_LOW_SELECTIVITY),
 
-            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => REGEX_SELECTIVITY,
+            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => Some(REGEX_SELECTIVITY),
 
-            pdb::Query::ScoreAdjusted { query, .. } => query.selectivity_heuristic(),
+            pdb::Query::ScoreAdjusted { query, .. } => query.estimated_selectivity(),
 
-            _ => crate::UNKNOWN_SELECTIVITY,
+            _ => None,
         }
     }
 }
@@ -2144,14 +2151,17 @@ fn fast_field_range_weight(
     Box::new(FastFieldRangeQuery::new(new_lower_bound, new_upper_bound))
 }
 
-fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
+fn exists(field: FieldName, searcher: &Searcher) -> anyhow::Result<Box<ExistsQuery>> {
     let schema_field = searcher.schema().get_field(&field.root()).unwrap();
-    let is_json = searcher
-        .schema()
-        .get_field_entry(schema_field)
-        .field_type()
-        .is_json();
-    Box::new(ExistsQuery::new(field.into_inner(), is_json))
+    let field_type = searcher.schema().get_field_entry(schema_field).field_type();
+    anyhow::ensure!(
+        field_type.is_fast(),
+        "exists field '{field}' must be columnar. Add it to the index with 'columnar=true'"
+    );
+    Ok(Box::new(ExistsQuery::new(
+        field.into_inner(),
+        field_type.is_json(),
+    )))
 }
 
 pub(super) fn parse_tantivy_query(

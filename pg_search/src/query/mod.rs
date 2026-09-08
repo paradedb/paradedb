@@ -581,48 +581,77 @@ impl SearchQueryInput {
 
     /// Returns a heuristic selectivity for this query, avoiding expensive scorer construction.
     pub fn selectivity_heuristic(&self) -> f64 {
+        self.estimated_selectivity()
+            .unwrap_or(crate::UNKNOWN_SELECTIVITY)
+    }
+
+    /// The heuristic selectivity, or `None` where this shape has no heuristic to offer.
+    ///
+    /// Keeping "no estimate" distinct from a value is what lets a conjunction skip the clauses it
+    /// cannot estimate. Folding [`crate::UNKNOWN_SELECTIVITY`] into the product instead would read
+    /// as an extremely selective clause, so each un-estimatable conjunct would shrink the row count
+    /// by five orders of magnitude.
+    fn estimated_selectivity(&self) -> Option<f64> {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
-            SearchQueryInput::Boolean { must, should, .. } => {
-                // AND: product of children selectivities; OR: max of children selectivities.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                // A `should` clause only narrows the result when one of them has to match.
+                // Tantivy follows Elasticsearch: one is required while nothing else is, none are
+                // once a `must` or `must_not` joins them, and `minimum_should_match` overrides
+                // both. Beside a `must` without it, a `should` adds score and keeps no row out.
+                let should_filters = match minimum_should_match {
+                    Some(count) => *count >= 1,
+                    None => must.is_empty() && must_not.is_empty(),
+                };
+
                 let must_sel = must
                     .iter()
-                    .map(Self::selectivity_heuristic)
-                    .product::<f64>();
-                let should_sel = should
-                    .iter()
-                    .map(Self::selectivity_heuristic)
-                    .reduce(f64::max)
-                    .unwrap_or(1.0);
+                    .filter_map(Self::estimated_selectivity)
+                    .reduce(|left, right| left * right);
+                // Read the group as a union however many matches it asks for. Counting them would
+                // read as fewer rows, and too few rows is what makes a scan look too cheap to
+                // hand to workers.
+                let should_sel = should_filters
+                    .then(|| {
+                        should
+                            .iter()
+                            .filter_map(Self::estimated_selectivity)
+                            .reduce(f64::max)
+                    })
+                    .flatten();
 
-                if !must.is_empty() {
-                    must_sel * should_sel
-                } else {
-                    should_sel
+                match (must_sel, should_sel) {
+                    (Some(must_sel), Some(should_sel)) => Some(must_sel * should_sel),
+                    (Some(sel), None) | (None, Some(sel)) => Some(sel),
+                    (None, None) => None,
                 }
             }
 
-            SearchQueryInput::Boost { query, .. } => Self::selectivity_heuristic(query),
-            SearchQueryInput::ConstScore { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::Boost { query, .. } => Self::estimated_selectivity(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::estimated_selectivity(query),
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
                 .iter()
-                .map(Self::selectivity_heuristic)
-                .reduce(f64::max)
-                .unwrap_or(crate::UNKNOWN_SELECTIVITY),
-            SearchQueryInput::WithIndex { query, .. } => Self::selectivity_heuristic(query),
+                .filter_map(Self::estimated_selectivity)
+                .reduce(f64::max),
+            SearchQueryInput::WithIndex { query, .. } => Self::estimated_selectivity(query),
             SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                Self::selectivity_heuristic(indexed_query)
+                Self::estimated_selectivity(indexed_query)
             }
             SearchQueryInput::ScoreFilter {
                 query: Some(query), ..
-            } => Self::selectivity_heuristic(query),
+            } => Self::estimated_selectivity(query),
 
-            SearchQueryInput::MoreLikeThis { .. } => MORE_LIKE_THIS_SELECTIVITY,
+            SearchQueryInput::MoreLikeThis { .. } => Some(MORE_LIKE_THIS_SELECTIVITY),
 
-            SearchQueryInput::FieldedQuery { query, .. } => query.selectivity_heuristic(),
+            SearchQueryInput::FieldedQuery { query, .. } => query.estimated_selectivity(),
 
-            _ => crate::UNKNOWN_SELECTIVITY,
+            _ => None,
         }
     }
 
@@ -716,42 +745,112 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    q.extract_field_names(field_names);
+    /// Returns false when the query can search unspecified fields.
+    pub fn extract_field_names(
+        &self,
+        schema: &SearchIndexSchema,
+        field_names: &mut crate::api::HashSet<String>,
+    ) -> bool {
+        use tantivy::query_grammar::{
+            UserInputAst, UserInputLeaf, parse_query, parse_query_lenient,
+        };
+
+        let mut complete = true;
+        self.visit_ref(&mut |query| {
+            let query_string = match query {
+                Self::FieldedQuery { field, query } => {
+                    let mut query = query;
+                    while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                        query = inner;
+                    }
+                    match query {
+                        pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
+                        pdb::Query::ParseWithField { query_string, .. } => {
+                            field_names.insert(field.root());
+                            if schema.search_field(field).is_some_and(|field| {
+                                matches!(field.field_entry().field_type(), FieldType::Facet(_))
+                            }) {
+                                None
+                            } else {
+                                Some(format!("{field}:({query_string})"))
+                            }
+                        }
+                        pdb::Query::All | pdb::Query::Empty => None,
+                        _ => {
+                            field_names.insert(field.root());
+                            None
+                        }
+                    }
+                }
+                Self::Parse { query_string, .. } => Some(query_string.clone()),
+                Self::TermSet { terms } => {
+                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                    None
+                }
+                Self::MoreLikeThis {
+                    document: Some(document),
+                    ..
+                } => {
+                    field_names.extend(
+                        document
+                            .iter()
+                            .map(|(field, _)| FieldName::from(field).root()),
+                    );
+                    None
+                }
+                Self::MoreLikeThis {
+                    fields: Some(fields),
+                    ..
+                } => {
+                    field_names.extend(fields.iter().map(|field| FieldName::from(field).root()));
+                    None
+                }
+                Self::MoreLikeThis { .. } | Self::PostgresExpression { .. } => {
+                    complete = false;
+                    None
+                }
+                Self::Uninitialized
+                | Self::All
+                | Self::Empty
+                | Self::Boolean { .. }
+                | Self::Boost { .. }
+                | Self::ConstScore { .. }
+                | Self::ScoreFilter { .. }
+                | Self::DisjunctionMax { .. }
+                | Self::WithIndex { .. }
+                | Self::HeapFilter { .. } => None,
+            };
+            if let Some(query_string) = query_string {
+                let mut nodes = vec![
+                    parse_query(&query_string)
+                        .unwrap_or_else(|_| parse_query_lenient(&query_string).0),
+                ];
+                while let Some(node) = nodes.pop() {
+                    match node {
+                        UserInputAst::Clause(children) => {
+                            nodes.extend(children.into_iter().map(|(_, child)| child))
+                        }
+                        UserInputAst::Boost(inner, _) => nodes.push(*inner),
+                        UserInputAst::Leaf(leaf) => {
+                            let field = match *leaf {
+                                UserInputLeaf::Literal(literal) => literal.field_name,
+                                UserInputLeaf::Range { field, .. }
+                                | UserInputLeaf::Set { field, .. }
+                                | UserInputLeaf::Regex { field, .. } => field,
+                                UserInputLeaf::Exists { field } => Some(field),
+                                UserInputLeaf::All => continue,
+                            };
+                            if let Some(field) = field {
+                                field_names.insert(FieldName::from(field).root());
+                            } else {
+                                complete = false;
+                            }
+                        }
+                    }
                 }
             }
-            SearchQueryInput::Boost { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.extract_field_names(field_names);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.extract_field_names(field_names);
-            }
-            SearchQueryInput::FieldedQuery { field, .. } => {
-                field_names.insert(field.root());
-            }
-            // For other query types, we can't easily extract field names
-            // This is a conservative approach - if we can't determine, we allow it
-            _ => {}
-        }
+        });
+        complete
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {
@@ -1971,6 +2070,126 @@ mod tests {
                 conjunction_mode: None,
             },
         }
+    }
+
+    fn create_regex_query() -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: "test".into(),
+            query: pdb::Query::Regex {
+                pattern: "charg.*".into(),
+            },
+        }
+    }
+
+    fn create_fuzzy_query() -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: "test".into(),
+            query: pdb::Query::FuzzyTerm {
+                value: "value".into(),
+                distance: Some(1),
+                transposition_cost_one: None,
+                prefix: None,
+            },
+        }
+    }
+
+    fn conjunction(must: Vec<SearchQueryInput>) -> SearchQueryInput {
+        SearchQueryInput::Boolean {
+            must,
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        }
+    }
+
+    fn boolean(
+        must: Vec<SearchQueryInput>,
+        should: Vec<SearchQueryInput>,
+        minimum_should_match: Option<i64>,
+    ) -> SearchQueryInput {
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not: vec![],
+            minimum_should_match,
+        }
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_ignores_optional_should_clauses() {
+        // Beside a `must`, a `should` is optional: it adds score and keeps no row out, so the
+        // estimate is the `must` alone.
+        let optional = boolean(vec![create_regex_query()], vec![create_fuzzy_query()], None);
+        assert_eq!(optional.selectivity_heuristic(), crate::REGEX_SELECTIVITY);
+
+        // Asking for one of them makes it required, so now it narrows.
+        let required = boolean(
+            vec![create_regex_query()],
+            vec![create_fuzzy_query()],
+            Some(1),
+        );
+        assert_eq!(
+            required.selectivity_heuristic(),
+            crate::REGEX_SELECTIVITY * crate::FUZZY_LOW_SELECTIVITY
+        );
+
+        // On its own a `should` is required, the same default Tantivy applies.
+        let alone = boolean(vec![], vec![create_regex_query()], None);
+        assert_eq!(alone.selectivity_heuristic(), crate::REGEX_SELECTIVITY);
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_reads_should_group_as_a_union() {
+        // `minimum_should_match` of two still reads as a union. Counting the matches would
+        // report fewer rows, and too few rows is what leaves a scan looking too cheap to split.
+        let two_of_two = boolean(
+            vec![],
+            vec![create_regex_query(), create_fuzzy_query()],
+            Some(2),
+        );
+        assert_eq!(
+            two_of_two.selectivity_heuristic(),
+            crate::REGEX_SELECTIVITY.max(crate::FUZZY_LOW_SELECTIVITY)
+        );
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_ignores_unestimatable_conjuncts() {
+        // A term set has no heuristic of its own, so it must leave the regex estimate alone
+        // rather than scale it down by the unknown sentinel.
+        let regex_only = create_regex_query().selectivity_heuristic();
+        assert_eq!(regex_only, crate::REGEX_SELECTIVITY);
+
+        let with_unknown =
+            conjunction(vec![create_regex_query(), create_term_query()]).selectivity_heuristic();
+        assert_eq!(with_unknown, crate::REGEX_SELECTIVITY);
+
+        // More of them still cannot move it.
+        let with_two_unknowns = conjunction(vec![
+            create_regex_query(),
+            create_term_query(),
+            create_match_query(),
+        ])
+        .selectivity_heuristic();
+        assert_eq!(with_two_unknowns, crate::REGEX_SELECTIVITY);
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_multiplies_estimatable_conjuncts() {
+        let both = conjunction(vec![create_regex_query(), create_fuzzy_query()]);
+        assert_eq!(
+            both.selectivity_heuristic(),
+            crate::REGEX_SELECTIVITY * crate::FUZZY_LOW_SELECTIVITY
+        );
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_falls_back_when_nothing_is_estimatable() {
+        let unknown_only = conjunction(vec![create_term_query(), create_match_query()]);
+        assert_eq!(
+            unknown_only.selectivity_heuristic(),
+            crate::UNKNOWN_SELECTIVITY
+        );
     }
 
     #[pg_test]

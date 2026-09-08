@@ -47,21 +47,16 @@ SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
-                              QUERY PLAN                               
------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: mock_items_id_description_rating_category_metadata_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
-(8 rows)
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items
+   Index: mock_items_id_description_rating_category_metadata_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(metadata.color)
+     Aggregate Definition: {"0":{"value_count":{"field":"metadata.color","missing":null}}}
+(5 rows)
 
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  count 
 -------
     41
@@ -86,7 +81,7 @@ SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a variable. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
+WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Aggregate
@@ -100,7 +95,7 @@ WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a 
 (8 rows)
 
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
-WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a variable. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
+WARNING:  Aggregate Scan not used: unsupported constant type in COALESCE default value. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
  count 
 -------
     43

@@ -120,7 +120,7 @@ ORDER BY category, brand;
 (3 rows)
 
 -- =========================================
--- Test 3: JSON GROUP BY with various aggregate functions (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 3: JSON GROUP BY with various aggregate functions
 -- =========================================
 -- Create test table for aggregates
 CREATE TABLE json_test_aggregates (
@@ -182,24 +182,16 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((metadata ->> 'category'::text)), sum(((metadata ->> 'price'::text))::numeric)
-   Group Key: ((json_test_aggregates.metadata ->> 'category'::text))
-   ->  Sort
-         Output: ((metadata ->> 'category'::text)), metadata
-         Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
-               Output: (metadata ->> 'category'::text), metadata
-               Table: json_test_aggregates
-               Index: idx_json_aggregates
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(14 rows)
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
+   Output: (metadata ->> 'category'::text), pdb.agg_fn('SUM'::text)
+   Index: idx_json_aggregates
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: SUM(metadata.price)
+     Group By: metadata.category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"metadata.price","missing":null,"none_if_no_match":true}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT metadata->>'category' AS category, 
@@ -208,7 +200,6 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
  category | total_price 
 ----------+-------------
           |        3285
@@ -223,24 +214,16 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((metadata ->> 'brand'::text)), avg(((metadata ->> 'price'::text))::numeric), count(*)
-   Group Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-   ->  Sort
-         Output: ((metadata ->> 'brand'::text)), metadata
-         Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
-               Output: (metadata ->> 'brand'::text), metadata
-               Table: json_test_aggregates
-               Index: idx_json_aggregates
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(14 rows)
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
+   Output: (metadata ->> 'brand'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text)
+   Index: idx_json_aggregates
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: AVG(metadata.price), COUNT(*)
+     Group By: metadata.brand
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"metadata.price","missing":null}}},"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT metadata->>'brand' AS brand, 
@@ -250,12 +233,11 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-  brand  |       avg_price       | item_count 
----------+-----------------------+------------
- Apple   | 1149.0000000000000000 |          2
- Nike    |   94.0000000000000000 |          2
- Samsung |  799.0000000000000000 |          1
+  brand  | avg_price | item_count 
+---------+-----------+------------
+ Apple   |      1149 |          2
+ Nike    |        94 |          2
+ Samsung |       799 |          1
 (3 rows)
 
 -- Test JSON field GROUP BY with MIN/MAX with EXPLAIN
@@ -268,24 +250,16 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((metadata ->> 'category'::text)), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric), count(*)
-   Group Key: ((json_test_aggregates.metadata ->> 'category'::text))
-   ->  Sort
-         Output: ((metadata ->> 'category'::text)), metadata
-         Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
-               Output: (metadata ->> 'category'::text), metadata
-               Table: json_test_aggregates
-               Index: idx_json_aggregates
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(14 rows)
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
+   Output: (metadata ->> 'category'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT(*)'::text)
+   Index: idx_json_aggregates
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: MIN(metadata.price), MAX(metadata.price), COUNT(*)
+     Group By: metadata.category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"metadata.price","missing":null}},"1":{"max":{"field":"metadata.price","missing":null}}},"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT metadata->>'category' AS category, 
@@ -296,7 +270,6 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
  category | min_price | max_price | item_count 
 ----------+-----------+-----------+------------
           |        89 |      1299 |          5
@@ -314,24 +287,16 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((metadata ->> 'brand'::text)), count(*), sum(((metadata ->> 'price'::text))::numeric), avg(((metadata ->> 'price'::text))::numeric), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   Group Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-   ->  Sort
-         Output: ((metadata ->> 'brand'::text)), metadata
-         Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
-               Output: (metadata ->> 'brand'::text), metadata
-               Table: json_test_aggregates
-               Index: idx_json_aggregates
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(14 rows)
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
+   Output: (metadata ->> 'brand'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: idx_json_aggregates
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+     Applies to Aggregates: COUNT(*), SUM(metadata.price), AVG(metadata.price), MIN(metadata.price), MAX(metadata.price)
+     Group By: metadata.brand
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"metadata.price","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"metadata.price","missing":null}},"2":{"min":{"field":"metadata.price","missing":null}},"3":{"max":{"field":"metadata.price","missing":null}}},"terms":{"field":"metadata.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT metadata->>'brand' AS brand, 
@@ -344,12 +309,11 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_aggregates)
-  brand  | item_count | total_value |       avg_price       | min_price | max_price 
----------+------------+-------------+-----------------------+-----------+-----------
- Apple   |          2 |        2298 | 1149.0000000000000000 |       999 |      1299
- Nike    |          2 |         188 |   94.0000000000000000 |        89 |        99
- Samsung |          1 |         799 |  799.0000000000000000 |       799 |       799
+  brand  | item_count | total_value | avg_price | min_price | max_price 
+---------+------------+-------------+-----------+-----------+-----------
+ Apple   |          2 |        2298 |      1149 |       999 |      1299
+ Nike    |          2 |         188 |        94 |        89 |        99
+ Samsung |          1 |         799 |       799 |       799 |       799
 (3 rows)
 
 -- =========================================
@@ -810,24 +774,16 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), count(*), avg((((document -> 'metrics'::text) ->> 'score'::text))::numeric)
-   Group Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-   ->  Sort
-         Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), document
-         Sort Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
-               Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), document
-               Table: json_test_complex
-               Index: idx_json_complex
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"document.source.system"}}}},{"with_index":{"query":{"exists":{"field":"document.metrics.category"}}}}]}}
-(14 rows)
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_complex
+   Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
+   Index: idx_json_complex
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"document.source.system"}}}},{"with_index":{"query":{"exists":{"field":"document.metrics.category"}}}}]}}
+     Applies to Aggregates: COUNT(*), AVG(document.metrics.score)
+     Group By: document.source.system, document.metrics.category
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"document.metrics.score","missing":null}}},"terms":{"field":"document.metrics.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"document.source.system","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT document->'source'->>'system' AS source_system,
@@ -839,16 +795,15 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
- source_system | metric_category | count |      avg_score      
----------------+-----------------+-------+---------------------
- billing       | A               |     1 | 95.0000000000000000
- crm           | A               |     1 | 85.0000000000000000
- crm           | B               |     2 | 75.0000000000000000
- support       | C               |     1 | 60.0000000000000000
+ source_system | metric_category | count | avg_score 
+---------------+-----------------+-------+-----------
+ billing       | A               |     1 |        95
+ crm           | A               |     1 |        85
+ crm           | B               |     2 |        75
+ support       | C               |     1 |        60
 (4 rows)
 
--- Test GROUP BY with comprehensive aggregates on scores (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test GROUP BY with comprehensive aggregates on scores
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT document->'metrics'->>'category' AS metric_category,
        COUNT(*) AS total_records,
@@ -860,24 +815,16 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
-                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: (((document -> 'metrics'::text) ->> 'category'::text)), count(*), sum((((document -> 'metrics'::text) ->> 'score'::text))::numeric), avg((((document -> 'metrics'::text) ->> 'score'::text))::numeric), min((((document -> 'metrics'::text) ->> 'score'::text))::numeric), max((((document -> 'metrics'::text) ->> 'score'::text))::numeric)
-   Group Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-   ->  Sort
-         Output: (((document -> 'metrics'::text) ->> 'category'::text)), document
-         Sort Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
-               Output: ((document -> 'metrics'::text) ->> 'category'::text), document
-               Table: json_test_complex
-               Index: idx_json_complex
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"document.metrics.score"}}}}
-(14 rows)
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_complex
+   Output: ((document -> 'metrics'::text) ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: idx_json_complex
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"document.metrics.score"}}}}
+     Applies to Aggregates: COUNT(*), SUM(document.metrics.score), AVG(document.metrics.score), MIN(document.metrics.score), MAX(document.metrics.score)
+     Group By: document.metrics.category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"document.metrics.score","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"document.metrics.score","missing":null}},"2":{"min":{"field":"document.metrics.score","missing":null}},"3":{"max":{"field":"document.metrics.score","missing":null}}},"terms":{"field":"document.metrics.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT document->'metrics'->>'category' AS metric_category,
@@ -890,12 +837,11 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_complex)
- metric_category | total_records | total_score |      avg_score      | min_score | max_score 
------------------+---------------+-------------+---------------------+-----------+-----------
- A               |             2 |         180 | 90.0000000000000000 |        85 |        95
- B               |             2 |         150 | 75.0000000000000000 |        70 |        80
- C               |             1 |          60 | 60.0000000000000000 |        60 |        60
+ metric_category | total_records | total_score | avg_score | min_score | max_score 
+-----------------+---------------+-------------+-----------+-----------+-----------
+ A               |             2 |         180 |        90 |        85 |        95
+ B               |             2 |         150 |        75 |        70 |        80
+ C               |             1 |          60 |        60 |        60 |        60
 (3 rows)
 
 -- =========================================
@@ -1150,7 +1096,7 @@ ORDER BY department, role, location;
  Sales       | Junior  | NYC      |              1
 (7 rows)
 
--- Test 3: Mix subfields from different JSON fields (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 3: Mix subfields from different JSON fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     user_profile->>'department' AS department,
@@ -1162,24 +1108,16 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((user_profile ->> 'department'::text)), ((order_details ->> 'category'::text)), count(*), sum(((order_details ->> 'quantity'::text))::integer)
-   Group Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-   ->  Sort
-         Output: ((user_profile ->> 'department'::text)), ((order_details ->> 'category'::text)), order_details
-         Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
-               Output: (user_profile ->> 'department'::text), (order_details ->> 'category'::text), order_details
-               Table: json_test_multi_subfields
-               Index: idx_json_multi_subfields
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
-(14 rows)
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
+   Output: (user_profile ->> 'department'::text), (order_details ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Index: idx_json_multi_subfields
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
+     Applies to Aggregates: COUNT(*), SUM(order_details.quantity)
+     Group By: user_profile.department, order_details.category
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"order_details.quantity","missing":null,"none_if_no_match":true}}},"terms":{"field":"order_details.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT 
@@ -1192,7 +1130,6 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
  department  | product_category | order_count | total_quantity 
 -------------+------------------+-------------+----------------
  Engineering | electronics      |           3 |              9
@@ -1202,7 +1139,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
  Sales       | electronics      |           1 |              1
 (5 rows)
 
--- Test 4: Complex query with subfields from both JSON fields plus aggregates (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 4: Complex query with subfields from both JSON fields plus aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     user_profile->>'department' AS department,
@@ -1218,24 +1155,16 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
-                                                                                                                                         QUERY PLAN                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: ((user_profile ->> 'department'::text)), ((user_profile ->> 'location'::text)), ((order_details ->> 'product'::text)), ((order_details ->> 'category'::text)), count(*), avg(((order_details ->> 'price'::text))::numeric), sum(((order_details ->> 'quantity'::text))::integer)
-   Group Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.user_profile ->> 'location'::text)), ((json_test_multi_subfields.order_details ->> 'product'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-   ->  Sort
-         Output: ((user_profile ->> 'department'::text)), ((user_profile ->> 'location'::text)), ((order_details ->> 'product'::text)), ((order_details ->> 'category'::text)), order_details
-         Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.user_profile ->> 'location'::text)), ((json_test_multi_subfields.order_details ->> 'product'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
-               Output: (user_profile ->> 'department'::text), (user_profile ->> 'location'::text), (order_details ->> 'product'::text), (order_details ->> 'category'::text), order_details
-               Table: json_test_multi_subfields
-               Index: idx_json_multi_subfields
-               Worker Selection: Cost model
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
-(14 rows)
+                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multi_subfields
+   Output: (user_profile ->> 'department'::text), (user_profile ->> 'location'::text), (order_details ->> 'product'::text), (order_details ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('SUM'::text)
+   Index: idx_json_multi_subfields
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"order_details.category"}}}}]}}
+     Applies to Aggregates: COUNT(*), AVG(order_details.price), SUM(order_details.quantity)
+     Group By: user_profile.department, user_profile.location, order_details.product, order_details.category
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"order_details.price","missing":null}},"1":{"sum":{"field":"order_details.quantity","missing":null,"none_if_no_match":true}}},"terms":{"field":"order_details.category","segment_size":65000,"size":65000}}},"terms":{"field":"order_details.product","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.location","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"user_profile.department","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT 
@@ -1252,17 +1181,16 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: json_test_multi_subfields)
- department  | location | product |  category   | order_count |       avg_price       | total_quantity 
--------------+----------+---------+-------------+-------------+-----------------------+----------------
- Engineering | NYC      | mouse   | electronics |           1 |   25.0000000000000000 |              5
- Engineering | SF       | desk    | furniture   |           1 |  300.0000000000000000 |              2
- Engineering | SF       | laptop  | electronics |           1 | 1200.0000000000000000 |              2
- Engineering | SF       | monitor | electronics |           1 |  400.0000000000000000 |              2
- Marketing   | LA       | chair   | furniture   |           1 |  150.0000000000000000 |              3
- Marketing   | LA       | tablet  | electronics |           1 |  500.0000000000000000 |              1
- Marketing   | SF       | desk    | furniture   |           1 |  300.0000000000000000 |              1
- Sales       | NYC      | laptop  | electronics |           1 | 1200.0000000000000000 |              1
+ department  | location | product |  category   | order_count | avg_price | total_quantity 
+-------------+----------+---------+-------------+-------------+-----------+----------------
+ Engineering | NYC      | mouse   | electronics |           1 |        25 |              5
+ Engineering | SF       | desk    | furniture   |           1 |       300 |              2
+ Engineering | SF       | laptop  | electronics |           1 |      1200 |              2
+ Engineering | SF       | monitor | electronics |           1 |       400 |              2
+ Marketing   | LA       | chair   | furniture   |           1 |       150 |              3
+ Marketing   | LA       | tablet  | electronics |           1 |       500 |              1
+ Marketing   | SF       | desk    | furniture   |           1 |       300 |              1
+ Sales       | NYC      | laptop  | electronics |           1 |      1200 |              1
 (8 rows)
 
 -- =========================================

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788831549712,
+  "lastUpdate": 1788831561197,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307454,6 +307454,162 @@ window.BENCHMARK_DATA = {
             "value": 17.6875,
             "unit": "median mem",
             "extra": "avg mem: 17.638569072006145, max mem: 17.80078125, count: 59238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788831554831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.67512733028109, max cpu: 37.944664, count: 59255"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 50.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.74910430818075, max mem: 64.48046875, count: 59255"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8734838449685127, max cpu: 4.703577, count: 59255"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.328847315099992, max mem: 17.37109375, count: 59255"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.657933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.705628617721451, max cpu: 9.384164, count: 59255"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.52511549658257, max mem: 21.5390625, count: 59255"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 10131,
+            "unit": "median pages",
+            "extra": "avg pages: 11117.370652265632, max pages: 29558.0, count: 59255"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 79.1484375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 86.85445888005232, max relation_size:MB: 230.921875, count: 59255"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 66,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 61.37392625094929, max segment_count: 107.0, count: 59255"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1198257171758987, max cpu: 4.6943765, count: 59255"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.399663991962704, max mem: 17.41015625, count: 59255"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.871535674780546, max cpu: 37.944664, count: 59255"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.485438926567376, max mem: 61.46875, count: 59255"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.58775883976415, max cpu: 37.944664, count: 59255"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.29219046652181, max mem: 56.9140625, count: 59255"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 103.81110382080078,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 193.60061461426378, max replication_lag:MB: 882.4042053222656, count: 59255"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.86211398586282, max cpu: 37.944664, count: 59255"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.760932028415326, max mem: 59.9453125, count: 59255"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.08615406752922, max cpu: 28.180038, count: 59255"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.677702237680364, max mem: 17.921875, count: 59255"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.068106613963963, max cpu: 32.510887, count: 59255"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.69551422348325, max mem: 17.9140625, count: 59255"
           }
         ]
       }

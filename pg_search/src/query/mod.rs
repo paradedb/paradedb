@@ -710,42 +710,112 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    q.extract_field_names(field_names);
+    /// Returns false when the query can search unspecified fields.
+    pub fn extract_field_names(
+        &self,
+        schema: &SearchIndexSchema,
+        field_names: &mut crate::api::HashSet<String>,
+    ) -> bool {
+        use tantivy::query_grammar::{
+            UserInputAst, UserInputLeaf, parse_query, parse_query_lenient,
+        };
+
+        let mut complete = true;
+        self.visit_ref(&mut |query| {
+            let query_string = match query {
+                Self::FieldedQuery { field, query } => {
+                    let mut query = query;
+                    while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                        query = inner;
+                    }
+                    match query {
+                        pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
+                        pdb::Query::ParseWithField { query_string, .. } => {
+                            field_names.insert(field.root());
+                            if schema.search_field(field).is_some_and(|field| {
+                                matches!(field.field_entry().field_type(), FieldType::Facet(_))
+                            }) {
+                                None
+                            } else {
+                                Some(format!("{field}:({query_string})"))
+                            }
+                        }
+                        pdb::Query::All | pdb::Query::Empty => None,
+                        _ => {
+                            field_names.insert(field.root());
+                            None
+                        }
+                    }
+                }
+                Self::Parse { query_string, .. } => Some(query_string.clone()),
+                Self::TermSet { terms } => {
+                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                    None
+                }
+                Self::MoreLikeThis {
+                    document: Some(document),
+                    ..
+                } => {
+                    field_names.extend(
+                        document
+                            .iter()
+                            .map(|(field, _)| FieldName::from(field).root()),
+                    );
+                    None
+                }
+                Self::MoreLikeThis {
+                    fields: Some(fields),
+                    ..
+                } => {
+                    field_names.extend(fields.iter().map(|field| FieldName::from(field).root()));
+                    None
+                }
+                Self::MoreLikeThis { .. } | Self::PostgresExpression { .. } => {
+                    complete = false;
+                    None
+                }
+                Self::Uninitialized
+                | Self::All
+                | Self::Empty
+                | Self::Boolean { .. }
+                | Self::Boost { .. }
+                | Self::ConstScore { .. }
+                | Self::ScoreFilter { .. }
+                | Self::DisjunctionMax { .. }
+                | Self::WithIndex { .. }
+                | Self::HeapFilter { .. } => None,
+            };
+            if let Some(query_string) = query_string {
+                let mut nodes = vec![
+                    parse_query(&query_string)
+                        .unwrap_or_else(|_| parse_query_lenient(&query_string).0),
+                ];
+                while let Some(node) = nodes.pop() {
+                    match node {
+                        UserInputAst::Clause(children) => {
+                            nodes.extend(children.into_iter().map(|(_, child)| child))
+                        }
+                        UserInputAst::Boost(inner, _) => nodes.push(*inner),
+                        UserInputAst::Leaf(leaf) => {
+                            let field = match *leaf {
+                                UserInputLeaf::Literal(literal) => literal.field_name,
+                                UserInputLeaf::Range { field, .. }
+                                | UserInputLeaf::Set { field, .. }
+                                | UserInputLeaf::Regex { field, .. } => field,
+                                UserInputLeaf::Exists { field } => Some(field),
+                                UserInputLeaf::All => continue,
+                            };
+                            if let Some(field) = field {
+                                field_names.insert(FieldName::from(field).root());
+                            } else {
+                                complete = false;
+                            }
+                        }
+                    }
                 }
             }
-            SearchQueryInput::Boost { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.extract_field_names(field_names);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.extract_field_names(field_names);
-            }
-            SearchQueryInput::FieldedQuery { field, .. } => {
-                field_names.insert(field.root());
-            }
-            // For other query types, we can't easily extract field names
-            // This is a conservative approach - if we can't determine, we allow it
-            _ => {}
-        }
+        });
+        complete
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {

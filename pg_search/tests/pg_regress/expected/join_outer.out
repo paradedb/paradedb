@@ -603,7 +603,7 @@ WHERE p.page_text @@@ 'Page';
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT'::text)
+   Output: (count(f.id))
    Backend: DataFusion
    Indexes: outer_pages_idx (p), outer_files_idx (f)
    Aggregates: COUNT(id)

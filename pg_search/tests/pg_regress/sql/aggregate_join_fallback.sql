@@ -203,6 +203,59 @@ GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
 
+-- A GROUP BY expression the index cannot serve declines with the 1-based
+-- position of the offending item.
+SELECT lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY lower(p.category)
+ORDER BY 1;
+
+-- The position follows the offending item, not the first one.
+SELECT p.category, lower(p.category), COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category, lower(p.category)
+ORDER BY 1, 2;
+
+-- A wrapper that mixes an aggregate with a group column over a join. setrefs
+-- maps the group Var to the raw tuple like any other output.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, SUM(p.price)::text || p.category
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY 1;
+
+SELECT p.category, SUM(p.price)::text || p.category
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY 1;
+
+-- The same wrapper with a cross-table predicate, whose Vars ride behind the
+-- raw columns as resjunk entries.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, SUM(p.price)::text || p.category
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+  AND p.price > t.product_id
+GROUP BY p.category
+ORDER BY 1;
+
+SELECT p.category, SUM(p.price)::text || p.category
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+  AND p.price > t.product_id
+GROUP BY p.category
+ORDER BY 1;
+
 -- =====================================================================
 -- Clean up
 -- =====================================================================

@@ -702,7 +702,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -721,7 +721,7 @@ SELECT DISTINCT upper(category)
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_expr)
     upper    
 -------------
  ACCESSORIES
@@ -747,7 +747,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_expr)
                                                                                  QUERY PLAN                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -767,7 +767,7 @@ SELECT DISTINCT category || '-' || brand
 FROM dist_expr
 WHERE name @@@ 'laptop OR mouse OR hub'
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_expr)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_expr)
       ?column?      
 --------------------
  Accessories-BrandC
@@ -1047,7 +1047,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
                          QUERY PLAN                          
 -------------------------------------------------------------
  Unique
@@ -1066,7 +1066,7 @@ SELECT DISTINCT n::text
 FROM dist_cast
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_cast)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_cast)
  n 
 ---
  1
@@ -1115,7 +1115,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
                          QUERY PLAN                          
 -------------------------------------------------------------
  Unique
@@ -1134,7 +1134,7 @@ SELECT DISTINCT meta->'tags'
 FROM dist_json
 WHERE id @@@ paradedb.all()
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: dist_json)
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: dist_json)
   ?column?  
 ------------
  ["a"]

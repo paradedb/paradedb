@@ -1216,7 +1216,7 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
                                                                                                                                                      QUERY PLAN                                                                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Output: (count(*)), (sum(p.price))
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*), SUM(price)
@@ -1507,7 +1507,7 @@ WHERE p.description @@@ 'laptop OR shoes';
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT'::text)
+   Output: (count(*)), (count(p.category)), (count(t.tag_name))
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*), COUNT(category), COUNT(tag_name)

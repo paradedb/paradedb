@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788831561197,
+  "lastUpdate": 1788831572637,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -159098,6 +159098,66 @@ window.BENCHMARK_DATA = {
             "value": 21.45356537103943,
             "unit": "median tps",
             "extra": "avg tps: 21.44660828054319, max tps: 34.58177937225909, count: 59301"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11878d8bf3adb026df4fa54d44815f963768c0fb",
+          "message": "fix: Expand join property tests, and fix issues for outer joins, lateral unnests, and DISTINCT (#6236)\n\n# Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nFixes several query planning and execution edge cases across the join\nand aggregate scans, dynamic filter pushdown, and late materialization.\n\nDriven by expanded query-generation property test coverage.\n\n## Why\n\nExpanding qgen coverage with lateral unnest across arbitrary join trees,\nnull predicate generators, and filtered join aggregates exposed several\nlatent bugs:\n\n- Outer-join delayed predicates were discarded or caused unclassified\nclause errors.\n- `SELECT DISTINCT` with derived expressions pushed down `LIMIT`\nunsafely, truncating rows before deduplication.\n- Pruned relations from Anti/Semi joins caused schema errors during\ncolumn lookup, lateral unnesting, and deserialization.\n- Dynamic filter pushdown remapped column indices incorrectly over\nduplicate column names.\n- Arrow's dense UnionArray take kernel replaced null indices with offset\n0, corrupting late-materialized columns on outer joins.\n- Multi-table join aggregates failed collation checks when constant\ngrouping keys cleared group_pathkeys.\n- Fixed duplicate tagging of identical clauses in multi-table join score\nordering, which previously resulted in double-counted relevance scores.\n\n## Tests\n\n- Significantly improved property test coverage in\n`generated_joins_small` and `generated_pdb_agg_join`.\n- New regress tests (generated from the property tests, but adapted for\nexisting harnesses).",
+          "timestamp": "2026-09-07T18:20:20-07:00",
+          "tree_id": "f612872544f4e9dab20e2966d66ec476bc74cd79",
+          "url": "https://github.com/paradedb/paradedb/commit/11878d8bf3adb026df4fa54d44815f963768c0fb"
+        },
+        "date": 1788831548866,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.29762257652656,
+            "unit": "median tps",
+            "extra": "avg tps: 79.03524827766091, max tps: 84.36942373236877, count: 59299"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.49750993178804,
+            "unit": "median tps",
+            "extra": "avg tps: 552.2306838124874, max tps: 7015.570258166831, count: 59299"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 906.8552578612167,
+            "unit": "median tps",
+            "extra": "avg tps: 885.8493475924242, max tps: 1027.2344405997724, count: 59299"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 197.3481521268017,
+            "unit": "median tps",
+            "extra": "avg tps: 195.22121436906883, max tps: 206.96023962660388, count: 59299"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 225.43682661988652,
+            "unit": "median tps",
+            "extra": "avg tps: 305.5535832582221, max tps: 2029.2445116341796, count: 118598"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.690496272458233,
+            "unit": "median tps",
+            "extra": "avg tps: 20.709855484284716, max tps: 34.513759117154606, count: 59299"
           }
         ]
       }

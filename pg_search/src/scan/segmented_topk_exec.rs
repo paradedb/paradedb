@@ -20,13 +20,14 @@
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
 //! how this node fits into the overall physical plan and pruning pipeline.
 //!
-//! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
-//! physical plan. It operates on the 2-way deferred `UnionArray` columns emitted
-//! by late materialization:
+//! `SegmentedTopKExec` sits below the deferred lookup (`TantivyDecodeExec`, and the
+//! `TantivyFetchExec` under it when the scan emits doc addresses) in the physical
+//! plan. It operates on the 2-way deferred `UnionArray` columns emitted by late
+//! materialization:
 //!   - State 0 (doc_address): unpacks `(segment_ord, doc_id)` and bulk-fetches
 //!     term ordinals via `FFHelper`.
 //!   - State 1 (term_ordinals): uses ordinals directly (already resolved by
-//!     pre-filter memoization).
+//!     pre-filter memoization or by the scan).
 //!
 //! For States 0 and 1, a per-segment Vec-based buffer (capacity 2×K) with
 //! QuickSelect retains only the top K rows per segment. All batches are
@@ -54,7 +55,7 @@
 //!
 //! where `T_s` is the total number of rows in segment `s` sharing the cutoff
 //! value, and `H_s` is how many of those occupy heap slots (`H_s >= 1`).
-//! Total ordinal-comparable rows reaching `TantivyLookupExec`:
+//! Total ordinal-comparable rows reaching the deferred lookup:
 //!
 //!   sum_s(survivors_s) <= K * S  (when no boundary ties)
 //!
@@ -80,8 +81,8 @@ use crate::postgres::customscan::joinscan::visibility_filter::{
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::deferred_lookup::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use crate::scan::execution_plan::UnsafeSendStream;
-use crate::scan::tantivy_lookup_exec::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StructArray, UInt32Array, UInt64Array, UnionArray,
 };
@@ -95,8 +96,7 @@ use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
-    FilterPushdownPropagation,
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
@@ -203,7 +203,7 @@ pub struct SegmentedTopKExec {
     sort_exprs: LexOrdering,
     /// The deferred string/bytes columns that are part of the Top K order.
     deferred_columns: Vec<DeferredSortColumn>,
-    /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
+    /// FFHelper for Tantivy fast field access (shared with the deferred lookup nodes).
     ffhelper: Arc<FFHelper>,
     /// Maximum rows to keep per segment.
     k: usize,
@@ -215,7 +215,7 @@ pub struct SegmentedTopKExec {
     /// on worker dispatch and stay identity-shared with the scans below.
     dynamic_filter: Arc<dyn PhysicalExpr>,
     /// Visibility data absorbed from a `VisibilityFilterExec` during plan optimization.
-    /// Present when VFExec was the direct child of `TantivyLookupExec` (e.g. for inner
+    /// Present when VFExec was the direct child of the deferred lookup (e.g. for inner
     /// joins or the preserved sides of outer/semi/anti joins). When present, this node
     /// owns MVCC visibility checking.
     visibility_data: Option<Arc<AbsorbedVisibilityData>>,
@@ -517,7 +517,7 @@ impl SegmentedTopKExec {
                              plan_position {plan_pos}"
                         ))
                     })?;
-                    let ffhelper = crate::scan::tantivy_lookup_exec::open_rebuilt_ffhelper(
+                    let ffhelper = open_rebuilt_ffhelper(
                         indexrelid,
                         &[],
                         MvccSatisfies::ParallelWorker(view),
@@ -793,10 +793,13 @@ impl ExecutionPlan for SegmentedTopKExec {
 
         // Route parent filters to our child based on column compatibility,
         // and add our own dynamic filter as a self-filter.
-        Ok(FilterDescription::new().with_child(
-            ChildFilterDescription::from_child(&parent_filters, &self.input)?
-                .with_self_filter(Arc::clone(&self.dynamic_filter)),
-        ))
+        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
+            &parent_filters,
+            &self.input.schema(),
+            None,
+        )?
+        .with_self_filter(Arc::clone(&self.dynamic_filter));
+        Ok(FilterDescription::new().with_child(child_desc))
     }
 
     fn handle_child_pushdown_result(

@@ -198,12 +198,12 @@ ORDER BY COUNT(*) DESC;
 -------------+-------+-----
  Footwear    |     6 |  24
  Electronics |     5 |  20
- Groceries   |     4 |  17
- Toys        |     4 |  12
- Books       |     4 |  10
  Apparel     |     4 |  17
+ Books       |     4 |  10
+ Groceries   |     4 |  17
  Home Decor  |     4 |  18
  Photography |     4 |  18
+ Toys        |     4 |  12
  Beauty      |     3 |  10
  Furniture   |     3 |  12
 (10 rows)

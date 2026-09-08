@@ -174,8 +174,8 @@ WHERE p.page_text @@@ 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
 
--- Non-equi ON condition on an outer join: declines JoinScan (the
--- pipeline would misapply it and change null-extension).
+-- Non-equi ON condition on an outer join: uses JoinScan (DataFusion applies
+-- the filter during join execution to preserve null-extension).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f

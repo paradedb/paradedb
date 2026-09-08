@@ -40,7 +40,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 #[derive(Debug)]
 pub struct VisibilityCtidResolverRule;
@@ -69,11 +69,11 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
 /// SegmentedTopKExec that has absorbed one, wire FFHelpers from matching
 /// PgSearchScanPlans in the subtree.
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
-    // The ctid-resolving TantivyLookupExec below a VisibilityFilterExec (or an absorbed
-    // SegmentedTopKExec) turns packed doc-addresses into real ctids. String-decode lookups
-    // carry no ctid columns and are skipped.
-    if let Some(lookup) = plan.downcast_ref::<TantivyLookupExec>() {
-        for ctid_column in lookup.ctid_columns() {
+    // The ctid-resolving TantivyFetchExec below a VisibilityFilterExec (or an absorbed
+    // SegmentedTopKExec) turns packed doc-addresses into real ctids. A fetch that only
+    // resolves string ordinals carries no ctid columns and is skipped.
+    if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
+        for ctid_column in fetch.ctid_columns() {
             let plan_pos = ctid_column.plan_position;
             let (indexrelid, ffhelper) = find_ffhelper_for_plan_position(plan.as_ref(), plan_pos)
                 .ok_or_else(|| {
@@ -82,7 +82,7 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
                      for deferred ctid plan_position {plan_pos}"
                 ))
             })?;
-            lookup.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
+            fetch.set_ctid_resolver(plan_pos, indexrelid, ffhelper);
         }
     }
 

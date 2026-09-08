@@ -133,16 +133,13 @@ trait CollectFlat<Leaf, Marker> {
         children: Aggregations,
     ) -> Result<Aggregations>
     where
-        Leaf: Into<AggregationVariants>,
+        Leaf: Into<Aggregation>,
     {
         for (idx, leaf) in self.iter_leaves()?.enumerate() {
-            aggregations.insert(
-                idx.to_string(),
-                Aggregation {
-                    agg: leaf.into(),
-                    sub_aggregation: children.clone(),
-                },
-            );
+            // A `pdb.agg()` spec brings sub-aggregations of its own.
+            let mut agg: Aggregation = leaf.into();
+            agg.sub_aggregation.extend(children.clone());
+            aggregations.insert(idx.to_string(), agg);
         }
         Ok(aggregations)
     }
@@ -182,18 +179,7 @@ impl CollectAggregations for AggregateCSClause {
                 .zip(metrics)
                 .enumerate()
                 .map(|(idx, (filter, metric))| {
-                    // For Custom aggregates, deserialize with nested aggregations
-                    let metric_agg = if let AggregateType::Custom { agg_json, .. } = &metric {
-                        // Tantivy's Aggregation deserializer handles nested "aggs" automatically
-                        serde_json::from_value(agg_json.clone()).unwrap_or_else(|e| {
-                            panic!("Failed to deserialize custom aggregate: {}", e)
-                        })
-                    } else {
-                        Aggregation {
-                            agg: metric.into(),
-                            sub_aggregation: Default::default(),
-                        }
-                    };
+                    let metric_agg: Aggregation = metric.into();
 
                     let agg = match filter {
                         Some(filter) => Aggregation {

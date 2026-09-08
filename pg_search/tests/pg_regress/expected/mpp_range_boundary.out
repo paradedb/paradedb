@@ -102,3 +102,8 @@ SELECT * FROM rb_outcome ORDER BY line;
  limit-5 rows: 5
 (2 rows)
 
+-- Cleanup.
+DROP TABLE rb_users;
+DROP TABLE rb_posts;
+DROP TABLE rb_comments;
+DROP TABLE rb_outcome;

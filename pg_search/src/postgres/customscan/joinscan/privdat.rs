@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
-use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
+use crate::postgres::customscan::joinscan::build::{
+    ChildProjection, FunctionRti, JoinCSClause, SourceRti,
+};
 use pgrx::PgList;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
@@ -43,6 +45,12 @@ pub enum OutputColumnInfo {
     WindowAggregate {
         index: WindowAggInfosIndex,
     },
+    /// An unnested column from a LATERAL unnest join.
+    Unnested {
+        function_rti: FunctionRti,
+        source_rti: SourceRti,
+        field_name: String,
+    },
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
     /// Always emits NULL at execution time.
     Pruned,
@@ -63,6 +71,15 @@ impl From<&OutputColumnInfo> for ChildProjection {
             OutputColumnInfo::WindowAggregate { index } => {
                 ChildProjection::WindowAggregate { index: *index }
             }
+            OutputColumnInfo::Unnested {
+                function_rti,
+                source_rti,
+                field_name,
+            } => ChildProjection::Unnested {
+                function_rti: *function_rti,
+                source_rti: *source_rti,
+                field_name: field_name.clone(),
+            },
             OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
         }
     }

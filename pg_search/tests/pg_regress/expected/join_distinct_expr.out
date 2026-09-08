@@ -65,8 +65,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -79,17 +79,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
@@ -142,8 +143,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -156,17 +157,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@1 IS NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 IS NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
@@ -219,8 +221,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -233,18 +235,16 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : ProjectionExec: expr=[col_1@0 as col_1, col_3@1 as col_2, col_3@1 as col_3, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-                             :   SortExec: TopK(fetch=10), expr=[col_3@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :     ProjectionExec: expr=[col_1@0 as col_1, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@4 as ctid_1]
-                             :       AggregateExec: mode=Single, gby=[supplier_id@2 * 10 + id@4 as col_1, name@3 as col_2, name@3 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :         VisibilityFilterExec: tables=[s, p]
-                             :           TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4, id@5]
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :               CooperativeExec
-                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[supplier_id@2 * 10 + id@4 as col_1, id@4 as col_2, name@3 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     VisibilityFilterExec: tables=[s, p]
+                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4, id@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
 
 SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
 FROM dex_products p
@@ -297,8 +297,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -311,17 +311,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
@@ -374,8 +375,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -390,15 +391,16 @@ ORDER BY p.name
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                              :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
@@ -451,8 +453,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -465,17 +467,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, character_length(name@1) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -529,8 +532,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -543,17 +546,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=1), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=1), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT upper(s.name) IS NULL, p.name
 FROM dex_products p
@@ -579,8 +583,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -593,17 +597,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@1 IS NOT NULL as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 IS NOT NULL as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
@@ -654,8 +659,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -668,17 +673,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, character_length(name@1) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -746,7 +752,7 @@ ORDER BY p.name
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                              :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@2) * 100 as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     VisibilityFilterExec: tables=[s, p]
-                             :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
                              :           CooperativeExec
                              :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
@@ -820,7 +826,7 @@ ORDER BY p.name
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                              :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@2) / 3 as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     VisibilityFilterExec: tables=[s, p]
-                             :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+                             :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
                              :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
                              :           CooperativeExec
                              :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
@@ -877,8 +883,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -891,17 +897,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
@@ -952,8 +959,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -966,17 +973,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p
@@ -1031,8 +1039,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -1045,17 +1053,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
 FROM dex_products p
@@ -1172,8 +1181,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -1186,17 +1195,18 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                             :     TantivyLookupExec: decode=[name]
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
-                             :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :             CooperativeExec
-                             :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :             CooperativeExec
-                             :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                             : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :     TantivyDecodeExec: decode=[name]
+                             :       TantivyFetchExec: fetch=[name]
+                             :         VisibilityFilterExec: tables=[s, p]
+                             :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                             :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :               CooperativeExec
+                             :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
 FROM dex_products p

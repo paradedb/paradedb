@@ -220,7 +220,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   GlobalLimitExec: skip=0, fetch=10
            :     VisibilityFilterExec: tables=[orders, users]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0, id@1]
            :           CooperativeExec
            :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
@@ -247,7 +247,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   GlobalLimitExec: skip=0, fetch=10
            :     VisibilityFilterExec: tables=[orders, users]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0, id@1]
            :           CooperativeExec
            :             PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}

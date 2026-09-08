@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`pdb.agg()` buckets with equal counts now come back in key order in every query, so a `size` cut among equal counts keeps the smallest keys. A NULL bucket over a numeric field reads as `null` instead of an extreme number, and a spec with nested `aggs` now works beside a `GROUP BY` on a single table.

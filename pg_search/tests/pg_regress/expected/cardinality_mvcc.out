@@ -93,7 +93,7 @@ SELECT pdb.agg('{"terms": {"field": "num", "size": 3}, "aggs": {"vals": {"cardin
 FROM card_mvcc WHERE card_mvcc @@@ pdb.all();
                                                                                                                       agg                                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 4, "vals": {"value": 1.0}, "doc_count": 834}, {"key": 2, "vals": {"value": 1.0}, "doc_count": 834}, {"key": 8, "vals": {"value": 1.0}, "doc_count": 833}], "sum_other_doc_count": 5666, "doc_count_error_upper_bound": 0}
+ {"buckets": [{"key": 2, "vals": {"value": 1.0}, "doc_count": 834}, {"key": 4, "vals": {"value": 1.0}, "doc_count": 834}, {"key": 6, "vals": {"value": 1.0}, "doc_count": 833}], "sum_other_doc_count": 5666, "doc_count_error_upper_bound": 0}
 (1 row)
 
 -- facet form: cardinality as a window aggregate alongside top-k. Same MVCC

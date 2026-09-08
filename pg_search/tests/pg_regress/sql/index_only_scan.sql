@@ -51,6 +51,19 @@ ORDER BY tenant_id;
 -- A tokenized-only field is not losslessly returnable.
 SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body @@@ 'needle'$$);
 
+-- Residual filters need returnable columns too.
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%';
+
+-- CTIDs and whole rows requested by the query still require the heap.
+SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' FOR UPDATE$$);
+
+SET enable_indexonlyscan = off;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
+RESET enable_indexonlyscan;
+
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
@@ -75,6 +88,7 @@ USING paradedb (id, uuid, (body::pdb.simple), age);
 INSERT INTO index_only_uuid VALUES
     (1, '550e8400-e29b-41d4-a716-446655440000', 'needle', 1),
     (2, '550e8400-e29b-41d4-a716-446655440001', 'needle', 2);
+VACUUM (FREEZE, ANALYZE) index_only_uuid;
 DELETE FROM index_only_uuid WHERE id = 2;
 SELECT explain_index_only($$SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0$$);
 SELECT id FROM index_only_uuid WHERE body @@@ pdb.all() AND age = 0;
@@ -88,6 +102,43 @@ VACUUM (FREEZE, ANALYZE) index_only_uuid;
 SELECT explain_index_only($$SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all()$$);
 SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
 DROP TABLE index_only_uuid;
+
+-- Lossy bitmap pages must recheck the original CTID-aware predicate.
+SET client_min_messages = error;
+CREATE TABLE index_only_bitmap (id bigint NOT NULL, body text, padding text);
+ALTER TABLE index_only_bitmap ALTER COLUMN padding SET STORAGE PLAIN;
+INSERT INTO index_only_bitmap
+SELECT i, CASE WHEN i % 2 = 0 THEN 'needle' ELSE 'other' END, repeat('x', 512)
+FROM generate_series(1, 30000) i;
+CREATE INDEX index_only_bitmap_idx ON index_only_bitmap USING paradedb (id, body);
+VACUUM (ANALYZE) index_only_bitmap;
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SET work_mem = '64kB';
+
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body @@@ ''needle'''
+    INTO plan;
+    IF (plan #>> '{0,Plan,Plans,0,Node Type}') IS DISTINCT FROM 'Bitmap Heap Scan'
+        OR COALESCE((plan #>> '{0,Plan,Plans,0,Lossy Heap Blocks}')::int, 0) = 0
+        OR (plan #>> '{0,Plan,Plans,0,Actual Rows}')::numeric IS DISTINCT FROM 15000
+    THEN
+        RAISE EXCEPTION 'expected a lossy bitmap scan returning 15000 matches: %', plan;
+    END IF;
+END;
+$$;
+
+SELECT count(*) FROM index_only_bitmap WHERE body @@@ 'needle';
+RESET client_min_messages;
+RESET work_mem;
+RESET enable_indexscan;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE index_only_bitmap;
 
 RESET enable_bitmapscan;
 RESET enable_seqscan;

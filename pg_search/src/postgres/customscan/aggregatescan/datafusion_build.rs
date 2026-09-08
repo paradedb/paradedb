@@ -38,7 +38,8 @@ use crate::postgres::customscan::joinscan::planning::{
     wrap_with_semi_anti,
 };
 use crate::postgres::customscan::pullup::{
-    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name, resolve_index_field_by_name,
+    ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+    resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
@@ -108,6 +109,7 @@ pub struct ResolvedSourceField<'a> {
     /// The name as the index knows it, without a table qualifier.
     pub field_name: String,
     pub field_type: SearchFieldType,
+    pub is_array: bool,
 }
 
 /// Resolve an index field name against the join sources.
@@ -127,7 +129,7 @@ pub fn resolve_source_field<'a>(
         let (qualified, qualified_reasons) = source_field_candidates(sources, rest);
         candidates = qualified
             .into_iter()
-            .filter(|(source, _, _)| {
+            .filter(|(source, _)| {
                 RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
             })
             .collect();
@@ -142,12 +144,13 @@ pub fn resolve_source_field<'a>(
             )
         })),
         1 => {
-            let (source, attno, field_type) = candidates.remove(0);
+            let (source, resolved) = candidates.remove(0);
             Ok(ResolvedSourceField {
                 source,
-                attno,
+                attno: resolved.attno,
                 field_name,
-                field_type,
+                field_type: resolved.field_type,
+                is_array: resolved.is_array,
             })
         }
         _ => Err(format!(
@@ -161,10 +164,7 @@ pub fn resolve_source_field<'a>(
 fn source_field_candidates<'a>(
     sources: &'a [JoinAggSource],
     field: &str,
-) -> (
-    Vec<(&'a JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
-    Vec<String>,
-) {
+) -> (Vec<(&'a JoinAggSource, ResolvedIndexField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
@@ -172,7 +172,7 @@ fn source_field_candidates<'a>(
             continue;
         };
         match resolve_index_field_by_name(index, field) {
-            Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
+            Ok(Some(resolved)) => matches.push((source, resolved)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),
         }
@@ -1090,6 +1090,7 @@ pub enum PathPredicateDeclineReason {
     AmbiguousVolatileOverlap,
     OuterJoinOnResidual,
     UnclassifiedClause,
+    NonFastField,
 }
 
 /// Walk `input_rel.cheapest_total_path` once, traversing transparent wrappers
@@ -1204,7 +1205,7 @@ unsafe fn classify_path_restrictinfo(
         }
 
         let rtis = expr_collect_rtis(clause);
-        if rtis.len() > 1 {
+        if !rtis.is_empty() {
             let has_search = expr_contains_search_predicate(clause);
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
@@ -1234,6 +1235,9 @@ unsafe fn classify_path_restrictinfo(
                 }
 
                 info.search_clauses.push(candidate);
+                continue;
+            } else {
+                info.decline(PathPredicateDeclineReason::NonFastField);
                 continue;
             }
         }
@@ -1303,14 +1307,15 @@ unsafe fn walk_path_restrictinfo(
     }
 
     let join_path = path as *mut pg_sys::JoinPath;
+    let source_type = if behind_transparent_wrapper {
+        EquiKeySource::BehindWrapper
+    } else {
+        EquiKeySource::Direct
+    };
 
     classify_path_restrictinfo(
         (*join_path).joinrestrictinfo,
-        if behind_transparent_wrapper {
-            EquiKeySource::BehindWrapper
-        } else {
-            EquiKeySource::Direct
-        },
+        source_type,
         RestrictInfoOrigin::JoinRestrictInfo,
         sources,
         on_clauses,
@@ -1633,7 +1638,7 @@ unsafe fn require_fast_field(
             source.scan_info.add_field(attno, field);
             Ok(())
         }
-        None => Err(format!("{} is not a columnar field", describe())),
+        None => Err(format!("{} is not columnar", describe())),
     }
 }
 
@@ -1665,7 +1670,7 @@ unsafe fn require_named_fast_field(
         source.scan_info.add_field_by_name(attno, field);
         return Ok(());
     }
-    Err(format!("{} is not a fast field", describe()))
+    Err(format!("{} is not columnar", describe()))
 }
 
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
@@ -1820,10 +1825,8 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved =
-                resolve_fast_field_by_name(&field.field_name, indexrel).ok_or_else(|| {
-                    format!("pdb.agg field '{}' is not a fast field", field.field_name)
-                })?;
+            let resolved = resolve_fast_field_by_name(&field.field_name, indexrel)
+                .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source.scan_info.add_field_by_name(field.attno, resolved);
         }
     }

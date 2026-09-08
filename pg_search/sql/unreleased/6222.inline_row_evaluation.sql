@@ -5,11 +5,19 @@ IMMUTABLE STRICT PARALLEL SAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'ctid_is_valid_wrapper';
 
+CREATE FUNCTION "xmin_is_visible"(
+    "xmin" xid
+) RETURNS bool
+STRICT STABLE PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'xmin_is_visible_wrapper';
+
 CREATE FUNCTION "search_with_query_input_ctid_or_row_strict"(
     "element" anyelement,
     "query" SearchQueryInput,
     "ctid" tid,
-    "fallback_row" record[]
+    "fallback_row" record[],
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
 LANGUAGE c
@@ -19,7 +27,8 @@ CREATE FUNCTION "search_with_query_input_ctid_or_row"(
     "element" anyelement,
     "query" SearchQueryInput,
     "ctid" tid,
-    "fallback_row" record[]
+    "fallback_row" record[],
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE PARALLEL SAFE COST 1000000000
 LANGUAGE c

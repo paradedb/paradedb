@@ -173,3 +173,74 @@ CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body) WITH (ke
 SELECT id FROM mlt_text_key WHERE id @@@ pdb.more_like_this(
     key_value => 'alpha'::text, fields => ARRAY['body']) ORDER BY id;
 DROP TABLE mlt_text_key;
+
+-- Source fields use index expressions, including aliases, rather than heap column names.
+SET paradedb.planner_warnings = off;
+CREATE TABLE mlt_alias (
+    id integer PRIMARY KEY,
+    lookup_code text,
+    "Body Text" text,
+    tags text[]
+);
+INSERT INTO mlt_alias VALUES
+    (1, 'source', 'alpha alpha orchard', ARRAY['alpha', 'orchard']),
+    (2, 'other-a', 'alpha orchard', ARRAY['alpha']),
+    (3, 'other-b', 'beta factory', ARRAY['beta']),
+    (4, 'empty', NULL, NULL);
+CREATE TYPE mlt_alias_document AS (composite_body pdb.simple);
+CREATE INDEX mlt_alias_idx ON mlt_alias USING paradedb (
+    id,
+    (lookup_code::pdb.literal('alias=lookup_alias')),
+    "Body Text",
+    ("Body Text"::pdb.simple('alias=body_alias')),
+    (tags::pdb.simple('alias=tags_alias')),
+    ((split_part("Body Text", ' ', 1) || '_suffix')::pdb.literal('alias=derived_body')),
+    (ROW("Body Text")::mlt_alias_document)
+);
+
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE (lookup_code::pdb.literal('alias=lookup_alias')) @@@ pdb.more_like_this(
+    'source'::text, fields => ARRAY['body_alias'],
+    min_doc_frequency => 1, min_term_frequency => 1);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['Body Text']);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['tags_alias']);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['derived_body']);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['composite_body']);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(4, fields => ARRAY['id', 'body_alias', 'tags_alias']);
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(999, fields => ARRAY['body_alias']);
+
+-- A heap column with the alias name must not replace the indexed source expression.
+ALTER TABLE mlt_alias ADD COLUMN body_alias text DEFAULT 'beta factory';
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['body_alias']);
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE mlt_alias_lookup(text) AS
+SELECT array_agg(id ORDER BY id) FROM mlt_alias
+WHERE (lookup_code::pdb.literal('alias=lookup_alias')) @@@
+    pdb.more_like_this($1, fields => ARRAY['body_alias']);
+EXECUTE mlt_alias_lookup('source');
+EXECUTE mlt_alias_lookup('other-b');
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+DISCARD PLANS;
+EXECUTE mlt_alias_lookup('source');
+EXECUTE mlt_alias_lookup('other-b');
+DEALLOCATE mlt_alias_lookup;
+RESET plan_cache_mode;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_bitmapscan;
+
+DROP TABLE mlt_alias;
+DROP TYPE mlt_alias_document;
+RESET paradedb.planner_warnings;

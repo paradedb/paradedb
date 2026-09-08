@@ -45,8 +45,10 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType, pg_sys, varlena_to_byte_slice,
+    FromDatum, IntoDatum, PgBuiltInOids, PgLogLevel, PgOid, PgSqlErrorCode, PostgresType,
+    function_name, pg_sys, varlena_to_byte_slice,
 };
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -318,6 +320,10 @@ fn is_plain_single_term(s: &str) -> bool {
 
 impl SearchQueryInput {
     /// Whole-row searches accept queries that do not require an implicit field.
+    /// Keep these variants aligned with the field-independent arms of
+    /// [`pdb::Query::into_tantivy_query`]: `All`, `Empty`, and `Parse`, plus
+    /// `ScoreAdjusted` when its inner query is also field-independent.
+    /// Unclassified strings without modifiers are parsed across the index.
     pub fn from_unfielded(query: pdb::Query) -> Self {
         match query {
             // pdb.all() scores matches as 1, unlike the internal zero-score match-all query.
@@ -351,9 +357,16 @@ impl SearchQueryInput {
                     pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
                 }
             }
-            _ => pgrx::error!(
-                "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference"
-            ),
+            _ => {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+                    "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference",
+                    function_name!(),
+                )
+                .set_hint("Use an indexed column on the left-hand side.")
+                .report(PgLogLevel::ERROR);
+                unreachable!()
+            }
         }
     }
 
@@ -442,6 +455,10 @@ impl SearchQueryInput {
         match self {
             // All by itself is a full scan
             SearchQueryInput::All => true,
+            SearchQueryInput::FieldedQuery {
+                query: pdb::Query::All,
+                ..
+            } => true,
 
             // Boolean queries - analyze based on Boolean semantics:
             // A document matches if it matches ALL Must AND NONE of MustNot AND at least one of (Must OR Should)
@@ -710,42 +727,112 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    q.extract_field_names(field_names);
+    /// Returns false when the query can search unspecified fields.
+    pub fn extract_field_names(
+        &self,
+        schema: &SearchIndexSchema,
+        field_names: &mut crate::api::HashSet<String>,
+    ) -> bool {
+        use tantivy::query_grammar::{
+            UserInputAst, UserInputLeaf, parse_query, parse_query_lenient,
+        };
+
+        let mut complete = true;
+        self.visit_ref(&mut |query| {
+            let query_string = match query {
+                Self::FieldedQuery { field, query } => {
+                    let mut query = query;
+                    while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                        query = inner;
+                    }
+                    match query {
+                        pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
+                        pdb::Query::ParseWithField { query_string, .. } => {
+                            field_names.insert(field.root());
+                            if schema.search_field(field).is_some_and(|field| {
+                                matches!(field.field_entry().field_type(), FieldType::Facet(_))
+                            }) {
+                                None
+                            } else {
+                                Some(format!("{field}:({query_string})"))
+                            }
+                        }
+                        pdb::Query::MoreLikeThis { fields, .. } => {
+                            if let Some(fields) = fields {
+                                field_names.extend(
+                                    fields.iter().map(|field| FieldName::from(field).root()),
+                                );
+                            } else {
+                                complete = false;
+                            }
+                            None
+                        }
+                        pdb::Query::All | pdb::Query::Empty => None,
+                        _ => {
+                            field_names.insert(field.root());
+                            None
+                        }
+                    }
+                }
+                Self::Parse { query_string, .. } => Some(query_string.clone()),
+                Self::TermSet { terms } => {
+                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                    None
+                }
+                Self::MoreLikeThis { document, .. } => {
+                    field_names.extend(
+                        document
+                            .iter()
+                            .map(|(field, _)| FieldName::from(field).root()),
+                    );
+                    None
+                }
+                Self::PostgresExpression { .. } => {
+                    complete = false;
+                    None
+                }
+                Self::Uninitialized
+                | Self::All
+                | Self::Empty
+                | Self::Boolean { .. }
+                | Self::Boost { .. }
+                | Self::ConstScore { .. }
+                | Self::ScoreFilter { .. }
+                | Self::DisjunctionMax { .. }
+                | Self::WithIndex { .. }
+                | Self::HeapFilter { .. } => None,
+            };
+            if let Some(query_string) = query_string {
+                let mut nodes = vec![
+                    parse_query(&query_string)
+                        .unwrap_or_else(|_| parse_query_lenient(&query_string).0),
+                ];
+                while let Some(node) = nodes.pop() {
+                    match node {
+                        UserInputAst::Clause(children) => {
+                            nodes.extend(children.into_iter().map(|(_, child)| child))
+                        }
+                        UserInputAst::Boost(inner, _) => nodes.push(*inner),
+                        UserInputAst::Leaf(leaf) => {
+                            let field = match *leaf {
+                                UserInputLeaf::Literal(literal) => literal.field_name,
+                                UserInputLeaf::Range { field, .. }
+                                | UserInputLeaf::Set { field, .. }
+                                | UserInputLeaf::Regex { field, .. } => field,
+                                UserInputLeaf::Exists { field } => Some(field),
+                                UserInputLeaf::All => continue,
+                            };
+                            if let Some(field) = field {
+                                field_names.insert(FieldName::from(field).root());
+                            } else {
+                                complete = false;
+                            }
+                        }
+                    }
                 }
             }
-            SearchQueryInput::Boost { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.extract_field_names(field_names);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.extract_field_names(field_names);
-            }
-            SearchQueryInput::FieldedQuery { field, .. } => {
-                field_names.insert(field.root());
-            }
-            // For other query types, we can't easily extract field names
-            // This is a conservative approach - if we can't determine, we allow it
-            _ => {}
-        }
+        });
+        complete
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {

@@ -16,10 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::version::Version;
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::{FieldSource, strip_tokenizer_cast};
+use crate::postgres::utils::{FieldSource, strip_tokenizer_cast, unwrap_alias_datum};
 use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
 use serde::{Deserialize, Serialize};
@@ -166,6 +167,68 @@ impl MoreLikeThisQueryBuilder {
         let attribute = tuple_desc.get(attno).expect("lookup column should exist");
         let lookup_field = attribute.name();
         let lookup_type = attribute.type_oid();
+        let document_fields = categorized_fields
+            .iter()
+            .filter(|(search_field, categorized)| {
+                if search_field.is_ctid() {
+                    return false;
+                }
+
+                let is_vector = matches!(search_field.field_type(), SearchFieldType::Vector(..));
+                if let Some(ref fields) = fields {
+                    if !fields.contains(&search_field.field_name().clone().into_inner()) {
+                        return false;
+                    }
+                    if search_field.is_json() {
+                        panic!("json fields are not supported for more_like_this");
+                    }
+                    if is_vector {
+                        panic!("vector fields are not supported for more_like_this");
+                    }
+                }
+                !categorized.is_json && !is_vector
+            })
+            .collect::<Vec<_>>();
+        let expressions = index_relation.index_expressions();
+        let projection = document_fields
+            .iter()
+            .map(|(_, categorized)| match categorized.source {
+                FieldSource::Heap { attno } => pgrx::spi::quote_identifier(
+                    tuple_desc
+                        .get(attno)
+                        .expect("source column should exist")
+                        .name(),
+                ),
+                FieldSource::Expression { att_idx } => unsafe {
+                    let expr = expressions
+                        .get_ptr(att_idx)
+                        .expect("source expression should exist");
+                    deparse_expr(None, &heap_relation, expr.cast())
+                },
+                FieldSource::CompositeField {
+                    expression_idx,
+                    field_idx,
+                    composite_type_oid,
+                    ..
+                } => unsafe {
+                    let expr = expressions
+                        .get_ptr(expression_idx)
+                        .expect("source expression should exist");
+                    let composite_desc =
+                        pgrx::PgTupleDesc::for_composite_type_by_oid(composite_type_oid)
+                            .expect("source composite type should exist");
+                    let attribute = composite_desc
+                        .get(field_idx)
+                        .expect("source composite field should exist");
+                    format!(
+                        "({}).{}",
+                        deparse_expr(None, &heap_relation, expr.cast()),
+                        pgrx::spi::quote_identifier(attribute.name()),
+                    )
+                },
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
             pgrx::Spi::connect(|client| {
@@ -185,7 +248,7 @@ impl MoreLikeThisQueryBuilder {
                     .select(
                         &format!(
                             // Duplicate lookup values intentionally select an arbitrary source row.
-                            "SELECT * FROM {}.{} WHERE {} = $1 LIMIT 1",
+                            "SELECT {projection} FROM {}.{} WHERE {} = $1 LIMIT 1",
                             pgrx::spi::quote_identifier(heap_relation.namespace()),
                             pgrx::spi::quote_identifier(heap_relation.name()),
                             pgrx::spi::quote_identifier(lookup_field)
@@ -195,35 +258,9 @@ impl MoreLikeThisQueryBuilder {
                     )?
                     .first();
 
-                for (search_field, categorized) in categorized_fields.iter() {
-                    if search_field.is_ctid() {
-                        continue;
-                    }
-
-                    let is_vector =
-                        matches!(search_field.field_type(), SearchFieldType::Vector(..));
-
-                    if let Some(ref fields) = fields {
-                        if !fields.contains(&search_field.field_name().clone().into_inner()) {
-                            continue;
-                        }
-
-                        if search_field.is_json() {
-                            panic!("json fields are not supported for more_like_this");
-                        }
-
-                        if is_vector {
-                            panic!("vector fields are not supported for more_like_this");
-                        }
-                    }
-
-                    if categorized.is_json || is_vector {
-                        continue;
-                    }
-
-                    if let Some(datum) =
-                        result.get_datum_by_name(search_field.field_name().root())?
-                    {
+                for (position, (search_field, categorized)) in document_fields.iter().enumerate() {
+                    if let Some(datum) = result.get_datum_by_ordinal(position + 1)? {
+                        let datum = unsafe { unwrap_alias_datum(datum, categorized.pg_type) };
                         if categorized.is_array {
                             let values = unsafe {
                                 TantivyValue::try_from_datum_array(datum, categorized.base_oid)

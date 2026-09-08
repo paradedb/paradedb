@@ -137,8 +137,9 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(12 rows)
+(13 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM mock_items

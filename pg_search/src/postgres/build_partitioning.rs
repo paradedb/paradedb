@@ -120,7 +120,7 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
         };
         if !dim_fast(schema, field) {
             bail!(
-                "{reloption} field '{dim}' must be a columnar field. Add it to the index with 'fast: true'"
+                "{reloption} field '{dim}' must be columnar. Add it to the index with 'columnar=true'"
             );
         }
     }

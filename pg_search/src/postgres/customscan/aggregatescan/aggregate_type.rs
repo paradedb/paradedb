@@ -735,14 +735,14 @@ trait F64Lossless {
 impl F64Lossless for u64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as u64 == self { Some(f) } else { None }
+        (f as u128 == u128::from(self)).then_some(f)
     }
 }
 
 impl F64Lossless for i64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as i64 == self { Some(f) } else { None }
+        (f as i128 == i128::from(self)).then_some(f)
     }
 }
 
@@ -811,8 +811,16 @@ impl ParsedAggregateField {
             .context("second argument of COALESCE must resolve to a constant")?;
 
         Ok(match TantivyValue::try_from(const_node) {
-            Ok(TantivyValue(PdbOwnedValue::U64(missing))) => missing.to_f64_lossless(),
-            Ok(TantivyValue(PdbOwnedValue::I64(missing))) => missing.to_f64_lossless(),
+            Ok(TantivyValue(PdbOwnedValue::U64(missing))) => Some(
+                missing
+                    .to_f64_lossless()
+                    .context("COALESCE default value cannot be represented losslessly as f64")?,
+            ),
+            Ok(TantivyValue(PdbOwnedValue::I64(missing))) => Some(
+                missing
+                    .to_f64_lossless()
+                    .context("COALESCE default value cannot be represented losslessly as f64")?,
+            ),
             Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
             Ok(TantivyValue(PdbOwnedValue::Null)) => None,
             Ok(TantivyValue(PdbOwnedValue::Str(s))) => Some(
@@ -874,5 +882,26 @@ impl AggregateFieldExpression {
         let (heaprelid, varattno) = context.var_relation(var);
         fieldname_from_var(heaprelid, var, varattno)
             .context("first argument of COALESCE must resolve to a field")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::F64Lossless;
+
+    #[test]
+    fn test_f64_lossless_integer_boundaries() {
+        for value in [0_u64, 1 << 53, (1 << 53) + 2, 1 << 63] {
+            assert_eq!(value.to_f64_lossless(), Some(value as f64));
+        }
+        for value in [(1_u64 << 53) + 1, u64::MAX] {
+            assert_eq!(value.to_f64_lossless(), None);
+        }
+        for value in [0_i64, 1 << 53, -(1 << 53), i64::MIN] {
+            assert_eq!(value.to_f64_lossless(), Some(value as f64));
+        }
+        for value in [(1_i64 << 53) + 1, -((1 << 53) + 1), i64::MAX] {
+            assert_eq!(value.to_f64_lossless(), None);
+        }
     }
 }

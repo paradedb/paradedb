@@ -49,6 +49,7 @@ jobs:
     name: Run Benchmarker Suite
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
@@ -207,6 +208,7 @@ jobs:
         continue-on-error: true # Best effort: the gh-pages HTML + comment are the real deliverables.
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: benchmarker-dashboards-${{ steps.commit_info.outputs.short_commit }}
           path: |
             benchmarker/results/*.json

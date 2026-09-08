@@ -66,6 +66,7 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m8gd.metal-24xl # Match the benchmark runner so snapshots are platform-identical
       - image=ubuntu24-full-arm64
       - extras=s3-cache

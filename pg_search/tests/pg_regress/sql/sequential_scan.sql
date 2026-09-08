@@ -39,6 +39,32 @@ SET work_mem = '64kB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
 
+-- A cursor's spilled cache survives rollback of the savepoint that first populated it.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+ROLLBACK TO before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+
+-- Error cleanup may release the cursor's files before its cache is dropped.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id, 1 / (id - 2) FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+FETCH 1 FROM sequential_scan_cursor;
+ROLLBACK TO before_first_fetch;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
 SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
 SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
@@ -162,6 +188,12 @@ FROM sequential_scan_nulls;
 \pset null 'NULL'
 SET paradedb.enable_custom_scan = off;
 SET enable_bitmapscan = off;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all,
+       color @@@ pdb.all()::pdb.const(1) AS constant_all,
+       color @@@ pdb.empty() AS field_empty,
+       id @@@ paradedb.all() AS all_rows
+FROM sequential_scan_nulls ORDER BY id;
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
@@ -207,7 +239,198 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
 DROP VIEW sequential_scan_null_checks;
+UPDATE sequential_scan_nulls SET covered = true;
+
+SELECT paradedb.search_with_query_input_ctid(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid
+       ) IS NULL AS null_query,
+       paradedb.search_with_query_input_ctid(
+           1, paradedb.empty(), NULL::tid
+       ) IS NULL AS null_ctid,
+       paradedb.search_with_query_input_ctid(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS FALSE AS nullable_anchor,
+       paradedb.search_with_query_input_ctid_strict(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS NULL AS strict_anchor;
+
+SELECT paradedb.search_with_query_input_ctid_or_row(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, ARRAY[ROW(1)]::record[]
+       ) IS NULL AS null_inline_query,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, '{}'::record[]
+       ) IS NULL AS null_index_query,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), NULL::tid, ARRAY[ROW(1)]::record[]
+       ) IS NULL AS null_ctid,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), '(0,1)'::tid, NULL::record[]
+       ) IS NULL AS null_rows,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), '(0,1)'::tid, ARRAY[NULL::record]
+       ) IS NULL AS null_row;
+
+INSERT INTO sequential_scan_nulls VALUES
+    (4, repeat('a', 4000), true), (5, repeat('b', 4000), true);
+CREATE TABLE sequential_scan_queries (label text, query paradedb.searchqueryinput);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTENDED;
+INSERT INTO sequential_scan_queries VALUES (
+    'compressed', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('a', 4000)))
+);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTERNAL;
+INSERT INTO sequential_scan_queries VALUES (
+    'external', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('b', 4000)))
+);
+SELECT label, pg_column_size(query) < 4000 AS compressed
+FROM sequential_scan_queries ORDER BY label;
+SELECT q.label, t.id,
+       paradedb.search_with_query_input_ctid(t.id, q.query, t.ctid) AS matched
+FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+WHERE t.id IN (4, 5)
+ORDER BY q.label, t.id;
+SELECT q.label, t.id,
+       paradedb.search_with_query_input_ctid_or_row(
+           NULL::int, q.query, t.ctid, ARRAY[t]::record[]
+       ) AS inline_match,
+       paradedb.search_with_query_input_ctid_or_row_strict(
+           1, q.query, t.ctid, ARRAY[t]::record[]
+       ) AS strict_inline_match
+FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+WHERE t.id IN (4, 5)
+ORDER BY q.label, t.id;
+DROP TABLE sequential_scan_queries;
+DROP INDEX sequential_scan_nulls_idx;
+CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
+USING paradedb (id, (color::pdb.literal)) WHERE covered;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all
+FROM sequential_scan_nulls WHERE covered AND id <= 3 ORDER BY id;
+
+-- The cached set of NULL rows must also survive a savepoint rollback.
+BEGIN;
+SET LOCAL work_mem = '64kB';
+INSERT INTO sequential_scan_nulls SELECT g, NULL, true FROM generate_series(6, 3005) g;
+DECLARE sequential_scan_null_cursor CURSOR FOR
+SELECT id, color @@@ pdb.all() IS NULL AS missing FROM sequential_scan_nulls WHERE covered;
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_null_cursor;
+ROLLBACK TO before_first_fetch;
+FETCH 2 FROM sequential_scan_null_cursor;
+CLOSE sequential_scan_null_cursor;
+ROLLBACK;
+
 DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;
 \pset null ''
+
+-- An expression in the first index slot must remain an expression, not a whole-row Var.
+CREATE TABLE sequential_scan_expr_first (id bigint, body text, note text);
+INSERT INTO sequential_scan_expr_first VALUES
+    (1, 'Alpha', 'needle'), (2, 'Beta', 'other'), (3, NULL, 'needle');
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first
+USING paradedb ((lower(body)::pdb.literal('alias=body_lower')));
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+SELECT id, lower(body) === 'alpha' AS matches FROM sequential_scan_expr_first ORDER BY id;
+
+-- Preserve the query's relation number and outer-join nulling.
+SELECT p.id, e.id, lower(e.body) === 'alpha' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+SELECT p.term, (SELECT count(*) FROM sequential_scan_expr_first e WHERE lower(e.body) === p.term) AS matches
+FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+
+-- A NULL first expression must not suppress a match on another indexed expression.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    (lower(body)::pdb.literal('alias=body_lower')),
+    (lower(note)::pdb.literal('alias=note_lower'))
+);
+SET enable_indexscan = on;
+SET enable_bitmapscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+SET enable_indexscan = off;
+SET enable_seqscan = on;
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+
+-- Rebind every column in a multi-column expression to the searched table.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    ((lower(body) || ':' || note)::pdb.literal('alias=body_note'))
+);
+SELECT p.id, (lower(e.body) || ':' || e.note) === 'alpha:needle' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+
+DROP TABLE sequential_scan_expr_first;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;
+
+CREATE TABLE sequential_scan_arrays (id int NOT NULL, body text);
+INSERT INTO sequential_scan_arrays VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma'), (4, NULL);
+CREATE INDEX sequential_scan_arrays_idx ON sequential_scan_arrays USING paradedb (id, body);
+
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+
+-- Native ANY/ALL cannot supply row identity to the per-row operator.
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'alpha')),
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'beta'))
+]);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ALL(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())
+]);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[paradedb.empty()]);
+
+-- PostgreSQL handles these without invoking the operator.
+SELECT id,
+    id @@@ ANY('{}'::paradedb.searchqueryinput[]) AS any_empty,
+    id @@@ ALL('{}'::paradedb.searchqueryinput[]) AS all_empty,
+    id @@@ ANY(NULL::paradedb.searchqueryinput[]) AS null_array,
+    id @@@ ANY(ARRAY[NULL::paradedb.searchqueryinput]) AS null_element
+FROM sequential_scan_arrays WHERE id = 1;
+
+SELECT id FROM sequential_scan_arrays
+WHERE body === 'alpha' OR body === 'beta' ORDER BY id;
+SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta'] ORDER BY id;
+SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
+    paradedb.search_with_query_input(1,
+        paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())) AS direct_all;
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+])$$);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+]) ORDER BY id;
+
+DROP TABLE sequential_scan_arrays;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;

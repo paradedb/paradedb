@@ -16,15 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField, resolve_ctid};
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::postgres::index_only::IndexOnlyScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::FieldSource;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
@@ -38,154 +37,6 @@ pub struct Bm25ScanState {
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
     ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
-}
-
-struct IndexOnlyField {
-    tuple_index: usize,
-    fast_field: WhichFastField,
-    pg_type: PgOid,
-}
-
-impl IndexOnlyField {
-    fn from_schema(
-        indexrel: &PgSearchRelation,
-        schema: &SearchIndexSchema,
-        tuple_index: usize,
-    ) -> Option<Self> {
-        let tuple_desc = indexrel.tuple_desc();
-        let attribute = tuple_desc.get(tuple_index)?;
-        if ![
-            pg_sys::INT4OID,
-            pg_sys::INT8OID,
-            pg_sys::FLOAT4OID,
-            pg_sys::FLOAT8OID,
-            pg_sys::BOOLOID,
-            pg_sys::UUIDOID,
-        ]
-        .contains(&attribute.atttypid)
-        {
-            return None;
-        }
-
-        let search_field = schema.search_field(attribute.name())?;
-        let categorized = schema.categorized_fields();
-        let data = categorized.iter().find_map(|(field, data)| {
-            (field == &search_field && data.attno == tuple_index).then_some(data)
-        })?;
-        if !search_field.is_fast()
-            || data.is_array
-            || data.is_json
-            || !matches!(data.source, FieldSource::Heap { .. })
-        {
-            return None;
-        }
-
-        Some(Self {
-            tuple_index,
-            fast_field: WhichFastField::Named(
-                search_field.field_name().to_string(),
-                search_field.field_type(),
-            ),
-            pg_type: PgOid::from(attribute.atttypid),
-        })
-    }
-}
-
-#[repr(C)]
-struct AmCanReturnCache {
-    returnable: u32,
-}
-
-impl AmCanReturnCache {
-    unsafe fn get_or_init(indexrel: pg_sys::Relation) -> &'static Self {
-        if (*indexrel).rd_amcache.is_null() {
-            let relation = PgSearchRelation::from_pg(indexrel);
-            let mut returnable = 0;
-
-            if let Ok(schema) = relation.schema() {
-                let natts = relation.tuple_desc().len();
-                for tuple_index in 0..natts {
-                    if IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some() {
-                        returnable |= 1 << tuple_index;
-                    }
-                }
-            }
-
-            // PostgreSQL may call amcanreturn once per index attribute. Keep the capability
-            // mask in the relation's AM cache so those probes share one metadata read.
-            let cache = pg_sys::MemoryContextAllocZero(
-                (*indexrel).rd_indexcxt,
-                std::mem::size_of::<Self>(),
-            )
-            .cast::<Self>();
-            (*cache).returnable = returnable;
-            (*indexrel).rd_amcache = cache.cast();
-        }
-
-        &*(*indexrel).rd_amcache.cast::<Self>()
-    }
-
-    fn can_return(&self, tuple_index: usize) -> bool {
-        tuple_index < pg_sys::INDEX_MAX_KEYS as usize && self.returnable & (1 << tuple_index) != 0
-    }
-}
-
-struct IndexOnlyScanState {
-    fast_fields: FFHelper,
-    fields: Vec<IndexOnlyField>,
-    values: Vec<pg_sys::Datum>,
-    nulls: Vec<bool>,
-}
-
-impl IndexOnlyScanState {
-    fn new(reader: &SearchIndexReader, indexrel: &PgSearchRelation, natts: usize) -> Self {
-        let fields = (0..natts)
-            .filter_map(|tuple_index| {
-                IndexOnlyField::from_schema(indexrel, reader.schema(), tuple_index)
-            })
-            .collect::<Vec<_>>();
-        let fast_fields = fields
-            .iter()
-            .map(|field| field.fast_field.clone())
-            .collect::<Vec<_>>();
-
-        Self {
-            fast_fields: FFHelper::with_fields(reader, &fast_fields),
-            fields,
-            values: vec![pg_sys::Datum::null(); natts],
-            nulls: vec![true; natts],
-        }
-    }
-
-    unsafe fn form_tuple(
-        &mut self,
-        tuple_desc: pg_sys::TupleDesc,
-        doc_address: tantivy::DocAddress,
-    ) -> pg_sys::HeapTuple {
-        self.nulls.fill(true);
-        for (fast_field_index, field) in self.fields.iter().enumerate() {
-            let value = self
-                .fast_fields
-                .value(fast_field_index, doc_address)
-                .expect("index-only field should be a fast field");
-            match value
-                .try_into_datum(field.pg_type)
-                .expect("index-only field should convert to a Datum")
-            {
-                Some(datum) => {
-                    self.values[field.tuple_index] = datum;
-                    self.nulls[field.tuple_index] = false;
-                }
-                None => self.values[field.tuple_index] = pg_sys::Datum::null(),
-            }
-        }
-
-        pg_sys::heap_form_tuple(
-            tuple_desc,
-            self.values.as_mut_ptr(),
-            self.nulls.as_mut_ptr(),
-        )
-    }
 }
 
 #[pg_guard]
@@ -220,6 +71,24 @@ pub extern "C-unwind" fn amrescan(
         let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
 
         match strategy {
+            ScanStrategy::TextQuery if key.sk_attno != 1 => {
+                // Fielded searches must be rewritten before reaching the index AM.
+                let query = unsafe {
+                    if is_array {
+                        format!(
+                            "{:?}",
+                            Vec::<String>::from_datum(key.sk_argument, false)
+                                .expect("text array argument should not be NULL")
+                        )
+                    } else {
+                        String::from_datum(key.sk_argument, false)
+                            .expect("text argument should not be NULL")
+                    }
+                };
+                panic!(
+                    "query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`"
+                )
+            }
             ScanStrategy::TextQuery => {
                 if is_array {
                     let strings = unsafe {
@@ -274,27 +143,27 @@ pub extern "C-unwind" fn amrescan(
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
         assert!(!(*scan).indexRelation.is_null());
-        assert!(!keys.is_null());
-        assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
+        assert!(nkeys >= 0);
 
-        // Clean up any previous scan state before creating a new one.
-        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
-        // without calling amendscan in between.
-        if !(*scan).opaque.is_null() {
-            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-            drop(old_state);
-            (*scan).opaque = std::ptr::null_mut();
-        }
+        amendscan(scan);
 
         let indexrel = (*scan).indexRelation;
-        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
+        let keys = if nkeys == 0 {
+            &[]
+        } else {
+            assert!(!keys.is_null());
+            std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+        };
 
         ((PgSearchRelation::from_pg(indexrel)), keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_query_input = key_to_search_query_input(&keys[0]);
-    for key in &keys[1..] {
+    let mut search_query_input = keys
+        .first()
+        .map(key_to_search_query_input)
+        .unwrap_or(SearchQueryInput::All);
+    for key in keys.iter().skip(1) {
         let key = key_to_search_query_input(key);
 
         search_query_input = SearchQueryInput::Boolean {
@@ -392,11 +261,20 @@ pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
         // Safety check: opaque might be NULL if amrescan was never called
         // This can happen in parallel workers that are terminated early
-        if scan.is_null() || (*scan).opaque.is_null() {
+        if scan.is_null() {
+            return;
+        }
+        (*scan).xs_hitup = std::ptr::null_mut();
+        if (*scan).opaque.is_null() {
             return;
         }
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-        drop(scan_state);
+        (*scan).opaque = std::ptr::null_mut();
+        if let Some(mut state) = scan_state
+            && let Some(index_only) = state.index_only.take()
+        {
+            index_only.delete();
+        }
     }
 }
 
@@ -414,6 +292,10 @@ pub unsafe extern "C-unwind" fn amgettuple(
     };
 
     (*scan).xs_recheck = false;
+    (*scan).xs_hitup = std::ptr::null_mut();
+    if let Some(index_only) = &mut state.index_only {
+        index_only.reset();
+    }
 
     loop {
         // Extract the next result first so the temporary mutable borrow on
@@ -439,9 +321,6 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
 
                 if let Some(index_only) = &mut state.index_only {
-                    if !(*scan).xs_hitup.is_null() {
-                        pg_sys::heap_freetuple((*scan).xs_hitup);
-                    }
                     (*scan).xs_hitup = index_only.form_tuple((*scan).xs_hitupdesc, doc_address);
                 }
 
@@ -541,25 +420,4 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
         return true;
     }
     false
-}
-
-#[pg_guard]
-pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
-    if attno <= 0 {
-        return false;
-    }
-
-    unsafe {
-        assert!(!indexrel.is_null());
-        assert!(!(*indexrel).rd_att.is_null());
-        let indexrel = PgSearchRelation::from_pg(indexrel);
-
-        // A partitioned index has no physical storage to inspect. PostgreSQL asks each child
-        // index separately whether it supports index-only scans.
-        if pg_sys::get_rel_relkind(indexrel.oid()) as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
-            return false;
-        }
-
-        AmCanReturnCache::get_or_init(indexrel.as_ptr()).can_return((attno - 1) as usize)
-    }
 }

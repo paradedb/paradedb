@@ -143,20 +143,27 @@ pub extern "C-unwind" fn amrescan(
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
         assert!(!(*scan).indexRelation.is_null());
-        assert!(!keys.is_null());
-        assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
+        assert!(nkeys >= 0);
 
         amendscan(scan);
 
         let indexrel = (*scan).indexRelation;
-        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
+        let keys = if nkeys == 0 {
+            &[]
+        } else {
+            assert!(!keys.is_null());
+            std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+        };
 
         ((PgSearchRelation::from_pg(indexrel)), keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_query_input = key_to_search_query_input(&keys[0]);
-    for key in &keys[1..] {
+    let mut search_query_input = keys
+        .first()
+        .map(key_to_search_query_input)
+        .unwrap_or(SearchQueryInput::All);
+    for key in keys.iter().skip(1) {
         let key = key_to_search_query_input(key);
 
         search_query_input = SearchQueryInput::Boolean {

@@ -64,6 +64,85 @@ SET enable_indexonlyscan = off;
 SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
 RESET enable_indexonlyscan;
 
+-- A nonreturnable first column must not block covered queries or require a non-NULL anchor.
+CREATE TABLE index_only_anchor (body text NOT NULL, tenant_id bigint, row_id int NOT NULL, note text);
+INSERT INTO index_only_anchor VALUES
+    ('needle one', 10, 1, NULL),
+    ('needle two', NULL, 2, 'needle'),
+    ('other', 20, 3, 'other');
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%';
+
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT row_id, body @@@ 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
+FROM index_only_anchor ORDER BY row_id;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+SET enable_seqscan = off;
+
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (tenant_id, body, row_id, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+
+-- Numeric columns with fast fields disabled are not eligible anchors either.
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note)
+WITH (numeric_fields = '{"row_id": {"fast": false}}');
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note)
+WHERE row_id <= 2;
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2$$);
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 ORDER BY tenant_id;
+SET enable_indexonlyscan = off;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE row_id <= 2$$);
+SELECT body FROM index_only_anchor WHERE row_id <= 2 ORDER BY body;
+RESET enable_indexonlyscan;
+
+-- Indexes without returnable columns still support ordinary index scans.
+DROP INDEX index_only_anchor_idx;
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, note);
+VACUUM (FREEZE, ANALYZE) index_only_anchor;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT body FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY body;
+DROP TABLE index_only_anchor;
+
+-- Allowing conditions on later columns also permits scans without search conditions.
+CREATE TABLE index_only_full_scan (body text, id bigint);
+INSERT INTO index_only_full_scan VALUES ('needle', 1), ('other', NULL), (NULL, NULL);
+CREATE INDEX index_only_full_scan_idx ON index_only_full_scan USING paradedb (body, id);
+VACUUM (FREEZE, ANALYZE) index_only_full_scan;
+SELECT explain_index_only($$SELECT count(*), count(id), sum(id) FROM index_only_full_scan$$);
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+INSERT INTO index_only_full_scan VALUES (NULL, NULL), ('new', 2);
+DELETE FROM index_only_full_scan WHERE id = 1;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+VACUUM (FREEZE, ANALYZE) index_only_full_scan;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+TRUNCATE index_only_full_scan;
+SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
+DROP TABLE index_only_full_scan;
+
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan

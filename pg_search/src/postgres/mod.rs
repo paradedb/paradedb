@@ -109,6 +109,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amstrategies = 2;
     amroutine.amsupport = 0;
     amroutine.amcanmulticol = true;
+    amroutine.amoptionalkey = true;
     amroutine.amsearcharray = true;
 
     amroutine.amkeytype = pg_sys::InvalidOid;

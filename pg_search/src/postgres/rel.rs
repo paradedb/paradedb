@@ -18,7 +18,7 @@
 use crate::api::CTID_FIELD_NAME;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
-use crate::postgres::build::is_bm25_index;
+use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::schema::SearchIndexSchema;
@@ -434,7 +434,7 @@ impl PgSearchRelation {
         let rc = self.0.as_ref().unwrap();
         let mut borrow = rc.3.borrow_mut();
         let schema = borrow.get_or_insert_with(|| {
-            if !is_bm25_index(self) {
+            if !unsafe { (*self.rd_rel).relam.is_paradedb_am() } {
                 return Err(SchemaError::RelationNotBM25Index);
             }
 

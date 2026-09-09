@@ -143,6 +143,34 @@ TRUNCATE index_only_full_scan;
 SELECT count(*), count(id), sum(id) FROM index_only_full_scan;
 DROP TABLE index_only_full_scan;
 
+-- The final supported index column must be usable, including through the bm25 alias.
+DO $$
+DECLARE
+    max_keys int := current_setting('max_index_keys')::int;
+    text_columns text;
+    index_columns text;
+BEGIN
+    SELECT string_agg(format('text_%s text', i), ', ' ORDER BY i),
+           string_agg(format('text_%s', i), ', ' ORDER BY i)
+    INTO text_columns, index_columns
+    FROM generate_series(1, max_keys - 1) i;
+    EXECUTE format('CREATE TABLE index_only_max_keys (%s, last_value bigint)', text_columns);
+    INSERT INTO index_only_max_keys (text_1, last_value)
+    VALUES ('needle', 42), ('needle', NULL), ('other', 7);
+    EXECUTE format(
+        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING bm25 (%s, last_value)',
+        index_columns
+    );
+END;
+$$;
+VACUUM (FREEZE, ANALYZE) index_only_max_keys;
+SELECT bool_and(pg_index_column_has_property('index_only_max_keys_idx', i, 'returnable')
+                IS NOT DISTINCT FROM (i = current_setting('max_index_keys')::int)) AS correct_capabilities
+FROM generate_series(1, current_setting('max_index_keys')::int) i;
+SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle'$$);
+SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle' ORDER BY last_value;
+DROP TABLE index_only_max_keys;
+
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan

@@ -22,7 +22,7 @@ use std::ops::Range;
 
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
-use crate::postgres::build::is_bm25_index;
+use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
@@ -159,7 +159,9 @@ pub fn rel_get_bm25_index(
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
     let index = unsafe {
         rel.indices(pg_sys::AccessShareLock as _)
-            .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
+            .filter(|index| {
+                pg_sys::get_index_isvalid(index.oid()) && (*index.rd_rel).relam.is_paradedb_am()
+            })
             .max_by_key(|i| i.oid().to_u32())?
     };
     Some((rel, index))

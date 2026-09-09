@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788957740732,
+  "lastUpdate": 1788957749130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307988,6 +307988,162 @@ window.BENCHMARK_DATA = {
             "value": 17.8203125,
             "unit": "median mem",
             "extra": "avg mem: 17.69551422348325, max mem: 17.9140625, count: 59255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788957745064,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.671388381713665, max cpu: 32.98969, count: 59265"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.26770068758964, max mem: 62.16015625, count: 59265"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9419954839734532, max cpu: 4.736063, count: 59265"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.236787957162743, max mem: 17.265625, count: 59265"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.721308967808349, max cpu: 9.4395275, count: 59265"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.41087837730954, max mem: 21.42578125, count: 59265"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 9822,
+            "unit": "median pages",
+            "extra": "avg pages: 7816.787176242302, max pages: 16175.0, count: 59265"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 76.734375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 61.06865034168565, max relation_size:MB: 126.3671875, count: 59265"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.90837762591749, max segment_count: 77.0, count: 59265"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9399478637098797, max cpu: 4.6943765, count: 59265"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.277947763751794, max mem: 17.296875, count: 59265"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.8732015768901, max cpu: 33.0546, count: 59265"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.29149028726905, max mem: 63.66796875, count: 59265"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.593663647870876, max cpu: 33.103447, count: 59265"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.46305576647262, max mem: 56.6953125, count: 59265"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 99.93013000488281,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 195.7450724090754, max replication_lag:MB: 881.3027648925781, count: 59265"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.857482621439946, max cpu: 37.610184, count: 59265"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.5963163334177, max mem: 62.51953125, count: 59265"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.026364767723303, max cpu: 32.941177, count: 59265"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.581426445309205, max mem: 17.8359375, count: 59265"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.989647356865476, max cpu: 32.73259, count: 59265"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.675790213975365, max mem: 17.8359375, count: 59265"
           }
         ]
       }

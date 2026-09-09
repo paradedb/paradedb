@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959686878,
+  "lastUpdate": 1788960746373,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -344702,6 +344702,60 @@ window.BENCHMARK_DATA = {
             "value": 23.136496528730824,
             "unit": "median tps",
             "extra": "avg tps: 39.63400803908977, max tps: 578.5956746231736, count: 59251"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788960742501,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3898.1005542071916,
+            "unit": "median tps",
+            "extra": "avg tps: 3904.7711041484404, max tps: 5137.437017288685, count: 59249"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4534.913381473667,
+            "unit": "median tps",
+            "extra": "avg tps: 4576.95721582637, max tps: 7038.763880442372, count: 59249"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.31324202407461,
+            "unit": "median tps",
+            "extra": "avg tps: 187.8896111154674, max tps: 3195.8336555798933, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.365016995122616,
+            "unit": "median tps",
+            "extra": "avg tps: 39.93816833141459, max tps: 580.9022241946234, count: 59249"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.34485215772589,
+            "unit": "median tps",
+            "extra": "avg tps: 39.976880242000526, max tps: 581.5742278107671, count: 59249"
           }
         ]
       }

@@ -25,8 +25,8 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    Column, IndexExpression, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
-    compare_outcome_retrying_on, generated_queries_setup,
+    Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
+    compare_outcome_retrying, compare_outcome_retrying_on, generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -466,7 +466,7 @@ async fn generated_joins_small(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut row_strings: Vec<String> = rows
@@ -479,7 +479,7 @@ async fn generated_joins_small(database: Db) {
                     .collect();
                 row_strings.sort();
                 Ok(row_strings)
-            },
+            }
         ))?;
     });
 }
@@ -509,7 +509,7 @@ async fn generated_single_relation(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
                 Ok(rows)
@@ -603,7 +603,7 @@ async fn generated_group_by_aggregates(database: Db) {
 
         // Custom result comparator for GROUP BY results
         let compare_results =
-            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
             // Fetch all rows as dynamic results and convert to string representation
             let rows = query.fetch_dynamic_result(conn)?;
             let string_rows: Vec<String> = rows
@@ -662,7 +662,7 @@ async fn generated_paging_small(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(i64,)>(conn),
+            |query, _, conn| query.fetch_result::<(i64,)>(conn),
         ))?;
     });
 }
@@ -693,7 +693,7 @@ async fn generated_paging_large(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(String,)>(conn),
+            |query, _, conn| query.fetch_result::<(String,)>(conn),
         ))?;
     });
 }
@@ -759,7 +759,7 @@ async fn generated_subquery(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_one_result::<(i64,)>(conn),
+            |query, _, conn| query.fetch_one_result::<(i64,)>(conn),
         ))?;
     });
 }
@@ -870,7 +870,7 @@ async fn generated_aggregate_join(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -978,7 +978,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -1078,7 +1078,7 @@ async fn generated_group_by_stddev(database: Db) {
 
         // Custom result comparator that rounds f64 values to 6 decimal places
         let compare_results =
-            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
             let rows = query.fetch_dynamic_result(conn)?;
             let mut string_rows: Vec<String> = rows
                 .into_iter()
@@ -1205,7 +1205,7 @@ async fn generated_join_aggregates(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -1296,7 +1296,7 @@ async fn generated_numeric_pushdown(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
                 Ok(rows)
@@ -1444,7 +1444,7 @@ async fn generated_join_semi_like(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(i64, String)>(conn),
+            |query, _, conn| query.fetch_result::<(i64, String)>(conn),
         ))?;
     });
 }
@@ -1520,7 +1520,7 @@ async fn generated_numeric_precision(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+            |query, _, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
         ))?;
     });
 }
@@ -1586,7 +1586,7 @@ async fn generated_numeric_range_precision(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+            |query, _, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
         ))?;
     });
 }
@@ -1637,11 +1637,10 @@ async fn generated_pdb_agg_join(database: Db) {
                 &gucs,
                 &pool,
                 &setup_sql,
-                |query, conn| {
+                |query, side, conn| {
                     "SET work_mem TO '64MB';".execute_result(conn)?;
                     let rows = query.fetch_dynamic_result(conn)?;
-                    let is_pdb = query.contains("pdb.agg");
-                    let mut rows = agg.outer_rows(rows, is_pdb)?;
+                    let mut rows = agg.outer_rows(rows, side.is_candidate())?;
                     rows.sort();
                     Ok(rows)
                 },
@@ -1654,7 +1653,7 @@ async fn generated_pdb_agg_join(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 // A keyless join under three bucket keys makes tens of thousands of
                 // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
                 "SET work_mem TO '64MB';".execute_result(conn)?;
@@ -1709,7 +1708,7 @@ async fn generated_pdb_agg_single_table(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut documents = agg.documents(query.fetch_dynamic_result(conn)?)?;
                 documents.sort_by(|a, b| a.0.cmp(&b.0));
                 Ok(documents)

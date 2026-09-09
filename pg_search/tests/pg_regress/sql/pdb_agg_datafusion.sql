@@ -593,6 +593,11 @@ FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title @@@ 'post';
 
 -- Test 6.3: outer scalar terms with inner array terms
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
 SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title @@@ 'post';
@@ -693,4 +698,15 @@ FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
 WHERE p.title @@@ 'post';
 
+-- Test 6.13: wrapped aggregate and JSON operator on pdb.agg over join
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
 DROP TABLE pa_posts, pa_authors CASCADE;
+

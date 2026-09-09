@@ -32,7 +32,7 @@ use crate::api::{HashMap, SortDirection, pdb_agg_spec};
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -553,10 +553,8 @@ pub unsafe fn extract_aggregate_targetlist(
                 numeric_scale,
                 transform: GroupingTransform::Identity,
             });
-        } else if let Some(aggref) =
-            unsafe { crate::nodecast!(Aggref, T_Aggref, expr as *mut pg_sys::Node) }
-        {
-            // Bare aggregate function (wrapped expressions like COALESCE, casts fall back to Postgres).
+        } else if let Some(aggref) = unsafe { find_one_aggref(expr as *mut pg_sys::Node) } {
+            // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
@@ -700,9 +698,7 @@ pub unsafe fn pdb_agg_route(
     let sources = collect_join_agg_sources(root, input_rel);
     let mut requests = HashMap::default();
     for (idx, expr) in shape.target_exprs().iter_ptr().enumerate() {
-        let Some(aggref) =
-            (unsafe { crate::nodecast!(Aggref, T_Aggref, expr as *mut pg_sys::Node) })
-        else {
+        let Some(aggref) = (unsafe { find_one_aggref(expr as *mut pg_sys::Node) }) else {
             continue;
         };
         if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {

@@ -343,12 +343,15 @@ struct ArrayKeyToUnnest {
     field_name: String,
 }
 
-/// Build the aggregate logical plan for `pdb.agg()`. When array keys are grouped,
-/// builds an `Aggregate` per level over the join input unnested only for array
-/// keys required by that level, projecting typed NULL placeholders for inactive keys
-/// and an explicit `__grouping_id` so all levels share the exact same output schema
-/// and grouping ID bit layout. The levels are then unioned together so outer grouping
-/// levels and root aggregates are not over-counted by unnesting.
+/// Build the aggregate logical plan for `pdb.agg()`.
+///
+/// Unnesting changes relation cardinality, so levels that do not group by an
+/// array key must not see expanded rows. When array keys are grouped, levels
+/// are partitioned by the distinct set of array keys they require. Each group
+/// is built as an `Aggregate` unnested only for its required array keys. If a
+/// group contains multiple levels (e.g. root and scalar term levels), they
+/// share a single pass over the join via DataFusion grouping sets, with their
+/// local grouping IDs remapped to the unified bit layout before unioning.
 fn build_pdb_aggregate_plan(
     input: LogicalPlan,
     pdb_plan: &PdbAggPlan,
@@ -391,12 +394,30 @@ fn build_pdb_aggregate_plan(
 
     let num_outer = pdb_plan.num_outer_group_cols();
     let num_keys = pdb_plan.keys.len();
-    let mut level_plans = Vec::with_capacity(pdb_plan.levels.len());
 
+    // Group levels by the array keys they require so levels sharing the same
+    // unnest depth (e.g. the root level and any scalar levels preceding an array)
+    // share a single Aggregate and scan the join only once.
+    let mut groups: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
     for (level_idx, level) in pdb_plan.levels.iter().enumerate() {
+        let needed: Vec<usize> = array_keys
+            .iter()
+            .filter(|ak| level.contains(&(num_outer + ak.key_idx)))
+            .map(|ak| ak.key_idx)
+            .collect();
+        if let Some(group) = groups.iter_mut().find(|g| g.0 == needed) {
+            group.1.push(level_idx);
+        } else {
+            groups.push((needed, vec![level_idx]));
+        }
+    }
+
+    let mut level_plans = Vec::with_capacity(groups.len());
+
+    for (needed_keys, levels_in_group) in groups {
         let mut level_plan = input.clone();
         for ak in &array_keys {
-            if level.contains(&(num_outer + ak.key_idx)) {
+            if needed_keys.contains(&ak.key_idx) {
                 level_plan = unnest_plan_column(
                     level_plan,
                     &ak.source_alias,
@@ -406,18 +427,44 @@ fn build_pdb_aggregate_plan(
             }
         }
 
-        let level_group_exprs: Vec<Expr> =
-            level.iter().map(|&p| all_group_exprs[p].clone()).collect();
-
-        let level_agg = LogicalPlanBuilder::from(level_plan)
-            .with_options(options.clone())
-            .aggregate(level_group_exprs, all_agg_exprs.to_vec())?
-            .build()?;
+        let (level_agg, distinct_positions) = if levels_in_group.len() == 1 {
+            let level_idx = levels_in_group[0];
+            let level = &pdb_plan.levels[level_idx];
+            let level_group_exprs: Vec<Expr> =
+                level.iter().map(|&p| all_group_exprs[p].clone()).collect();
+            let agg = LogicalPlanBuilder::from(level_plan)
+                .with_options(options.clone())
+                .aggregate(level_group_exprs, all_agg_exprs.to_vec())?
+                .build()?;
+            (agg, level.clone())
+        } else {
+            let mut sets = Vec::with_capacity(levels_in_group.len());
+            let mut distinct_positions = Vec::new();
+            for &level_idx in &levels_in_group {
+                let set: Vec<Expr> = pdb_plan.levels[level_idx]
+                    .iter()
+                    .map(|&p| {
+                        if !distinct_positions.contains(&p) {
+                            distinct_positions.push(p);
+                        }
+                        all_group_exprs[p].clone()
+                    })
+                    .collect();
+                sets.push(set);
+            }
+            let agg = LogicalPlanBuilder::from(level_plan)
+                .with_options(options.clone())
+                .aggregate(
+                    vec![Expr::GroupingSet(GroupingSet::GroupingSets(sets))],
+                    all_agg_exprs.to_vec(),
+                )?
+                .build()?;
+            (agg, distinct_positions)
+        };
 
         // Project level_agg output to the unified schema:
         // [group_exprs..., key_exprs..., __grouping_id, all_agg_exprs...]
         let mut project_exprs = Vec::with_capacity(num_outer + num_keys + 1 + all_agg_exprs.len());
-
         let columns = level_agg.schema().columns();
 
         // 1. Outer SQL group columns (always first in level_agg schema)
@@ -427,7 +474,7 @@ fn build_pdb_aggregate_plan(
 
         // 2. Key expressions (__pdb_k0, __pdb_k1, ...)
         for k in 0..num_keys {
-            if level.contains(&(num_outer + k)) {
+            if distinct_positions.contains(&(num_outer + k)) {
                 project_exprs.push(col(format!("__pdb_k{k}")));
             } else {
                 let null_expr = Expr::Cast(Cast::new(
@@ -439,14 +486,36 @@ fn build_pdb_aggregate_plan(
             }
         }
 
-        // 3. Constant grouping id for this level
-        project_exprs.push(
-            lit(pdb_plan.grouping_id_for_level(level_idx)).alias(Aggregate::INTERNAL_GROUPING_ID),
-        );
+        // 3. Grouping ID (constant for a single level, remapped from local bitmask if grouped)
+        if levels_in_group.len() == 1 {
+            project_exprs.push(
+                lit(pdb_plan.grouping_id_for_level(levels_in_group[0]))
+                    .alias(Aggregate::INTERNAL_GROUPING_ID),
+            );
+        } else {
+            let id_u64 = Expr::Cast(Cast::new(
+                Box::new(col(Aggregate::INTERNAL_GROUPING_ID)),
+                DataType::UInt64,
+            ));
+            let mut case_builder = datafusion::prelude::case(id_u64);
+            for &level_idx in &levels_in_group {
+                let local_id = (0..distinct_positions.len())
+                    .filter(|&j| !pdb_plan.levels[level_idx].contains(&distinct_positions[j]))
+                    .fold(0u64, |acc, j| {
+                        acc | (1u64 << (distinct_positions.len() - 1 - j))
+                    });
+                let global_id = pdb_plan.grouping_id_for_level(level_idx);
+                case_builder = case_builder.when(lit(local_id), lit(global_id));
+            }
+            let grouping_id_expr = case_builder
+                .otherwise(lit(0u64))?
+                .alias(Aggregate::INTERNAL_GROUPING_ID);
+            project_exprs.push(grouping_id_expr);
+        }
 
-        // 4. Aggregates and metrics (following the group columns in level_agg schema)
-        let aggs_offset = level.len();
-        for col in columns.iter().skip(aggs_offset).take(all_agg_exprs.len()) {
+        // 4. Aggregates and metrics (always at the tail of level_agg schema)
+        let aggs_start = columns.len().saturating_sub(all_agg_exprs.len());
+        for col in &columns[aggs_start..] {
             project_exprs.push(Expr::Column(col.clone()));
         }
 
@@ -574,16 +643,12 @@ fn pdb_missing_lit(missing: &Key, field: &PdbAggFieldRef) -> Expr {
 }
 
 fn pdb_key_expr(key: &PdbKeySpec, plan: &RelNode) -> Expr {
-    let source = plan
-        .source_at_plan_position(key.field.plan_position)
-        .unwrap_or_else(|| panic!("no source at plan_position {}", key.field.plan_position));
-    let alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-    let column = if key.field.is_array {
-        col(format!("{alias}_{}", key.field.field_name))
-    } else {
-        make_col(&alias, &key.field.field_name)
-    };
+    let column = make_plan_position_col_with(
+        plan,
+        key.field.plan_position,
+        &key.field.field_name,
+        key.field.is_array,
+    );
     match &key.missing {
         None => column,
         Some(missing) => coalesce(vec![column, pdb_missing_lit(missing, &key.field)]),
@@ -1107,17 +1172,31 @@ fn is_lateral_unnest(plan: &RelNode, plan_position: usize, field_name: &str) -> 
 
 /// Build a DataFusion column expression for a targetlist ref by its
 /// previously-resolved `plan_position`.
-fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
+fn make_plan_position_col_with(
+    plan: &RelNode,
+    plan_position: usize,
+    field_name: &str,
+    is_unnested: bool,
+) -> Expr {
     let source = plan
         .source_at_plan_position(plan_position)
         .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-    if is_lateral_unnest(plan, plan_position, field_name) {
+    if is_unnested {
         col(format!("{alias}_{field_name}"))
     } else {
         make_col(&alias, field_name)
     }
+}
+
+fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
+    make_plan_position_col_with(
+        plan,
+        plan_position,
+        field_name,
+        is_lateral_unnest(plan, plan_position, field_name),
+    )
 }
 
 /// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.

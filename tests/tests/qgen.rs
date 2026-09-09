@@ -25,8 +25,8 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    Column, IndexExpression, PgGucs, Sides, arb_joins_and_wheres, compare_outcome_retrying,
-    compare_outcome_retrying_on, generated_queries_setup,
+    Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
+    compare_outcome_retrying, compare_outcome_retrying_on, generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -177,10 +177,16 @@ const COLUMNS: &[Column] = &[
         .groupable(false)
         .bm25_json_field(r#""metadata": { "fast": true }"#)
         .random_generator_sql(
-            "jsonb_build_object(
+            "CASE (floor(random() * 5))::int
+                WHEN 0 THEN NULL
+                WHEN 1 THEN '{}'::jsonb
+                ELSE jsonb_build_object(
                 'brand', (ARRAY ['apple', 'samsung', 'sony', 'lg']::text[])[(floor(random() * 4) + 1)::int],
-                'rating', (floor(random() * 5) + 1)::int
-            )"
+                'rating', CASE WHEN random() < 0.2 THEN NULL ELSE (floor(random() * 5) + 1)::int END,
+                'details', jsonb_build_object(
+                    'score', CASE WHEN random() < 0.2 THEN NULL ELSE (floor(random() * 200) - 100) / 4.0 END
+                )
+            ) END"
         ),
     Column::new("tags", "TEXT[]", "ARRAY['alpha', 'beta']::text[]")
         .whereable(false)
@@ -466,7 +472,7 @@ async fn generated_joins_small(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut row_strings: Vec<String> = rows
@@ -479,7 +485,7 @@ async fn generated_joins_small(database: Db) {
                     .collect();
                 row_strings.sort();
                 Ok(row_strings)
-            },
+            }
         ))?;
     });
 }
@@ -509,7 +515,7 @@ async fn generated_single_relation(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
                 Ok(rows)
@@ -551,7 +557,22 @@ async fn generated_group_by_aggregates(database: Db) {
             vec![table_name],
             &columns_named(vec!["age", "price", "rating"]),
         ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec![
+            "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)",
+            "COUNT(metadata->>'brand')",
+            "COUNT((metadata->>'rating')::bigint)",
+            "SUM((metadata->>'rating')::bigint)",
+            "AVG((metadata->>'rating')::bigint)",
+            "MIN((metadata->>'rating')::bigint)",
+            "MAX((metadata->>'rating')::bigint)",
+            "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
+            "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
+            "SUM((metadata->'details'->>'score')::double precision)",
+            "AVG((metadata->'details'->>'score')::double precision)",
+            "MIN((metadata->'details'->>'score')::double precision)",
+            "MAX((metadata->'details'->>'score')::double precision)",
+            "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
+        ]),
         limit in prop::option::of(5..21_usize),
         offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
@@ -603,7 +624,7 @@ async fn generated_group_by_aggregates(database: Db) {
 
         // Custom result comparator for GROUP BY results
         let compare_results =
-            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
             // Fetch all rows as dynamic results and convert to string representation
             let rows = query.fetch_dynamic_result(conn)?;
             let string_rows: Vec<String> = rows
@@ -621,6 +642,10 @@ async fn generated_group_by_aggregates(database: Db) {
                             val.to_string()
                         } else if let Ok(val) = row.try_get::<i32, _>(i) {
                             val.to_string()
+                        } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                            format!("{val:.6}")
+                        } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                            format!("{val:.6}")
                         } else if let Ok(val) = row.try_get::<String, _>(i) {
                             val
                         } else {
@@ -662,7 +687,7 @@ async fn generated_paging_small(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(i64,)>(conn),
+            |query, _, conn| query.fetch_result::<(i64,)>(conn),
         ))?;
     });
 }
@@ -693,7 +718,7 @@ async fn generated_paging_large(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(String,)>(conn),
+            |query, _, conn| query.fetch_result::<(String,)>(conn),
         ))?;
     });
 }
@@ -759,7 +784,7 @@ async fn generated_subquery(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_one_result::<(i64,)>(conn),
+            |query, _, conn| query.fetch_one_result::<(i64,)>(conn),
         ))?;
     });
 }
@@ -870,7 +895,7 @@ async fn generated_aggregate_join(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -978,7 +1003,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -1078,7 +1103,7 @@ async fn generated_group_by_stddev(database: Db) {
 
         // Custom result comparator that rounds f64 values to 6 decimal places
         let compare_results =
-            |query: &str, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
             let rows = query.fetch_dynamic_result(conn)?;
             let mut string_rows: Vec<String> = rows
                 .into_iter()
@@ -1205,7 +1230,7 @@ async fn generated_join_aggregates(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
                 let mut string_rows: Vec<String> = rows
                     .into_iter()
@@ -1296,7 +1321,7 @@ async fn generated_numeric_pushdown(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut rows = query.fetch_result::<(i64,)>(conn)?;
                 rows.sort();
                 Ok(rows)
@@ -1444,7 +1469,7 @@ async fn generated_join_semi_like(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| query.fetch_result::<(i64, String)>(conn),
+            |query, _, conn| query.fetch_result::<(i64, String)>(conn),
         ))?;
     });
 }
@@ -1520,7 +1545,7 @@ async fn generated_numeric_precision(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+            |query, _, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
         ))?;
     });
 }
@@ -1586,7 +1611,7 @@ async fn generated_numeric_range_precision(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
+            |query, _, conn| Ok(query.fetch_one_result::<(i64,)>(conn)?.0),
         ))?;
     });
 }
@@ -1596,6 +1621,8 @@ async fn generated_numeric_range_precision(database: Db) {
 /// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
 /// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
 /// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+/// TODO: Consider merging this property test with other "aggregate over join" tests
+/// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
 #[rstest]
 #[tokio::test]
 async fn generated_pdb_agg_join(database: Db) {
@@ -1627,13 +1654,31 @@ async fn generated_pdb_agg_join(database: Db) {
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
 
+        if !agg.outer_aggs.is_empty() {
+            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
+            qgen_oracle!("qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL", compare_outcome_retrying(
+                &pg_outer_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, side, conn| {
+                    "SET work_mem TO '64MB';".execute_result(conn)?;
+                    let rows = query.fetch_dynamic_result(conn)?;
+                    let mut rows = agg.outer_rows(rows, side.is_candidate())?;
+                    rows.sort();
+                    Ok(rows)
+                },
+            ))?;
+        }
+
         qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 // A keyless join under three bucket keys makes tens of thousands of
                 // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
                 "SET work_mem TO '64MB';".execute_result(conn)?;
@@ -1688,7 +1733,7 @@ async fn generated_pdb_agg_single_table(database: Db) {
             &gucs,
             &pool,
             &setup_sql,
-            |query, conn| {
+            |query, _, conn| {
                 let mut documents = agg.documents(query.fetch_dynamic_result(conn)?)?;
                 documents.sort_by(|a, b| a.0.cmp(&b.0));
                 Ok(documents)

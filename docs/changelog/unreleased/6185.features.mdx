@@ -2,4 +2,4 @@
 header: features
 ---
 
-`pdb.agg()` now runs over joins and on single tables whose group count is past the bucket limit, with `terms` (`size`, `min_doc_count`, `missing`, `order`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs`.
+`pdb.agg()` now runs over joins (including `terms` on array fields) and on single tables whose group count is past the bucket limit, with `terms` (`size`, `min_doc_count`, `missing`, `order`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs`.

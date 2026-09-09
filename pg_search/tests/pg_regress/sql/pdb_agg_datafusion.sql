@@ -478,3 +478,203 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
 ROLLBACK;
 
 DROP TABLE pa_products, pa_tags CASCADE;
+
+-- =====================================================================
+-- SECTION 6: terms on array fields over joins
+-- =====================================================================
+
+SET max_parallel_workers_per_gather = 0;
+RESET paradedb.mpp_min_rows;
+
+DROP TABLE IF EXISTS pa_posts, pa_authors CASCADE;
+CREATE TABLE pa_authors (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    reputation INTEGER,
+    tags TEXT[]
+);
+CREATE TABLE pa_posts (
+    id SERIAL PRIMARY KEY,
+    author_id INTEGER,
+    title TEXT,
+    category TEXT,
+    tags TEXT[],
+    views INTEGER
+);
+
+CREATE INDEX pa_authors_idx ON pa_authors
+USING paradedb (id, name, reputation, tags)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "name": {"fast": true},
+        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }',
+    numeric_fields = '{"reputation": {"fast": true}}'
+);
+
+CREATE INDEX pa_posts_idx ON pa_posts
+USING paradedb (id, author_id, title, category, tags, views)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{"author_id": {"fast": true}, "views": {"fast": true}}',
+    text_fields = '{
+        "title": {},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }'
+);
+
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO pa_authors (name, reputation, tags) VALUES
+    ('Alice', 100, ARRAY['admin', 'moderator']),
+    ('Bob', 80, ARRAY['writer']),
+    ('Charlie', 50, NULL);
+
+INSERT INTO pa_posts (author_id, title, category, tags, views) VALUES
+    (1, 'Post about databases and rust', 'tech', ARRAY['database', 'rust'], 150),
+    (1, 'Another post on rust', 'tech', ARRAY['rust'], 200),
+    (1, 'Post with empty tags', 'tech', ARRAY[]::TEXT[], 50),
+    (2, 'Post with null tags', 'tech', NULL, 75),
+    (2, 'Post about database indexing', 'db', ARRAY['database', 'postgres'], 300),
+    (3, 'Post with multiple tags', 'db', ARRAY['database', 'postgres', 'search'], 120);
+
+RESET paradedb.global_mutable_segment_rows;
+
+ANALYZE pa_authors;
+ANALYZE pa_posts;
+
+-- Test 6.1: terms on array field over join (explain + execute)
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.2: terms on array field with metric sub-aggregations
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"avg_views": {"avg": {"field": "p.views"}}, "total_views": {"sum": {"field": "p.views"}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.3: outer scalar terms with inner array terms
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.4: outer array terms with inner scalar terms
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"by_author": {"terms": {"field": "a.name", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.5: array terms with size and min_doc_count
+SELECT pdb.agg('{"terms": {"field": "p.tags", "size": 2, "min_doc_count": 2, "order": {"_count": "desc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.6: array terms alongside SQL GROUP BY and standard aggregates
+SELECT a.name, COUNT(*), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}') AS tags
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post'
+GROUP BY a.name
+ORDER BY a.name;
+
+-- Test 6.7: metric aggregation on array field returns an error
+SELECT pdb.agg('{"sum": {"field": "p.tags"}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"cardinality": {"field": "p.tags"}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.8: nested terms over multiple array fields across joins (sequential unnesting)
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+-- Test 6.9: single-table pdb.agg on array field stays on Tantivy even when
+-- ORDER BY aggregate and LIMIT would otherwise favor DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pa_posts
+WHERE title @@@ 'post'
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 5;
+
+SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pa_posts
+WHERE title @@@ 'post'
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 5;
+
+-- Test 6.10: single-table pdb.agg on array field stays on Tantivy when
+-- bucket limit is exceeded, because array unnesting cannot lower to DataFusion
+SET paradedb.max_term_agg_buckets TO 1;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pa_posts
+WHERE title @@@ 'post'
+GROUP BY category;
+
+SELECT category, pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
+FROM pa_posts
+WHERE title @@@ 'post'
+GROUP BY category;
+
+RESET paradedb.max_term_agg_buckets;
+
+-- Test 6.11: plain GROUP BY on array field over join runs on DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.tags, COUNT(*)
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post'
+GROUP BY p.tags
+ORDER BY p.tags;
+
+SELECT p.tags, COUNT(*)
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post'
+GROUP BY p.tags
+ORDER BY p.tags;
+
+-- Test 6.12: pdb.agg terms on a key that is also LATERAL unnested in FROM
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
+WHERE p.title @@@ 'post';
+
+-- Test 6.13: wrapped aggregate and JSON operator on pdb.agg over join
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
+FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
+WHERE p.title @@@ 'post';
+
+DROP TABLE pa_posts, pa_authors CASCADE;
+

@@ -464,7 +464,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 output_index: idx,
                 numeric_scale,
             });
-        } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
+        } else if let Some(aggref) = unsafe { find_one_aggref(expr as *mut pg_sys::Node) } {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
@@ -583,6 +583,15 @@ impl PdbAggRoute {
             .flat_map(PdbAggRequest::fields)
             .any(|field| field.field_type.is_numeric())
     }
+
+    /// A spec reads an array field, which on a single table is handled natively
+    /// by Tantivy.
+    pub fn references_array(&self) -> bool {
+        self.requests
+            .values()
+            .flat_map(PdbAggRequest::fields)
+            .any(|field| field.is_array)
+    }
 }
 
 /// Lower every `pdb.agg()` in the grouping output, fields included, to decide
@@ -605,7 +614,11 @@ pub unsafe fn pdb_agg_route(
         }
         requests.insert(idx, lower_pdb_agg(aggref, &sources).ok()?);
     }
-    Some(PdbAggRoute { requests })
+    let route = PdbAggRoute { requests };
+    if route.references_array() {
+        return None;
+    }
+    Some(route)
 }
 
 /// Lower a `pdb.agg()` call into its DataFusion request. The spec must be a
@@ -628,6 +641,7 @@ unsafe fn lower_pdb_agg(
             field_name: resolved.field_name,
             field_type: resolved.field_type,
             plan_position: 0,
+            is_array: resolved.is_array,
         })
     })
 }

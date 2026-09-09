@@ -693,6 +693,23 @@ impl Sides {
     }
 }
 
+/// Which side of a query comparison is currently being executed.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum QuerySide {
+    Baseline,
+    Candidate,
+}
+
+impl QuerySide {
+    pub fn is_candidate(self) -> bool {
+        self == Self::Candidate
+    }
+
+    pub fn is_baseline(self) -> bool {
+        self == Self::Baseline
+    }
+}
+
 /// Run the given pg and bm25 queries on the given connection, and compare their results when run
 /// with the given GUCs.
 pub fn compare<R, F>(
@@ -707,8 +724,31 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
+    compare_with_side(
+        pg_query,
+        bm25_query,
+        gucs,
+        conn,
+        setup_sql,
+        |query, _side, conn| run_query(query, conn),
+    )
+}
+
+/// [`compare`] with the current [`QuerySide`] passed to `run_query`.
+pub fn compare_with_side<R, F>(
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> R,
+{
     let sides = Sides::postgres_vs(gucs);
-    compare_on(
+    compare_on_with_side(
         &sides, pg_query, bm25_query, gucs, conn, setup_sql, run_query,
     )
 }
@@ -727,6 +767,31 @@ pub fn compare_on<R, F>(
 where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
+{
+    compare_on_with_side(
+        sides,
+        pg_query,
+        bm25_query,
+        gucs,
+        conn,
+        setup_sql,
+        |query, _side, conn| run_query(query, conn),
+    )
+}
+
+/// [`compare_on`] with the current [`QuerySide`] passed to `run_query`.
+pub fn compare_on_with_side<R, F>(
+    sides: &Sides,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> R,
 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         inner_compare(sides, pg_query, bm25_query, gucs, conn, run_query)
@@ -764,19 +829,19 @@ fn inner_compare<R, F>(
 ) -> Result<(), TestCaseError>
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> R,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> R,
 {
     sides.baseline.as_str().execute(conn);
 
     conn.deallocate_all()?;
 
-    let pg_result = run_query(pg_query, conn);
+    let pg_result = run_query(pg_query, QuerySide::Baseline, conn);
 
     sides.candidate.as_str().execute(conn);
 
     conn.deallocate_all()?;
 
-    let bm25_result = run_query(bm25_query, conn);
+    let bm25_result = run_query(bm25_query, QuerySide::Candidate, conn);
 
     prop_assert_eq!(
         &pg_result,

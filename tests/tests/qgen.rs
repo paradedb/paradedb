@@ -25,8 +25,8 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::{
-    arb_joins_and_wheres, compare, compare_on, generated_queries_setup, Column, IndexExpression,
-    PgGucs, Sides,
+    arb_joins_and_wheres, compare, compare_on, compare_with_side, generated_queries_setup, Column,
+    IndexExpression, PgGucs, Sides,
 };
 
 use tests::fixtures::*;
@@ -1611,6 +1611,8 @@ async fn generated_numeric_range_precision(database: Db) {
 /// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
 /// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
 /// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+/// TODO: Consider merging this property test with other "aggregate over join" tests
+/// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
 #[rstest]
 #[tokio::test]
 async fn generated_pdb_agg_join(database: Db) {
@@ -1641,6 +1643,25 @@ async fn generated_pdb_agg_join(database: Db) {
         gucs.aggregate_custom_scan = true;
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+
+        if !agg.outer_aggs.is_empty() {
+            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
+            compare_with_side(
+                &pg_outer_query,
+                &bm25_query,
+                &gucs,
+                &mut pool.pull(),
+                &setup_sql,
+                |query, side, conn| {
+                    "SET work_mem TO '64MB';".execute(conn);
+                    let mut rows = agg
+                        .outer_rows(query.fetch_dynamic(conn), side.is_candidate())
+                        .unwrap();
+                    rows.sort();
+                    rows
+                },
+            )?;
+        }
 
         compare(
             &pg_query,

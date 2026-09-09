@@ -15,9 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
+use datafusion::common::{
+    Column, JoinType, NullEquality, NullHandling, Result, TableReference, UnnestOptions,
+};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, LogicalPlanBuilder, Operator};
+use datafusion::logical_expr::{
+    col, lit, BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator,
+};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -544,11 +548,8 @@ pub fn build_join_df_with_filter(
 /// Apply a lateral unnest operation onto an existing DataFusion DataFrame.
 ///
 /// Resolves the source table's execution alias, applies DataFusion's `unnest_columns_with_options`
-/// (preserving empty arrays for LEFT joins if requested), and re-qualifies the unnested column.
+/// (preserving empty arrays for LEFT joins if requested).
 pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFrame> {
-    use datafusion::common::{NullHandling, UnnestOptions};
-
-    use datafusion::logical_expr::lit;
     use datafusion::scalar::ScalarValue;
 
     let source = unnest
@@ -595,34 +596,49 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
         };
     }
 
-    let select_exprs = df
+    let null_handling = if unnest.unnest_info.is_left_join {
+        NullHandling::PreserveAndExpandEmpty
+    } else {
+        NullHandling::Drop
+    };
+    let (session_state, plan) = df.into_parts();
+    let plan = unnest_plan_column(plan, &alias, &unnest.unnest_info.field_name, null_handling)?;
+    Ok(DataFrame::new(session_state, plan))
+}
+
+/// Unnest a single array column from `plan`, aliasing `{source_alias}.{field_name}` to `{source_alias}_{field_name}`
+/// before unnesting with the specified `null_handling`.
+pub fn unnest_plan_column(
+    plan: LogicalPlan,
+    source_alias: &str,
+    field_name: &str,
+    null_handling: NullHandling,
+) -> Result<LogicalPlan> {
+    let unnested_col_name = format!("{source_alias}_{field_name}");
+    let pre_project_exprs: Vec<Expr> = plan
         .schema()
         .iter()
         .map(|(qualifier, field)| {
-            if qualifier.as_ref().map(|q| q.to_string()) == Some(alias.clone())
-                && field.name() == &unnest.unnest_info.field_name
+            let col = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+            if qualifier.as_ref().map(|q| q.to_string()).as_deref() == Some(source_alias)
+                && field.name() == field_name
             {
-                Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ))
-                .alias(&unnested_col_name)
+                col.alias(&unnested_col_name)
             } else {
-                Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ))
+                col
             }
         })
-        .collect::<Vec<_>>();
-    let df = df.select(select_exprs)?;
+        .collect();
 
-    let unnest_options = if unnest.unnest_info.is_left_join {
-        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
-    } else {
-        UnnestOptions::new().with_null_handling(NullHandling::Drop)
-    };
-    df.unnest_columns_with_options(&[&unnested_col_name], unnest_options)
+    let pre_unnest = LogicalPlanBuilder::from(plan)
+        .project(pre_project_exprs)?
+        .build()?;
+
+    let unnest_options = UnnestOptions::new().with_null_handling(null_handling);
+    let unnest_col = Column::from_name(&unnested_col_name);
+    LogicalPlanBuilder::from(pre_unnest)
+        .unnest_columns_with_options(vec![unnest_col], unnest_options)?
+        .build()
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation

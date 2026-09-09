@@ -39,6 +39,32 @@ SET work_mem = '64kB';
 SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
 
+-- A cursor's spilled cache survives rollback of the savepoint that first populated it.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+ROLLBACK TO before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+
+-- Error cleanup may release the cursor's files before its cache is dropped.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id, 1 / (id - 2) FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+FETCH 1 FROM sequential_scan_cursor;
+ROLLBACK TO before_first_fetch;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
 SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
 SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
@@ -230,6 +256,20 @@ USING paradedb (id, (color::pdb.literal)) WHERE covered;
 SELECT id, color @@@ pdb.all() AS field_all,
        color @@@ pdb.all()::pdb.boost(2) AS boosted_all
 FROM sequential_scan_nulls WHERE covered AND id <= 3 ORDER BY id;
+
+-- The cached set of NULL rows must also survive a savepoint rollback.
+BEGIN;
+SET LOCAL work_mem = '64kB';
+INSERT INTO sequential_scan_nulls SELECT g, NULL, true FROM generate_series(6, 3005) g;
+DECLARE sequential_scan_null_cursor CURSOR FOR
+SELECT id, color @@@ pdb.all() IS NULL AS missing FROM sequential_scan_nulls WHERE covered;
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_null_cursor;
+ROLLBACK TO before_first_fetch;
+FETCH 2 FROM sequential_scan_null_cursor;
+CLOSE sequential_scan_null_cursor;
+ROLLBACK;
+
 DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;

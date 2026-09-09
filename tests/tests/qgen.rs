@@ -177,10 +177,16 @@ const COLUMNS: &[Column] = &[
         .groupable(false)
         .bm25_json_field(r#""metadata": { "fast": true }"#)
         .random_generator_sql(
-            "jsonb_build_object(
+            "CASE (floor(random() * 5))::int
+                WHEN 0 THEN NULL
+                WHEN 1 THEN '{}'::jsonb
+                ELSE jsonb_build_object(
                 'brand', (ARRAY ['apple', 'samsung', 'sony', 'lg']::text[])[(floor(random() * 4) + 1)::int],
-                'rating', (floor(random() * 5) + 1)::int
-            )"
+                'rating', CASE WHEN random() < 0.2 THEN NULL ELSE (floor(random() * 5) + 1)::int END,
+                'details', jsonb_build_object(
+                    'score', CASE WHEN random() < 0.2 THEN NULL ELSE (floor(random() * 200) - 100) / 4.0 END
+                )
+            ) END"
         ),
     Column::new("tags", "TEXT[]", "ARRAY['alpha', 'beta']::text[]")
         .whereable(false)
@@ -551,7 +557,22 @@ async fn generated_group_by_aggregates(database: Db) {
             vec![table_name],
             &columns_named(vec!["age", "price", "rating"]),
         ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec![
+            "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)",
+            "COUNT(metadata->>'brand')",
+            "COUNT((metadata->>'rating')::bigint)",
+            "SUM((metadata->>'rating')::bigint)",
+            "AVG((metadata->>'rating')::bigint)",
+            "MIN((metadata->>'rating')::bigint)",
+            "MAX((metadata->>'rating')::bigint)",
+            "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
+            "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
+            "SUM((metadata->'details'->>'score')::double precision)",
+            "AVG((metadata->'details'->>'score')::double precision)",
+            "MIN((metadata->'details'->>'score')::double precision)",
+            "MAX((metadata->'details'->>'score')::double precision)",
+            "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
+        ]),
         limit in prop::option::of(5..21_usize),
         offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
@@ -621,6 +642,10 @@ async fn generated_group_by_aggregates(database: Db) {
                             val.to_string()
                         } else if let Ok(val) = row.try_get::<i32, _>(i) {
                             val.to_string()
+                        } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                            format!("{val:.6}")
+                        } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                            format!("{val:.6}")
                         } else if let Ok(val) = row.try_get::<String, _>(i) {
                             val
                         } else {

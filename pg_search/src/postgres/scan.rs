@@ -146,14 +146,7 @@ pub extern "C-unwind" fn amrescan(
         assert!(!keys.is_null());
         assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
-        // Clean up any previous scan state before creating a new one.
-        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
-        // without calling amendscan in between.
-        if !(*scan).opaque.is_null() {
-            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-            drop(old_state);
-            (*scan).opaque = std::ptr::null_mut();
-        }
+        amendscan(scan);
 
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
@@ -261,11 +254,20 @@ pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
         // Safety check: opaque might be NULL if amrescan was never called
         // This can happen in parallel workers that are terminated early
-        if scan.is_null() || (*scan).opaque.is_null() {
+        if scan.is_null() {
+            return;
+        }
+        (*scan).xs_hitup = std::ptr::null_mut();
+        if (*scan).opaque.is_null() {
             return;
         }
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-        drop(scan_state);
+        (*scan).opaque = std::ptr::null_mut();
+        if let Some(mut state) = scan_state
+            && let Some(index_only) = state.index_only.take()
+        {
+            index_only.delete();
+        }
     }
 }
 
@@ -283,6 +285,10 @@ pub unsafe extern "C-unwind" fn amgettuple(
     };
 
     (*scan).xs_recheck = false;
+    (*scan).xs_hitup = std::ptr::null_mut();
+    if let Some(index_only) = &mut state.index_only {
+        index_only.reset();
+    }
 
     loop {
         // Extract the next result first so the temporary mutable borrow on
@@ -308,9 +314,6 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
 
                 if let Some(index_only) = &mut state.index_only {
-                    if !(*scan).xs_hitup.is_null() {
-                        pg_sys::heap_freetuple((*scan).xs_hitup);
-                    }
                     (*scan).xs_hitup = index_only.form_tuple((*scan).xs_hitupdesc, doc_address);
                 }
 

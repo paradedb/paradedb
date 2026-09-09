@@ -17,7 +17,7 @@
 
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::build::is_bm25_index;
+use crate::postgres::catalog::OidExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{FieldSource, pg_search_extension_installed};
 use crate::schema::SearchIndexSchema;
@@ -54,7 +54,7 @@ pub(crate) fn register_hook() {
                 let path = &*path.cast::<pg_sys::IndexPath>();
                 let index = &*path.indexinfo;
                 if index.hypothetical
-                    || !is_bm25_index(&PgSearchRelation::open(index.indexoid))
+                    || !index.relam.is_paradedb_am()
                     || !covers_required_attributes(path)
                 {
                     continue;
@@ -204,26 +204,25 @@ impl IndexOnlyField {
 
 #[repr(C)]
 struct AmCanReturnCache {
-    returnable: u32,
+    returnable: [bool; pg_sys::INDEX_MAX_KEYS as usize],
 }
 
 impl AmCanReturnCache {
     unsafe fn get_or_init(indexrel: pg_sys::Relation) -> &'static Self {
         if (*indexrel).rd_amcache.is_null() {
             let relation = PgSearchRelation::from_pg(indexrel);
-            let mut returnable = 0;
+            let mut returnable = [false; pg_sys::INDEX_MAX_KEYS as usize];
 
             if let Ok(schema) = relation.schema() {
                 let natts = relation.tuple_desc().len();
-                for tuple_index in 0..natts {
-                    if IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some() {
-                        returnable |= 1 << tuple_index;
-                    }
+                for (tuple_index, can_return) in returnable.iter_mut().enumerate().take(natts) {
+                    *can_return =
+                        IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some();
                 }
             }
 
             // PostgreSQL may call amcanreturn once per index attribute. Keep the capability
-            // mask in the relation's AM cache so those probes share one metadata read.
+            // array in the relation's AM cache so those probes share one metadata read.
             let cache = pg_sys::MemoryContextAllocZero(
                 (*indexrel).rd_indexcxt,
                 std::mem::size_of::<Self>(),
@@ -237,7 +236,7 @@ impl AmCanReturnCache {
     }
 
     fn can_return(&self, tuple_index: usize) -> bool {
-        tuple_index < pg_sys::INDEX_MAX_KEYS as usize && self.returnable & (1 << tuple_index) != 0
+        self.returnable.get(tuple_index).copied().unwrap_or(false)
     }
 }
 

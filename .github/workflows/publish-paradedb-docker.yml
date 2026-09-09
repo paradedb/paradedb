@@ -518,23 +518,30 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          VERSION="${{ needs.generate-dockerfiles.outputs.version }}"
           TAG="${{ needs.generate-dockerfiles.outputs.tag }}"
           BRANCH="update-dockerfiles/${TAG}-main"
-          COMMIT_SHA=$(git rev-parse HEAD)
 
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           git fetch origin main:refs/remotes/origin/main
           git checkout -B "$BRANCH" origin/main
-          git cherry-pick --no-commit "$COMMIT_SHA"
-          git commit -m "Generate Dockerfiles for $TAG"
-          git push --force-with-lease origin "$BRANCH"
 
-          PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
-          if [ -n "$PR" ]; then
-            echo "Main PR already exists: #$PR"
+          docker/generate-dockerfiles.sh "$VERSION"
+
+          git add docker
+          if git diff --cached --quiet; then
+            echo "No generated Dockerfile changes to commit for main."
           else
-            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published." --label "Do Not Cherry Pick"
+            git commit -m "Generate Dockerfiles for $TAG"
+            git push --force-with-lease origin "$BRANCH"
+
+            PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
+            if [ -n "$PR" ]; then
+              echo "Main PR already exists: #$PR"
+            else
+              gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published." --label "Do Not Cherry Pick"
+            fi
           fi
 
   notify-orm-repos:

@@ -285,8 +285,7 @@ fn decode_batch(
     let mut columns = batch.columns().to_vec();
     for field in deferred_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        columns[field.col_idx] =
-            decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
+        columns[field.col_idx] = decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
     }
     RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))

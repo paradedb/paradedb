@@ -817,7 +817,6 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     is_bytes: deferred.is_bytes,
                     canonical: deferred.canonical.clone(),
                     rebuild: deferred.rebuild.clone(),
-                    ctid_col_name: deferred.ctid_col_name.clone(),
                 });
                 if !deferred.fetch_at_scan {
                     fetch_fields.push(physical_deferred_fields.last().unwrap().clone());
@@ -875,10 +874,6 @@ pub struct DeferredField {
     /// emits State 1; only the dictionary decode is deferred. When false, the scan emits
     /// doc addresses and a `TantivyFetchExec` resolves them at the decode point.
     pub fetch_at_scan: bool,
-    // TODO: Clean up our column tracking story, possibly by renaming the `ctid` columns
-    // to include the plan position (e.g. `ctid_<plan_pos>`) similarly to tag names.
-    #[serde(default)]
-    pub ctid_col_name: Option<String>,
 }
 
 /// Everything a worker needs to rebuild the fast-field reader for a deferred column when the

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788832775859,
+  "lastUpdate": 1788957721812,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -326094,6 +326094,90 @@ window.BENCHMARK_DATA = {
             "value": 581.6182293799816,
             "unit": "median tps",
             "extra": "avg tps: 585.6644979173083, max tps: 685.4986604784926, count: 55359"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788957717875,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 189.75707375253018,
+            "unit": "median tps",
+            "extra": "avg tps: 194.05200503101466, max tps: 218.54135658999337, count: 55345"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 193.21983639544163,
+            "unit": "median tps",
+            "extra": "avg tps: 197.63361943973305, max tps: 223.2211409063868, count: 55345"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 169.7751709829736,
+            "unit": "median tps",
+            "extra": "avg tps: 172.61039007790214, max tps: 200.750534183016, count: 55345"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 436.2776961166016,
+            "unit": "median tps",
+            "extra": "avg tps: 460.03986219572505, max tps: 672.1871773995804, count: 55345"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 325.5543863009247,
+            "unit": "median tps",
+            "extra": "avg tps: 337.43208511117916, max tps: 453.9703824047889, count: 55345"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 15.023784970146655,
+            "unit": "median tps",
+            "extra": "avg tps: 15.038755238860288, max tps: 18.69144737638644, count: 55345"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 644.4253624440161,
+            "unit": "median tps",
+            "extra": "avg tps: 655.8154545480668, max tps: 803.0292735055934, count: 55345"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 649.1241133525141,
+            "unit": "median tps",
+            "extra": "avg tps: 661.6918725015422, max tps: 817.1612622575924, count: 55345"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 258.8601617601925,
+            "unit": "median tps",
+            "extra": "avg tps: 265.8283569262644, max tps: 331.42148580937186, count: 55345"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 565.4109558493947,
+            "unit": "median tps",
+            "extra": "avg tps: 574.4273161659024, max tps: 698.2705085437026, count: 55345"
           }
         ]
       }

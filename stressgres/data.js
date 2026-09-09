@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959611722,
+  "lastUpdate": 1788959621932,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -195654,6 +195654,126 @@ window.BENCHMARK_DATA = {
             "value": 28.51953125,
             "unit": "median mem",
             "extra": "avg mem: 28.444799183540997, max mem: 29.1953125, count: 59311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959617371,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.055636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.033446210578271, max cpu: 33.58321, count: 59311"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.34377752967409, max mem: 42.3515625, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.152985645428846, max cpu: 37.536655, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.284448908613072, max mem: 20.30078125, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.988158328001048, max cpu: 18.842003, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.83656758706226, max mem: 42.859375, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17784,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18111.900912141085, max block_count: 35337.0, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.567933093242939, max cpu: 4.678363, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.23995463267775, max mem: 21.2421875, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.235757279425403, max segment_count: 38.0, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.329337352713774, max cpu: 23.916294, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.480264648421034, max mem: 41.5546875, count: 59311"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.279845,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.929454962820557, max cpu: 37.536655, count: 118622"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 41.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.34736452107324, max mem: 44.8125, count: 118622"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.421001,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.83648084521486, max cpu: 23.506365, count: 59311"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.437327182141594, max mem: 28.98828125, count: 59311"
           }
         ]
       }

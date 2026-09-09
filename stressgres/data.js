@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959660327,
+  "lastUpdate": 1788959668941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -303036,6 +303036,54 @@ window.BENCHMARK_DATA = {
             "value": 24.742089552931944,
             "unit": "median tps",
             "extra": "avg tps: 39.03355103916788, max tps: 440.88309345496555, count: 59265"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959635276,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 23.089970029306613,
+            "unit": "median tps",
+            "extra": "avg tps: 33.89207759874231, max tps: 193.2442847901825, count: 59237"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 23.635868868632766,
+            "unit": "median tps",
+            "extra": "avg tps: 37.75361192896655, max tps: 398.2753671431537, count: 59237"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 26.86960510695186,
+            "unit": "median tps",
+            "extra": "avg tps: 44.620741781286085, max tps: 546.2778749334001, count: 59237"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 23.63114836080076,
+            "unit": "median tps",
+            "extra": "avg tps: 37.6260352496144, max tps: 401.63222950957294, count: 59237"
           }
         ]
       }

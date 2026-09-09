@@ -419,8 +419,9 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
--- Aggregates: a key with few rows per term is not grouped on ordinals, so
--- nothing bounds the fan-out and the scan decodes it
+-- Aggregates: the key's own table decides. A title with one row per term is not
+-- grouped on ordinals, so nothing bounds the fan-out and the scan decodes it. An
+-- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
 SET paradedb.enable_aggregate_late_materialization = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -475,8 +476,8 @@ WHERE p.body @@@ 'alpha'
 GROUP BY c.author
 ORDER BY c.author
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.author, (count(*))
    ->  Sort
@@ -490,15 +491,16 @@ LIMIT 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[author@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[author@0 as author], aggr=[count(1) as agg_0]
+                 :   AggregateExec: mode=Final, gby=[author@0 as author], aggr=[count(1) as agg_0]
                  :     TantivyDecodeExec: decode=[author]
-                 :       TantivyFetchExec: fetch=[author]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@2]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=c, segments=2, dynamic_filters=2, visibility=eager, query="all"
-(21 rows)
+                 :       AggregateExec: mode=Partial, gby=[author@0 as author], aggr=[count(1) as agg_0]
+                 :         TantivyFetchExec: fetch=[author]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+                 :             CooperativeExec
+                 :               PgSearchScan: table=c, segments=2, dynamic_filters=2, visibility=eager, query="all"
+(22 rows)
 
 SELECT c.author, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id

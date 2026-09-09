@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788958883383,
+  "lastUpdate": 1788958893796,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -343658,6 +343658,60 @@ window.BENCHMARK_DATA = {
             "value": 23.05354160571548,
             "unit": "median tps",
             "extra": "avg tps: 39.71411170917808, max tps: 595.0967837671557, count: 59241"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788958851892,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3835.019488901308,
+            "unit": "median tps",
+            "extra": "avg tps: 3840.27693598287, max tps: 5399.562889503027, count: 59251"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4581.763386868244,
+            "unit": "median tps",
+            "extra": "avg tps: 4605.773894759795, max tps: 6823.058754496112, count: 59251"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.35881065568516,
+            "unit": "median tps",
+            "extra": "avg tps: 186.82272669908207, max tps: 2673.103499894413, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.181440743744297,
+            "unit": "median tps",
+            "extra": "avg tps: 39.745079929913295, max tps: 581.9658727646654, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.136496528730824,
+            "unit": "median tps",
+            "extra": "avg tps: 39.63400803908977, max tps: 578.5956746231736, count: 59251"
           }
         ]
       }

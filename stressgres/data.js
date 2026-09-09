@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959677540,
+  "lastUpdate": 1788959686878,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312450,6 +312450,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.21680522365455, max segment_count: 359.0, count: 59422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959664808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.883373686595196, max cpu: 33.217995, count: 59415"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.60598228561811, max mem: 44.890625, count: 59415"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.981712,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.07230989980336, max cpu: 43.286575, count: 59415"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.26716172788858, max mem: 102.30859375, count: 59415"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26689,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25431.794563662374, max block_count: 29414.0, count: 59415"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 169,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 195.63842464024236, max segment_count: 359.0, count: 59415"
           }
         ]
       }

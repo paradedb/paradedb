@@ -1747,21 +1747,27 @@ WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
-   ->  Sort
-         Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
-         Sort Key: p.rating DESC
-         ->  WindowAgg
-               Output: p.id, p.name, p.rating, pc.description, count(*) OVER w1
-               Window: w1 AS ()
+   Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Result
+         Output: p.id, p.name, p.rating, pc.description, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         ->  Sort
+               Output: p.id, p.name, p.rating, pc.description
+               Sort Key: p.rating DESC
                ->  Nested Loop
                      Output: p.id, p.name, p.rating, pc.description
                      Join Filter: (p.category = pc.name)
-                     ->  Seq Scan on public.product_categories pc
-                           Output: pc.name, pc.description, pc.priority
+                     ->  Custom Scan (ParadeDB Base Scan) on public.product_categories pc
+                           Output: pc.description, pc.name
+                           Table: product_categories
+                           Index: product_categories_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: "all"
                      ->  Custom Scan (ParadeDB Base Scan) on public.products p
                            Output: p.id, p.name, p.rating, p.category
                            Table: products
@@ -1770,7 +1776,7 @@ WARNING:  JoinScan not used: join conditions must reference columnar indexed fie
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(27 rows)
 
 SELECT
     p.id,
@@ -1784,13 +1790,7 @@ WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
- id |    name     | rating |       category_desc        | total_count 
-----+-------------+--------+----------------------------+-------------
-  1 | MacBook Pro |    4.8 | Portable computing devices |           4
-  5 | ASUS ROG    |    4.7 | Portable computing devices |           4
-  3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
-(3 rows)
-
+ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
 -- Test 27b: Global window function over a JOIN with fast-field join keys
 -- Unlike Test 27 (whose TEXT join keys already disqualify JoinScan), this join
 -- is otherwise JoinScan-compatible, so the empty OVER () window aggregate is
@@ -1831,34 +1831,28 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (tables: p, r)
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1), (avg(r.score) OVER w1), (min(r.score) OVER w1), (max(r.score) OVER w1)
-   ->  Sort
-         Output: p.id, p.name, r.score, (count(*) OVER w1), (sum(r.score) OVER w1), (avg(r.score) OVER w1), (min(r.score) OVER w1), (max(r.score) OVER w1)
-         Sort Key: r.score DESC
-         ->  WindowAgg
-               Output: p.id, p.name, r.score, count(*) OVER w1, sum(r.score) OVER w1, avg(r.score) OVER w1, min(r.score) OVER w1, max(r.score) OVER w1
-               Window: w1 AS ()
-               ->  Hash Join
-                     Output: p.id, p.name, r.score
-                     Inner Unique: true
-                     Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on public.product_reviews r
-                           Output: r.id, r.product_id, r.content, r.score
-                     ->  Hash
-                           Output: p.id, p.name
-                           ->  Custom Scan (ParadeDB Base Scan) on public.products p
-                                 Output: p.id, p.name
-                                 Table: products
-                                 Index: products_idx
-                                 Worker Selection: Cost model
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+   Output: p.id, p.name, r.score, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, r.score, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"score","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+         Relation Tree: r INNER p
+         Join Cond: p.id = r.product_id
+         Limit: 3
+         Order By: r.score desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, window_agg_0@4 as col_4, window_agg_1@5 as col_5, window_agg_2@6 as col_6, window_agg_3@7 as col_7, window_agg_4@8 as col_8, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[score@1 DESC], preserve_partitioning=[false]
+           :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_3: Ok(Field { name: "window_agg_3", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+           :       VisibilityFilterExec: tables=[r, p]
+           :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, score@4, ctid_1@0, id@1]
+           :             CooperativeExec
+           :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT
     p.id,
@@ -1874,12 +1868,11 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to window functions (tables: p, r)
- id |    name     | score | total_count | total_score |      avg_score      | min_score | max_score 
-----+-------------+-------+-------------+-------------+---------------------+-----------+-----------
-  1 | MacBook Pro |    95 |           4 |         321 | 80.2500000000000000 |        65 |        95
-  3 | ThinkPad X1 |    91 |           4 |         321 | 80.2500000000000000 |        65 |        95
-  1 | MacBook Pro |    70 |           4 |         321 | 80.2500000000000000 |        65 |        95
+ id |    name     | score | total_count | total_score | avg_score | min_score | max_score 
+----+-------------+-------+-------------+-------------+-----------+-----------+-----------
+  1 | MacBook Pro |    95 |           4 |         321 |     80.25 |        65 |        95
+  3 | ThinkPad X1 |    91 |           4 |         321 |     80.25 |        65 |        95
+  1 | MacBook Pro |    70 |           4 |         321 |     80.25 |        65 |        95
 (3 rows)
 
 -- Test 28: Window function in subquery

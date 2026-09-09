@@ -1046,27 +1046,27 @@ impl CustomScan for AggregateScan {
         // query so blocked producers stop).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
             df_state.stream = None;
-            // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-            // early-terminated query the rings still hold data the leader will never read; a
-            // worker's bounded metrics send spins on the full ring until the leader frees slots.
-            // Draining here is what frees them, so the `recv` below returns immediately instead
-            // of waiting out the workers' full spin bound. PG destroys the parallel DSM right
-            // after this hook (the EXPLAIN hook runs after teardown and only reads the store).
-            if let Some(leader) = df_state.mpp.leader()
-                && let Some(plan) = df_state.physical_plan.as_ref()
-            {
-                crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                    plan,
-                    &leader.session.mesh,
-                );
-            }
-            // Join the producer workers so their metrics land before the EXPLAIN render (which runs
-            // before end_custom_scan, where the context is finally destroyed). A worker error is
-            // re-raised from inside `recv`.
-            if let Some(leader) = df_state.mpp.leader_mut()
-                && let Some(finish) = leader.finish.as_mut()
-            {
-                let _ = finish.recv();
+            // Drain around worker join: pre-join unblocks full metrics rings; post-join
+            // collects frames that arrive while workers finish. EXPLAIN reads the store after
+            // DSM teardown, so late frames must land here. Always join when `finish` is set,
+            // even if there is no plan to drain (preserves the pre-#6253 shutdown contract).
+            if let Some(leader) = df_state.mpp.leader_mut() {
+                let mesh = Arc::clone(&leader.session.mesh);
+                let finish = leader.finish.as_mut();
+                let join_workers = || {
+                    if let Some(finish) = finish {
+                        let _ = finish.recv();
+                    }
+                };
+                if let Some(plan) = df_state.physical_plan.as_ref() {
+                    crate::postgres::customscan::mpp::glue::drain_worker_metrics_around_join(
+                        plan,
+                        &mesh,
+                        join_workers,
+                    );
+                } else {
+                    join_workers();
+                }
             }
         }
     }

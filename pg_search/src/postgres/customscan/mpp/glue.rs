@@ -408,77 +408,148 @@ pub unsafe fn worker_setup(
     Ok(session)
 }
 
-/// Merge the worker fragments' `TaskMetrics` frames into an executed `DistributedExec` plan for
-/// EXPLAIN ANALYZE. The workers send their frames as they exit, after the leader's gather
-/// already finished, so nothing has drained the leader inbox since; sweep it, file the frames
-/// into the plan's metrics store, and rewrite. Returns the rewritten plan, or `None` when there
-/// is nothing to merge (serial plan, metrics disabled) or a frame never arrived (the rewrite is
-/// bounded rather than trusting `wait_for_metrics`, which would block on a dead worker).
-/// Drain the workers' `TaskMetrics` frames off the mesh into the plan's metrics store.
+/// Drain the workers' `TaskMetrics` frames off the mesh into the plan's metrics store,
+/// around joining the MPP workers.
 ///
 /// Must run while the parallel DSM is still mapped: the mesh receivers read ring memory inside
 /// it. `shutdown_custom_scan` is the spot; the EXPLAIN hook runs after `ExecShutdownNode` tore
 /// the DSM down, so draining there reads unmapped memory.
-pub fn drain_worker_metrics(
+///
+/// 1. Pre-join: briefly drain so workers blocked sending metrics on a full ring can finish.
+/// 2. Always run `join_workers` (typically `finish.recv()`), even when there is nothing to drain
+///    (serial plan, metrics disabled, receiver already taken). Skipping the join would regress
+///    the old shutdown contract.
+/// 3. Post-join: drain until quiet or every expected report is filed — late frames that land
+///    during the join must reach the store before DSM teardown.
+///
+/// A single pre-join drain alone is not enough at high worker counts: late frames never reach
+/// the store, and EXPLAIN's rewrite then hits the merge timeout and drops all operator metrics.
+/// The metrics receiver can only be taken once from the mesh, so both phases share one drain.
+pub fn drain_worker_metrics_around_join(
     plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     mesh: &Arc<MppMesh>,
-) -> Option<()> {
-    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
-    use datafusion_distributed::shm::CooperativeDrainSet;
-    use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
+    join_workers: impl FnOnce(),
+) {
+    let mut drain = MetricsDrain::start(plan, mesh);
+    // Unblock producers spinning on a full metrics ring before we join them.
+    if let Some(drain) = drain.as_mut() {
+        drain.until_expected_or_budget();
+    }
+    join_workers();
+    // Workers have exited (or failed); collect anything that landed during the join.
+    if let Some(mut drain) = drain {
+        drain.until_quiet();
+    }
+}
 
-    let dist = plan.downcast_ref::<DistributedExec>()?;
-    let store = dist.metrics_store()?;
+struct MetricsDrain<'a> {
+    store: std::sync::Arc<datafusion_distributed::MetricsStore>,
+    query_id: uuid::Uuid,
+    expected: usize,
+    rx: tokio::sync::mpsc::UnboundedReceiver<(u32, u32, datafusion_distributed::proto::TaskMetrics)>,
+    mesh: &'a Arc<MppMesh>,
+    got: crate::api::HashSet<(u32, u32)>,
+}
 
-    // The wire frames carry (stage, task); the query uuid lives on the plan's own stages. Count
-    // the expected reports while walking: one per task of every producer stage.
-    let mut query_id = None;
-    let mut expected = 0usize;
-    let _ = plan.apply(|node| {
-        if let Some(nb) = node.as_network_boundary() {
-            let stage = nb.input_stage();
-            query_id.get_or_insert_with(|| stage.query_id());
-            expected += stage.task_count();
-        }
-        Ok(TreeNodeRecursion::Continue)
-    });
-    let query_id = query_id?;
+impl<'a> MetricsDrain<'a> {
+    fn start(
+        plan: &'a Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        mesh: &'a Arc<MppMesh>,
+    ) -> Option<Self> {
+        use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+        use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
 
-    // The workers send their metrics frames right after their last EOF, which may still be in
-    // flight when shutdown reaches this node; wait briefly, bounded, and stop as soon as every
-    // expected (stage, task) reported. Draining keeps the DSM ring from backing up before detach.
-    let mut rx = mesh.take_task_metrics_receiver()?;
-    let mut got = crate::api::HashSet::default();
-    for _ in 0..100 {
-        let _ = mesh.try_drain_pass();
-        while let Ok((stage_id, task_number, metrics)) = rx.try_recv() {
-            // The frames carry proto metrics; the store holds the decoded in-memory form the rewrite
-            // reads. A frame that fails to decode is still counted so the wait doesn't spin.
+        let dist = plan.downcast_ref::<DistributedExec>()?;
+        let store = dist.metrics_store()?;
+
+        let mut query_id = None;
+        let mut expected = 0usize;
+        let _ = plan.apply(|node| {
+            if let Some(nb) = node.as_network_boundary() {
+                let stage = nb.input_stage();
+                query_id.get_or_insert_with(|| stage.query_id());
+                expected += stage.task_count();
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+        let query_id = query_id?;
+        let rx = mesh.take_task_metrics_receiver()?;
+
+        Some(Self {
+            store,
+            query_id,
+            expected,
+            rx,
+            mesh,
+            got: crate::api::HashSet::default(),
+        })
+    }
+
+    fn ingest_available(&mut self) {
+        use datafusion_distributed::shm::CooperativeDrainSet;
+
+        let _ = self.mesh.try_drain_pass();
+        while let Ok((stage_id, task_number, metrics)) = self.rx.try_recv() {
+            // The frames carry proto metrics; the store holds the decoded in-memory form the
+            // rewrite reads. A frame that fails to decode is still counted so the wait
+            // doesn't spin forever on a poison pill.
             if let Ok(metrics) = datafusion_distributed::decode_task_metrics(metrics) {
-                store.insert(
+                self.store.insert(
                     TaskKey {
-                        query_id,
+                        query_id: self.query_id,
                         stage_id: stage_id as usize,
                         task_number: task_number as usize,
                     },
                     metrics,
                 );
             }
-            got.insert((stage_id, task_number));
+            self.got.insert((stage_id, task_number));
         }
-        if got.len() >= expected {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    Some(())
+
+    /// Pre-join: wait briefly for expected reports, or give up so we can join workers.
+    fn until_expected_or_budget(&mut self) {
+        for _ in 0..100 {
+            self.ingest_available();
+            if self.got.len() >= self.expected {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// Post-join: poll until every expected report is filed, or a few consecutive empty passes
+    /// show nothing else is coming (a worker exited without reporting).
+    fn until_quiet(&mut self) {
+        let mut empty_passes = 0u8;
+        while empty_passes < 5 {
+            let before = self.got.len();
+            self.ingest_available();
+            if self.got.len() >= self.expected {
+                return;
+            }
+            if self.got.len() == before {
+                empty_passes += 1;
+                if empty_passes < 5 {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            } else {
+                empty_passes = 0;
+            }
+        }
+    }
 }
 
-/// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].
-/// Mesh-free, so it is safe at EXPLAIN-render time, after the DSM is gone.
+/// Rewrite the executed plan with the worker metrics collected by
+/// [`drain_worker_metrics_around_join`]. Mesh-free, so it is safe at EXPLAIN-render time,
+/// after the DSM is gone.
 ///
 /// Owns a small timer-enabled runtime: the rewrite waits on the metrics store, and the bound on
 /// that wait needs timers, which the scans' cached runtimes don't enable.
+///
+/// After a complete post-join drain the store should already hold every task's metrics, so
+/// `wait_for_metrics` returns immediately. The timeout is only a safety net for workers that
+/// exited without reporting (otherwise `wait_for_metrics` would block forever).
 pub fn merge_worker_metrics(
     plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
 ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {

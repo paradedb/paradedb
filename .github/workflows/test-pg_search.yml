@@ -21,6 +21,9 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
+  # Merge queue must see the same Spot jobs + merge-gate so an interrupted
+  # attempt can stay pending while RunsOn retries.
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -380,3 +383,18 @@ jobs:
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Spot interruptions used to finish as cancelled, so RunsOn skipped retries and
+  # the merge queue could eject the PR. Gate publishes merge-gate / pass normally,
+  # or merge-gate / interrupted (pending) on attempts 1–2 with an EC2 Spot
+  # interruption annotation so the queue waits for the retry (#6255).
+  # Requires RunsOn control plane v3.3.0+ for that annotation.
+  merge-gate:
+    if: ${{ always() }}
+    needs: [test-pg_search]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

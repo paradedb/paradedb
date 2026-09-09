@@ -21,7 +21,7 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{FieldSource, pg_search_extension_installed};
 use crate::schema::SearchIndexSchema;
-use pgrx::{PgList, PgOid, pg_guard, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, PgOid, pg_guard, pg_sys};
 use std::ptr::null_mut;
 
 pub(crate) fn register_hook() {
@@ -246,6 +246,8 @@ pub(super) struct IndexOnlyScanState {
     fields: Vec<IndexOnlyField>,
     values: Vec<pg_sys::Datum>,
     nulls: Vec<bool>,
+    // The parent can delete this before dropping the scan state during error cleanup.
+    tuple_context: PgMemoryContexts,
 }
 
 impl IndexOnlyScanState {
@@ -269,7 +271,24 @@ impl IndexOnlyScanState {
             fields,
             values: vec![pg_sys::Datum::null(); natts],
             nulls: vec![true; natts],
+            tuple_context: unsafe {
+                PgMemoryContexts::For(pg_sys::AllocSetContextCreateExtended(
+                    pg_sys::CurrentMemoryContext,
+                    c"pg_search index-only tuple".as_ptr(),
+                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                ))
+            },
         }
+    }
+
+    pub(super) unsafe fn reset(&mut self) {
+        self.tuple_context.reset();
+    }
+
+    pub(super) unsafe fn delete(self) {
+        pg_sys::MemoryContextDelete(self.tuple_context.value());
     }
 
     pub(super) unsafe fn form_tuple(
@@ -277,28 +296,30 @@ impl IndexOnlyScanState {
         tuple_desc: pg_sys::TupleDesc,
         doc_address: tantivy::DocAddress,
     ) -> pg_sys::HeapTuple {
-        self.nulls.fill(true);
-        for (fast_field_index, field) in self.fields.iter().enumerate() {
-            let value = self
-                .fast_fields
-                .value(fast_field_index, doc_address)
-                .expect("index-only field should be a fast field");
-            match value
-                .try_into_datum(field.pg_type)
-                .expect("index-only field should convert to a Datum")
-            {
-                Some(datum) => {
-                    self.values[field.tuple_index] = datum;
-                    self.nulls[field.tuple_index] = false;
+        self.tuple_context.switch_to(|_| {
+            self.nulls.fill(true);
+            for (fast_field_index, field) in self.fields.iter().enumerate() {
+                let value = self
+                    .fast_fields
+                    .value(fast_field_index, doc_address)
+                    .expect("index-only field should be a fast field");
+                match value
+                    .try_into_datum(field.pg_type)
+                    .expect("index-only field should convert to a Datum")
+                {
+                    Some(datum) => {
+                        self.values[field.tuple_index] = datum;
+                        self.nulls[field.tuple_index] = false;
+                    }
+                    None => self.values[field.tuple_index] = pg_sys::Datum::null(),
                 }
-                None => self.values[field.tuple_index] = pg_sys::Datum::null(),
             }
-        }
 
-        pg_sys::heap_form_tuple(
-            tuple_desc,
-            self.values.as_mut_ptr(),
-            self.nulls.as_mut_ptr(),
-        )
+            pg_sys::heap_form_tuple(
+                tuple_desc,
+                self.values.as_mut_ptr(),
+                self.nulls.as_mut_ptr(),
+            )
+        })
     }
 }

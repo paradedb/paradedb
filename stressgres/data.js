@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959621932,
+  "lastUpdate": 1788959640945,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -327336,6 +327336,90 @@ window.BENCHMARK_DATA = {
             "value": 565.4109558493947,
             "unit": "median tps",
             "extra": "avg tps: 574.4273161659024, max tps: 698.2705085437026, count: 55345"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959623475,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 184.8616430192025,
+            "unit": "median tps",
+            "extra": "avg tps: 189.8901292623236, max tps: 225.8765721362353, count: 55357"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 188.91548874608193,
+            "unit": "median tps",
+            "extra": "avg tps: 193.87974896091015, max tps: 235.30712054423853, count: 55357"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 167.05179710717468,
+            "unit": "median tps",
+            "extra": "avg tps: 169.83235971742235, max tps: 198.3673736981294, count: 55357"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 408.0811744633803,
+            "unit": "median tps",
+            "extra": "avg tps: 431.8139121331818, max tps: 654.3152891385059, count: 55357"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 307.34809409317893,
+            "unit": "median tps",
+            "extra": "avg tps: 319.6002381721802, max tps: 440.04213256738626, count: 55357"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.688809289019147,
+            "unit": "median tps",
+            "extra": "avg tps: 14.718810603772544, max tps: 15.643498270492689, count: 55357"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 632.1910320600375,
+            "unit": "median tps",
+            "extra": "avg tps: 644.9277880483817, max tps: 809.436025911481, count: 55357"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 631.6791847279469,
+            "unit": "median tps",
+            "extra": "avg tps: 644.3449835302442, max tps: 800.2894120899059, count: 55357"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 241.7859422954049,
+            "unit": "median tps",
+            "extra": "avg tps: 249.08293678232957, max tps: 316.2554380263754, count: 55357"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 550.8200771167077,
+            "unit": "median tps",
+            "extra": "avg tps: 560.7153182422605, max tps: 645.7148641316178, count: 55357"
           }
         ]
       }

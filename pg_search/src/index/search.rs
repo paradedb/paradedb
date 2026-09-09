@@ -138,12 +138,12 @@ fn collect_search_tokenizers(index_relation: &PgSearchRelation) -> Result<Vec<Se
     tokenizers.push(SearchTokenizer::Simple(SearchTokenizerFilters::default()));
 
     // Before 0.25.6, the first index attribute could use an implicit key-field tokenizer.
-    if index_relation
-        .created_by_version()
-        .is_none_or(|version| version < Version::new(0, 25, 6))
-        && let Some((field, _)) = categorized_fields
-            .iter()
-            .find(|(field, data)| data.attno == 0 && field.field_config().tokenizer().is_some())
+    if let Some((field, _)) = categorized_fields
+        .iter()
+        .find(|(field, data)| data.attno == 0 && field.field_config().tokenizer().is_some())
+        && index_relation
+            .created_by_version()
+            .is_none_or(|version| version < Version::new(0, 25, 6))
     {
         #[allow(deprecated)]
         tokenizers.push(SearchTokenizer::Raw(if field.is_json() {

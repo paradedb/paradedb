@@ -47,7 +47,7 @@ struct HarvestedClause {
 /// One index whose bitmap can feed the intersection, carrying what the combination
 /// step needs to score it and to tell it apart from a redundant one.
 struct Candidate {
-    ipath: *mut pg_sys::IndexPath,
+    path: *mut pg_sys::Path,
     index_name: String,
     /// Cost of building this bitmap and converting it into the probe-able set.
     build_cost: f64,
@@ -360,7 +360,7 @@ impl BitmapPlanner {
                 // With no ParadeDB-side estimate there is nothing to score against, so
                 // the first workable index is taken unscored and uncombined.
                 if self.bm25_row_estimate.is_none() {
-                    return Some((self.heap_path(candidate.ipath.cast()), candidate.build_cost));
+                    return Some((self.heap_path(candidate.path), candidate.build_cost));
                 }
                 candidates.push(candidate);
             }
@@ -372,11 +372,11 @@ impl BitmapPlanner {
             let (first, rest) = chosen.split_first()?;
             let build_cost = chosen.iter().map(|c| c.build_cost).sum();
             let bitmapqual = if rest.is_empty() {
-                first.ipath.cast::<pg_sys::Path>()
+                first.path
             } else {
                 let mut bitmapquals = PgList::<pg_sys::Path>::new();
                 for candidate in &chosen {
-                    bitmapquals.push(candidate.ipath.cast());
+                    bitmapquals.push(candidate.path);
                 }
                 pg_sys::create_bitmap_and_path(self.root, self.rel, bitmapquals.into_pg()).cast()
             };
@@ -513,33 +513,38 @@ impl BitmapPlanner {
                 false,
             );
             let index_name = PgSearchRelation::open((*ioi).indexoid).name().to_string();
-            if self.overflows_work_mem(ipath) {
+            let (build_cost, selectivity) = self.bitmap_tree_cost(ipath.cast());
+            if self.overflows_work_mem(selectivity) {
                 pgrx::debug1!(
                     "[bitmap_intersection] index {index_name}: bitmap would overflow work_mem, skipping"
                 );
                 return None;
             }
             Some(Candidate {
-                ipath,
+                path: ipath.cast(),
                 index_name,
-                build_cost: self.bitmap_build_cost(ipath),
-                selectivity: selectivity(ipath),
+                build_cost,
+                selectivity,
                 covers,
             })
         }
     }
 
-    /// Estimated number of TIDs this index's bitmap holds.
-    unsafe fn bitmap_rows(&self, ipath: *mut pg_sys::IndexPath) -> f64 {
-        unsafe { selectivity(ipath) * (*self.rel).tuples.max(1.0) }
+    /// Estimated number of TIDs a bitmap of this selectivity holds.
+    fn bitmap_rows(&self, selectivity: f64) -> f64 {
+        unsafe { selectivity * (*self.rel).tuples.max(1.0) }
     }
 
-    /// Cost of producing the probe-able set: the index scan that builds the
-    /// TIDBitmap plus converting its entries.
-    unsafe fn bitmap_build_cost(&self, ipath: *mut pg_sys::IndexPath) -> f64 {
+    /// Cost of producing the probe-able set, and the fraction of the heap it selects.
+    /// Delegates to Postgres' own `cost_bitmap_tree_node`, which is what
+    /// `choose_bitmap_and` scores with and which reads an `IndexPath`, a `BitmapAnd`
+    /// and a `BitmapOr` alike, so a combined bitmap is scored like a plain one.
+    unsafe fn bitmap_tree_cost(&self, path: *mut pg_sys::Path) -> (f64, f64) {
         unsafe {
-            let cpu_operator_cost = *std::ptr::addr_of!(pg_sys::cpu_operator_cost);
-            (*ipath).indextotalcost + self.bitmap_rows(ipath) * 0.1 * cpu_operator_cost
+            let mut cost = 0.0;
+            let mut selectivity = 0.0;
+            pg_sys::cost_bitmap_tree_node(path, &mut cost, &mut selectivity);
+            (cost, selectivity.clamp(0.0, 1.0))
         }
     }
 
@@ -581,10 +586,10 @@ impl BitmapPlanner {
 
     /// A bitmap whose estimated TID count can't fit in `work_mem` degrades to lossy
     /// pages, which cannot reject anything.
-    unsafe fn overflows_work_mem(&self, ipath: *mut pg_sys::IndexPath) -> bool {
+    fn overflows_work_mem(&self, selectivity: f64) -> bool {
         unsafe {
             let work_mem_kb = *std::ptr::addr_of!(pg_sys::work_mem) as f64;
-            self.bitmap_rows(ipath) * 8.0 > work_mem_kb * 1024.0
+            self.bitmap_rows(selectivity) * 8.0 > work_mem_kb * 1024.0
         }
     }
 
@@ -880,11 +885,6 @@ impl IndexClause {
     fn into_pg(self) -> *mut pg_sys::IndexClause {
         self.0
     }
-}
-
-/// An index path's estimated selectivity, clamped to a usable fraction.
-unsafe fn selectivity(ipath: *mut pg_sys::IndexPath) -> f64 {
-    unsafe { (*ipath).indexselectivity.clamp(0.0, 1.0) }
 }
 
 unsafe fn strip_relabel(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {

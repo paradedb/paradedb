@@ -50,6 +50,45 @@ fn test_count(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[case(0, true)]
+#[case(9_007_199_254_740_992, true)]
+#[case(9_007_199_254_740_993, false)]
+#[case(-9_007_199_254_740_993, false)]
+#[case(i64::MAX, false)]
+#[case(i64::MIN, true)]
+fn test_coalesce_default_precision(
+    mut conn: PgConnection,
+    #[case] default: i64,
+    #[case] pushdown: bool,
+    #[values("value", "(metadata->>'value')::bigint")] field: &str,
+) {
+    r#"
+        SET paradedb.enable_aggregate_custom_scan TO on;
+        SET max_parallel_workers_per_gather TO 0;
+        CREATE TABLE coalesce_defaults (id bigint PRIMARY KEY, value bigint, metadata jsonb);
+        INSERT INTO coalesce_defaults VALUES
+            (1, 1, '{"value": 1}'),
+            (2, NULL, '{"value": null}'),
+            (3, NULL, '{}'),
+            (4, NULL, NULL);
+        CREATE INDEX ON coalesce_defaults USING paradedb (id, value, metadata)
+            WITH (key_field = 'id', json_fields = '{"metadata": {"fast": true}}');
+    "#
+    .execute(&mut conn);
+
+    let argument = format!("COALESCE({field}, '{default}'::bigint)");
+    let query = format!(
+        "SELECT COUNT({argument}), MIN({argument}), MAX({argument})
+         FROM coalesce_defaults WHERE id @@@ pdb.all()"
+    );
+    assert_uses_custom_scan(&mut conn, pushdown, &query);
+    assert_eq!(
+        query.fetch_one::<(i64, i64, i64)>(&mut conn),
+        (4, default.min(1), default.max(1))
+    );
+}
+
+#[rstest]
 fn test_count_with_group_by(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

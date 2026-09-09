@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788958962349,
+  "lastUpdate": 1788959611722,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -159518,6 +159518,66 @@ window.BENCHMARK_DATA = {
             "value": 20.9966674434379,
             "unit": "median tps",
             "extra": "avg tps: 21.220549709741825, max tps: 34.41453121919362, count: 59311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959607662,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.1355422145152,
+            "unit": "median tps",
+            "extra": "avg tps: 78.8696248009339, max tps: 84.06728855623966, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.36162643088528,
+            "unit": "median tps",
+            "extra": "avg tps: 313.55916383537783, max tps: 5933.157396387381, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 850.0602155337383,
+            "unit": "median tps",
+            "extra": "avg tps: 838.2906029186371, max tps: 1524.0581171035717, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 190.41290807742493,
+            "unit": "median tps",
+            "extra": "avg tps: 188.45168011422342, max tps: 203.17014504113487, count: 59311"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 221.5493608590474,
+            "unit": "median tps",
+            "extra": "avg tps: 224.97044621105346, max tps: 2413.1276616779714, count: 118622"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.553441781804555,
+            "unit": "median tps",
+            "extra": "avg tps: 19.62442364299255, max tps: 34.81479936735939, count: 59311"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788958893796,
+  "lastUpdate": 1788958902761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -347386,6 +347386,108 @@ window.BENCHMARK_DATA = {
             "value": 47.3984375,
             "unit": "median mem",
             "extra": "avg mem: 45.95495755684408, max mem: 57.2890625, count: 59241"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788958898423,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.393978124115759, max cpu: 4.736063, count: 59251"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.282289869052843, max mem: 17.2890625, count: 59251"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6049523484570125, max cpu: 4.7713714, count: 59251"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.205506025214763, max mem: 17.21484375, count: 59251"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.53270941022886, max cpu: 28.514853, count: 59251"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.614211679971646, max mem: 17.78515625, count: 59251"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.908339099762, max document_count: 10002.0, count: 59251"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.913587956322, max document_count: 10002.0, count: 59251"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.65304583402307, max cpu: 32.892807, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.584563182477936, max mem: 56.37109375, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.677996897061636, max cpu: 33.03835, count: 59251"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.79148400448938, max mem: 56.88671875, count: 59251"
           }
         ]
       }

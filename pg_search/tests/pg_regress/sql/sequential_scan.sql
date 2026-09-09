@@ -160,6 +160,12 @@ FROM sequential_scan_nulls;
 \pset null 'NULL'
 SET paradedb.enable_custom_scan = off;
 SET enable_bitmapscan = off;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all,
+       color @@@ pdb.all()::pdb.const(1) AS constant_all,
+       color @@@ pdb.empty() AS field_empty,
+       id @@@ paradedb.all() AS all_rows
+FROM sequential_scan_nulls ORDER BY id;
 SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
@@ -185,6 +191,45 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
 DROP VIEW sequential_scan_null_checks;
+
+SELECT paradedb.search_with_query_input_ctid(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid
+       ) IS NULL AS null_query,
+       paradedb.search_with_query_input_ctid(
+           1, paradedb.empty(), NULL::tid
+       ) IS NULL AS null_ctid,
+       paradedb.search_with_query_input_ctid(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS FALSE AS nullable_anchor,
+       paradedb.search_with_query_input_ctid_strict(
+           NULL::int, paradedb.empty(), '(0,1)'::tid
+       ) IS NULL AS strict_anchor;
+
+INSERT INTO sequential_scan_nulls VALUES
+    (4, repeat('a', 4000), true), (5, repeat('b', 4000), true);
+CREATE TABLE sequential_scan_queries (label text, query paradedb.searchqueryinput);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTENDED;
+INSERT INTO sequential_scan_queries VALUES (
+    'compressed', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('a', 4000)))
+);
+ALTER TABLE sequential_scan_queries ALTER COLUMN query SET STORAGE EXTERNAL;
+INSERT INTO sequential_scan_queries VALUES (
+    'external', paradedb.with_index('sequential_scan_nulls_idx', paradedb.term('color', repeat('b', 4000)))
+);
+SELECT label, pg_column_size(query) < 4000 AS compressed
+FROM sequential_scan_queries ORDER BY label;
+SELECT q.label, t.id,
+       paradedb.search_with_query_input_ctid(t.id, q.query, t.ctid) AS matched
+FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+WHERE t.id IN (4, 5)
+ORDER BY q.label, t.id;
+DROP TABLE sequential_scan_queries;
+DROP INDEX sequential_scan_nulls_idx;
+CREATE INDEX sequential_scan_nulls_idx ON sequential_scan_nulls
+USING paradedb (id, (color::pdb.literal)) WHERE covered;
+SELECT id, color @@@ pdb.all() AS field_all,
+       color @@@ pdb.all()::pdb.boost(2) AS boosted_all
+FROM sequential_scan_nulls WHERE covered AND id <= 3 ORDER BY id;
 DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;

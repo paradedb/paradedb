@@ -32,7 +32,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_sys};
+use pgrx::{pg_extern, pg_func_extra, pg_getarg_datum, pg_sys};
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -81,21 +81,19 @@ fn search_with_query_input_impl(
     fcinfo: pg_sys::FunctionCallInfo,
     ctid: Option<Ctid>,
 ) -> Option<bool> {
+    let query_datum = unsafe { pg_getarg_datum(fcinfo, 1) }?;
+    let query_datum = unsafe { pg_sys::pg_detoast_datum(query_datum.cast_mut_ptr()) };
+
     // get the Cache attached to this instance of the function
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
-    // Planner-generated calls always provide a non-NULL query datum.
-    let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
-    let key = unsafe {
-        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
-        pgrx::varlena_to_byte_slice(varlena).to_vec()
-    };
+    let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
 
     let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
         newly_built = true;
         let search_query_input = unsafe {
-            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+            SearchQueryInput::from_datum(query_datum.into(), false)
                 .expect("the query argument cannot be NULL")
         };
 
@@ -115,9 +113,14 @@ fn search_with_query_input_impl(
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
         let is_partial =
             unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
+        let null_guard = index_relation
+            .schema()
+            .expect("a ParadeDB index must have a schema")
+            .null_guard(&search_query_input);
+        let is_match_all = search_query_input.is_match_all() && !is_partial;
 
         // `all()` matches every document, but a partial index may not contain every table row.
-        if search_query_input.is_match_all() && !is_partial {
+        if is_match_all && null_guard.is_none() {
             return QueryCacheEntry {
                 matches: KeySet::All,
                 missing_values: None,
@@ -134,22 +137,21 @@ fn search_with_query_input_impl(
             pg_sys::GetActiveSnapshot()
         });
 
-        let null_guard = index_relation
-            .schema()
-            .expect("a ParadeDB index must have a schema")
-            .null_guard(&search_query_input);
-
-        let search_reader = SearchIndexReader::open(
-            &index_relation,
-            search_query_input,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .expect("search_with_query_input: should be able to open a SearchIndexReader");
-
         // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
         // `work_mem`), reused for every row of the scan.
-        let matches = search_reader.collect_ctidset(&mut visibility);
+        let matches = if is_match_all {
+            KeySet::All
+        } else {
+            let search_reader = SearchIndexReader::open(
+                &index_relation,
+                search_query_input,
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .expect("search_with_query_input: should be able to open a SearchIndexReader");
+
+            search_reader.collect_ctidset(&mut visibility)
+        };
 
         let missing_values = if let Some(null_guard) = null_guard {
             // Collect rows where the field is absent (the complement of `exists`). Membership in
@@ -193,24 +195,21 @@ fn search_with_query_input_impl(
         && (matches!(query_cache.matches, KeySet::Spilled(_))
             || matches!(&query_cache.missing_values, Some(KeySet::Spilled(_))));
 
-    let result = match &query_cache.matches {
-        KeySet::All => Some(true),
-        KeySet::None => Some(false),
-        _ => {
+    let result = match (&query_cache.matches, &query_cache.missing_values) {
+        (KeySet::All, None) => Some(true),
+        (KeySet::None, None) => Some(false),
+        (matches, missing_values) => {
             let ctid = ctid.expect("heap-filter query should carry a CTID");
             let row_identity = TantivyValue::try_from(u64::from(ctid))
                 .expect("ctid should convert to a Tantivy value");
 
-            if query_cache.matches.contains(&row_identity) {
-                Some(true)
-            } else if let Some(missing_values) = &query_cache.missing_values {
-                if missing_values.contains(&row_identity) {
-                    None
-                } else {
-                    Some(false)
-                }
+            if missing_values
+                .as_ref()
+                .is_some_and(|missing_values| missing_values.contains(&row_identity))
+            {
+                None
             } else {
-                Some(false)
+                Some(matches.contains(&row_identity))
             }
         }
     };

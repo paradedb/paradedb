@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788960814957,
+  "lastUpdate": 1788960830684,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -107730,6 +107730,54 @@ window.BENCHMARK_DATA = {
             "value": 1155.446278102848,
             "unit": "median tps",
             "extra": "avg tps: 1067.9603282428895, max tps: 1706.0068529726616, count: 59411"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788960826696,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1359.1328975941362,
+            "unit": "median tps",
+            "extra": "avg tps: 1369.986197617067, max tps: 1474.61804774785, count: 59416"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.716351188692422,
+            "unit": "median tps",
+            "extra": "avg tps: 2.9730646717001674, max tps: 5.116893290928308, count: 59416"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1849.4577465044906,
+            "unit": "median tps",
+            "extra": "avg tps: 1830.2394051793087, max tps: 1870.3470947102373, count: 59416"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2153.9777106448637,
+            "unit": "median tps",
+            "extra": "avg tps: 2109.921546024493, max tps: 2323.3048153696127, count: 59416"
           }
         ]
       }

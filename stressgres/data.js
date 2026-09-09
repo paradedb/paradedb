@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788958952849,
+  "lastUpdate": 1788958962349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -141382,6 +141382,108 @@ window.BENCHMARK_DATA = {
             "value": 51.93359375,
             "unit": "median mem",
             "extra": "avg mem: 50.83689918615025, max mem: 51.93359375, count: 59409"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788958958446,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.059601757250340844, max background_merging: 2.0, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.758232303150284, max cpu: 9.628887, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.42625320069095, max mem: 19.4296875, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.938165503430866, max cpu: 24.157022, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 49.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.82383878301157, max mem: 51.96875, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 63777,
+            "unit": "median block_count",
+            "extra": "avg block_count: 63457.16453182071, max block_count: 63777.0, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 69,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.23015939809126, max segment_count: 106.0, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.59882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.04117190932429, max cpu: 33.633633, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 79.41120160302806, max mem: 83.78515625, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.391769039904832, max cpu: 4.8755717, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.4026961021528, max mem: 33.48828125, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.232714696909911, max cpu: 33.103447, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 100.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 99.65162201654576, max mem: 103.8984375, count: 59411"
           }
         ]
       }

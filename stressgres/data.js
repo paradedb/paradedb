@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788958853645,
+  "lastUpdate": 1788958862355,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -341274,6 +341274,96 @@ window.BENCHMARK_DATA = {
             "value": 45.2578125,
             "unit": "median mem",
             "extra": "avg mem: 44.96430344402515, max mem: 51.64453125, count: 58763"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788958858230,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 63.8203125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 69.4218787218205, max partition_index_size:MB: 121.6015625, count: 58775"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.34197685269407, max cpu: 33.005894, count: 58775"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.73124641110166, max mem: 54.94921875, count: 58775"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.99658827517504, max cpu: 33.38301, count: 58775"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.24638770735857, max mem: 85.0234375, count: 58775"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.472126,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.667918094860967, max cpu: 32.70073, count: 58775"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 47.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.70196890950659, max mem: 67.91796875, count: 58775"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.914713290736184, max cpu: 33.136093, count: 58775"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 52.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.26660855752871, max mem: 63.640625, count: 58775"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.219041585921524, max cpu: 33.15244, count: 58775"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.941635939493835, max mem: 51.703125, count: 58775"
           }
         ]
       }

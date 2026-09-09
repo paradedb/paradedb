@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788960775544,
+  "lastUpdate": 1788960784087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -342756,6 +342756,96 @@ window.BENCHMARK_DATA = {
             "value": 45.0859375,
             "unit": "median mem",
             "extra": "avg mem: 44.941635939493835, max mem: 51.703125, count: 58775"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788960780038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 61.7578125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 66.59239547173584, max partition_index_size:MB: 97.0625, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.30662643430117, max cpu: 33.333336, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.28254729748413, max mem: 51.6953125, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.98907268142006, max cpu: 33.23442, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.84093040364915, max mem: 78.92578125, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.472126,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.695187228112426, max cpu: 28.585608, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.97049975964402, max mem: 65.57421875, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.896170391292955, max cpu: 33.349876, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.57098531063352, max mem: 60.67578125, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.179894151037978, max cpu: 33.185184, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.63307851345143, max mem: 50.87109375, count: 58767"
           }
         ]
       }

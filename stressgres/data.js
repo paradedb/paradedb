@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788957774785,
+  "lastUpdate": 1788957782489,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -195324,6 +195324,126 @@ window.BENCHMARK_DATA = {
             "value": 27.91015625,
             "unit": "median mem",
             "extra": "avg mem: 27.88366648784128, max mem: 28.453125, count: 59299"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b750c7d6c84035bcae2469d820e7d17db87cda5",
+          "message": "feat: Add support for `pdb.agg` atop joins over array fields. (#6250)\n\n# Ticket(s) Closed\n\n- Closes #6215\n\n## What\n\nAdds support for `pdb.agg()` terms aggregations on array fields over\njoins.\n\n## Why\n\nPreviously, `pdb.agg()` over joins only supported scalar fast fields;\nattempting to reference an array field failed during custom scan path\nplanning or query lowering. For joins, array fields must be unnested\ninto relation rows so that multi-valued terms can participate in\ngrouping and nested aggregations consistent with PostgreSQL join\nsemantics.\n\n## How\n\n- Resolved array fast fields in custom scan planning and permitted them\nin join terms aggs while rejecting them for metrics.\n- In DataFusion, pre-projected array columns to unique temporary names,\nunnested them sequentially to produce the Cartesian product matching\nPostgreSQL `LATERAL unnest`, and post-projected back to qualified names.\n- Added array term generation and `LEFT JOIN LATERAL unnest` translation\nto join property tests.\n\n## Tests\n\n- Added Section 6 to\n`pg_search/tests/pg_regress/sql/pdb_agg_datafusion.sql` testing join\nterms on array fields, metric sub-aggs, multiple array fields,\nsingle-table fallback to Tantivy, and error handling.\n- Validated via expanded property tests: `cargo test -p tests --test\nqgen -- generated_pdb_agg_join`.",
+          "timestamp": "2026-09-09T14:23:16+02:00",
+          "tree_id": "1a29f153bd17dcecdd43652600ac065a62787dfd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b750c7d6c84035bcae2469d820e7d17db87cda5"
+        },
+        "date": 1788957779311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.055636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.91943809123259, max cpu: 38.15201, count: 59311"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.34144547649256, max mem: 42.359375, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.558049897389538, max cpu: 27.9476, count: 59311"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.314711791973664, max mem: 20.3203125, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.119365908441628, max cpu: 18.795889, count: 59311"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 40.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 39.38454581570029, max mem: 43.08203125, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18725,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18840.731634941243, max block_count: 36098.0, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.037181352875563, max cpu: 4.740741, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.18917779532886, max mem: 21.1953125, count: 59311"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 28,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.551752625988435, max segment_count: 38.0, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.03184422562605, max cpu: 23.916294, count: 59311"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.49102782894404, max mem: 41.515625, count: 59311"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 7.6861486,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.018569864537291, max cpu: 28.276878, count: 118622"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.58836343727344, max mem: 45.22265625, count: 118622"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.53929266147617, max cpu: 23.610426, count: 59311"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.444799183540997, max mem: 29.1953125, count: 59311"
           }
         ]
       }

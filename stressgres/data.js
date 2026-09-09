@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788960755516,
+  "lastUpdate": 1788960775544,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -339550,6 +339550,60 @@ window.BENCHMARK_DATA = {
             "value": 37.083991958052785,
             "unit": "median tps",
             "extra": "avg tps: 58.35915806318948, max tps: 551.6457820373388, count: 58775"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788960771381,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.27381652803282,
+            "unit": "median tps",
+            "extra": "avg tps: 54.6910152947388, max tps: 531.9554641182001, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.376243967561038,
+            "unit": "median tps",
+            "extra": "avg tps: 29.257121081505776, max tps: 350.9510144368685, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 82.36036488057024,
+            "unit": "median tps",
+            "extra": "avg tps: 144.3058791199108, max tps: 1171.8342604495392, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.38471037429451,
+            "unit": "median tps",
+            "extra": "avg tps: 29.733110169291745, max tps: 275.08663652334394, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.27422096762029,
+            "unit": "median tps",
+            "extra": "avg tps: 58.238861005902855, max tps: 539.802740655629, count: 58767"
           }
         ]
       }

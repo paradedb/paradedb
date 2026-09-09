@@ -44,10 +44,11 @@
 //! their partial output carries a grouping id the final aggregate reads back.
 //!
 //! The rewrite pays when the groups are far fewer than the rows. The dictionaries bound the
-//! groups from above (one per distinct term per segment), and the plan's row estimate says
-//! how many rows reach the aggregate, so a key whose dictionaries are nearly as large as
-//! the input keeps its decode below: its partial aggregate would reduce little and its
-//! decode would run about as often as the scan's.
+//! groups from above (one per distinct term per segment), so a key whose dictionaries are
+//! nearly as large as its own table keeps its decode below: its partial aggregate would
+//! reduce little and its decode would run about as often as the scan's. Both sides of that
+//! comparison come from the scan, since the row count a join reports is its smaller input
+//! rather than its output.
 //!
 //! [`DeferredPlacementRule`] runs first and asks [`ordinal_group_keys`] the same question,
 //! so a join that multiplies the rows under such an aggregate keeps the decode deferred
@@ -59,15 +60,11 @@ use std::sync::Arc;
 
 use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
-use datafusion::common::stats::Precision;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
-use datafusion::physical_plan::{
-    ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions, StatisticsArgs,
-    StatisticsContext,
-};
+use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFType;
@@ -158,42 +155,43 @@ pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec
     for filter in agg.filter_expr().iter().flatten() {
         elsewhere.extend(collect_columns(filter).iter().map(|c| c.index()));
     }
-    let rows = input_rows(agg);
     decode
         .deferred_fields()
         .iter()
         .enumerate()
         .filter(|(_, field)| keys.contains(&field.col_idx) && !elsewhere.contains(&field.col_idx))
         .filter(|(_, field)| resolved_below(decode, field))
-        .filter(|(_, field)| reduces_enough(rows, decode, field))
+        .filter(|(_, field)| reduces_enough(decode, field))
         .map(|(i, _)| i)
         .collect()
 }
 
-/// The estimated number of rows entering `agg`, when the plan has one.
-fn input_rows(agg: &AggregateExec) -> Option<usize> {
-    let statistics = StatisticsContext::new()
-        .compute(agg.input().as_ref(), &StatisticsArgs::new())
-        .ok()?;
-    match statistics.num_rows {
-        Precision::Exact(rows) | Precision::Inexact(rows) => Some(rows),
-        Precision::Absent => None,
-    }
+/// The rows the scans of `field`'s index expect to emit.
+///
+/// The dictionaries this is weighed against are a whole-index count, so its counterpart has
+/// to be one too. The rows reaching the aggregate are not that count: with no distinct count
+/// on either join key, DataFusion estimates an equi-join's output as its smaller input, so a
+/// join between a search-filtered side and a whole table reads as a handful of rows and every
+/// key of the large side reads as "no reduction", however small its dictionary is.
+fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Option<usize> {
+    let mut scans = Vec::new();
+    collect_scans(decode.children()[0], field.canonical.indexrelid, &mut scans);
+    scans
+        .iter()
+        .map(|scan| scan.planner_estimated_rows() as usize)
+        .max()
+        .filter(|rows| *rows > 0)
 }
 
-/// Input rows per dictionary term below which the two-phase shape is not worth its second
+/// Scanned rows per dictionary term below which the two-phase shape is not worth its second
 /// hash pass: the partial aggregate could reduce the rows by less than this factor, and
 /// the decode of its groups would run about as often as the scan's.
 const MIN_ROWS_PER_TERM: usize = 4;
 
-/// Whether `rows` outnumber the terms of `field`'s dictionaries by [`MIN_ROWS_PER_TERM`].
-/// An input without an estimate keeps the rewrite.
-fn reduces_enough(
-    rows: Option<usize>,
-    decode: &TantivyDecodeExec,
-    field: &PhysicalDeferredField,
-) -> bool {
-    let Some(rows) = rows else {
+/// Whether the scanned rows outnumber the terms of `field`'s dictionaries by
+/// [`MIN_ROWS_PER_TERM`]. A source without an estimate keeps the rewrite.
+fn reduces_enough(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> bool {
+    let Some(rows) = scanned_rows(decode, field) else {
         return true;
     };
     rows >= dictionary_terms(decode, field).saturating_mul(MIN_ROWS_PER_TERM)

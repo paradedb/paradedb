@@ -246,8 +246,9 @@ ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 -- =============================================================================
--- Aggregates: a key with few rows per term is not grouped on ordinals, so
--- nothing bounds the fan-out and the scan decodes it
+-- Aggregates: the key's own table decides. A title with one row per term is not
+-- grouped on ordinals, so nothing bounds the fan-out and the scan decodes it. An
+-- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
 
 SET paradedb.enable_aggregate_late_materialization = on;

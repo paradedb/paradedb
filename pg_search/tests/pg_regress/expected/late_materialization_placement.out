@@ -557,8 +557,8 @@ WHERE p.body @@@ 'alpha'
 GROUP BY c.author
 ORDER BY c.author
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.author, (count(*))
    ->  Sort
@@ -572,7 +572,7 @@ LIMIT 5;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[author@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[author@0 as author], aggr=[count(1) as agg_0]
+                 :   AggregateExec: mode=Final, gby=[author@0 as author], aggr=[count(1) as agg_0]
                  :     TantivyDecodeExec: decode=[author]
                  :       TantivyFetchExec: fetch=[author]
                  :         VisibilityFilterExec: tables=[p, c]

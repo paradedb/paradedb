@@ -217,6 +217,103 @@ SELECT id, uuid FROM index_only_uuid WHERE body @@@ pdb.all() ORDER BY id;
 (2 rows)
 
 DROP TABLE index_only_uuid;
+CREATE TABLE index_only_lifetime (id bigint, uuid uuid, nullable_uuid uuid, body text);
+INSERT INTO index_only_lifetime
+SELECT i, md5(i::text)::uuid, CASE WHEN i % 2 = 0 THEN md5(i::text)::uuid END, 'needle'
+FROM generate_series(1, 20000) i;
+CREATE INDEX index_only_lifetime_idx ON index_only_lifetime USING paradedb (id, uuid, nullable_uuid, body);
+VACUUM (FREEZE, ANALYZE) index_only_lifetime;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+    INTO plan;
+    IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
+        OR (plan #>> '{0,Plan,Heap Fetches}')::int IS DISTINCT FROM 0
+        OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 20000
+    THEN
+        RAISE EXCEPTION 'expected an index-only scan without heap fetches: %', plan;
+    END IF;
+END;
+$$;
+-- UUID datums must survive caller resets without accumulating across rows.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    row_data record;
+    rows_seen int := 0;
+    warm_bytes bigint;
+    current_bytes bigint;
+BEGIN
+    OPEN scan;
+    LOOP
+        FETCH scan INTO row_data;
+        EXIT WHEN NOT FOUND;
+        IF row_data.uuid IS DISTINCT FROM md5(row_data.id::text)::uuid
+            OR row_data.nullable_uuid IS DISTINCT FROM
+                (CASE WHEN row_data.id % 2 = 0 THEN md5(row_data.id::text)::uuid END)
+        THEN
+            RAISE EXCEPTION 'incorrect UUID values: %', row_data;
+        END IF;
+        rows_seen := rows_seen + 1;
+        IF rows_seen IN (100, 20000) THEN
+            SELECT sum(total_bytes) INTO current_bytes FROM pg_backend_memory_contexts
+            WHERE name = 'pg_search index-only tuple';
+            IF current_bytes IS NULL THEN
+                RAISE EXCEPTION 'missing index-only tuple context';
+            END IF;
+            IF rows_seen = 100 THEN
+                warm_bytes := current_bytes;
+            ELSIF current_bytes > warm_bytes + 8192 THEN
+                RAISE EXCEPTION 'tuple memory grew from % to % bytes', warm_bytes, current_bytes;
+            END IF;
+        END IF;
+    END LOOP;
+    CLOSE scan;
+    IF rows_seen <> 20000 THEN
+        RAISE EXCEPTION 'expected 20000 rows, got %', rows_seen;
+    END IF;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived closing the exhausted scan';
+    END IF;
+END;
+$$;
+-- Closing an unfinished cursor must release its tuple and temporary datums too.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    value uuid;
+BEGIN
+    FOR i IN 1..100 LOOP
+        OPEN scan;
+        FETCH scan INTO value;
+        CLOSE scan;
+    END LOOP;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived early scan termination';
+    END IF;
+END;
+$$;
+-- Error cleanup deletes child contexts before dropping the Rust scan state.
+DO $$
+DECLARE
+    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body @@@ 'needle';
+    row_data record;
+BEGIN
+    BEGIN
+        OPEN scan;
+        FETCH scan INTO row_data;
+        RAISE EXCEPTION 'expected division by zero';
+    EXCEPTION WHEN division_by_zero THEN
+        NULL;
+    END;
+    IF EXISTS (SELECT FROM pg_backend_memory_contexts WHERE name = 'pg_search index-only tuple') THEN
+        RAISE EXCEPTION 'tuple context survived error cleanup';
+    END IF;
+END;
+$$;
+DROP TABLE index_only_lifetime;
 -- Lossy bitmap pages must recheck the original CTID-aware predicate.
 SET client_min_messages = error;
 CREATE TABLE index_only_bitmap (id bigint NOT NULL, body text, padding text);

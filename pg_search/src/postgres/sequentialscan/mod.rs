@@ -32,7 +32,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_extern, pg_func_extra, pg_getarg_datum, pg_sys};
+use pgrx::{PgMemoryContexts, pg_extern, pg_func_extra, pg_getarg_datum, pg_sys};
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -88,6 +88,15 @@ fn search_with_query_input_impl(
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
     let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
+    if cache.by_query.get(&key).is_some_and(|entry| {
+        !entry.matches.is_valid()
+            || entry
+                .missing_values
+                .as_ref()
+                .is_some_and(|missing_values| !missing_values.is_valid())
+    }) {
+        cache.by_query.remove(&key);
+    }
 
     let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
@@ -136,6 +145,7 @@ fn search_with_query_input_impl(
         let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_relation, unsafe {
             pg_sys::GetActiveSnapshot()
         });
+        let mut cache_context = unsafe { PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt) };
 
         // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
         // `work_mem`), reused for every row of the scan.
@@ -150,7 +160,7 @@ fn search_with_query_input_impl(
             )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
 
-            search_reader.collect_ctidset(&mut visibility)
+            unsafe { cache_context.switch_to(|_| search_reader.collect_ctidset(&mut visibility)) }
         };
 
         let missing_values = if let Some(null_guard) = null_guard {
@@ -176,7 +186,9 @@ fn search_with_query_input_impl(
                 "search_with_query_input: should be able to open a complement SearchIndexReader",
             );
 
-            Some(complement_reader.collect_ctidset(&mut visibility))
+            Some(unsafe {
+                cache_context.switch_to(|_| complement_reader.collect_ctidset(&mut visibility))
+            })
         } else {
             None
         };

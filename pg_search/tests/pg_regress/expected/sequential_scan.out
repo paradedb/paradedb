@@ -53,6 +53,52 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
  20000
 (1 row)
 
+-- A cursor's spilled cache survives rollback of the savepoint that first populated it.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id 
+----
+  1
+(1 row)
+
+ROLLBACK TO before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+ id 
+----
+  2
+(1 row)
+
+CLOSE sequential_scan_cursor;
+ROLLBACK;
+-- Error cleanup may release the cursor's files before its cache is dropped.
+BEGIN;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_bitmapscan = off;
+DECLARE sequential_scan_cursor CURSOR FOR
+SELECT id, 1 / (id - 2) FROM sequential_scan WHERE body ||| 'keyword';
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id | ?column? 
+----+----------
+  1 |       -1
+(1 row)
+
+FETCH 1 FROM sequential_scan_cursor;
+ERROR:  division by zero
+ROLLBACK TO before_first_fetch;
+CLOSE sequential_scan_cursor;
+ROLLBACK;
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
 SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
                                                                                                                                     explain_seqscan                                                                                                                                    
@@ -529,6 +575,32 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
   3 | NULL      | NULL
 (3 rows)
 
+-- The cached set of NULL rows must also survive a savepoint rollback.
+BEGIN;
+SET LOCAL work_mem = '64kB';
+INSERT INTO sequential_scan_nulls SELECT g, NULL, true FROM generate_series(6, 3005) g;
+DECLARE sequential_scan_null_cursor CURSOR FOR
+SELECT id, color @@@ pdb.all() IS NULL AS missing FROM sequential_scan_nulls WHERE covered;
+SAVEPOINT before_first_fetch;
+FETCH 1 FROM sequential_scan_null_cursor;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded
+ id | missing 
+----+---------
+  1 | f
+(1 row)
+
+ROLLBACK TO before_first_fetch;
+FETCH 2 FROM sequential_scan_null_cursor;
+ id | missing 
+----+---------
+  2 | f
+  3 | t
+(2 rows)
+
+CLOSE sequential_scan_null_cursor;
+ROLLBACK;
 DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;

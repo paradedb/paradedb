@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788959649195,
+  "lastUpdate": 1788959660327,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -309988,6 +309988,42 @@ window.BENCHMARK_DATA = {
             "value": 10.325350515122523,
             "unit": "median tps",
             "extra": "avg tps: 8.983871204974886, max tps: 12.188973783292738, count: 59422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0890a50a065fed1a66a86d9f122dd0495e4cb46",
+          "message": "feat: Support JSON paths in aggregates (#6201)\n\n# Ticket(s) Closed\n\n- Closes #6197 \n\n## What\n\nThe aggregate scan now pushes down aggregates over JSON paths:\n\n```sql\nSELECT COUNT((custom->>'score')::bigint)\nFROM <table>\nWHERE id @@@ pdb.all();\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-09-09T05:54:44-07:00",
+          "tree_id": "7544c93ff5c5059a46fa33a861aa05847ec0b73e",
+          "url": "https://github.com/paradedb/paradedb/commit/f0890a50a065fed1a66a86d9f122dd0495e4cb46"
+        },
+        "date": 1788959623030,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.431967803201716,
+            "unit": "median tps",
+            "extra": "avg tps: 6.894348779423113, max tps: 7.839219686020605, count: 59415"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.33364954100234,
+            "unit": "median tps",
+            "extra": "avg tps: 8.960399931822975, max tps: 12.133662748350183, count: 59415"
           }
         ]
       }

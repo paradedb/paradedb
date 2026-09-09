@@ -38,9 +38,8 @@ use tantivy::query::Weight;
 ///
 /// This happens when either:
 /// - the row's CTID is invalid
+/// - the row was created outside the search snapshot
 /// - the index predicate is not satisfied
-///
-/// The expression is `CASE WHEN ctid_is_valid(ctid) AND index_predicate THEN '{}' ELSE ARRAY[table_row] END`.
 pub(crate) struct MaybeInlineRow(Option<NonNull<pg_sys::CaseExpr>>);
 
 impl MaybeInlineRow {
@@ -65,7 +64,6 @@ impl MaybeInlineRow {
             return Self(None);
         };
 
-        // The index can answer for an existing heap row that satisfies its predicate.
         let mut valid_args = PgList::<pg_sys::Node>::new();
         valid_args.push(pg_sys::copyObjectImpl(ctid.cast()).cast());
         let valid_ctid = pg_sys::makeFuncExpr(
@@ -77,8 +75,24 @@ impl MaybeInlineRow {
             pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
         );
 
-        let mut coverage_checks = PgList::<pg_sys::Node>::new();
-        coverage_checks.push(valid_ctid.cast());
+        let xmin = pg_sys::copyObjectImpl(ctid.cast()).cast::<pg_sys::Var>();
+        (*xmin).varattno = pg_sys::MinTransactionIdAttributeNumber as _;
+        (*xmin).varattnosyn = (*xmin).varattno;
+        (*xmin).vartype = pg_sys::XIDOID;
+        let mut xmin_args = PgList::<pg_sys::Node>::new();
+        xmin_args.push(xmin.cast());
+        let visible_xmin = pg_sys::makeFuncExpr(
+            xmin_is_visible_procoid(),
+            pg_sys::BOOLOID,
+            xmin_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        );
+
+        // Requirements are checked in order: prospective RLS rows have no valid CTID,
+        // so we must take the fallback before attempting to read their xmin.
+        let mut requirements = vec![valid_ctid.cast::<pg_sys::Expr>(), visible_xmin.cast()];
         let predicate = pg_sys::RelationGetIndexPredicate(indexrel.as_ptr());
         if !predicate.is_null() {
             pg_sys::ChangeVarNodes(predicate.cast(), 1, (*base_var).varno, 0);
@@ -89,9 +103,8 @@ impl MaybeInlineRow {
                 (*base_var).varnullingrels,
             )
             .cast();
-            coverage_checks.push(pg_sys::make_ands_explicit(predicate).cast());
+            requirements.push(pg_sys::make_ands_explicit(predicate));
         }
-        let index_covers_row = pg_sys::make_ands_explicit(coverage_checks.into_pg());
 
         // Build the fallback row reference, preserving outer-join null extension.
         let whole_row = pg_sys::makeWholeRowVar(rte, (*base_var).varno, 0, false);
@@ -110,12 +123,39 @@ impl MaybeInlineRow {
         inline_row.elements = rows.into_pg();
         inline_row.location = (*whole_row).location;
 
-        // CASE takes the fallback for both FALSE and NULL index predicates.
-        let mut when_indexed = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
-        when_indexed.expr = index_covers_row;
+        // A shard has a different table row type from its coordinator relation.
+        // Keep every CASE result record[] when the expression is parsed on a worker.
+        let inline_row = pg_sys::makeRelabelType(
+            inline_row.into_pg().cast(),
+            pg_sys::RECORDARRAYOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
+        );
+
+        let mut when_list = PgList::<pg_sys::Node>::new();
+        for requirement in requirements {
+            // Both FALSE and NULL mean the index cannot answer for this row.
+            let mut failed =
+                PgBox::<pg_sys::BooleanTest>::alloc_node(pg_sys::NodeTag::T_BooleanTest);
+            failed.arg = requirement;
+            failed.booltesttype = pg_sys::BoolTestType::IS_NOT_TRUE;
+            failed.location = (*whole_row).location;
+
+            let mut when = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
+            when.expr = failed.into_pg().cast();
+            when.result = pg_sys::copyObjectImpl(inline_row.cast()).cast();
+            when.location = (*whole_row).location;
+            when_list.push(when.into_pg().cast());
+        }
+
+        let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
+        case.casetype = pg_sys::RECORDARRAYOID;
+        case.casecollid = pg_sys::Oid::INVALID;
+        case.args = when_list.into_pg();
         // Unlike an anonymous record constant ('()'::record), an empty array can be
         // deparsed and parsed by Citus workers. It stays non-NULL for strict helpers.
-        when_indexed.result = pg_sys::makeConst(
+        case.defresult = pg_sys::makeConst(
             pg_sys::RECORDARRAYOID,
             -1,
             pg_sys::Oid::INVALID,
@@ -123,25 +163,6 @@ impl MaybeInlineRow {
             pg_sys::Datum::from(pg_sys::construct_empty_array(pg_sys::RECORDOID)),
             false,
             false,
-        )
-        .cast();
-        when_indexed.location = (*whole_row).location;
-
-        let mut when_list = PgList::<pg_sys::Node>::new();
-        when_list.push(when_indexed.into_pg().cast());
-
-        let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
-        case.casetype = pg_sys::RECORDARRAYOID;
-        case.casecollid = pg_sys::Oid::INVALID;
-        case.args = when_list.into_pg();
-        // A shard has a different table row type from its coordinator relation.
-        // Keep both CASE arms record[] when the expression is parsed on a worker.
-        case.defresult = pg_sys::makeRelabelType(
-            inline_row.into_pg().cast(),
-            pg_sys::RECORDARRAYOID,
-            -1,
-            pg_sys::Oid::INVALID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
         )
         .cast();
         case.location = (*whole_row).location;
@@ -317,5 +338,16 @@ fn ctid_is_valid_procoid() -> pg_sys::Oid {
             &[c"paradedb.ctid_is_valid(tid)".into_datum()],
         )
         .expect("the `paradedb.ctid_is_valid(tid)` function should exist")
+    })
+}
+
+fn xmin_is_visible_procoid() -> pg_sys::Oid {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.xmin_is_visible(xid)".into_datum()],
+        )
+        .expect("the `paradedb.xmin_is_visible(xid)` function should exist")
     })
 }

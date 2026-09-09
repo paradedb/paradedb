@@ -5,6 +5,13 @@ IMMUTABLE STRICT PARALLEL SAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'ctid_is_valid_wrapper';
 
+CREATE FUNCTION "xmin_is_visible"(
+    "xmin" xid
+) RETURNS bool
+STABLE STRICT PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'xmin_is_visible_wrapper';
+
 CREATE FUNCTION "search_with_query_input_ctid_or_row_strict"(
     "element" anyelement,
     "query" SearchQueryInput,

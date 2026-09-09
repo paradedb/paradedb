@@ -1497,6 +1497,7 @@ CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb
         sequentialscan::search_with_query_input_ctid_or_row,
         sequentialscan::search_with_query_input_ctid_or_row_strict,
         sequentialscan::ctid_is_valid,
+        sequentialscan::xmin_is_visible,
         searchqueryinput::query_input_restrict,
         searchqueryinput::query_input_support,
     ]

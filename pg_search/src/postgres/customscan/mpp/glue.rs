@@ -446,7 +446,11 @@ struct MetricsDrain<'a> {
     store: std::sync::Arc<datafusion_distributed::MetricsStore>,
     query_id: uuid::Uuid,
     expected: usize,
-    rx: tokio::sync::mpsc::UnboundedReceiver<(u32, u32, datafusion_distributed::proto::TaskMetrics)>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<(
+        u32,
+        u32,
+        datafusion_distributed::proto::TaskMetrics,
+    )>,
     mesh: &'a Arc<MppMesh>,
     got: crate::api::HashSet<(u32, u32)>,
 }

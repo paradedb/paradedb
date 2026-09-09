@@ -141,10 +141,17 @@ pub fn search_with_query_input_ctid_or_row(
         let index_oid = query.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")
         });
-        RowMatcher::new(
-            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE),
-            query,
-        )
+        unsafe {
+            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).switch_to(|_| {
+                RowMatcher::new(
+                    PgSearchRelation::with_lock(
+                        index_oid,
+                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                    ),
+                    query,
+                )
+            })
+        }
     });
 
     unsafe { matcher.matches(row) }

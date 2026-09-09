@@ -186,7 +186,8 @@ pub(super) struct RowMatcher {
 }
 
 impl RowMatcher {
-    pub(super) fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
+    /// CurrentMemoryContext must outlive the returned matcher.
+    pub(super) unsafe fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");
@@ -203,14 +204,13 @@ impl RowMatcher {
                 .compile_match_weight(&guard, false)
                 .expect("row matcher exists query should be constructable")
         });
-        let slot = unsafe {
-            pgrx::PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                pg_sys::MakeSingleTupleTableSlot(heap_relation.rd_att, &pg_sys::TTSOpsVirtual)
-            })
-        };
+        let slot = pg_sys::MakeSingleTupleTableSlot(heap_relation.rd_att, &pg_sys::TTSOpsVirtual);
 
         Self {
-            expression_state: ExpressionState::new(&index_relation),
+            expression_state: ExpressionState::new_in_context(
+                &index_relation,
+                &mut pgrx::PgMemoryContexts::CurrentMemoryContext,
+            ),
             categorized_fields: schema.categorized_fields().clone(),
             created_by_version: index_relation.created_by_version(),
             weight,

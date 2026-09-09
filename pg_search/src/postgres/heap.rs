@@ -553,35 +553,35 @@ pub struct ExpressionState {
 impl ExpressionState {
     /// Create an ExpressionState for the given index relation.
     pub fn new(indexrel: &PgSearchRelation) -> Self {
-        let index_exprs = unsafe { pg_sys::RelationGetIndexExpressions(indexrel.as_ptr()) };
-        let mut econtext: *mut pg_sys::ExprContext = std::ptr::null_mut();
-        let expr_states = if !index_exprs.is_null() {
-            econtext = unsafe {
-                pgrx::PgMemoryContexts::TopTransactionContext
-                    .switch_to(|_| pg_sys::CreateStandaloneExprContext())
-            };
-            let expr_list: PgList<pg_sys::Node> = unsafe { PgList::from_pg(index_exprs) };
-
-            let old_context =
-                unsafe { pg_sys::MemoryContextSwitchTo((*econtext).ecxt_per_query_memory) };
-
-            let states = expr_list
-                .iter_ptr()
-                .map(|expr_node| unsafe {
-                    pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut())
-                })
-                .collect::<Vec<_>>();
-
-            unsafe { pg_sys::MemoryContextSwitchTo(old_context) };
-            states
-        } else {
-            vec![]
-        };
-
-        Self {
-            econtext,
-            expr_states,
+        unsafe {
+            Self::new_in_context(indexrel, &mut pgrx::PgMemoryContexts::TopTransactionContext)
         }
+    }
+
+    /// The memory context must outlive the returned expression state.
+    pub unsafe fn new_in_context(
+        indexrel: &PgSearchRelation,
+        memory_context: &mut pgrx::PgMemoryContexts,
+    ) -> Self {
+        memory_context.switch_to(|_| {
+            let index_exprs = pg_sys::RelationGetIndexExpressions(indexrel.as_ptr());
+            let mut econtext = std::ptr::null_mut();
+            let expr_states = if !index_exprs.is_null() {
+                econtext = pg_sys::CreateStandaloneExprContext();
+                let expr_list: PgList<pg_sys::Node> = PgList::from_pg(index_exprs);
+                expr_list
+                    .iter_ptr()
+                    .map(|expr_node| pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut()))
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            Self {
+                econtext,
+                expr_states,
+            }
+        })
     }
 
     /// Evaluate expressions for the tuple in the given slot.

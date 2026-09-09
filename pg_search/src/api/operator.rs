@@ -223,10 +223,8 @@ impl ReturnedNodePointer {
         );
 
         // Index tuple descriptors do not preserve the heap column's NOT NULL flag.
-        // Use a strict helper only when the first index attribute maps directly to
-        // a NOT NULL heap column; expression attributes remain conservatively nullable.
-        let index_info = *indexrel.index_info();
-        let heap_attno = index_info.ii_IndexAttrNumbers[0];
+        // Use a strict helper only when the chosen anchor is a NOT NULL heap column.
+        let heap_attno = nodecast!(Var, T_Var, lhs).map_or(0, |var| (*var).varattno);
         let anchor_is_not_null = heap_attno > 0
             && indexrel.heap_relation().is_some_and(|heaprel| {
                 heaprel
@@ -1035,7 +1033,12 @@ pub unsafe fn field_name_from_node(
 
 unsafe fn make_lhs(indexrel: &PgSearchRelation, base_var: *mut pg_sys::Var) -> *mut pg_sys::Node {
     let index_info = unsafe { *indexrel.index_info() };
-    let heap_attno = index_info.ii_IndexAttrNumbers[0];
+    let tupdesc = indexrel.tuple_desc();
+    // Recheck expressions need a returnable anchor for index-only scans.
+    let index_attribute = (0..tupdesc.len())
+        .find(|&attno| pg_sys::index_can_return(indexrel.as_ptr(), attno as i32 + 1))
+        .unwrap_or(0);
+    let heap_attno = index_info.ii_IndexAttrNumbers[index_attribute];
 
     // Zero identifies an indexed expression rather than a heap column.
     if heap_attno == 0 {
@@ -1059,18 +1062,15 @@ unsafe fn make_lhs(indexrel: &PgSearchRelation, base_var: *mut pg_sys::Var) -> *
         return expression;
     }
 
-    let tupdesc = indexrel.tuple_desc();
     let att = tupdesc
-        .get(0)
+        .get(index_attribute)
         .expect("`USING paradedb` index must have at least one attribute");
 
     let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
 
-    // the Var must look like the first attribute from the index definition
-    (*var).varattno = heap_attno;
+    (*var).varattno = index_info.ii_IndexAttrNumbers[index_attribute];
     (*var).varattnosyn = (*var).varattno;
 
-    // the Var must also assume the type of the first attribute from the index definition
     (*var).vartype = att.atttypid;
     (*var).vartypmod = att.atttypmod;
     (*var).varcollid = att.attcollation;

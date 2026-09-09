@@ -39,6 +39,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name, resolve_index_field_by_name,
+    ResolvedIndexField,
 };
 use crate::postgres::customscan::qual_inspect::{
     collect_implicit_and_conjuncts, contains_extern_param, extract_quals, PlannerContext,
@@ -109,6 +110,7 @@ pub struct ResolvedSourceField<'a> {
     /// The name as the index knows it, without a table qualifier.
     pub field_name: String,
     pub field_type: SearchFieldType,
+    pub is_array: bool,
 }
 
 /// Resolve an index field name against the join sources.
@@ -126,7 +128,7 @@ pub fn resolve_source_field<'a>(
         let (qualified, qualified_reasons) = source_field_candidates(sources, rest);
         candidates = qualified
             .into_iter()
-            .filter(|(source, _, _)| {
+            .filter(|(source, _)| {
                 RelationAlias::new(source.alias.as_deref()).display(source.rti as usize) == prefix
             })
             .collect();
@@ -141,12 +143,13 @@ pub fn resolve_source_field<'a>(
             )
         })),
         1 => {
-            let (source, attno, field_type) = candidates.remove(0);
+            let (source, resolved) = candidates.remove(0);
             Ok(ResolvedSourceField {
                 source,
-                attno,
+                attno: resolved.attno,
                 field_name,
-                field_type,
+                field_type: resolved.field_type,
+                is_array: resolved.is_array,
             })
         }
         _ => Err(format!(
@@ -160,10 +163,7 @@ pub fn resolve_source_field<'a>(
 fn source_field_candidates<'a>(
     sources: &'a [JoinAggSource],
     field: &str,
-) -> (
-    Vec<(&'a JoinAggSource, pg_sys::AttrNumber, SearchFieldType)>,
-    Vec<String>,
-) {
+) -> (Vec<(&'a JoinAggSource, ResolvedIndexField)>, Vec<String>) {
     let mut matches = Vec::new();
     let mut reasons = Vec::new();
     for source in sources {
@@ -171,7 +171,7 @@ fn source_field_candidates<'a>(
             continue;
         };
         match resolve_index_field_by_name(index, field) {
-            Ok(Some((attno, field_type))) => matches.push((source, attno, field_type)),
+            Ok(Some(resolved)) => matches.push((source, resolved)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),
         }

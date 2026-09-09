@@ -387,7 +387,7 @@ jobs:
   # Spot interruptions used to finish as cancelled, so RunsOn skipped retries and
   # the merge queue could eject the PR. Gate publishes merge-gate / pass normally,
   # or merge-gate / interrupted (pending) on attempts 1–2 with an EC2 Spot
-  # interruption annotation so the queue waits for the retry (#6255).
+  # interruption annotation so the queue waits for the retry.
   # Requires RunsOn control plane v3.3.0+ for that annotation.
   merge-gate:
     if: ${{ always() }}

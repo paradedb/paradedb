@@ -57,7 +57,7 @@ pub struct WindowAgg {
 pub fn extract_window_agg(
     wf: *const WindowFunc,
     sources: &[&JoinSource],
-    parse: *const Query,
+    parse: &Query,
     resno: pg_sys::AttrNumber,
 ) -> Result<WindowAgg, String> {
     assert!(!wf.is_null());
@@ -74,7 +74,7 @@ pub fn extract_window_agg(
     }
 
     let clause = unsafe {
-        PgList::<pg_sys::WindowClause>::from_pg((*parse).windowClause)
+        PgList::<pg_sys::WindowClause>::from_pg(parse.windowClause)
             .iter_ptr()
             .find(|wc| (**wc).winref == wf.winref)
             .expect("WindowFunc.winref should always match a clause")

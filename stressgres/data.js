@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043953242,
+  "lastUpdate": 1789043962292,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -196314,6 +196314,126 @@ window.BENCHMARK_DATA = {
             "value": 28.1875,
             "unit": "median mem",
             "extra": "avg mem: 28.186167501855195, max mem: 28.70703125, count: 59293"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043957767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.0625,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.007257004866725, max cpu: 37.684006, count: 59307"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.33779186057295, max mem: 42.35546875, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.567401636191589, max cpu: 28.166258, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.318844568832514, max mem: 20.328125, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.017552407278541, max cpu: 18.777506, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.79312689164011, max mem: 42.828125, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18854,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18897.203382400054, max block_count: 36189.0, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6309695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5791916299866786, max cpu: 4.7595444, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.21658725993559, max mem: 21.21875, count: 59307"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.37452577267439, max segment_count: 39.0, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.288709527214621, max cpu: 23.904383, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 41.43590350053535, max mem: 41.45703125, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.130574830595961, max cpu: 28.22146, count: 118614"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.64537106048822, max mem: 44.375, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.407154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.681674087868668, max cpu: 23.703703, count: 59307"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.247673783238067, max mem: 28.89453125, count: 59307"
           }
         ]
       }

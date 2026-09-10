@@ -203,8 +203,6 @@ LIMIT 5;
 -- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
 
-SET paradedb.enable_aggregate_late_materialization = on;
-
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
@@ -297,7 +295,6 @@ ORDER BY p.title
 LIMIT 5;
 
 RESET paradedb.defer_column_fetch;
-RESET paradedb.enable_aggregate_late_materialization;
 
 SET paradedb.defer_column_fetch = on;
 
@@ -357,8 +354,6 @@ WHERE p.body @@@ 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
-SET paradedb.enable_aggregate_late_materialization = on;
-
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
@@ -373,8 +368,6 @@ WHERE p.body @@@ 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
-
-RESET paradedb.enable_aggregate_late_materialization;
 
 DROP TABLE lmp_comments;
 DROP TABLE lmp_posts;

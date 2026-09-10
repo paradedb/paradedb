@@ -153,7 +153,6 @@ LIMIT 5;
 RESET paradedb.enable_segmented_topk;
 
 -- An aggregate over the join groups on the key's ordinals and decodes one row per group.
-SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
@@ -169,8 +168,6 @@ WHERE d.category @@@ 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
-
-RESET paradedb.enable_aggregate_late_materialization;
 
 -- =============================================================================
 -- Fetch in the scan: the scan emits term ordinals, only the decode is deferred
@@ -248,8 +245,6 @@ LIMIT 5;
 
 RESET paradedb.enable_segmented_topk;
 
-SET paradedb.enable_aggregate_late_materialization = on;
-
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -264,8 +259,6 @@ WHERE d.category @@@ 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
-
-RESET paradedb.enable_aggregate_late_materialization;
 
 -- =============================================================================
 -- MPP: the fetch placement travels with the dispatched plan

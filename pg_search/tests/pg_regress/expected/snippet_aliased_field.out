@@ -1,0 +1,52 @@
+-- Tests that snippets highlight a column matched through an aliased field.
+-- An alias indexes the same column under a second tokenizer, so a query against
+-- it produces terms the column's own field never sees.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS snippet_alias_test;
+CREATE TABLE snippet_alias_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+INSERT INTO snippet_alias_test (content) VALUES
+('These certificates are issued annually to all members'),
+('Die Zertifikate werden jaehrlich an alle Mitglieder ausgestellt');
+CREATE INDEX snippet_alias_idx ON snippet_alias_test
+USING bm25 (id, content)
+WITH (
+    key_field = 'id',
+    text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
+);
+-- The alias only stems in German, so this match is reachable through it alone.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+ id |                                snippet                                 
+----+------------------------------------------------------------------------
+  2 | Die <b>Zertifikate</b> werden jaehrlich an alle Mitglieder ausgestellt
+(1 row)
+
+-- The other snippet functions read the same terms.
+SELECT id, pdb.snippets(content), pdb.snippet_positions(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+ id |                                  snippets                                  | snippet_positions 
+----+----------------------------------------------------------------------------+-------------------
+  2 | {"Die <b>Zertifikate</b> werden jaehrlich an alle Mitglieder ausgestellt"} | {{4,15}}
+(1 row)
+
+-- Matching the column directly keeps using the column's own field.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content ||| 'certificates' ORDER BY id;
+ id |                           snippet                            
+----+--------------------------------------------------------------
+  1 | These <b>certificates</b> are issued annually to all members
+(1 row)
+
+-- A query that also addresses the column's own field keeps using it, so a row
+-- reached only through the alias comes back without a snippet.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' OR content ||| 'absent' ORDER BY id;
+ id | snippet 
+----+---------
+  2 | 
+(1 row)
+
+DROP TABLE snippet_alias_test;

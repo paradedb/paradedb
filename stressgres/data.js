@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043962292,
+  "lastUpdate": 1789045032286,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -342334,6 +342334,60 @@ window.BENCHMARK_DATA = {
             "value": 37.33209028354747,
             "unit": "median tps",
             "extra": "avg tps: 58.328143143891104, max tps: 542.960289640726, count: 58789"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789045027818,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.68774619917515,
+            "unit": "median tps",
+            "extra": "avg tps: 55.50361601467984, max tps: 535.541656476575, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.591249021535337,
+            "unit": "median tps",
+            "extra": "avg tps: 29.741606284582105, max tps: 352.59431464185593, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 83.50428667518213,
+            "unit": "median tps",
+            "extra": "avg tps: 145.3024886712074, max tps: 1142.8629001364143, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.530789848104035,
+            "unit": "median tps",
+            "extra": "avg tps: 30.064057573812338, max tps: 280.6330870108533, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.36454549924763,
+            "unit": "median tps",
+            "extra": "avg tps: 58.70179144642163, max tps: 544.201748604625, count: 58778"
           }
         ]
       }

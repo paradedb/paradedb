@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789045079678,
+  "lastUpdate": 1789045130553,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -107826,6 +107826,54 @@ window.BENCHMARK_DATA = {
             "value": 2179.4002085512147,
             "unit": "median tps",
             "extra": "avg tps: 2128.9773936263477, max tps: 2343.1223248792317, count: 59422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789045124641,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1377.256000582187,
+            "unit": "median tps",
+            "extra": "avg tps: 1388.9997792831716, max tps: 1490.7488935926535, count: 59449"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7169032809373928,
+            "unit": "median tps",
+            "extra": "avg tps: 2.9734099342430436, max tps: 5.218668798165834, count: 59449"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1842.027647070351,
+            "unit": "median tps",
+            "extra": "avg tps: 1806.91235701024, max tps: 1866.105670429568, count: 59449"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2100.2981857550635,
+            "unit": "median tps",
+            "extra": "avg tps: 2043.414492911921, max tps: 2288.678286097182, count: 59449"
           }
         ]
       }

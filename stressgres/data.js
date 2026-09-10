@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789056767624,
+  "lastUpdate": 1789056776442,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -141982,6 +141982,108 @@ window.BENCHMARK_DATA = {
             "value": 52.26171875,
             "unit": "median mem",
             "extra": "avg mem: 51.72028538905196, max mem: 52.26171875, count: 59449"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789056772434,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0839500773733432, max background_merging: 2.0, count: 59452"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.773492723432167, max cpu: 9.667674, count: 59452"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.38113697552227, max mem: 19.44921875, count: 59452"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7313952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.08349656253432, max cpu: 14.421632, count: 59452"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.9136964615362, max mem: 34.12109375, count: 59452"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52499,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52320.01678665142, max block_count: 52499.0, count: 59452"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.20667092780731, max segment_count: 105.0, count: 59452"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.656975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.152284187189082, max cpu: 34.059807, count: 59452"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.01559280490984, max mem: 83.84375, count: 59452"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.745428,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.05659359309392, max cpu: 28.699553, count: 59452"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.4810725722011, max mem: 52.98046875, count: 59452"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.729064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8398493901604995, max cpu: 28.263002, count: 59452"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.53500775835968, max mem: 52.65234375, count: 59452"
           }
         ]
       }

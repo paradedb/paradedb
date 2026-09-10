@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789045050555,
+  "lastUpdate": 1789045059785,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -351952,6 +351952,108 @@ window.BENCHMARK_DATA = {
             "value": 47.08203125,
             "unit": "median mem",
             "extra": "avg mem: 45.539228232482195, max mem: 55.94921875, count: 59254"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789045055221,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4115101165853785, max cpu: 4.717445, count: 59224"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.224792208395247, max mem: 17.23828125, count: 59224"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.22309862750859, max cpu: 9.347614, count: 59224"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.163238760363196, max mem: 17.16796875, count: 59224"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.532803065598706, max cpu: 23.4375, count: 59224"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.559689695056058, max mem: 17.73828125, count: 59224"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.913160205322, max document_count: 10002.0, count: 59224"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.928002161287, max document_count: 10002.0, count: 59224"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.613668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.714382745574294, max cpu: 39.64212, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.25,
+            "unit": "median mem",
+            "extra": "avg mem: 45.677639924270565, max mem: 56.953125, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.57769935528051, max cpu: 36.338608, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 46.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.52030301535273, max mem: 56.5625, count: 59224"
           }
         ]
       }

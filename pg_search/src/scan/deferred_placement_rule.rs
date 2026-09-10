@@ -111,7 +111,6 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
             fetch_auto: gucs::defer_column_fetch() == DeferredPlacement::Auto,
             decode_auto: gucs::defer_string_decode() == DeferredPlacement::Auto,
             unique_fields: HashMap::default(),
-            aggregate_ordinals: gucs::enable_aggregate_late_materialization(),
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         };
@@ -214,9 +213,6 @@ struct Context {
     decode_auto: bool,
     /// Per index, since every join key asks the same question of the same scan.
     unique_fields: HashMap<u32, HashSet<String>>,
-    /// Whether `DeferredAggregateRule` will group on ordinals, so an aggregate counts as a
-    /// bound.
-    aggregate_ordinals: bool,
     /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
     key_fields: HashMap<u32, Option<String>>,
     /// Per column of per scan, since each one has its own consumer and its own path, so its
@@ -298,7 +294,7 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         && sort.fetch().is_some()
     {
         Bound::TopK(sort.expr().clone())
-    } else if node.is::<AggregateExec>() && ctx.aggregate_ordinals {
+    } else if node.is::<AggregateExec>() {
         Bound::Aggregate(Arc::clone(node))
     } else if is_transparent(node) {
         bound
@@ -711,7 +707,6 @@ mod tests {
             fetch_auto,
             decode_auto,
             unique_fields: HashMap::default(),
-            aggregate_ordinals: true,
             key_fields: HashMap::default(),
             decisions: HashMap::default(),
         }

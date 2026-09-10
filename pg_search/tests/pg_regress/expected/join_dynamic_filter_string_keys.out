@@ -69,14 +69,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[ordinal@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[p, b], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :     VisibilityFilterExec: tables=[p], metrics=[output_rows=20, output_bytes=128.2 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0], metrics=[output_rows=20, output_bytes=128.2 KB, output_batches=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], projection=[ctid_0@3, ctid_1@0, ordinal@2], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
-           :           CooperativeExec
-           :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+           :           SortExec: TopK(fetch=160), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, row_replacements=20]
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
-(16 rows)
+(17 rows)
 
 SELECT b.ordinal
 FROM strkey_build b
@@ -119,14 +120,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[ordinal@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
            :   SortExec: TopK(fetch=10), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
-           :     VisibilityFilterExec: tables=[p, b], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :     VisibilityFilterExec: tables=[p], metrics=[output_rows=20, output_bytes=128.2 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0], metrics=[output_rows=20, output_bytes=128.2 KB, output_batches=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], projection=[ctid_0@3, ctid_1@0, ordinal@2], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
-           :           CooperativeExec
-           :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+           :           SortExec: TopK(fetch=160), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, row_replacements=20]
+           :             CooperativeExec
+           :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
-(16 rows)
+(17 rows)
 
 SELECT b.ordinal
 FROM strkey_build b

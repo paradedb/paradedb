@@ -25,7 +25,7 @@
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
-use crate::api::OrderByInfo;
+use crate::api::{OrderByFeature, OrderByInfo};
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
@@ -1920,6 +1920,25 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Distinct mode for this join: absent, executed by JoinScan, or deferred to parent.
     pub distinct: DistinctMode,
+    /// Set only on the execution-time clone that drives a bounded attempt. The
+    /// planning-time clause never carries it, so the serialized plan is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_topn: Option<BoundedTopN>,
+}
+
+/// Reads only the top `limit` rows of one source before the join, ordered by the
+/// query's own ORDER BY.
+///
+/// Sound because every output row takes its sort key from a row of this source.
+/// Rows left behind sort at or below the last row kept, so they cannot beat a
+/// full result set. A join that drops rows can still under-deliver, which the
+/// caller detects by counting and then runs the unbounded plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundedTopN {
+    pub plan_position: usize,
+    pub limit: usize,
+    /// The query's ORDER BY expressed against this source alone.
+    pub order_by: Vec<OrderByInfo>,
 }
 
 impl JoinCSClause {
@@ -1930,6 +1949,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             distinct: DistinctMode::None,
+            bounded_topn: None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1952,6 +1972,200 @@ impl JoinCSClause {
         self
     }
 
+    pub fn with_bounded_topn(mut self, bounded: Option<BoundedTopN>) -> Self {
+        self.bounded_topn = bounded;
+        self
+    }
+
+    /// The source a bounded attempt may read top-first, when the query shape makes
+    /// that sound.
+    ///
+    /// Every sort key has to come from one source, so each output row takes its sort
+    /// key from a row of that source. Rows the bound leaves behind then sort at or
+    /// below the last row it kept, and cannot belong in a full result.
+    ///
+    /// Inner joins only. Any outer join null-extends rows, and a null-extended row
+    /// carries a sort key that no source row produced, which breaks that reasoning.
+    pub fn bounded_topn_source(&self) -> Option<usize> {
+        self.bounded_topn_plan().map(|(pos, _)| pos)
+    }
+
+    /// The target source plus the ORDER BY rewritten to reference only that source.
+    ///
+    /// Postgres rewrites a sort key through an equivalence class, so `ORDER BY a.pk`
+    /// can arrive as `b.fk`. On an inner equi-join the two compare equal in every
+    /// output row, so the rewritten key ranks the rows the same way. The source-level
+    /// sort has to name the target's own column, which is what this recovers.
+    pub fn bounded_topn_plan(&self) -> Option<(usize, Vec<OrderByInfo>)> {
+        if self.order_by.is_empty() || !matches!(self.distinct, DistinctMode::None) {
+            return None;
+        }
+        if !relnode_is_inner_only(&self.plan) {
+            return None;
+        }
+
+        let sources = self.plan.sources();
+        let join_keys = self.plan.join_keys();
+
+        // The first key has no equivalence to fall back on, so it picks the target.
+        let lead_rti = orderby_single_rti(&self.order_by.first()?.feature)?;
+        let target = sources.iter().position(|s| s.contains_rti(lead_rti))?;
+        let target_source = sources.get(target)?;
+
+        let mut rewritten = Vec::with_capacity(self.order_by.len());
+        for info in &self.order_by {
+            let rti = orderby_single_rti(&info.feature)?;
+            if target_source.contains_rti(rti) {
+                rewritten.push(info.clone());
+                continue;
+            }
+            let attno = orderby_attno(&info.feature, &sources)?;
+            let local_attno = equi_partner_attno(&join_keys, rti, attno, target_source)?;
+            rewritten.push(OrderByInfo {
+                feature: OrderByFeature::Var {
+                    rti: target_source.scan_info.heap_rti,
+                    attno: local_attno,
+                    name: target_source.column_name(local_attno),
+                },
+                direction: info.direction,
+            });
+        }
+
+        // A string or bytes fast field is emitted as a segment-local ordinal unless
+        // something else already needs its value early. Ordering on the ordinal at the
+        // source would order by a number that means nothing across segments.
+        let early = early_column_names(&self.plan, target_source);
+        for info in &rewritten {
+            let name = orderby_column_name(&info.feature, target_source)?;
+            if source_column_is_deferrable(target_source, &name) && !early.contains(&name) {
+                return None;
+            }
+        }
+
+        Some((target, rewritten))
+    }
+}
+
+/// Rejects anything but a tree of inner joins over plain scans.
+fn relnode_is_inner_only(node: &RelNode) -> bool {
+    match node {
+        RelNode::Scan(_) => true,
+        RelNode::Join(join) => {
+            matches!(join.join_type, JoinType::Inner)
+                && relnode_is_inner_only(&join.left)
+                && relnode_is_inner_only(&join.right)
+        }
+        RelNode::Filter(filter) => relnode_is_inner_only(&filter.input),
+        RelNode::Unnest(_) => false,
+    }
+}
+
+/// The single relation a sort key reads. `None` for a key with no one relation
+/// behind it, such as a summed score, or one this path does not handle.
+fn orderby_single_rti(feature: &OrderByFeature) -> Option<pg_sys::Index> {
+    match feature {
+        OrderByFeature::Field { rti, .. } => Some(*rti),
+        OrderByFeature::Var { rti, .. } => Some(*rti),
+        OrderByFeature::NullTest { inner, .. } => orderby_single_rti(inner),
+        OrderByFeature::Score { .. }
+        | OrderByFeature::ScoreSum { .. }
+        | OrderByFeature::VectorDistance { .. } => None,
+    }
+}
+
+/// Attribute number a sort key reads, resolved against whichever source owns it.
+fn orderby_attno(feature: &OrderByFeature, sources: &[&JoinSource]) -> Option<pg_sys::AttrNumber> {
+    match feature {
+        OrderByFeature::Var { attno, .. } => Some(*attno),
+        OrderByFeature::Field { name, rti } => {
+            let source = sources.iter().find(|s| s.contains_rti(*rti))?;
+            source
+                .scan_info
+                .fields
+                .iter()
+                .find(|f| f.field.name() == name.as_ref())
+                .map(|f| f.attno)
+        }
+        OrderByFeature::NullTest { inner, .. } => orderby_attno(inner, sources),
+        _ => None,
+    }
+}
+
+/// The column on `target` that an equi-join holds equal to `(rti, attno)`.
+fn equi_partner_attno(
+    join_keys: &[JoinKeyPair],
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+    target: &JoinSource,
+) -> Option<pg_sys::AttrNumber> {
+    join_keys.iter().find_map(|jk| {
+        if jk.outer_rti == rti && jk.outer_attno == attno && target.contains_rti(jk.inner_rti) {
+            Some(jk.inner_attno)
+        } else if jk.inner_rti == rti
+            && jk.inner_attno == attno
+            && target.contains_rti(jk.outer_rti)
+        {
+            Some(jk.outer_attno)
+        } else {
+            None
+        }
+    })
+}
+
+fn orderby_column_name(feature: &OrderByFeature, source: &JoinSource) -> Option<String> {
+    match feature {
+        OrderByFeature::Field { name, .. } => Some(name.as_ref().to_string()),
+        OrderByFeature::Var { attno, .. } => source.column_name(*attno),
+        OrderByFeature::NullTest { inner, .. } => orderby_column_name(inner, source),
+        _ => None,
+    }
+}
+
+/// Columns of `source` that the plan already forces into their real values before
+/// the join runs. Mirrors what the scan builder marks as required early.
+fn early_column_names(plan: &RelNode, source: &JoinSource) -> crate::api::HashSet<String> {
+    let mut early: crate::api::HashSet<String> = Default::default();
+    for jk in plan.join_keys() {
+        if source.contains_rti(jk.outer_rti)
+            && let Some(col) = source.column_name(jk.outer_attno)
+        {
+            early.insert(col);
+        }
+        if source.contains_rti(jk.inner_rti)
+            && let Some(col) = source.column_name(jk.inner_attno)
+        {
+            early.insert(col);
+        }
+    }
+    for (rti, attno) in plan.filter_input_vars() {
+        if source.contains_rti(rti)
+            && let Some(col) = source.column_name(attno)
+        {
+            early.insert(col);
+        }
+    }
+    early
+}
+
+/// True when the column would be emitted as a term ordinal rather than its value.
+fn source_column_is_deferrable(source: &JoinSource, name: &str) -> bool {
+    use crate::index::fast_fields_helper::WhichFastField;
+    source.scan_info.fields.iter().any(|f| match &f.field {
+        WhichFastField::Named(field_name, field_type) => {
+            field_name == name
+                && matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::Utf8View
+                        | arrow_schema::DataType::BinaryView
+                        | arrow_schema::DataType::LargeUtf8
+                        | arrow_schema::DataType::LargeBinary
+                )
+        }
+        _ => false,
+    })
+}
+
+impl JoinCSClause {
     pub fn has_distinct(&self) -> bool {
         self.distinct == DistinctMode::Active
     }

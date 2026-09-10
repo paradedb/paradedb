@@ -1,0 +1,359 @@
+-- Bounded Top-N attempt for a join whose ORDER BY belongs to one side.
+--
+-- The join reads only the leading rows of the ordered side, then keeps that
+-- result when it fills the LIMIT. A short result proves nothing, because rows
+-- drop in the join, so the query re-runs unbounded.
+--
+-- What the probe scan reads is the thing to watch. Bounded, it reads about the
+-- cap; unbounded, it reads the whole index. Results must not move either way.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan = on;
+DROP TABLE IF EXISTS btn_probe CASCADE;
+DROP TABLE IF EXISTS btn_ordered CASCADE;
+-- A `uuid` key is the shape this targets: the key set reaches tantivy as a term
+-- set, so the probe side reads only the keys the bound kept.
+CREATE TABLE btn_ordered (
+    id      uuid PRIMARY KEY,
+    grp     bigint      NOT NULL,
+    made_at timestamptz NOT NULL
+);
+INSERT INTO btn_ordered (id, grp, made_at)
+SELECT md5('k' || i)::uuid,
+       CASE WHEN i <= 4000 THEN 1 ELSE 2 END,
+       timestamptz '2024-01-01' + (i || ' seconds')::interval
+FROM generate_series(1, 20000) i;
+CREATE TABLE btn_probe (
+    id        bigserial PRIMARY KEY,
+    fk        uuid   NOT NULL,
+    amount    bigint NOT NULL
+);
+INSERT INTO btn_probe (fk, amount)
+SELECT md5('k' || i)::uuid, i % 100
+FROM generate_series(1, 20000) i;
+CREATE INDEX btn_ordered_idx ON btn_ordered
+USING bm25 (id, grp, made_at) WITH (key_field = 'id');
+CREATE INDEX btn_probe_idx ON btn_probe
+USING bm25 (id, fk, amount) WITH (key_field = 'id');
+ANALYZE btn_ordered;
+ANALYZE btn_probe;
+-- =============================================================================
+-- TEST 1: the bound holds, so the probe scan stays near the cap
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+         Relation Tree: p INNER o
+         Join Cond: o.id = p.fk
+         Limit: 10
+         Order By: o.made_at desc, p.fk desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, made_at@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=8.4 KB, output_batches=1]
+           :   SortExec: TopK(fetch=10), expr=[made_at@4 DESC, fk@1 DESC], preserve_partitioning=[false], filter=[made_at@4 IS NULL OR made_at@4 > 757415191000000 OR made_at@4 = 757415191000000 AND (fk@1 IS NULL OR fk@1 > b5ea7838-d13f-0903-1d1a-bbd075557459)], metrics=[output_rows=10, output_bytes=17.5 KB, output_batches=1, row_replacements=160]
+           :     VisibilityFilterExec: tables=[p], metrics=[output_rows=160, output_bytes=402.2 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0], metrics=[output_rows=160, output_bytes=402.2 KB, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@3, fk@4, ctid_1@0, id@1, made_at@2], metrics=[output_rows=160, output_bytes=465.0 KB, output_batches=1, build_mem_used=153.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=160, input_batches=1, input_rows=160, avg_fanout=100% (160/160), probe_hit_rate=100% (160/160)]
+           :           SortExec: TopK(fetch=160), expr=[made_at@2 DESC, id@1 DESC], preserve_partitioning=[false], filter=[made_at@2 IS NULL OR made_at@2 > 757415041000000 OR made_at@2 = 757415041000000 AND (id@1 IS NULL OR id@1 > 4f695deb-43f8-8fc2-b247-d95683160376)], metrics=[output_rows=160, output_bytes=149.0 KB, output_batches=1, row_replacements=4.00 K]
+           :             CooperativeExec
+           :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"grp","value":1}}]}}, metrics=[output_rows=4.00 K, output_bytes=269.0 KB, output_batches=1, rows_pruned=0, rows_scanned=4.00 K]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=160, output_bytes=12.8 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=160]
+(17 rows)
+
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ 79d9d415-9199-8168-8580-686f461c2f60
+ 9eb3d578-1884-770b-fa48-110fbbd003de
+ 5bf1d182-2d90-cc14-08f5-8222c62c6522
+ e4e42de0-dc5b-2cb6-1a32-6523aa860aff
+ 36bf0ec4-d33d-a51d-0f79-c4b5c5d27dbb
+ edb51459-ed2c-d68d-97f2-c1bf9a0ad7c1
+ a44c8813-43f6-65b7-2865-fdf371d5bafa
+ e8587a8c-b939-761b-7900-e12a15228867
+ 65dd5254-24c5-9664-7858-147aae4c491a
+ b5ea7838-d13f-0903-1d1a-bbd075557459
+(10 rows)
+
+-- Same query with the feature off, for the rows and for the contrast in what
+-- the probe scan reads.
+SET paradedb.enable_join_bounded_topn = off;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+         Relation Tree: p INNER o
+         Join Cond: o.id = p.fk
+         Limit: 10
+         Order By: o.made_at desc, p.fk desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, made_at@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=144.4 KB, output_batches=1]
+           :   SortExec: TopK(fetch=10), expr=[made_at@4 DESC, fk@1 DESC], preserve_partitioning=[false], filter=[made_at@4 IS NULL OR made_at@4 > 757415191000000 OR made_at@4 = 757415191000000 AND (fk@1 IS NULL OR fk@1 > b5ea7838-d13f-0903-1d1a-bbd075557459)], metrics=[output_rows=10, output_bytes=288.5 KB, output_batches=1, row_replacements=4.00 K]
+           :     VisibilityFilterExec: tables=[p, o], metrics=[output_rows=4.00 K, output_bytes=670.5 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=4.00 K, output_bytes=670.5 KB, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@3, fk@4, ctid_1@0, id@1, made_at@2], metrics=[output_rows=4.00 K, output_bytes=736.0 KB, output_batches=1, build_mem_used=405.1 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=4.00 K, input_batches=1, input_rows=4.00 K, avg_fanout=100% (4.00 K/4.00 K), probe_hit_rate=100% (4.00 K/4.00 K)]
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"grp","value":1}}]}}, metrics=[output_rows=4.00 K, output_bytes=269.0 KB, output_batches=1]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=4.00 K, output_bytes=237.8 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=4.00 K]
+(16 rows)
+
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ 79d9d415-9199-8168-8580-686f461c2f60
+ 9eb3d578-1884-770b-fa48-110fbbd003de
+ 5bf1d182-2d90-cc14-08f5-8222c62c6522
+ e4e42de0-dc5b-2cb6-1a32-6523aa860aff
+ 36bf0ec4-d33d-a51d-0f79-c4b5c5d27dbb
+ edb51459-ed2c-d68d-97f2-c1bf9a0ad7c1
+ a44c8813-43f6-65b7-2865-fdf371d5bafa
+ e8587a8c-b939-761b-7900-e12a15228867
+ 65dd5254-24c5-9664-7858-147aae4c491a
+ b5ea7838-d13f-0903-1d1a-bbd075557459
+(10 rows)
+
+RESET paradedb.enable_join_bounded_topn;
+-- =============================================================================
+-- TEST 2: OFFSET, and a sort key Postgres rewrites to the other side
+-- =============================================================================
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at ASC, o.id ASC
+LIMIT 5 OFFSET 7;
+                  id                  
+--------------------------------------
+ 0304e802-6876-3562-dd0b-89268dbd0d33
+ 533f4c9b-5413-d9ec-bf62-84f110a9789a
+ e2586f3a-4757-14f9-959f-74986e64ee13
+ ff5e2c3e-7cff-28f4-d962-d00130315149
+ 1904741e-e54b-3282-7d04-0cbf5929b9fb
+(5 rows)
+
+SET paradedb.enable_join_bounded_topn = off;
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at ASC, o.id ASC
+LIMIT 5 OFFSET 7;
+                  id                  
+--------------------------------------
+ 0304e802-6876-3562-dd0b-89268dbd0d33
+ 533f4c9b-5413-d9ec-bf62-84f110a9789a
+ e2586f3a-4757-14f9-959f-74986e64ee13
+ ff5e2c3e-7cff-28f4-d962-d00130315149
+ 1904741e-e54b-3282-7d04-0cbf5929b9fb
+(5 rows)
+
+RESET paradedb.enable_join_bounded_topn;
+-- =============================================================================
+-- TEST 3: too few rows survive the join, so the bounded attempt is discarded
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount = 3
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+         Relation Tree: p INNER o
+         Join Cond: o.id = p.fk
+         Limit: 10
+         Order By: o.made_at desc, p.fk desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, made_at@4 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=2.6 KB, output_batches=1]
+           :   SortExec: TopK(fetch=10), expr=[made_at@4 DESC, fk@1 DESC], preserve_partitioning=[false], filter=[made_at@4 IS NULL OR made_at@4 > 757414203000000 OR made_at@4 = 757414203000000 AND (fk@1 IS NULL OR fk@1 > f2d52623-1870-b54d-305a-dd244a5ec3dc)], metrics=[output_rows=10, output_bytes=10.8 KB, output_batches=1, row_replacements=40]
+           :     VisibilityFilterExec: tables=[p, o], metrics=[output_rows=40, output_bytes=330.9 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=40, output_bytes=330.9 KB, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fk@1, id@1)], metrics=[output_rows=40, output_bytes=458.2 KB, output_batches=1, build_mem_used=18.0 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=200, input_batches=1, input_rows=40, avg_fanout=100% (40/40), probe_hit_rate=100% (40/40)]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, query={"term":{"field":"amount","value":3}}, metrics=[output_rows=200, output_bytes=13.7 KB, output_batches=1]
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"grp","value":1}}]}}, metrics=[output_rows=40, output_bytes=3.5 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=40]
+(16 rows)
+
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount = 3
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ ebc2601a-ffe9-8fe5-f81f-79d36fad49f4
+ ede8eab2-bff2-deeb-6ea6-d09c2b9553e5
+ 88bc28a6-3cf5-d107-a3f3-03d8617e65a9
+ b3c8eb0a-351c-2620-8e41-9fa6b477d1e1
+ ded21d74-a365-123c-64ab-a579ff52e94d
+ 257d3311-dcac-1eea-bc86-4ba2223ffc9c
+ 1edc869d-1a42-eb72-8ebd-93be8b7a46e1
+ b2d9cb61-1fa0-ecaf-6f4f-a2d3773d9f80
+ 15dbc83d-7482-01c7-cc48-d52cec0fabc1
+ f2d52623-1870-b54d-305a-dd244a5ec3dc
+(10 rows)
+
+SET paradedb.enable_join_bounded_topn = off;
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount = 3
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ ebc2601a-ffe9-8fe5-f81f-79d36fad49f4
+ ede8eab2-bff2-deeb-6ea6-d09c2b9553e5
+ 88bc28a6-3cf5-d107-a3f3-03d8617e65a9
+ b3c8eb0a-351c-2620-8e41-9fa6b477d1e1
+ ded21d74-a365-123c-64ab-a579ff52e94d
+ 257d3311-dcac-1eea-bc86-4ba2223ffc9c
+ 1edc869d-1a42-eb72-8ebd-93be8b7a46e1
+ b2d9cb61-1fa0-ecaf-6f4f-a2d3773d9f80
+ 15dbc83d-7482-01c7-cc48-d52cec0fabc1
+ f2d52623-1870-b54d-305a-dd244a5ec3dc
+(10 rows)
+
+RESET paradedb.enable_join_bounded_topn;
+-- =============================================================================
+-- TEST 4: fewer rows exist than the LIMIT asks for
+-- =============================================================================
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount = 3
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 1000;
+                  id                  
+--------------------------------------
+ ebc2601a-ffe9-8fe5-f81f-79d36fad49f4
+ ede8eab2-bff2-deeb-6ea6-d09c2b9553e5
+ 88bc28a6-3cf5-d107-a3f3-03d8617e65a9
+ b3c8eb0a-351c-2620-8e41-9fa6b477d1e1
+ ded21d74-a365-123c-64ab-a579ff52e94d
+ 257d3311-dcac-1eea-bc86-4ba2223ffc9c
+ 1edc869d-1a42-eb72-8ebd-93be8b7a46e1
+ b2d9cb61-1fa0-ecaf-6f4f-a2d3773d9f80
+ 15dbc83d-7482-01c7-cc48-d52cec0fabc1
+ f2d52623-1870-b54d-305a-dd244a5ec3dc
+ 7e858207-6e0f-5a43-38f1-bce7b6091591
+ 5d541475-055b-7877-a48e-03407da1f469
+ 4c1f24a9-6e23-2128-b237-c628d6564b3c
+ ef7624b4-35c0-a849-f722-aab90c5415e2
+ 6410272c-bfc3-7008-6fd9-ffc65d1dcf3f
+ 873e6520-63b1-f6bf-a3d5-bd2ceae36cc8
+ ea941adf-12dd-c083-072f-83608b15dc56
+ 266ad330-a2a7-9a4f-c761-bb69bc721c3c
+ 059b1bbb-d0af-94b7-d4ac-264ca816ad4f
+ 898e2148-e803-ac92-6b0f-54ac85ab4e78
+ 17eaae24-8656-3d12-dee3-644d3bc0e685
+ 94153f27-85ce-972d-c1a9-532e5c53a3ae
+ 8a8d58fb-4258-7fad-9e66-b2f006cc8627
+ 404139e3-fa65-1618-df6e-39f213555946
+ 0f1a9328-3c0b-0b34-8c7c-6131a28ca4cb
+ 21c7b9a8-921b-53ab-368d-938de8f6928d
+ 7da08dec-7c16-cf53-c530-5539999d534a
+ 0c55eabc-40c1-5df6-8471-64708cdb1ae1
+ aca797a8-d2af-58aa-27fd-80f2d8a85275
+ 4b47b47e-d447-a7ee-a155-beb326644ce4
+ fdb903f0-eaa5-1405-f077-743ab0409dff
+ 4143cd9b-7076-a3a7-55d4-11f188d69302
+ 4a4d83ee-146d-b6d2-2cc9-3bab5cc2fb6b
+ 278aea54-d402-d169-3b31-fac9f0469d1d
+ 346ad66f-e763-ed52-131a-545075296add
+ 38a10f4f-17f7-c44f-4ca0-406c4a33aa78
+ 3955902a-212c-8e63-dcfc-6f8e268c0397
+ 3917d0e0-f220-5c46-6dfb-1f16f1029ec7
+ b2236af2-1778-a2cb-2d2e-cfb0e3671634
+ f7ab469d-1dc7-9166-fc87-4dadcc0dd854
+(40 rows)
+
+-- =============================================================================
+-- TEST 5: shapes the bound has to decline
+-- =============================================================================
+-- Sort keys from both sides.
+SELECT o.id
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0
+ORDER BY o.made_at DESC, p.amount DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ 79d9d415-9199-8168-8580-686f461c2f60
+ 9eb3d578-1884-770b-fa48-110fbbd003de
+ 5bf1d182-2d90-cc14-08f5-8222c62c6522
+ e4e42de0-dc5b-2cb6-1a32-6523aa860aff
+ 36bf0ec4-d33d-a51d-0f79-c4b5c5d27dbb
+ edb51459-ed2c-d68d-97f2-c1bf9a0ad7c1
+ a44c8813-43f6-65b7-2865-fdf371d5bafa
+ e8587a8c-b939-761b-7900-e12a15228867
+ 65dd5254-24c5-9664-7858-147aae4c491a
+ b5ea7838-d13f-0903-1d1a-bbd075557459
+(10 rows)
+
+-- An outer join null-extends rows, so a sort key can come from no source row.
+SELECT o.id
+FROM btn_ordered o
+LEFT JOIN btn_probe p ON p.fk = o.id AND p.amount >= 0
+WHERE o.id @@@ paradedb.all() AND o.grp = 1
+ORDER BY o.made_at DESC, o.id DESC
+LIMIT 10;
+                  id                  
+--------------------------------------
+ 79d9d415-9199-8168-8580-686f461c2f60
+ 9eb3d578-1884-770b-fa48-110fbbd003de
+ 5bf1d182-2d90-cc14-08f5-8222c62c6522
+ e4e42de0-dc5b-2cb6-1a32-6523aa860aff
+ 36bf0ec4-d33d-a51d-0f79-c4b5c5d27dbb
+ edb51459-ed2c-d68d-97f2-c1bf9a0ad7c1
+ a44c8813-43f6-65b7-2865-fdf371d5bafa
+ e8587a8c-b939-761b-7900-e12a15228867
+ 65dd5254-24c5-9664-7858-147aae4c491a
+ b5ea7838-d13f-0903-1d1a-bbd075557459
+(10 rows)
+
+-- No LIMIT, so there is nothing to bound.
+SELECT count(*)
+FROM btn_ordered o
+JOIN btn_probe p ON p.fk = o.id
+WHERE o.id @@@ paradedb.all() AND o.grp = 1 AND p.amount >= 0;
+ count 
+-------
+  4000
+(1 row)
+
+DROP TABLE btn_probe;
+DROP TABLE btn_ordered;

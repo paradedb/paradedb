@@ -993,8 +993,106 @@ impl JoinScan {
         Self::rebake_from_custom_exprs_string(state, true)
     }
 
-    unsafe fn rebake_from_custom_exprs_string(
+    /// Run the join with the ordered side capped, and keep the result only when it
+    /// fills the LIMIT.
+    ///
+    /// A short result proves nothing: rows can drop in the join, so the missing ones
+    /// might sit past the cap. A full result is the real answer, because anything left
+    /// behind sorts at or below what came back. See `JoinCSClause::bounded_topn_source`.
+    ///
+    /// Returns the executed plan with its rows, so the caller treats it like any other
+    /// plan for ctid wiring, output columns and EXPLAIN ANALYZE.
+    unsafe fn try_bounded_topn(
         state: &mut CustomScanStateWrapper<Self>,
+        runtime: &tokio::runtime::Runtime,
+        runtime_fetch: Option<usize>,
+        planstate: *mut pg_sys::PlanState,
+        runtime_context: *mut pg_sys::ExprContext,
+        source_manifests: &[SearchIndexManifest],
+    ) -> Option<(
+        Arc<dyn ExecutionPlan>,
+        datafusion::execution::SendableRecordBatchStream,
+    )> {
+        if !crate::gucs::enable_join_bounded_topn() {
+            return None;
+        }
+
+        let mut clause = state.custom_state().join_clause.clone();
+        let (target, order_by) = clause.bounded_topn_plan()?;
+
+        let limit_offset = clause.limit_offset.as_ref();
+        let fetch = runtime_fetch.or_else(|| limit_offset.and_then(|lo| lo.static_fetch()))?;
+        if fetch == 0 {
+            return None;
+        }
+        // `static_fetch` already folds OFFSET into the count.
+        let multiplier = crate::gucs::join_bounded_topn_multiplier().max(1) as usize;
+        let cap = fetch.checked_mul(multiplier)?;
+
+        // The gain comes from the other side reading only the keys the bound kept, which
+        // needs the key set to reach tantivy as a term set. Past this cap it does not,
+        // and the attempt would read that whole index for nothing.
+        if cap > crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize {
+            return None;
+        }
+
+        clause.bounded_topn = Some(build::BoundedTopN {
+            plan_position: target,
+            limit: cap,
+            order_by,
+        });
+
+        let bytes = Self::rebake_with_clause(state, clause, true);
+        let ctx = create_datafusion_session_context();
+        let logical_plan = deserialize_logical_plan_with_runtime(
+            &bytes,
+            &ctx.task_ctx(),
+            None,
+            Some(runtime_context),
+            Some(planstate),
+            source_manifests.to_vec(),
+        )
+        .ok()?;
+        let logical_plan = match runtime_fetch {
+            Some(f) => datafusion::logical_expr::LogicalPlanBuilder::from(logical_plan)
+                .limit(0, Some(f))
+                .ok()?
+                .build()
+                .ok()?,
+            None => logical_plan,
+        };
+        let plan = runtime
+            .block_on(build_physical_plan(&ctx, logical_plan))
+            .ok()?;
+
+        let task_ctx = build_task_context(
+            &ctx,
+            &plan,
+            pg_sys::work_mem as usize * 1024,
+            pg_sys::hash_mem_multiplier,
+        );
+        let batches = {
+            let _guard = runtime.enter();
+            let stream = plan.execute(0, task_ctx).ok()?;
+            runtime
+                .block_on(datafusion::physical_plan::common::collect(stream))
+                .ok()?
+        };
+
+        let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        if rows < fetch {
+            return None;
+        }
+
+        let schema = plan.schema();
+        let stream =
+            datafusion::physical_plan::memory::MemoryStream::try_new(batches, schema, None).ok()?;
+        Some((plan, Box::pin(stream)))
+    }
+
+    unsafe fn rebake_with_clause(
+        state: &mut CustomScanStateWrapper<Self>,
+        clause: crate::postgres::customscan::joinscan::build::JoinCSClause,
         force_serial: bool,
     ) -> Vec<u8> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
@@ -1006,10 +1104,7 @@ impl JoinScan {
             None => std::ptr::null_mut(),
         };
 
-        let mut private_data = PrivateData::new(
-            state.custom_state().join_clause.clone(),
-            state.custom_state().parallel_mode_ok,
-        );
+        let mut private_data = PrivateData::new(clause, state.custom_state().parallel_mode_ok);
         private_data.output_columns = state.custom_state().output_columns.clone();
 
         bake_logical_plan(&mut private_data, custom_exprs, force_serial);
@@ -1017,6 +1112,14 @@ impl JoinScan {
             .logical_plan
             .expect("rebaking must produce serialized logical plan bytes")
             .to_vec()
+    }
+
+    unsafe fn rebake_from_custom_exprs_string(
+        state: &mut CustomScanStateWrapper<Self>,
+        force_serial: bool,
+    ) -> Vec<u8> {
+        let clause = state.custom_state().join_clause.clone();
+        Self::rebake_with_clause(state, clause, force_serial)
     }
 
     /// Join the MPP producer workers and destroy the parallel context once nothing
@@ -1635,95 +1738,118 @@ impl CustomScan for JoinScan {
                             .expect("Failed to create execution plan")
                     };
 
-                let mpp_pending = state.custom_state_mut().mpp.take_pending();
-                // Leader session context: on an MPP attempt, layer the DF-D fork's
-                // distributed-planner knobs over the Join profile so the resulting physical
-                // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
-                // planner's ceiling. The mesh and the dispatch source are execute-time
-                // concerns; the exec session below carries them once the workers are committed.
-                let plan_ctx = if mpp_pending {
-                    Self::build_mpp_session_context(None)
-                } else {
-                    create_datafusion_session_context()
-                };
-                let t_plan = std::time::Instant::now();
-                let plan = build_plan(&plan_ctx);
-                launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
-
-                // On a launch fallback (nothing to distribute, or too few attached workers) no
-                // workers remain and the `DistributedExec` shape has no mesh to read from, so
-                // replan serially.
-                let (ctx, plan) = if mpp_pending {
-                    match Self::launch_mpp(state, &plan) {
-                        Some(leader) => {
-                            let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
-                            let exec_ctx = Self::build_mpp_session_context(Some(Arc::clone(
-                                &leader.session.mesh,
-                            )))
-                            .with_distributed_dispatch_plan_source(source);
-                            launch_us.prepare_us = leader.timing.prepare_us;
-                            launch_us.payload_us = leader.timing.payload_us;
-                            launch_us.attach_us = leader.timing.attach_us;
-                            launch_us.leader_setup_us = leader.timing.leader_setup_us;
-                            launch_us.workers = leader.timing.workers;
-                            state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
-                            (exec_ctx, plan)
-                        }
-                        None => {
-                            // Short-launch decline: rebuild the logical plan with serial provider
-                            // metadata. Merely changing SessionContext would replan the existing
-                            // MPP-shaped logical providers without rewriting their source fields.
-                            let serial_ctx = create_datafusion_session_context();
-                            let fallback_bytes = Self::rebake_for_mpp_fallback(state);
-                            let logical_plan = deserialize_logical_plan_with_runtime(
-                                &fallback_bytes,
-                                &serial_ctx.task_ctx(),
-                                None,
-                                Some(runtime_context),
-                                Some(planstate),
-                                source_manifests.clone(),
-                            )
-                            .expect("Failed to deserialize serial fallback logical plan");
-                            let logical_plan = match runtime_fetch {
-                                Some(fetch) => {
-                                    use datafusion::logical_expr::LogicalPlanBuilder;
-                                    LogicalPlanBuilder::from(logical_plan)
-                                        .limit(0, Some(fetch))
-                                        .expect("failed to add Limit to logical plan")
-                                        .build()
-                                        .expect("failed to build logical plan with Limit")
-                                }
-                                None => logical_plan,
-                            };
-                            let plan = runtime
-                                .block_on(build_physical_plan(&serial_ctx, logical_plan))
-                                .expect("Failed to create execution plan from serial fallback");
-                            // Keep custom_state's logical_plan in sync: a later rescan reads it
-                            // (see maybe_solve_and_rebake / JoinScanState::reset), and it should
-                            // reflect the serial shape actually executed here, not the MPP-shaped
-                            // bytes this fallback declined to use.
-                            state.custom_state_mut().logical_plan =
-                                Some(bytes::Bytes::from(fallback_bytes));
-                            (serial_ctx, plan)
-                        }
-                    }
-                } else {
-                    (plan_ctx, plan)
-                };
-
-                let task_ctx = build_task_context(
-                    &ctx,
-                    &plan,
-                    pg_sys::work_mem as usize * 1024,
-                    pg_sys::hash_mem_multiplier,
+                // A bounded attempt reads only the leading rows of the ordered side. It
+                // stays serial: the row cap keeps it small, and nothing is launched yet
+                // when it under-delivers, so the fallback below has no workers to unwind.
+                let bounded = Self::try_bounded_topn(
+                    state,
+                    &runtime,
+                    runtime_fetch,
+                    planstate,
+                    runtime_context,
+                    &source_manifests,
                 );
-                let t_exec = std::time::Instant::now();
-                let stream = {
-                    let _guard = runtime.enter();
-                    plan.execute(0, task_ctx)
-                        .expect("Failed to execute DataFusion plan")
+
+                let (plan, stream) = match bounded {
+                    Some(pair) => {
+                        state.custom_state_mut().mpp.take_pending();
+                        pair
+                    }
+                    None => {
+                        let mpp_pending = state.custom_state_mut().mpp.take_pending();
+                        // Leader session context: on an MPP attempt, layer the DF-D fork's
+                        // distributed-planner knobs over the Join profile so the resulting physical
+                        // plan is a `DistributedExec`, with `producer_worker_cap()` acting as the
+                        // planner's ceiling. The mesh and the dispatch source are execute-time
+                        // concerns; the exec session below carries them once the workers are committed.
+                        let plan_ctx = if mpp_pending {
+                            Self::build_mpp_session_context(None)
+                        } else {
+                            create_datafusion_session_context()
+                        };
+                        let t_plan = std::time::Instant::now();
+                        let plan = build_plan(&plan_ctx);
+                        launch_us.plan_us = t_plan.elapsed().as_micros() as u64;
+
+                        // On a launch fallback (nothing to distribute, or too few attached workers) no
+                        // workers remain and the `DistributedExec` shape has no mesh to read from, so
+                        // replan serially.
+                        let (ctx, plan) = if mpp_pending {
+                            match Self::launch_mpp(state, &plan) {
+                                Some(leader) => {
+                                    let source = crate::postgres::customscan::mpp::glue::StagePlanDispatchSource::default();
+                                    let exec_ctx = Self::build_mpp_session_context(Some(
+                                        Arc::clone(&leader.session.mesh),
+                                    ))
+                                    .with_distributed_dispatch_plan_source(source);
+                                    launch_us.prepare_us = leader.timing.prepare_us;
+                                    launch_us.payload_us = leader.timing.payload_us;
+                                    launch_us.attach_us = leader.timing.attach_us;
+                                    launch_us.leader_setup_us = leader.timing.leader_setup_us;
+                                    launch_us.workers = leader.timing.workers;
+                                    state.custom_state_mut().mpp = MppLifecycle::Launched(leader);
+                                    (exec_ctx, plan)
+                                }
+                                None => {
+                                    // Short-launch decline: rebuild the logical plan with serial provider
+                                    // metadata. Merely changing SessionContext would replan the existing
+                                    // MPP-shaped logical providers without rewriting their source fields.
+                                    let serial_ctx = create_datafusion_session_context();
+                                    let fallback_bytes = Self::rebake_for_mpp_fallback(state);
+                                    let logical_plan = deserialize_logical_plan_with_runtime(
+                                        &fallback_bytes,
+                                        &serial_ctx.task_ctx(),
+                                        None,
+                                        Some(runtime_context),
+                                        Some(planstate),
+                                        source_manifests.clone(),
+                                    )
+                                    .expect("Failed to deserialize serial fallback logical plan");
+                                    let logical_plan = match runtime_fetch {
+                                        Some(fetch) => {
+                                            use datafusion::logical_expr::LogicalPlanBuilder;
+                                            LogicalPlanBuilder::from(logical_plan)
+                                                .limit(0, Some(fetch))
+                                                .expect("failed to add Limit to logical plan")
+                                                .build()
+                                                .expect("failed to build logical plan with Limit")
+                                        }
+                                        None => logical_plan,
+                                    };
+                                    let plan = runtime
+                                        .block_on(build_physical_plan(&serial_ctx, logical_plan))
+                                        .expect(
+                                            "Failed to create execution plan from serial fallback",
+                                        );
+                                    // Keep custom_state's logical_plan in sync: a later rescan reads it
+                                    // (see maybe_solve_and_rebake / JoinScanState::reset), and it should
+                                    // reflect the serial shape actually executed here, not the MPP-shaped
+                                    // bytes this fallback declined to use.
+                                    state.custom_state_mut().logical_plan =
+                                        Some(bytes::Bytes::from(fallback_bytes));
+                                    (serial_ctx, plan)
+                                }
+                            }
+                        } else {
+                            (plan_ctx, plan)
+                        };
+
+                        let task_ctx = build_task_context(
+                            &ctx,
+                            &plan,
+                            pg_sys::work_mem as usize * 1024,
+                            pg_sys::hash_mem_multiplier,
+                        );
+                        let t_exec = std::time::Instant::now();
+                        let stream = {
+                            let _guard = runtime.enter();
+                            plan.execute(0, task_ctx)
+                                .expect("Failed to execute DataFusion plan")
+                        };
+                        launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
+                        (plan, stream)
+                    }
                 };
-                launch_us.exec_us = t_exec.elapsed().as_micros() as u64;
 
                 // Retain the executed plan so EXPLAIN ANALYZE can extract metrics. Record the
                 // launch timing only when the query actually ran distributed (workers attached);

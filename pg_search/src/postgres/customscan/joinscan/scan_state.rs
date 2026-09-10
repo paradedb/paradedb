@@ -543,6 +543,12 @@ fn build_relnode_df<'a>(
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
+                if let Some(bounded) = &rctx.join_clause.bounded_topn
+                    && bounded.plan_position == plan_position
+                {
+                    df =
+                        apply_bounded_topn(df, rctx.join_clause, &bounded.order_by, bounded.limit)?;
+                }
                 Ok(df)
             }
             RelNode::Join(join) => {
@@ -950,17 +956,42 @@ fn resolve_orderby_feature(
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column
 /// references from `distinct_col_map` when DISTINCT is active and from the
 /// per-source resolution paths otherwise.
+/// Order one source by the query's ORDER BY and keep only the first `limit` rows,
+/// before it reaches the join.
+///
+/// Uses the same sort expressions as the final sort, null placement included, so
+/// the rows kept here are the same rows the final sort would rank first.
+fn apply_bounded_topn(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    order_by: &[crate::api::OrderByInfo],
+    limit: usize,
+) -> Result<DataFrame> {
+    let empty = DistinctColMap::default();
+    let df = apply_sort_keys(df, join_clause, order_by, &empty)?;
+    df.limit(0, Some(limit))
+}
+
 fn apply_sort(
     df: DataFrame,
     join_clause: &JoinCSClause,
     distinct_col_map: &DistinctColMap,
 ) -> Result<DataFrame> {
-    if join_clause.order_by.is_empty() {
+    apply_sort_keys(df, join_clause, &join_clause.order_by, distinct_col_map)
+}
+
+fn apply_sort_keys(
+    df: DataFrame,
+    join_clause: &JoinCSClause,
+    order_by: &[crate::api::OrderByInfo],
+    distinct_col_map: &DistinctColMap,
+) -> Result<DataFrame> {
+    if order_by.is_empty() {
         return Ok(df);
     }
 
     let mut sort_exprs = Vec::new();
-    for info in &join_clause.order_by {
+    for info in order_by {
         let expr = match &info.feature {
             OrderByFeature::NullTest {
                 inner,

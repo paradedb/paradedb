@@ -54,6 +54,15 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle range co-partitioning for joins.
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Lets a join whose ORDER BY belongs to one side try that side bounded first.
+static ENABLE_JOIN_BOUNDED_TOPN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// How many rows the bounded attempt reads from the ordered side, as a multiple
+/// of `LIMIT + OFFSET`. The join drops rows that find no match, so the bound
+/// needs slack over the row count the query asks for. Too small wastes the
+/// attempt, too large gives back the savings.
+static JOIN_BOUNDED_TOPN_MULTIPLIER: GucSetting<i32> = GucSetting::<i32>::new(16);
+
 static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
@@ -347,6 +356,26 @@ pub fn init() {
         c"Enable ParadeDB's join custom scan",
         c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_bounded_topn",
+        c"Try the ordered side of a join bounded before joining everything",
+        c"When a join has ORDER BY and LIMIT and every sort key belongs to one side, read only the top rows of that side first. Falls back to the full join when the bounded attempt returns too few rows. Default is true.",
+        &ENABLE_JOIN_BOUNDED_TOPN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.join_bounded_topn_multiplier",
+        c"Rows the bounded join attempt reads, as a multiple of LIMIT plus OFFSET",
+        c"Rows the bounded join attempt reads from the ordered side, as a multiple of LIMIT plus OFFSET. Raise it when joins keep falling back because too few rows survive.",
+        &JOIN_BOUNDED_TOPN_MULTIPLIER,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -806,6 +835,14 @@ pub fn enable_join_custom_scan() -> bool {
 
 pub fn enable_range_partitioned_join() -> bool {
     ENABLE_RANGE_PARTITIONED_JOIN.get()
+}
+
+pub fn enable_join_bounded_topn() -> bool {
+    ENABLE_JOIN_BOUNDED_TOPN.get()
+}
+
+pub fn join_bounded_topn_multiplier() -> i32 {
+    JOIN_BOUNDED_TOPN_MULTIPLIER.get()
 }
 
 pub fn enable_aggregate_late_materialization() -> bool {

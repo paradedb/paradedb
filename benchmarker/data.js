@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789032535132,
+  "lastUpdate": 1789044025017,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -2830,6 +2830,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.155,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789044021305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6374928732595913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.572,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.217,
             "unit": "ms"
           }
         ]

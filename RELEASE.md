@@ -6,6 +6,7 @@ ParadeDB uses a **fragment-based workflow** for release artifacts:
 
 - PRs that introduce user-facing changes add a changelog fragment to `docs/changelog/unreleased/<PR>.<category>.mdx`.
 - PRs that modify extension DDL/schema add a SQL migration fragment to `pg_search/sql/unreleased/<PR>.<description>.sql`.
+- Fragments can declare dependencies using `-- depends-on: <PR>` in their SQL comments. When assembling migrations, fragments are topologically sorted based on these dependencies.
 
 At release time, the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) automatically assembles these fragments into the versioned SQL upgrade script and changelog page.
 

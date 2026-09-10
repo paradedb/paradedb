@@ -7,6 +7,26 @@
 # SchemaBot validates fragment contents against schema diffs in CI.
 # At release time, scripts/release.sh concatenates these fragments into the release upgrade script.
 #
+# Guidelines:
+# 1. Dependencies:
+#    If your fragment modifies or references SQL objects created by another unreleased
+#    fragment, specify the dependency at the top of the file:
+#      -- depends-on: 6099
+#    Multiple dependencies can be comma-separated (-- depends-on: 6099, 6120).
+#    Fragments are topologically sorted at release time.
+#
+# 2. Released vs. Unreleased Splitting:
+#    Never combine DDL modifying an unreleased object with DDL modifying previously released
+#    objects in the same fragment. If a PR touches both, split them into two files:
+#      - <PR>.<desc>.sql: modifies released objects only (can be backported to stable branches).
+#      - <PR>.<desc>_<feature>.sql: modifies the unreleased object, with `-- depends-on: <ORIGINAL_PR>`
+#        in the header (remains on main only).
+#
+# 3. Stable Branch Backports:
+#    Fragments on stable branches (0.*.x) must be byte-for-byte identical to main.
+#    A fragment with `-- depends-on: <PR>` cannot be backported unless <PR> is already
+#    in that branch's Git history.
+#
 # For full documentation on the workflow, see:
 #   - CONTRIBUTING.md (Pull Request Workflow)
 #   - RELEASE.md

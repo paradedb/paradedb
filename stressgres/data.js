@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043944570,
+  "lastUpdate": 1789043953242,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -159938,6 +159938,66 @@ window.BENCHMARK_DATA = {
             "value": 19.742624028864128,
             "unit": "median tps",
             "extra": "avg tps: 19.826349171313318, max tps: 33.76014369937646, count: 59293"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043894537,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 78.78146426793586,
+            "unit": "median tps",
+            "extra": "avg tps: 78.42711011336317, max tps: 81.59778143940403, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 521.6911649103184,
+            "unit": "median tps",
+            "extra": "avg tps: 569.767140951377, max tps: 6349.928966570825, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 884.7161682579957,
+            "unit": "median tps",
+            "extra": "avg tps: 863.1250999370114, max tps: 1195.4633133802026, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 191.33883960801757,
+            "unit": "median tps",
+            "extra": "avg tps: 189.2704193577043, max tps: 198.9356801018999, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 222.89529913472109,
+            "unit": "median tps",
+            "extra": "avg tps: 307.5419213133107, max tps: 1972.2682371716069, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.542145086098895,
+            "unit": "median tps",
+            "extra": "avg tps: 20.515513957301106, max tps: 34.47257375820826, count: 59307"
           }
         ]
       }

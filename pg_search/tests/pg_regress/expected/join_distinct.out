@@ -265,7 +265,6 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 1) (table: join)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -293,7 +292,6 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 1) (table: join)
        name       |   score   
 ------------------+-----------
  Keyboard         | 0.7199212
@@ -538,7 +536,6 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column p.description is not columnar indexed (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -719,7 +716,6 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 2) (table: join)
                                                                                                                                                            QUERY PLAN                                                                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -758,7 +754,6 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 2) (table: join)
  id  |       name       |   score   
 -----+------------------+-----------
  201 | Wireless Mouse   | 1.3818457
@@ -1032,31 +1027,25 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not columnar (table: join)
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: pp, pp2)
-                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Merge Anti Join
-               Merge Cond: (pp.profile_id = pp2.profile_id)
-               ->  Sort
-                     Sort Key: pp.profile_id
-                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp
-                           Table: profiles_positions
-                           Index: profiles_positions_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-               ->  Sort
-                     Sort Key: pp2.profile_id
-                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp2
-                           Table: profiles_positions
-                           Index: profiles_positions_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-(20 rows)
+                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: pp ANTI pp2
+   Join Cond: pp2.profile_id = pp.profile_id
+   Limit: 50
+   Distinct: true
+   Order By: pp.profile_id asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=50), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[profile_id@0 as col_1], aggr=[min(pp_0.ctid_0) as ctid_0]
+     :     VisibilityFilterExec: tables=[pp]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@0, profile_id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=pp, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pp2, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(16 rows)
 
 SELECT DISTINCT profile_id
 FROM profiles_positions pp
@@ -1073,8 +1062,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not columnar (table: join)
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: pp, pp2)
  profile_id 
 ------------
           1
@@ -1097,30 +1084,24 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not columnar (table: join)
-                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Unique
-         ->  Merge Anti Join
-               Merge Cond: (pp.profile_id = pp2.profile_id)
-               ->  Sort
-                     Sort Key: pp.profile_id
-                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp
-                           Table: profiles_positions
-                           Index: profiles_positions_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-               ->  Sort
-                     Sort Key: pp2.profile_id
-                     ->  Custom Scan (ParadeDB Base Scan) on profiles_positions pp2
-                           Table: profiles_positions
-                           Index: profiles_positions_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
-(20 rows)
+   ->  Sort
+         Sort Key: pp.profile_id
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: profiles_positions_bm25 (pp), profiles_positions_bm25 (pp2)
+               Group By: profile_id
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=50), expr=[profile_id@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[profile_id@0 as profile_id], aggr=[], lim=[50]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(profile_id@0, profile_id@0)]
+                 :       CooperativeExec
+                 :         PgSearchScan: table=pp, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:developer","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+                 :       CooperativeExec
+                 :         PgSearchScan: table=pp2, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":{"parse":{"query_string":"title:recruiter","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(group_id = 'c624233d-2c2c-43ab-976e-0847bfd58387'::text)"}]}}]}}
+(15 rows)
 
 SELECT DISTINCT profile_id
 FROM profiles_positions pp
@@ -1137,7 +1118,6 @@ WHERE deleted_at IS NULL
   )
 ORDER BY profile_id
 LIMIT 50;
-WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=3) is not columnar (table: join)
  profile_id 
 ------------
           1

@@ -948,31 +948,26 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5;
-WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: e, i)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Sort
-         Sort Key: i.id
-         ->  Hash Semi Join
-               Hash Cond: (upper(i.name) = upper(e.pattern))
-               ->  Custom Scan (ParadeDB Base Scan) on items i
-                     Table: items
-                     Index: items_idx
-                     Exec Method: ColumnarExecState
-                     Columnar: id, name
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
-                           Table: exclusions
-                           Index: exclusions_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: pattern
-                           Scores: false
-                           Full Index Scan: true
-                           Tantivy Query: {"with_index":{"query":"all"}}
-(21 rows)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: i SEMI e
+   Join Filter: (upper(e.pattern) = upper(i.name))
+   Limit: 5
+   Order By: i.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
+     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(pdb_eval_expr_funcexpr_44945b63(e_1.pattern)@1, pdb_eval_expr_funcexpr_53eb87a5(i_0.name)@3)], projection=[id@0, ctid_0@2]
+     :           ProjectionExec: expr=[pattern@0 as pattern, pdb_eval_expr_funcexpr_44945b63(CAST(pattern@0 AS Utf8)) as pdb_eval_expr_funcexpr_44945b63(e_1.pattern)]
+     :             CooperativeExec
+     :               PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+     :           ProjectionExec: expr=[id@0 as id, name@1 as name, ctid_0@2 as ctid_0, pdb_eval_expr_funcexpr_53eb87a5(CAST(name@1 AS Utf8)) as pdb_eval_expr_funcexpr_53eb87a5(i_0.name)]
+     :             CooperativeExec
+     :               PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT i.id
 FROM items i
@@ -984,7 +979,6 @@ WHERE EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id ASC
 LIMIT 5;
-WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: e, i)
  id 
 ----
  10

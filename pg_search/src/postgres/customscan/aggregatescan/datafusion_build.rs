@@ -31,7 +31,8 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
     FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, try_extract_equi_key,
+    PlannerRootId, RelNode, RelationAlias, is_equi_key_redundant_const, lookup_base_rel_info,
+    strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
@@ -308,6 +309,8 @@ pub unsafe fn extract_join_tree_from_parse(
         plan.inject_equi_keys(path_info.wrapped_equi_keys);
     }
 
+    plan.prune_redundant_const_equi_keys(root);
+
     // Fix plan_positions (they default to 0 from JoinSourceCandidate)
     for (position, source) in plan.sources_mut().into_iter().enumerate() {
         source.plan_position = position;
@@ -479,7 +482,7 @@ unsafe fn build_relnode_from_fromexpr(
 
     // Extract equi-join keys from WHERE quals and attach to join nodes
     if !(*from).quals.is_null() {
-        extract_equi_keys_from_quals((*from).quals, sources, &mut result)?;
+        extract_equi_keys_from_quals(root, (*from).quals, sources, &mut result)?;
     }
 
     Ok(result)
@@ -521,10 +524,30 @@ unsafe fn build_scan_node(
     rti: pg_sys::Index,
     sources: &[JoinAggSource],
 ) -> Result<RelNode, String> {
-    let source = sources
-        .iter()
-        .find(|s| s.rti == rti)
-        .ok_or_else(|| format!("RTI {} not found in join sources", rti))?;
+    let source = match sources.iter().find(|s| s.rti == rti) {
+        Some(s) => s,
+        None => {
+            let rel_name = crate::postgres::customscan::range_table::get_rte(
+                (*root).simple_rel_array_size as usize,
+                (*root).simple_rte_array,
+                rti,
+            )
+            .and_then(|rte| {
+                if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+                    std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+                        .to_str()
+                        .ok()
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            });
+            return Err(match rel_name {
+                Some(name) => format!("relation '{name}' not found in join sources"),
+                None => "relation not found in join sources".to_string(),
+            });
+        }
+    };
 
     let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
         format!(
@@ -577,7 +600,7 @@ unsafe fn build_scan_node(
             rti,
             source.alias.as_deref().unwrap_or("unknown"),
         );
-        return Err("OR-nested subquery cannot be pushed into the aggregate scan".into());
+        return Err("OR-nested subquery cannot be pushed into the scan".into());
     }
 
     if !classified.search_ri.is_empty() {
@@ -600,7 +623,7 @@ unsafe fn build_scan_node(
                 rti,
                 source.alias.as_deref().unwrap_or("unknown"),
             );
-            "baserestrictinfo predicate cannot be pushed into the aggregate scan".to_string()
+            "baserestrictinfo predicate cannot be pushed into the scan".to_string()
         })?;
         let query = SearchQueryInput::from(&qual);
         candidate = candidate.with_query(query);
@@ -721,11 +744,19 @@ unsafe fn build_join_node(
     }
 
     // Extract equi-join keys from ON clause (join.quals)
-    let equi_keys = if !join.quals.is_null() {
+    let mut equi_keys = if !join.quals.is_null() {
         extract_equi_keys_from_expr(join.quals, sources)?
     } else {
         Vec::new()
     };
+
+    if equi_keys.len() > 1
+        && equi_keys
+            .iter()
+            .any(|k| !is_equi_key_redundant_const(root, k))
+    {
+        equi_keys.retain(|k| !is_equi_key_redundant_const(root, k));
+    }
 
     // Extract non-equi join conditions from ON clause (join.quals).
     //
@@ -962,13 +993,18 @@ unsafe fn try_extract_one_equi_key(
 /// So adding `return Err on unhandled` *here* would false-positive on
 /// legitimate queries (e.g. `WHERE a.id = b.id AND a.col > 5`).
 unsafe fn extract_equi_keys_from_quals(
+    root: *mut pg_sys::PlannerInfo,
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
     plan: &mut RelNode,
 ) -> Result<(), String> {
-    let keys = extract_equi_keys_from_expr(quals, sources)?;
+    let mut keys = extract_equi_keys_from_expr(quals, sources)?;
     if keys.is_empty() {
         return Ok(());
+    }
+
+    if keys.len() > 1 && keys.iter().any(|k| !is_equi_key_redundant_const(root, k)) {
+        keys.retain(|k| !is_equi_key_redundant_const(root, k));
     }
 
     plan.inject_equi_keys(keys);
@@ -1240,7 +1276,7 @@ unsafe fn classify_path_restrictinfo(
             || cx
                 .on_clauses
                 .iter()
-                .any(|&on_node| pg_sys::equal(clause.cast(), on_node.cast()));
+                .any(|&on_node| nodes_equal_modulo_commutation(clause, on_node));
         if is_on_clause && !expr_contains_any_operator(clause, &[cx.search_op]) {
             // ON-clause predicate (for inner or outer join) - handled in JoinNode.filter during
             // join execution. Decline only if columns are not columnar fields.
@@ -2039,6 +2075,66 @@ pub(crate) unsafe fn collect_on_clause_nodes(
         }
         _ => {}
     }
+}
+
+/// Check if two PostgreSQL expression nodes are equal, accounting for operator commutation.
+///
+/// In PostgreSQL, join-level equality operators in `RestrictInfo` may have their operands
+/// commuted (e.g. `upper(e.pattern) = upper(i.name)` commuted to `upper(i.name) = upper(e.pattern)`)
+/// so that the outer relation's variable is on the left (see `order_qual_clauses` / `commute_restrictinfo`).
+/// Direct structural equality via `pg_sys::equal` fails to match such commuted clauses against parse-tree
+/// ON-clause nodes, causing join conditions to leak into post-join filter classification.
+pub(crate) unsafe fn nodes_equal_modulo_commutation(
+    a: *mut pg_sys::Node,
+    b: *mut pg_sys::Node,
+) -> bool {
+    if pg_sys::equal(a.cast(), b.cast()) {
+        return true;
+    }
+    if a.is_null() || b.is_null() {
+        return false;
+    }
+    if (*a).type_ == pg_sys::NodeTag::T_OpExpr && (*b).type_ == pg_sys::NodeTag::T_OpExpr {
+        let op_a = a as *mut pg_sys::OpExpr;
+        let op_b = b as *mut pg_sys::OpExpr;
+        let args_a = pgrx::PgList::<pg_sys::Node>::from_pg((*op_a).args);
+        let args_b = pgrx::PgList::<pg_sys::Node>::from_pg((*op_b).args);
+        if args_a.len() == 2 && args_b.len() == 2 {
+            let a0 = args_a.get_ptr(0).unwrap();
+            let a1 = args_a.get_ptr(1).unwrap();
+            let b0 = args_b.get_ptr(0).unwrap();
+            let b1 = args_b.get_ptr(1).unwrap();
+
+            let operands_equal = |x0: *mut pg_sys::Node,
+                                  x1: *mut pg_sys::Node,
+                                  y0: *mut pg_sys::Node,
+                                  y1: *mut pg_sys::Node| {
+                (pg_sys::equal(x0.cast(), y0.cast()) && pg_sys::equal(x1.cast(), y1.cast()))
+                    || (pg_sys::equal(
+                        strip_node_wrappers(x0).cast(),
+                        strip_node_wrappers(y0).cast(),
+                    ) && pg_sys::equal(
+                        strip_node_wrappers(x1).cast(),
+                        strip_node_wrappers(y1).cast(),
+                    ))
+            };
+
+            // Direct comparison: same operator and same argument order.
+            if (*op_a).opno == (*op_b).opno && operands_equal(a0, a1, b0, b1) {
+                return true;
+            }
+
+            // Commuted comparison: op_a is the commutator of op_b and operands are swapped.
+            let comm_b = pg_sys::get_commutator((*op_b).opno);
+            if comm_b != pg_sys::Oid::INVALID
+                && (*op_a).opno == comm_b
+                && operands_equal(a0, a1, b1, b0)
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Collect all `(plan_position, field_name)` column references from an [`FilterExpr`] tree.

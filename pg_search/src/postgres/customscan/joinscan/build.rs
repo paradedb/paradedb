@@ -1567,6 +1567,33 @@ impl RelNode {
         }
     }
 
+    /// When multiple equi-join keys exist at a join level and some are redundant
+    /// because both sides are already constrained to a constant in their
+    /// equivalence classes, prune the redundant keys so they do not mandate
+    /// columnar fast fields or induce redundant hash table lookups
+    /// (matching PostgreSQL's `EC_MUST_BE_REDUNDANT`).
+    pub unsafe fn prune_redundant_const_equi_keys(&mut self, root: *mut pg_sys::PlannerInfo) {
+        match self {
+            RelNode::Join(join_node) => {
+                join_node.left.prune_redundant_const_equi_keys(root);
+                join_node.right.prune_redundant_const_equi_keys(root);
+                if join_node.equi_keys.len() > 1
+                    && join_node
+                        .equi_keys
+                        .iter()
+                        .any(|k| !is_equi_key_redundant_const(root, k))
+                {
+                    join_node
+                        .equi_keys
+                        .retain(|k| !is_equi_key_redundant_const(root, k));
+                }
+            }
+            RelNode::Filter(filter) => filter.input.prune_redundant_const_equi_keys(root),
+            RelNode::Unnest(unnest) => unnest.input.prune_redundant_const_equi_keys(root),
+            RelNode::Scan(_) => {}
+        }
+    }
+
     /// Find metadata for a LATERAL unnest function RTI if present in this plan tree.
     pub fn find_lateral_unnest(&self, function_rti: pg_sys::Index) -> Option<&LateralUnnestInfo> {
         match self {
@@ -2136,6 +2163,65 @@ pub unsafe fn try_extract_equi_key(
         typlen,
         typbyval,
     })
+}
+
+/// Check if a given `(rti, attno)` participates in an `EquivalenceClass` that has a constant.
+///
+/// When an equivalence class contains a constant (`ec_has_const == true`), PostgreSQL's
+/// optimizer generates a `var = const` restriction for the base relation, pushing it down
+/// to the scan level (see `generate_base_implied_equalities_const` in `equivclass.c`).
+pub unsafe fn var_in_const_ec(
+    root: *mut pg_sys::PlannerInfo,
+    target_rti: pg_sys::Index,
+    target_attno: pg_sys::AttrNumber,
+) -> bool {
+    if root.is_null() || (*root).eq_classes.is_null() {
+        return false;
+    }
+    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    for eqc in eq_classes.iter_ptr() {
+        let mut canonical = eqc;
+        while !canonical.is_null() && !(*canonical).ec_merged.is_null() {
+            canonical = (*canonical).ec_merged;
+        }
+        if canonical.is_null() || !(*canonical).ec_has_const {
+            continue;
+        }
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members);
+        for member in members.iter_ptr() {
+            let node = strip_node_wrappers((*member).em_expr.cast());
+            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+                continue;
+            }
+            let var = node as *mut pg_sys::Var;
+            if (*var).varno as pg_sys::Index == target_rti && (*var).varattno == target_attno {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Returns true if both sides of the equi-join key participate in an `EquivalenceClass` that has
+/// a constant (`ec_has_const == true`).
+///
+/// # Strategy
+/// When an EquivalenceClass contains a constant, PostgreSQL's equivalence class machinery pushes
+/// down `col = const` restrictions to the base scan level of each member relation
+/// (`generate_base_implied_equalities_const` in `equivclass.c`). As a result, all tuples surviving
+/// the scan on both sides are already constrained to the constant value, making the join-level
+/// equality condition `outer.col = inner.col` mathematically redundant.
+///
+/// Core PostgreSQL explicitly skips generating or enforcing merge join clauses for such equivalence
+/// classes (`EC_MUST_BE_REDUNDANT`, `equivclass.c:1608`, `joinpath.c:2589`). In ParadeDB, we prune
+/// such redundant equi-join keys when other valid equi-keys exist, preventing columns without columnar
+/// fast fields from triggering unnecessary JoinScan / AggregateScan declines.
+pub unsafe fn is_equi_key_redundant_const(
+    root: *mut pg_sys::PlannerInfo,
+    key: &JoinKeyPair,
+) -> bool {
+    var_in_const_ec(root, key.outer_rti, key.outer_attno)
+        && var_in_const_ec(root, key.inner_rti, key.inner_attno)
 }
 
 /// Look up base-relation metadata for a given RTI: relid, alias, and ParadeDB index.

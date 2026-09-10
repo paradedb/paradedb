@@ -138,7 +138,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -166,7 +166,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice
@@ -193,7 +193,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the scan (tables: t, u)
  id |  name   
 ----+---------
   3 | Charlie
@@ -247,7 +247,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
-WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the aggregate scan (tables: t, u)
+WARNING:  JoinScan not used: baserestrictinfo predicate cannot be pushed into the scan (tables: t, u)
  id | name  
 ----+-------
   1 | Alice

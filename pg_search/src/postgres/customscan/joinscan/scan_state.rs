@@ -99,32 +99,49 @@ fn resolve_var_to_df_col(
     })
 }
 
-/// Adapter that lets `PredicateTranslator` resolve Vars against a
-/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+/// If a column cannot be resolved to an output DataFusion column, but its relation
+/// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
+/// from output), all its values in the join result are identically NULL.
+fn null_if_source_exists(join_clause: &JoinCSClause, rti: pg_sys::Index) -> Option<Expr> {
+    if join_clause
+        .plan
+        .sources()
+        .iter()
+        .any(|s| s.contains_rti(rti))
+    {
+        Some(datafusion::logical_expr::lit(
+            datafusion::common::ScalarValue::Null,
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolves a Var to an output DataFusion column, falling back to NULL if the relation
+/// is part of the join but was pruned from the join output.
+fn resolve_var_or_pruned_null(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    resolve_var_to_df_col(join_clause, rti, attno)
+        .or_else(|| null_if_source_exists(join_clause, rti))
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
+///
+/// NOTE: This mapper is used exclusively by [`translate_child_projection_expr`] to
+/// evaluate target-list output projections (`ChildProjection::Expression`).
+/// For output projections, emitting NULL for columns of pruned relations (e.g.
+/// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
+/// they use `CombinedMapper` where pruned columns are rejected.
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }
 
 impl<'a> ColumnMapper for JoinClauseMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        resolve_var_to_df_col(self.join_clause, varno, varattno).or_else(|| {
-            // If this relation participates in the join but was pruned from output
-            // (e.g. the non-preserved side of an Anti Join), all its columns in the
-            // join output are identically NULL.
-            if self
-                .join_clause
-                .plan
-                .sources()
-                .iter()
-                .any(|s| s.contains_rti(varno))
-            {
-                Some(datafusion::logical_expr::lit(
-                    datafusion::common::ScalarValue::Null,
-                ))
-            } else {
-                None
-            }
-        })
+        resolve_var_or_pruned_null(self.join_clause, varno, varattno)
     }
 }
 
@@ -679,12 +696,11 @@ fn build_clause_df<'a>(
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
-        // 6. Apply Limit (only when the value is statically known at planning
-        // time). Parameterized LIMIT/OFFSET are injected at execution time in
+        // 6. Apply Limit (only when BOTH limit and offset are statically known at
+        // planning time). Parameterized LIMIT/OFFSET are injected at execution time in
         // `JoinScan::exec_custom_scan` after `EState` becomes available.
         let df = if let Some(lo) = &join_clause.limit_offset {
-            if let Some(fetch) = lo.static_limit() {
-                let skip = lo.static_offset();
+            if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
                 df.limit(skip, Some(fetch))?
             } else {
                 df
@@ -939,15 +955,7 @@ fn resolve_orderby_feature(
                     .iter()
                     .find(|s| s.contains_rti(*rti))
                     .map(|source| make_source_col(source, name.as_ref()))
-                    .or_else(|| {
-                        if join_clause.plan.sources().iter().any(|s| s.contains_rti(*rti)) {
-                            Some(datafusion::logical_expr::lit(
-                                datafusion::common::ScalarValue::Null,
-                            ))
-                        } else {
-                            None
-                        }
-                    })
+                    .or_else(|| null_if_source_exists(join_clause, *rti))
                     .ok_or_else(|| {
                         DataFusionError::Plan(format!(
                             "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
@@ -963,26 +971,11 @@ fn resolve_orderby_feature(
                     ))
                 })
             } else {
-                resolve_var_to_df_col(join_clause, *rti, *attno)
-                    .or_else(|| {
-                        if join_clause
-                            .plan
-                            .sources()
-                            .iter()
-                            .any(|s| s.contains_rti(*rti))
-                        {
-                            Some(datafusion::logical_expr::lit(
-                                datafusion::common::ScalarValue::Null,
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or_else(|| {
-                        DataFusionError::Plan(format!(
-                            "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
-                        ))
-                    })
+                resolve_var_or_pruned_null(join_clause, *rti, *attno).ok_or_else(|| {
+                    DataFusionError::Plan(format!(
+                        "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
+                    ))
+                })
             }
         }
         OrderByFeature::NullTest { .. } => {

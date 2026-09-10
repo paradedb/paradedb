@@ -1079,10 +1079,19 @@ impl SegmentedTopKState {
 
         for row_idx in 0..num_rows {
             if self.pass_through_scratch[row_idx] {
+                // Keep the compound key the converter already built for this
                 // row. A row that is NULL in one deferred column but not in
                 // another keeps that column's segment for the final decode; a
                 // row with no segment is NULL in every deferred column and
                 // needs no dictionary.
+                if self.row_to_seg_scratch[row_idx].is_none() {
+                    debug_assert!(
+                        self.sort_arrays_scratch
+                            .iter()
+                            .any(|arr| arr.is_null(row_idx)),
+                        "pass-through row without resolved segment must have at least one NULL sort column"
+                    );
+                }
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
@@ -1142,6 +1151,7 @@ impl SegmentedTopKState {
                 deferred_col.sort_col_idx
             ))
         })?;
+
 
         let mut global_term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
         let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();

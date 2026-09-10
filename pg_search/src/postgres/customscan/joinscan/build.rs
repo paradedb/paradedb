@@ -364,6 +364,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::scan::info::{FieldInfo, RowEstimate};
 
+use super::window_func::WindowAgg;
+
 /// Source information collected during planning.
 ///
 /// This represents a relation before all required JoinScan invariants are verified.
@@ -1886,6 +1888,8 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
+    /// List of window aggregates taken by the scan
+    pub window_aggs: Vec<WindowAgg>,
 }
 
 impl JoinCSClause {
@@ -1896,6 +1900,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
+            window_aggs: Vec::new(),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1935,6 +1940,11 @@ impl JoinCSClause {
             input: current_plan,
             predicate: expr,
         }));
+        self
+    }
+
+    pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
+        self.window_aggs = window_aggs;
         self
     }
 

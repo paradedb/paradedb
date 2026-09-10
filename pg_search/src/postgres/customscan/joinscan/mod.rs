@@ -661,7 +661,7 @@ impl JoinScan {
                 let window_agg = match extract_window_agg(wf, parse) {
                     Ok(wa) => wa,
                     Err(e) => {
-                        return Err(JoinDeclineReason::new(&format!("JoinScan not used: {e}")));
+                        return Err(JoinDeclineReason::new(format!("JoinScan not used: {e}")));
                     }
                 };
                 window_aggs.push(window_agg);
@@ -710,7 +710,8 @@ impl JoinScan {
 
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
-            .with_distinct(has_distinct);
+            .with_distinct(has_distinct)
+            .with_window_aggs(window_aggs);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist =

@@ -1,3 +1,8 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.25.8'" to load this file. \quit
+
+-- ============================================================================
+-- Fragment: 6269.make_pdb_agg_parallel_safe.sql
+-- ============================================================================
 -- Make pdb.agg parallel safe so that queries using pdb.agg can be
 -- parallelized with MPP (DistributedExec).
 
@@ -24,14 +29,3 @@ CREATE OR REPLACE AGGREGATE pdb.agg (
 	PARALLEL = SAFE
 );
 
--- Overload 3: pdb.agg(jsonb, text)
-CREATE OR REPLACE AGGREGATE pdb.agg (
-	jsonb,
-	text
-)
-(
-	SFUNC = pdb."agg_placeholder_visibility_agg_placeholder_visibility_state",
-	STYPE = internal,
-	FINALFUNC = pdb."agg_placeholder_visibility_agg_placeholder_visibility_finalize",
-	PARALLEL = SAFE
-);

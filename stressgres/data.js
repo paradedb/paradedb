@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789056534686,
+  "lastUpdate": 1789056543469,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -347202,6 +347202,96 @@ window.BENCHMARK_DATA = {
             "value": 44.94140625,
             "unit": "median mem",
             "extra": "avg mem: 45.522192282295244, max mem: 52.546875, count: 58778"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789056538993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 63.890625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 60.283765058447194, max partition_index_size:MB: 80.7265625, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.321319498111485, max cpu: 33.23442, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.59606061024995, max mem: 52.62109375, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.972154902496726, max cpu: 38.457687, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 55.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.03412609960695, max mem: 68.20703125, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.472126,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.12141325332066, max cpu: 28.628231, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.502561850232254, max mem: 65.79296875, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.91333820974022, max cpu: 38.457687, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 51.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.697319827699886, max mem: 60.9453125, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.223591928029247, max cpu: 33.650475, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.59137471871757, max mem: 51.08203125, count: 58771"
           }
         ]
       }

@@ -32,7 +32,11 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
-use pgrx::{PgMemoryContexts, pg_extern, pg_func_extra, pg_getarg_datum, pg_sys};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, function_name, pg_extern, pg_func_extra,
+    pg_getarg_datum, pg_sys,
+};
 
 struct QueryCacheEntry {
     matches: KeySet,
@@ -52,6 +56,19 @@ pub fn search_with_query_input(
     query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
+    if unsafe {
+        pgrx::is_a(
+            (*(*fcinfo).flinfo).fn_expr,
+            pg_sys::NodeTag::T_ScalarArrayOpExpr,
+        )
+    } {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+    }
     search_with_query_input_impl(fcinfo, None)
 }
 

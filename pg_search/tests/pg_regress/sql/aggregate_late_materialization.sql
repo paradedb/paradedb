@@ -99,6 +99,8 @@ USING bm25 (id, post_id)
 WITH (key_field='id', numeric_fields='{"post_id": {"fast": true}}');
 
 SET max_parallel_workers_per_gather TO 0;
+-- Pinned so the shape under test does not depend on what the placement rule picks.
+SET paradedb.defer_string_decode TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
@@ -108,4 +110,5 @@ SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size"
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
 WHERE p.title @@@ 'post';
 
+RESET paradedb.defer_string_decode;
 DROP TABLE alm_posts, alm_views;

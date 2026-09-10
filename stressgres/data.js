@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043907671,
+  "lastUpdate": 1789043918490,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -329484,6 +329484,90 @@ window.BENCHMARK_DATA = {
             "value": 576.3317744810921,
             "unit": "median tps",
             "extra": "avg tps: 582.6942392045919, max tps: 625.615947337242, count: 55413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043897215,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 194.58572600661344,
+            "unit": "median tps",
+            "extra": "avg tps: 198.5654516249481, max tps: 231.90339981300554, count: 55165"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 197.8646010650224,
+            "unit": "median tps",
+            "extra": "avg tps: 201.7109920330423, max tps: 229.06562364199695, count: 55165"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 174.41632021348144,
+            "unit": "median tps",
+            "extra": "avg tps: 176.95581370303952, max tps: 195.65425380282846, count: 55165"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 452.20542999860857,
+            "unit": "median tps",
+            "extra": "avg tps: 473.79392922706717, max tps: 699.6601229467462, count: 55165"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 331.77476770188747,
+            "unit": "median tps",
+            "extra": "avg tps: 342.71770885384905, max tps: 431.14869586525714, count: 55165"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.94615917442666,
+            "unit": "median tps",
+            "extra": "avg tps: 14.947479249275366, max tps: 16.484151546021558, count: 55165"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 657.1850161116881,
+            "unit": "median tps",
+            "extra": "avg tps: 669.2129623086926, max tps: 829.1375263851907, count: 55165"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 657.8349650397636,
+            "unit": "median tps",
+            "extra": "avg tps: 671.0536916264047, max tps: 904.7433593485897, count: 55165"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 259.52117173277855,
+            "unit": "median tps",
+            "extra": "avg tps: 266.0734206423598, max tps: 330.6533803378422, count: 55165"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 572.8345242853409,
+            "unit": "median tps",
+            "extra": "avg tps: 583.0034535495062, max tps: 754.7757397113594, count: 55165"
           }
         ]
       }

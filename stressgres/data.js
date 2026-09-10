@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789033528261,
+  "lastUpdate": 1789033539937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -340942,6 +340942,60 @@ window.BENCHMARK_DATA = {
             "value": 37.27422096762029,
             "unit": "median tps",
             "extra": "avg tps: 58.238861005902855, max tps: 539.802740655629, count: 58767"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789033535397,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.316033581570906,
+            "unit": "median tps",
+            "extra": "avg tps: 54.85521038066458, max tps: 538.2323620242311, count: 58789"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.526303654566146,
+            "unit": "median tps",
+            "extra": "avg tps: 29.487537121334988, max tps: 353.66882170208345, count: 58789"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 84.21448508668358,
+            "unit": "median tps",
+            "extra": "avg tps: 144.93516155886897, max tps: 1170.1020563013506, count: 58789"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.40767451114286,
+            "unit": "median tps",
+            "extra": "avg tps: 29.772353991281495, max tps: 273.6771831707837, count: 58789"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.33209028354747,
+            "unit": "median tps",
+            "extra": "avg tps: 58.328143143891104, max tps: 542.960289640726, count: 58789"
           }
         ]
       }

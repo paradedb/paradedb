@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789056514122,
+  "lastUpdate": 1789056522902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -353446,6 +353446,108 @@ window.BENCHMARK_DATA = {
             "value": 46.99609375,
             "unit": "median mem",
             "extra": "avg mem: 45.52030301535273, max mem: 56.5625, count: 59224"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789056518689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.40398410520727, max cpu: 4.7105007, count: 59221"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.22500860125631, max mem: 17.25390625, count: 59221"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.592619143525, max cpu: 4.7784967, count: 59221"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.16570979888891, max mem: 17.171875, count: 59221"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.352168,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.517409278523138, max cpu: 32.637203, count: 59221"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.573649180611607, max mem: 17.7421875, count: 59221"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.91619526857, max document_count: 10002.0, count: 59221"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919707536177, max document_count: 10002.0, count: 59221"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.60369423806424, max cpu: 33.566433, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.768189216557474, max mem: 56.73046875, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.541769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.47499247402986, max cpu: 32.98969, count: 59221"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.7306215146443, max mem: 56.90625, count: 59221"
           }
         ]
       }

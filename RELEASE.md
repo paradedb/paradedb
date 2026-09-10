@@ -6,6 +6,7 @@ ParadeDB uses a **fragment-based workflow** for release artifacts:
 
 - PRs that introduce user-facing changes add a changelog fragment to `docs/changelog/unreleased/<PR>.<category>.mdx`.
 - PRs that modify extension DDL/schema add a SQL migration fragment to `pg_search/sql/unreleased/<PR>.<description>.sql`.
+- Fragments can declare dependencies using `-- depends-on: <PR>` in their SQL comments. When assembling migrations, fragments are topologically sorted based on these dependencies.
 
 At release time, the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) automatically assembles these fragments into the versioned SQL upgrade script and changelog page.
 
@@ -82,6 +83,7 @@ To publish a patch release from a stable branch:
    - Open a manual approval issue for `@pg_search-maintainers` displaying the release details and rendered changelog.
    - Upon approval (by commenting `approved` on the issue), commit, tag `v<version>`, and publish the GitHub release.
    - **Sync to `main`:** Check out `main`, copy the assembled SQL script and changelog page, update `docs/docs.json`, delete the consumed fragments from `main`, and push the sync commit to `main`.
+     > **Important:** Because the sync step deletes fragments from `main` by filename matching those consumed on the stable branch, migration fragments on stable branches must be byte-for-byte identical to their counterpart on `main`. Never strip unreleased statements from a fragment when backporting; instead, split the unreleased statements into a separate fragment on `main` with `-- depends-on: <PR>`. CI enforces this via `./scripts/release.sh lint-fragments`.
 
 ## Enterprise Release
 

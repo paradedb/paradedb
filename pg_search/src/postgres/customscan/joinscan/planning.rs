@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2026 ParadeDB, Inc.
+// Copyrs_faight (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -2014,18 +2014,8 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
         return false;
     }
     for var_ptr in vars.iter_ptr() {
-        let vno = (*var_ptr).varno as pg_sys::Index;
-        let vattno = (*var_ptr).varattno;
-        let found = sources.iter().any(|s| {
-            if !s.contains_rti(vno) {
-                return false;
-            }
-            let hr = PgSearchRelation::open(s.scan_info.heaprelid);
-            let ir = PgSearchRelation::open(s.scan_info.indexrelid);
-            let td = hr.tuple_desc();
-            resolve_fast_field(vattno as i32, &td, &ir).is_some()
-        });
-        if !found {
+        let var = &*var_ptr;
+        if !is_fast_field(sources, var) {
             return false;
         }
     }
@@ -2136,6 +2126,18 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
     })
 }
 
+pub fn is_fast_field(sources: &[&JoinSource], var: &pg_sys::Var) -> bool {
+    sources.iter().any(|source| {
+        if !source.contains_rti(var.varno as pg_sys::Index) {
+            return false;
+        }
+        let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+        let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+        let td = hr.tuple_desc();
+        unsafe { resolve_fast_field(var.varattno as i32, &td, &ir).is_some() }
+    })
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
@@ -2163,26 +2165,18 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 1: Plain column reference (Var node)
     if let Some(var) = nodecast!(Var, T_Var, expr) {
-        let varno = (*var).varno as pg_sys::Index;
-        let is_fast = sources.iter().any(|source| {
-            if !source.contains_rti(varno) {
-                return false;
-            }
-            let hr = PgSearchRelation::open(source.scan_info.heaprelid);
-            let ir = PgSearchRelation::open(source.scan_info.indexrelid);
-            let td = hr.tuple_desc();
-            resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
-        })
-            || crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                root, varno,
-            )
-            .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
+        let var = unsafe { &*var };
+        let varno = var.varno as pg_sys::Index;
+        let is_fast = is_fast_field(sources, var) || {
+            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, varno)
+                .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)))
+        };
         if !is_fast {
             return None;
         }
         return Some(ResolvedExpr::Column {
             rti: varno,
-            attno: (*var).varattno,
+            attno: var.varattno,
         });
     }
 

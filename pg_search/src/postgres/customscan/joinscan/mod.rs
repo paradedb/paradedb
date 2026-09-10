@@ -387,11 +387,6 @@ unsafe fn is_limit_pushdown_safe(
 ) -> Result<(), JoinDeclineReason> {
     // 1. Nothing above the join may need more rows than the LIMIT keeps.
     let parse = (*root).parse;
-    if (*parse).hasWindowFuncs {
-        return Err(JoinDeclineReason::new(
-            "JoinScan not used: LIMIT pushdown is unsafe due to window functions",
-        ));
-    }
     if (*parse).hasTargetSRFs {
         return Err(JoinDeclineReason::new(
             "JoinScan not used: LIMIT pushdown is unsafe due to set-returning functions in the target list",
@@ -658,7 +653,12 @@ impl JoinScan {
                     ));
                 }
             } else if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, check_expr) {
-                let window_agg = match extract_window_agg(wf, parse) {
+                let window_agg = match extract_window_agg(
+                    wf,
+                    &all_sources,
+                    parse,
+                    (*te).resno as pg_sys::AttrNumber,
+                ) {
                     Ok(wa) => wa,
                     Err(e) => {
                         return Err(JoinDeclineReason::new(format!("JoinScan not used: {e}")));
@@ -2189,8 +2189,6 @@ impl JoinScan {
         {
             return Err(JoinPathDecline::Quiet);
         }
-        let parse = (*root).parse;
-        let input_rel = &*input_rel;
 
         let join_rel = planning::find_final_rel(root);
         let lower_rel = if !join_rel.is_null() {
@@ -2223,10 +2221,6 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
-        let aliases: Vec<String> = sources
-            .iter()
-            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.relid))
-            .collect();
         // Silent gates: check for lateral unnest or at least 2 sources.
         let has_lateral_unnest = sources.len() == 1
             && (1..(*root).simple_rel_array_size).any(|rti| {
@@ -2511,50 +2505,6 @@ impl JoinScan {
                             }
                             Err(e) => {
                                 panic!("BUG: JoinScan projection failed: {}", e);
-                            }
-                        }
-                    }
-                }
-                privdat::OutputColumnInfo::Expression => {
-                    let expr_col_idx = state
-                        .custom_state()
-                        .output_batch_col_indices
-                        .get(i)
-                        .copied()
-                        .flatten();
-                    let Some(col_idx) = expr_col_idx else {
-                        *nulls.add(i) = true;
-                        continue;
-                    };
-                    let expr_col = batch.column(col_idx);
-                    let expected_type = {
-                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                        {
-                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
-                        }
-                        #[cfg(feature = "pg18")]
-                        {
-                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
-                        }
-                    };
-                    if expr_col.is_null(row_idx) {
-                        *nulls.add(i) = true;
-                    } else {
-                        match crate::postgres::types_arrow::arrow_array_to_datum(
-                            expr_col.as_ref(),
-                            row_idx,
-                            pgrx::PgOid::from(expected_type),
-                            None,
-                        ) {
-                            Ok(Some(datum)) => {
-                                *datums.add(i) = datum;
-                                *nulls.add(i) = false;
-                            }
-                            Ok(None) => {
-                                *nulls.add(i) = true;
-                            }
-                            Err(e) => {
-                                panic!("BUG: JoinScan expression projection failed: {}", e);
                             }
                         }
                     }

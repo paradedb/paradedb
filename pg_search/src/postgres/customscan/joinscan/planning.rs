@@ -1705,7 +1705,7 @@ unsafe fn ensure_ctid(source: &mut JoinSource) {
 unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
     if try_ensure_field(side, attno).is_none() {
         pgrx::warning!(
-            "JoinScan: could not resolve fast field for attno {} on relation {}",
+            "JoinScan: could not resolve columnar field for attno {} on relation {}",
             attno,
             side.scan_info.heaprelid
         );
@@ -1769,7 +1769,7 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
         .search_field(field_name)
         .ok_or_else(|| format!("Field '{field_name}' is not part of the schema"))?;
     if !search_field.is_fast() {
-        return Err(format!("Field '{field_name}' is not a fast field"));
+        return Err(format!("Field '{field_name}' is not columnar"));
     }
     let categorized = schema.categorized_fields();
     let (_, data) = categorized
@@ -1980,7 +1980,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         return Err(candidate_decline.unwrap_or_else(|| {
             JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+                "JoinScan not used: ORDER BY columns must be columnar and have a byte-ordered (C-like) collation",
             )
         }));
     }
@@ -2323,7 +2323,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
                         let col = column_name_for_var(sources, varno, varattno);
                         pgrx::debug1!(
                             "JoinScan declined: DISTINCT expression depends on '{}' \
-                             which is not a fast field (rti={}, attno={}, heaprelid={}) \
+                             which is not columnar (rti={}, attno={}, heaprelid={}) \
                              (tables: {})",
                             col,
                             varno,

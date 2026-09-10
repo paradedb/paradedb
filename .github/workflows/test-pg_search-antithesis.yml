@@ -110,6 +110,7 @@ jobs:
     name: Build Antithesis pg_search .deb
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m7a+m7i
       - cpu=16
       - ram=64
@@ -126,15 +127,15 @@ jobs:
       COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
+      - name: Install Dependencies
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: sudo git ca-certificates curl gnupg lsb-release binutils
+
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/apt-install
-        with:
-          packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2
@@ -223,6 +224,7 @@ jobs:
       - name: Upload pg_search .deb
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
           path: pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}.deb
           retention-days: 1
@@ -242,6 +244,7 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m7a+m7i
       - cpu=16
       - ram=64

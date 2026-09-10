@@ -16,7 +16,8 @@ CREATE FUNCTION "search_with_query_input_ctid_or_row_strict"(
     "element" anyelement,
     "query" SearchQueryInput,
     "ctid" tid,
-    "fallback_row" record[]
+    "fallback_row" record[],
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
 LANGUAGE c
@@ -26,7 +27,8 @@ CREATE FUNCTION "search_with_query_input_ctid_or_row"(
     "element" anyelement,
     "query" SearchQueryInput,
     "ctid" tid,
-    "fallback_row" record[]
+    "fallback_row" record[],
+    "original_lhs" record DEFAULT ROW()
 ) RETURNS bool
 IMMUTABLE PARALLEL SAFE COST 1000000000
 LANGUAGE c

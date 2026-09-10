@@ -1426,6 +1426,7 @@ unsafe fn try_pushdown(
 }
 
 unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
+    let node = crate::postgres::utils::strip_tokenizer_cast(node);
     match (*node).type_ {
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();

@@ -24,7 +24,7 @@ mod keyset;
 pub(crate) use inline::MaybeInlineRow;
 pub(crate) use keyset::KeySet;
 
-use self::args::{FakeAnyElement, FakeCtid, FakeRow, FakeSearchQueryInput};
+use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeRow, FakeSearchQueryInput};
 use self::inline::RowMatcher;
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
@@ -35,9 +35,10 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    Array, FromDatum, PgMemoryContexts, pg_extern, pg_func_extra, pg_getarg_datum,
-    pg_getarg_datum_raw, pg_sys,
+    Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, default, function_name,
+    pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
 };
 
 struct QueryCacheEntry {
@@ -59,6 +60,19 @@ pub fn search_with_query_input(
     query: FakeSearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
+    if unsafe {
+        pgrx::is_a(
+            (*(*fcinfo).flinfo).fn_expr,
+            pg_sys::NodeTag::T_ScalarArrayOpExpr,
+        )
+    } {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose",
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+    }
     search_with_query_input_impl(fcinfo, None)
 }
 
@@ -68,6 +82,7 @@ pub fn search_with_query_input_ctid(
     element: Option<FakeAnyElement>,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
@@ -79,6 +94,7 @@ pub fn search_with_query_input_ctid_strict(
     element: FakeAnyElement,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
@@ -90,9 +106,17 @@ pub fn search_with_query_input_ctid_or_row_strict(
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
     fallback_row: FakeRow,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
-    search_with_query_input_ctid_or_row(Some(element), query, ctid, Some(fallback_row), fcinfo)
+    search_with_query_input_ctid_or_row(
+        Some(element),
+        query,
+        ctid,
+        Some(fallback_row),
+        original_lhs,
+        fcinfo,
+    )
 }
 
 #[allow(unused_variables)]
@@ -102,6 +126,7 @@ pub fn search_with_query_input_ctid_or_row(
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
     fallback_row: Option<FakeRow>,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     let ctid = unsafe { Ctid::from_fcinfo(fcinfo, 2) }?;

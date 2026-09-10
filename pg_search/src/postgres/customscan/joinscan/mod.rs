@@ -624,14 +624,20 @@ impl JoinScan {
 
         // Verify that every target list entry can be evaluated and projected by JoinScan.
         // At UPPERREL_FINAL, no upper projection node exists to compute unhandled expressions.
-        let parse = (*root).parse;
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        let parse = &*(*root).parse;
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
         let mut window_aggs = Vec::new();
         for te in target_list.iter_ptr() {
-            if (*te).resjunk {
+            let te = &*te;
+            if te.resjunk {
+                if pg_sys::contain_window_function(te.expr.cast()) {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: non-SELECTed window functions are not supported",
+                    ));
+                }
                 continue;
             }
-            let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+            let check_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
             if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
                 let var = check_expr as *mut pg_sys::Var;
                 let rti = (*var).varno as pg_sys::Index;
@@ -657,7 +663,7 @@ impl JoinScan {
                     wf,
                     &all_sources,
                     parse,
-                    (*te).resno as pg_sys::AttrNumber,
+                    te.resno as pg_sys::AttrNumber,
                 ) {
                     Ok(wa) => wa,
                     Err(e) => {

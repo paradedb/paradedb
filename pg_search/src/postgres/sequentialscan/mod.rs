@@ -22,7 +22,7 @@ mod keyset;
 
 pub(crate) use keyset::KeySet;
 
-use self::args::{FakeAnyElement, FakeCtid, FakeSearchQueryInput};
+use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeSearchQueryInput};
 use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -34,7 +34,7 @@ use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, function_name, pg_extern, pg_func_extra,
+    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, default, function_name, pg_extern, pg_func_extra,
     pg_getarg_datum, pg_sys,
 };
 
@@ -78,6 +78,7 @@ pub fn search_with_query_input_ctid(
     element: Option<FakeAnyElement>,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))
@@ -89,6 +90,7 @@ pub fn search_with_query_input_ctid_strict(
     element: FakeAnyElement,
     query: FakeSearchQueryInput,
     ctid: FakeCtid,
+    original_lhs: default!(FakeRecord, "ROW()"),
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     search_with_query_input_impl(fcinfo, Some(unsafe { Ctid::from_fcinfo(fcinfo, 2) }?))

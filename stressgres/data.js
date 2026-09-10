@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789055430811,
+  "lastUpdate": 1789055439940,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -196644,6 +196644,126 @@ window.BENCHMARK_DATA = {
             "value": 28.25390625,
             "unit": "median mem",
             "extra": "avg mem: 28.247673783238067, max mem: 28.89453125, count: 59307"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789055436046,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.049241154520445, max cpu: 37.481697, count: 59297"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.38901466083866, max mem: 42.41796875, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.583723871182722, max cpu: 42.687748, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.338007785490834, max mem: 20.33984375, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.928509747291483, max cpu: 18.897638, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.01412651831037, max mem: 43.05859375, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18799,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18923.073123429516, max block_count: 36217.0, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.966823313556163, max cpu: 4.6943765, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.210132363357335, max mem: 21.2578125, count: 59297"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 28,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.63677757728047, max segment_count: 39.0, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.300126240041928, max cpu: 23.856857, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.490548834152655, max mem: 41.51171875, count: 59297"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.153932035035012, max cpu: 37.944664, count: 118594"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.42162783319561, max mem: 45.36328125, count: 118594"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.65201870438451, max cpu: 19.113987, count: 59297"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.270302723999528, max mem: 28.9921875, count: 59297"
           }
         ]
       }

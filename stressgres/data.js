@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789045041542,
+  "lastUpdate": 1789045050555,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -347918,6 +347918,60 @@ window.BENCHMARK_DATA = {
             "value": 23.33016235382305,
             "unit": "median tps",
             "extra": "avg tps: 40.00616376522423, max tps: 574.8505902687119, count: 59254"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789045046072,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3860.0292731919,
+            "unit": "median tps",
+            "extra": "avg tps: 3846.479716718011, max tps: 4556.134211244444, count: 59224"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4562.408151498652,
+            "unit": "median tps",
+            "extra": "avg tps: 4595.22472923486, max tps: 7339.199963597569, count: 59224"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.54966764426975,
+            "unit": "median tps",
+            "extra": "avg tps: 188.29843372663316, max tps: 3275.6799110412685, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.34381540804615,
+            "unit": "median tps",
+            "extra": "avg tps: 39.80641719826404, max tps: 578.3168862539044, count: 59224"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.323202420255228,
+            "unit": "median tps",
+            "extra": "avg tps: 39.847931390451066, max tps: 576.2432116660344, count: 59224"
           }
         ]
       }

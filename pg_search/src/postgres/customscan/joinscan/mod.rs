@@ -143,6 +143,7 @@ pub mod privdat;
 pub mod range_partitioning_rule;
 pub mod scan_state;
 pub mod visibility_filter;
+pub mod window_func;
 
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
@@ -152,6 +153,7 @@ use self::planning::{
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
+use self::window_func::extract_window_agg;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -183,7 +185,6 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
@@ -192,6 +193,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
@@ -629,6 +631,7 @@ impl JoinScan {
         // At UPPERREL_FINAL, no upper projection node exists to compute unhandled expressions.
         let parse = (*root).parse;
         let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        let mut window_aggs = Vec::new();
         for te in target_list.iter_ptr() {
             if (*te).resjunk {
                 continue;
@@ -654,6 +657,14 @@ impl JoinScan {
                         "JoinScan not used: score function references a relation outside the join",
                     ));
                 }
+            } else if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, check_expr) {
+                let window_agg = match extract_window_agg(wf, parse) {
+                    Ok(wa) => wa,
+                    Err(e) => {
+                        return Err(JoinDeclineReason::new(&format!("JoinScan not used: {e}")));
+                    }
+                };
+                window_aggs.push(window_agg);
             } else if planning::resolve_target_entry_expr(check_expr, &all_sources, root).is_none()
             {
                 return Err(JoinDeclineReason::new(

@@ -274,3 +274,64 @@ DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;
 \pset null ''
+
+-- An expression in the first index slot must remain an expression, not a whole-row Var.
+CREATE TABLE sequential_scan_expr_first (id bigint, body text, note text);
+INSERT INTO sequential_scan_expr_first VALUES
+    (1, 'Alpha', 'needle'), (2, 'Beta', 'other'), (3, NULL, 'needle');
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first
+USING paradedb ((lower(body)::pdb.literal('alias=body_lower')));
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+SELECT id, lower(body) === 'alpha' AS matches FROM sequential_scan_expr_first ORDER BY id;
+
+-- Preserve the query's relation number and outer-join nulling.
+SELECT p.id, e.id, lower(e.body) === 'alpha' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+SELECT p.term, (SELECT count(*) FROM sequential_scan_expr_first e WHERE lower(e.body) === p.term) AS matches
+FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+
+-- A NULL first expression must not suppress a match on another indexed expression.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    (lower(body)::pdb.literal('alias=body_lower')),
+    (lower(note)::pdb.literal('alias=note_lower'))
+);
+SET enable_indexscan = on;
+SET enable_bitmapscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+SET enable_indexscan = off;
+SET enable_seqscan = on;
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+
+-- Rebind every column in a multi-column expression to the searched table.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    ((lower(body) || ':' || note)::pdb.literal('alias=body_note'))
+);
+SELECT p.id, (lower(e.body) || ':' || e.note) === 'alpha:needle' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+
+DROP TABLE sequential_scan_expr_first;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;

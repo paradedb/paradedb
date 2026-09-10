@@ -605,3 +605,153 @@ DROP TABLE sequential_scan_nulls;
 RESET paradedb.enable_custom_scan;
 RESET enable_bitmapscan;
 \pset null ''
+-- An expression in the first index slot must remain an expression, not a whole-row Var.
+CREATE TABLE sequential_scan_expr_first (id bigint, body text, note text);
+INSERT INTO sequential_scan_expr_first VALUES
+    (1, 'Alpha', 'needle'), (2, 'Beta', 'other'), (3, NULL, 'needle');
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first
+USING paradedb ((lower(body)::pdb.literal('alias=body_lower')));
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET enable_seqscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                   explain_seqscan                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on sequential_scan_expr_first
+   Filter: paradedb.search_with_query_input_ctid((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid)
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+(1 row)
+
+SELECT id, lower(body) === 'alpha' AS matches FROM sequential_scan_expr_first ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | matches 
+----+---------
+  1 | t
+  2 | f
+  3 | 
+(3 rows)
+
+-- Preserve the query's relation number and outer-join nulling.
+SELECT p.id, e.id, lower(e.body) === 'alpha' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | id | matches 
+----+----+---------
+  1 |  1 | t
+  2 |  2 | f
+  3 |  3 | 
+  4 |    | 
+(4 rows)
+
+SELECT p.term, (SELECT count(*) FROM sequential_scan_expr_first e WHERE lower(e.body) === p.term) AS matches
+FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
+  term   | matches 
+---------+---------
+ alpha   |       1
+ beta    |       1
+ missing |       0
+(3 rows)
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                 explain_seqscan                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
+   Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+ id 
+----
+  1
+(1 row)
+
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+                                                                                                   explain_seqscan                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on sequential_scan_expr_first
+   Filter: paradedb.search_with_query_input_ctid((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid)
+   ->  Bitmap Index Scan on sequential_scan_expr_first_idx
+         Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
+(4 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+(1 row)
+
+-- A NULL first expression must not suppress a match on another indexed expression.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    (lower(body)::pdb.literal('alias=body_lower')),
+    (lower(note)::pdb.literal('alias=note_lower'))
+);
+SET enable_indexscan = on;
+SET enable_bitmapscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+                                                                                  explain_seqscan                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using sequential_scan_expr_first_idx on sequential_scan_expr_first
+   Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"note_lower","value":"needle"}}}}'::paradedb.searchqueryinput)
+(2 rows)
+
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+ id 
+----
+  1
+  3
+(2 rows)
+
+SET enable_indexscan = off;
+SET enable_seqscan = on;
+SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id 
+----
+  1
+  3
+(2 rows)
+
+-- Rebind every column in a multi-column expression to the searched table.
+DROP INDEX sequential_scan_expr_first_idx;
+CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING paradedb (
+    ((lower(body) || ':' || note)::pdb.literal('alias=body_note'))
+);
+SELECT p.id, (lower(e.body) || ':' || e.note) === 'alpha:needle' AS matches
+FROM (VALUES (1), (2), (3), (4)) p(id)
+LEFT JOIN sequential_scan_expr_first e ON e.id = p.id ORDER BY p.id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | matches 
+----+---------
+  1 | t
+  2 | f
+  3 | 
+  4 | 
+(4 rows)
+
+DROP TABLE sequential_scan_expr_first;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;

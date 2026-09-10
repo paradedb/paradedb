@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+`pdb.agg()` and its underlying placeholder functions are now marked `PARALLEL SAFE`, allowing queries that use `pdb.agg()` to execute in parallel using MPP (`DistributedExec`).

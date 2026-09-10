@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789033549171,
+  "lastUpdate": 1789033560336,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -317462,6 +317462,126 @@ window.BENCHMARK_DATA = {
             "value": 11.480715048173463,
             "unit": "median tps",
             "extra": "avg tps: 21.084671542393696, max tps: 759.6509859510146, count: 57404"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789033547669,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 181.20517371367066,
+            "unit": "median tps",
+            "extra": "avg tps: 184.07629965068105, max tps: 224.91075541225243, count: 57448"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 339.41641597215266,
+            "unit": "median tps",
+            "extra": "avg tps: 350.1505206095446, max tps: 533.439374615075, count: 57448"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4002.280344157517,
+            "unit": "median tps",
+            "extra": "avg tps: 3997.779699095079, max tps: 4163.281029554859, count: 57448"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 187.54681849594382,
+            "unit": "median tps",
+            "extra": "avg tps: 190.79400842285605, max tps: 235.47414851685892, count: 57448"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3430.0002812431767,
+            "unit": "median tps",
+            "extra": "avg tps: 3419.1858361853488, max tps: 3521.5847835843088, count: 57448"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3406.5769036549864,
+            "unit": "median tps",
+            "extra": "avg tps: 3402.082169693387, max tps: 3449.287128277151, count: 57448"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 159.02826027939426,
+            "unit": "median tps",
+            "extra": "avg tps: 160.69155808836848, max tps: 185.1916631657055, count: 57448"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 284.65515363499753,
+            "unit": "median tps",
+            "extra": "avg tps: 290.67182650602, max tps: 379.84702916327075, count: 57448"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 531.3975305554467,
+            "unit": "median tps",
+            "extra": "avg tps: 533.7760605395389, max tps: 608.5838844205308, count: 57448"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 607.0816805293136,
+            "unit": "median tps",
+            "extra": "avg tps: 612.7233470963495, max tps: 702.9205014433423, count: 57448"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1269.160062265289,
+            "unit": "median tps",
+            "extra": "avg tps: 1269.9363737857313, max tps: 1289.5827156525213, count: 57448"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 353.31148037532597,
+            "unit": "median tps",
+            "extra": "avg tps: 370.04155910975476, max tps: 623.6001799917987, count: 57448"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 558.5570990099459,
+            "unit": "median tps",
+            "extra": "avg tps: 563.1057515247873, max tps: 642.8400219302475, count: 57448"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2320.705076991374,
+            "unit": "median tps",
+            "extra": "avg tps: 2320.3040020047515, max tps: 2367.2761224102096, count: 57448"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1771.9570903208357,
+            "unit": "median tps",
+            "extra": "avg tps: 1788.8396214881298, max tps: 2014.2842078313308, count: 57448"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 7.760393229645522,
+            "unit": "median tps",
+            "extra": "avg tps: 23.711343955098375, max tps: 168.60321509470864, count: 57448"
           }
         ]
       }

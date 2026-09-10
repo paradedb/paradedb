@@ -95,8 +95,9 @@ runs:
         cargo pgrx start pg${{ inputs.pg_version }}
 
     - name: Install pgBackRest
-      shell: bash
-      run: sudo apt-get update && sudo apt-get install -y pgbackrest
+      uses: ./.github/actions/apt-install
+      with:
+        packages: pgbackrest
 
     # VectorChord (vchordrq) binary for the "cohere / vchord" index variant. Installs the extension
     # only; it depends on pgvector's `vector` type (installed above). CREATE EXTENSION happens at

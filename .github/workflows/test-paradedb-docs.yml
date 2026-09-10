@@ -69,8 +69,9 @@ jobs:
           save-if: false
 
       - name: Install System Dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y libsecret-1-dev libopenblas-dev lld
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libsecret-1-dev libopenblas-dev lld
 
       - name: Install .NET
         uses: actions/setup-dotnet@v6

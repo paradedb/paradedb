@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789033624018,
+  "lastUpdate": 1789043899356,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -303612,6 +303612,54 @@ window.BENCHMARK_DATA = {
             "value": 24.028009181535243,
             "unit": "median tps",
             "extra": "avg tps: 38.78967075218245, max tps: 435.84550322939725, count: 59278"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043894867,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 23.455714050197567,
+            "unit": "median tps",
+            "extra": "avg tps: 34.55397033608562, max tps: 195.43620404205836, count: 59247"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 23.987081418790222,
+            "unit": "median tps",
+            "extra": "avg tps: 38.904893226268136, max tps: 435.415326510884, count: 59247"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 27.142945581504588,
+            "unit": "median tps",
+            "extra": "avg tps: 45.76574326566154, max tps: 575.2723845255581, count: 59247"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 23.948238445219328,
+            "unit": "median tps",
+            "extra": "avg tps: 38.82238033742869, max tps: 436.2497141400223, count: 59247"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789032420294,
+  "lastUpdate": 1789032429985,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -328602,6 +328602,90 @@ window.BENCHMARK_DATA = {
             "value": 550.8200771167077,
             "unit": "median tps",
             "extra": "avg tps: 560.7153182422605, max tps: 645.7148641316178, count: 55357"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789032390065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 195.94119622772465,
+            "unit": "median tps",
+            "extra": "avg tps: 200.00640183314388, max tps: 219.78016579414157, count: 55413"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 198.99180764193264,
+            "unit": "median tps",
+            "extra": "avg tps: 203.07723625951067, max tps: 226.32034810151686, count: 55413"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 169.94148455661488,
+            "unit": "median tps",
+            "extra": "avg tps: 172.4137709699559, max tps: 193.09682324751452, count: 55413"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 460.63946973443024,
+            "unit": "median tps",
+            "extra": "avg tps: 481.80283647271494, max tps: 638.222122731543, count: 55413"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 331.276784991569,
+            "unit": "median tps",
+            "extra": "avg tps: 341.43502259344126, max tps: 412.15697399700974, count: 55413"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.833511775190518,
+            "unit": "median tps",
+            "extra": "avg tps: 14.85079437037637, max tps: 16.334014172661778, count: 55413"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 650.2219542089292,
+            "unit": "median tps",
+            "extra": "avg tps: 658.5254786396134, max tps: 732.1634879761516, count: 55413"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 664.9982510158592,
+            "unit": "median tps",
+            "extra": "avg tps: 674.2244898035159, max tps: 770.0019307527286, count: 55413"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 259.76668227991786,
+            "unit": "median tps",
+            "extra": "avg tps: 266.05720945523524, max tps: 315.2481656932184, count: 55413"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 576.3317744810921,
+            "unit": "median tps",
+            "extra": "avg tps: 582.6942392045919, max tps: 625.615947337242, count: 55413"
           }
         ]
       }

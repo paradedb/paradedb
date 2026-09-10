@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043918490,
+  "lastUpdate": 1789043927033,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -311152,6 +311152,42 @@ window.BENCHMARK_DATA = {
             "value": 10.34254069799599,
             "unit": "median tps",
             "extra": "avg tps: 8.952959432083128, max tps: 12.205877485606475, count: 59425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043915786,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.53816064034307,
+            "unit": "median tps",
+            "extra": "avg tps: 7.001487663801609, max tps: 7.91669326024131, count: 59424"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.311364908303226,
+            "unit": "median tps",
+            "extra": "avg tps: 8.960718671988737, max tps: 12.18061754990786, count: 59424"
           }
         ]
       }

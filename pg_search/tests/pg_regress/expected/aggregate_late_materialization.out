@@ -123,8 +123,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
 WHERE p.title @@@ 'post';
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: alm_posts_idx (p), alm_views_idx (v)
@@ -137,26 +137,22 @@ WHERE p.title @@@ 'post';
      :         AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
      :           AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (author@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :             TantivyDecodeExec: decode=[author]
-     :               VisibilityFilterExec: tables=[p, v]
-     :                 TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :                   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, ctid_0@2, ctid_1@4]
-     :                     CooperativeExec
-     :                       PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :                     CooperativeExec
-     :                       PgSearchScan: table=v, segments=1, dynamic_filters=1, query="all"
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, fetch=[author], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=v, segments=1, dynamic_filters=1, visibility=eager, query="all"
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[author@0 as __pdb_k0, p_0_labels@1 as __pdb_k1], aggr=[count(1) as __pdb_m0]
-     :           VisibilityFilterExec: tables=[p, v]
-     :             TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :               UnnestExec
-     :                 TantivyDecodeExec: decode=[author]
-     :                   ProjectionExec: expr=[author@0 as author, labels@1 as p_0_labels, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :                     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, labels@2, ctid_0@3, ctid_1@5]
-     :                       CooperativeExec
-     :                         PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
-     :                       CooperativeExec
-     :                         PgSearchScan: table=v, segments=1, dynamic_filters=1, query="all"
-(31 rows)
+     :           UnnestExec
+     :             TantivyDecodeExec: decode=[author]
+     :               ProjectionExec: expr=[author@0 as author, labels@1 as p_0_labels]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, labels@2]
+     :                   CooperativeExec
+     :                     PgSearchScan: table=p, segments=1, fetch=[author], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :                   CooperativeExec
+     :                     PgSearchScan: table=v, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(27 rows)
 
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id

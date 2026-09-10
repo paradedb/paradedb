@@ -1040,7 +1040,7 @@ WHERE p.title @@@ 'post';
      :           AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (name@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[name@1]
      :               CooperativeExec
-     :                 PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :                 PgSearchScan: table=a, segments=1, eager=[name], visibility=eager, query="all"
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
@@ -1049,7 +1049,7 @@ WHERE p.title @@@ 'post';
      :             ProjectionExec: expr=[tags@0 as p_0_tags, name@1 as name]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@3, name@1]
      :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=1, visibility=eager, query="all"
+     :                   PgSearchScan: table=a, segments=1, eager=[name], visibility=eager, query="all"
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
 (26 rows)

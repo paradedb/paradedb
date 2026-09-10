@@ -11,9 +11,12 @@
 -- pg_describe_object() renders OID-free, fully-qualified identifiers (e.g.
 -- `function paradedb.verify_index(regclass,boolean,...)`), so the output is
 -- comparable across databases with different OIDs.
-SELECT pg_describe_object(d.classid, d.objid, d.objsubid) AS object
+SELECT
+    pg_describe_object(d.classid, d.objid, d.objsubid)
+    || COALESCE(' [parallel=' || p.proparallel || ']', '') AS object
 FROM pg_depend d
 JOIN pg_extension e ON e.oid = d.refobjid
+LEFT JOIN pg_proc p ON d.classid = 'pg_proc'::regclass AND p.oid = d.objid
 WHERE d.refclassid = 'pg_extension'::regclass
   AND d.deptype = 'e'
   AND e.extname = 'pg_search'

@@ -19,28 +19,17 @@ use crate::api::{is_agg_funcoid, pdb_agg_spec, FieldName, HashSet, MvccVisibilit
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-<<<<<<< HEAD
-=======
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
->>>>>>> f0890a50 (feat: Support JSON paths in aggregates (#6201))
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
-<<<<<<< HEAD
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{fieldname_from_var, find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-=======
-use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
-use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
-use anyhow::{Context, bail};
-use pgrx::PgList;
->>>>>>> f0890a50 (feat: Support JSON paths in aggregates (#6201))
+use anyhow::{bail, Context};
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -750,30 +739,14 @@ trait F64Lossless {
 impl F64Lossless for u64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-<<<<<<< HEAD
-        if f as u64 == self {
-            Some(f)
-        } else {
-            None
-        }
-=======
         (f as u128 == u128::from(self)).then_some(f)
->>>>>>> f0890a50 (feat: Support JSON paths in aggregates (#6201))
     }
 }
 
 impl F64Lossless for i64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-<<<<<<< HEAD
-        if f as i64 == self {
-            Some(f)
-        } else {
-            None
-        }
-=======
         (f as i128 == i128::from(self)).then_some(f)
->>>>>>> f0890a50 (feat: Support JSON paths in aggregates (#6201))
     }
 }
 
@@ -808,13 +781,15 @@ impl ParsedAggregateField {
         let expression = AggregateFieldExpression::from_node(expr)?;
         let field_expr = expression.field_expression();
 
-        let field_name = if let Ok(schema) = bm25_index.schema()
-            && let Some(fast_field) = find_matching_fast_field(
+        let fast_field = bm25_index.schema().ok().and_then(|schema| {
+            find_matching_fast_field(
                 field_expr,
                 &bm25_index.index_expressions(),
                 schema,
                 heap_rti,
-            ) {
+            )
+        });
+        let field_name = if let Some(fast_field) = fast_field {
             FieldName::from(fast_field.name())
         } else {
             expression.field_name(context)?

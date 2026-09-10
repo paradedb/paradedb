@@ -280,18 +280,18 @@ where
             continue;
         }
         // Handle type coercion via single-arg function call (e.g., float4 -> float8)
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr)
-            && matches!(
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
+            if matches!(
                 (*func).funcformat,
                 pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
                     | pg_sys::CoercionForm::COERCE_IMPLICIT_CAST
-            )
-        {
-            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-            if args.len() == 1 {
-                if let Some(arg) = args.get_ptr(0) {
-                    expr = arg.cast();
-                    continue;
+            ) {
+                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                if args.len() == 1 {
+                    if let Some(arg) = args.get_ptr(0) {
+                        expr = arg.cast();
+                        continue;
+                    }
                 }
             }
         }

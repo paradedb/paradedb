@@ -68,26 +68,16 @@
 //! ```
 
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::FieldName;
 use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-<<<<<<< HEAD
-    create_aggregate_from_oid, parse_coalesce_expression, AggregateType,
-};
-use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::var::{fieldname_from_var, VarContext};
-use crate::postgres::PgSearchRelation;
-=======
     AggregateType, ParsedAggregateField,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::var::VarContext;
->>>>>>> f0890a50 (feat: Support JSON paths in aggregates (#6201))
+use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};

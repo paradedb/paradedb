@@ -358,3 +358,53 @@ RESET enable_indexscan;
 RESET enable_indexonlyscan;
 RESET enable_bitmapscan;
 RESET enable_seqscan;
+
+CREATE TABLE sequential_scan_arrays (id int NOT NULL, body text);
+INSERT INTO sequential_scan_arrays VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma'), (4, NULL);
+CREATE INDEX sequential_scan_arrays_idx ON sequential_scan_arrays USING paradedb (id, body);
+
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+
+-- Native ANY/ALL cannot supply row identity to the per-row operator.
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'alpha')),
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.term('body', 'beta'))
+]);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ALL(ARRAY[
+    paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())
+]);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[paradedb.empty()]);
+
+-- PostgreSQL handles these without invoking the operator.
+SELECT id,
+    id @@@ ANY('{}'::paradedb.searchqueryinput[]) AS any_empty,
+    id @@@ ALL('{}'::paradedb.searchqueryinput[]) AS all_empty,
+    id @@@ ANY(NULL::paradedb.searchqueryinput[]) AS null_array,
+    id @@@ ANY(ARRAY[NULL::paradedb.searchqueryinput]) AS null_element
+FROM sequential_scan_arrays WHERE id = 1;
+
+SELECT id FROM sequential_scan_arrays
+WHERE body === 'alpha' OR body === 'beta' ORDER BY id;
+SELECT id FROM sequential_scan_arrays WHERE body === ARRAY['alpha', 'beta'] ORDER BY id;
+SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
+    paradedb.search_with_query_input(1,
+        paradedb.with_index('sequential_scan_arrays_idx', paradedb.all())) AS direct_all;
+
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT explain_seqscan($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+])$$);
+SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+    paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
+]) ORDER BY id;
+
+DROP TABLE sequential_scan_arrays;
+RESET paradedb.enable_custom_scan;
+RESET enable_indexscan;
+RESET enable_indexonlyscan;
+RESET enable_bitmapscan;
+RESET enable_seqscan;

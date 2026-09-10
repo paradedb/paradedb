@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789055395848,
+  "lastUpdate": 1789055404191,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -310124,6 +310124,162 @@ window.BENCHMARK_DATA = {
             "value": 17.671875,
             "unit": "median mem",
             "extra": "avg mem: 17.620627283870913, max mem: 17.80078125, count: 59247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789055400422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.811080593121293, max cpu: 37.29966, count: 59289"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 52.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.26277244724991, max mem: 63.9296875, count: 59289"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.944491960744638, max cpu: 4.703577, count: 59289"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.181154954439272, max mem: 17.2265625, count: 59289"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.709834572151072, max cpu: 9.407154, count: 59289"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.48367951896642, max mem: 21.49609375, count: 59289"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 9902,
+            "unit": "median pages",
+            "extra": "avg pages: 8270.876621295687, max pages: 11577.0, count: 59289"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 77.359375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 64.61622373564236, max relation_size:MB: 90.4453125, count: 59289"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 47.55241275784716, max segment_count: 78.0, count: 59289"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9759841989529874, max cpu: 4.685212, count: 59289"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.23323743126887, max mem: 17.2578125, count: 59289"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.988442515960067, max cpu: 37.29966, count: 59289"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 51.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.07428608437063, max mem: 62.22265625, count: 59289"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.694942277994713, max cpu: 37.29966, count: 59289"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.08396997914875, max mem: 56.484375, count: 59289"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 105.2464599609375,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 196.09585396681203, max replication_lag:MB: 860.9824142456055, count: 59289"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.0224216686401, max cpu: 37.29966, count: 59289"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 51.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.686493608110275, max mem: 61.66796875, count: 59289"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.835847325511146, max cpu: 32.65306, count: 59289"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.585842955164534, max mem: 17.7890625, count: 59289"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.922788259105726, max cpu: 32.78049, count: 59289"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.587862195664457, max mem: 17.7734375, count: 59289"
           }
         ]
       }

@@ -488,10 +488,6 @@ impl OptimizerRule for LateMaterializationRule {
                         .any(|df| beneficial_fields.contains(&df.canonical));
 
                     if has_beneficial_deferred {
-                        if provider.is_late_materialization_schema_enabled() {
-                            return Ok(Transformed::no(node));
-                        }
-
                         // Tell the provider to flip its schema output from Utf8View to the
                         // deferred columns.
                         provider.enable_late_materialization_schema();
@@ -509,6 +505,14 @@ impl OptimizerRule for LateMaterializationRule {
 
                         let projected_arrow_schema =
                             new_scan.source.schema().project(&projected_indices)?;
+                        // The provider holds one schema for the relation, but a plan can
+                        // read it through more than one scan. Each has to be rebuilt, not
+                        // just whichever flips the provider first, or the ones left behind
+                        // promise a string the scan does not emit. The comparison also
+                        // stops the rule from rewriting the same node on every pass.
+                        if projected_arrow_schema.fields() == scan.projected_schema.fields() {
+                            return Ok(Transformed::no(node));
+                        }
                         let mut new_qualified_fields = Vec::new();
                         for (i, field) in projected_arrow_schema.fields().iter().enumerate() {
                             let (qualifier, _) = scan.projected_schema.qualified_field(i);

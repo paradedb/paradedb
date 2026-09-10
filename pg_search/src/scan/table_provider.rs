@@ -258,10 +258,6 @@ impl PgSearchTableProvider {
             .store(true, Ordering::Relaxed);
     }
 
-    pub(crate) fn is_late_materialization_schema_enabled(&self) -> bool {
-        self.late_materialization_active.load(Ordering::Relaxed)
-    }
-
     /// Activates deferred visibility mode (emitting packed DocAddresses for VisibilityFilterExec)
     pub fn enable_deferred_visibility_schema(&self) {
         self.deferred_visibility_active

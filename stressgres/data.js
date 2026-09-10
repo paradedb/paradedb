@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789055422073,
+  "lastUpdate": 1789055430811,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -160148,6 +160148,66 @@ window.BENCHMARK_DATA = {
             "value": 20.542145086098895,
             "unit": "median tps",
             "extra": "avg tps: 20.515513957301106, max tps: 34.47257375820826, count: 59307"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789055398645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.02761099790304,
+            "unit": "median tps",
+            "extra": "avg tps: 78.7277665982825, max tps: 84.4480321372603, count: 59297"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 513.0956542311043,
+            "unit": "median tps",
+            "extra": "avg tps: 555.9103424423905, max tps: 7050.624364263457, count: 59297"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 893.5146319352694,
+            "unit": "median tps",
+            "extra": "avg tps: 872.3863017007469, max tps: 1053.7493124637926, count: 59297"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 193.44577772648123,
+            "unit": "median tps",
+            "extra": "avg tps: 191.04351546359217, max tps: 201.11325207944853, count: 59297"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 224.23565713912168,
+            "unit": "median tps",
+            "extra": "avg tps: 308.60358186838687, max tps: 2290.538591639929, count: 118594"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.614889010735382,
+            "unit": "median tps",
+            "extra": "avg tps: 20.761202074082505, max tps: 34.315407113357416, count: 59297"
           }
         ]
       }

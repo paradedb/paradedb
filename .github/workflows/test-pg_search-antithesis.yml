@@ -126,13 +126,15 @@ jobs:
       COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Dependencies
+        uses: ./.github/actions/apt-install
+        with:
+          packages: sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

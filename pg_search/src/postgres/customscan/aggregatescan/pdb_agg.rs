@@ -68,6 +68,7 @@ pub struct PdbAggFieldRef {
     pub field_type: SearchFieldType,
     /// Where the source sits in the plan tree, assigned once the tree exists.
     pub plan_position: usize,
+    pub is_array: bool,
 }
 
 impl PdbAggFieldRef {
@@ -378,6 +379,12 @@ fn check_node(
                 ));
             }
             let field = resolve_field(resolve, fields, name, kind.is_numeric())?;
+            if field.is_array {
+                return Err(format!(
+                    "Field '{name}' is an array, which cannot be used in a `{}` metric aggregation",
+                    variant_name(other)
+                ));
+            }
             check_missing(&field, missing.as_ref())
         }
     }
@@ -660,6 +667,10 @@ impl PdbAggPlan {
         !self.keys.is_empty()
     }
 
+    pub fn num_outer_group_cols(&self) -> usize {
+        self.num_outer_group_cols
+    }
+
     fn num_group_exprs(&self) -> usize {
         self.num_outer_group_cols + self.keys.len()
     }
@@ -694,7 +705,7 @@ impl PdbAggPlan {
 
     /// The `__grouping_id` DataFusion assigns to a level: one bit per grouping
     /// expression, most significant first, set when the expression is absent.
-    fn grouping_id_for_level(&self, level: usize) -> u64 {
+    pub fn grouping_id_for_level(&self, level: usize) -> u64 {
         let n = self.num_group_exprs();
         (0..n)
             .filter(|position| !self.levels[level].contains(position))
@@ -1109,6 +1120,7 @@ mod tests {
             field_name: name.to_string(),
             field_type: SearchFieldType::I64(pg_sys::INT8OID),
             plan_position: 0,
+            is_array: false,
         }
     }
 

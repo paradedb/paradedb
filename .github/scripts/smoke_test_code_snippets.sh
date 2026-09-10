@@ -164,7 +164,8 @@ if [[ $ORMS =~ "rails" ]]; then
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
     "rails-paradedb:0.9.0" \
-    "pg"
+    "pg" \
+    "json:<3"
 
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"

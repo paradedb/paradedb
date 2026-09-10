@@ -110,8 +110,9 @@ jobs:
           save-if: false
 
       - name: Install required system tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y lsof libopenblas-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: lsof libopenblas-dev
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres

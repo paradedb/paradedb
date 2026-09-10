@@ -112,6 +112,31 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
+-- pdb.agg: scalar terms aggregation over join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+-- pdb.agg: terms aggregation with GROUP BY
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 -- =====================================================================
 -- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same queries, same expected results.
 --
@@ -148,6 +173,31 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
+-- pdb.agg: scalar terms aggregation under MPP
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+
+-- pdb.agg: terms aggregation with GROUP BY under MPP
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 -- =====================================================================
 -- Pass 3: the size gate falls back to serial execution for the aggregate
 -- path too, and the results match the serial baseline.
@@ -180,6 +230,18 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
+
+SELECT count(*) = 0 AS gated_no_distributed_exec_pdb_agg
+FROM mpp_agg_explain_analyze_lines(
+  $$SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
 
 DROP FUNCTION mpp_agg_explain_analyze_lines(text);
 RESET paradedb.mpp_min_rows;

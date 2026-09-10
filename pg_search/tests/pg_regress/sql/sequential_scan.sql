@@ -239,6 +239,7 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_and ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 
 DROP VIEW sequential_scan_null_checks;
+UPDATE sequential_scan_nulls SET covered = true;
 
 SELECT paradedb.search_with_query_input_ctid(
            1, NULL::paradedb.searchqueryinput, '(0,1)'::tid

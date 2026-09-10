@@ -577,6 +577,7 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 (0 rows)
 
 DROP VIEW sequential_scan_null_checks;
+UPDATE sequential_scan_nulls SET covered = true;
 SELECT paradedb.search_with_query_input_ctid(
            1, NULL::paradedb.searchqueryinput, '(0,1)'::tid
        ) IS NULL AS null_query,
@@ -688,10 +689,10 @@ SET enable_indexonlyscan = off;
 SET enable_bitmapscan = off;
 SET enable_seqscan = on;
 SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
-                                                                                                   explain_seqscan                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            explain_seqscan                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Seq Scan on sequential_scan_expr_first
-   Filter: paradedb.search_with_query_input_ctid((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid)
+   Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END)
 (2 rows)
 
 SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
@@ -753,10 +754,10 @@ SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
 SET enable_indexscan = off;
 SET enable_bitmapscan = on;
 SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
-                                                                                                   explain_seqscan                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            explain_seqscan                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Bitmap Heap Scan on sequential_scan_expr_first
-   Filter: paradedb.search_with_query_input_ctid((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid)
+   Filter: paradedb.search_with_query_input_ctid_or_row((lower(body))::pdb.literal('alias=body_lower'), '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] WHEN (paradedb.xmin_is_visible(xmin) IS NOT TRUE) THEN (ARRAY[sequential_scan_expr_first.*])::record[] ELSE '{}'::record[] END)
    ->  Bitmap Index Scan on sequential_scan_expr_first_idx
          Index Cond: ((lower(body))::pdb.literal('alias=body_lower') @@@ '{"with_index":{"oid":N,"query":{"term":{"field":"body_lower","value":"alpha"}}}}'::paradedb.searchqueryinput)
 (4 rows)

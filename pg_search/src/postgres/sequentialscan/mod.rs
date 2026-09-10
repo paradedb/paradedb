@@ -36,8 +36,8 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
 use pgrx::{
-    Array, FromDatum, PgMemoryContexts, pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw,
-    pg_sys,
+    Array, FromDatum, PgMemoryContexts, pg_extern, pg_func_extra, pg_getarg_datum,
+    pg_getarg_datum_raw, pg_sys,
 };
 
 struct QueryCacheEntry {

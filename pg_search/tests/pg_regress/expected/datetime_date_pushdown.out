@@ -249,9 +249,11 @@ GROUP BY DATE(created_at), region;
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(events_nullable_0.created_at), region@1 as region], aggr=[count(1) as agg_0]
-     :   CooperativeExec
-     :     PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-(10 rows)
+     :   TantivyDecodeExec: decode=[region]
+     :     TantivyFetchExec: fetch=[region]
+     :       CooperativeExec
+     :         PgSearchScan: table=events_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(12 rows)
 
 SELECT DATE(created_at) AS day, region, COUNT(*) AS cnt
 FROM events_nullable

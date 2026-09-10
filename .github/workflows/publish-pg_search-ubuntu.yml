@@ -34,6 +34,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -45,6 +46,7 @@ jobs:
         shell: bash
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Ubuntu 26.04
@@ -195,15 +197,15 @@ jobs:
             arch: arm64
 
     steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v7
-
       - name: Install Dependencies
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
             pkg-config libssl-dev jq gettext-base lld
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository
@@ -212,7 +214,7 @@ jobs:
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
       - name: Install GitHub CLI
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: gh
 

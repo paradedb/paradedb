@@ -36,6 +36,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -46,6 +47,7 @@ jobs:
       run:
         shell: bash
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Debian 12 (Bookworm)
@@ -192,17 +194,17 @@ jobs:
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout Git Repository
-        if: steps.guard.outputs.build == 'true'
-        uses: actions/checkout@v7
-
       - name: Install Dependencies
         if: steps.guard.outputs.build == 'true'
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
             pkg-config libssl-dev jq gettext-base lld
+
+      - name: Checkout Git Repository
+        if: steps.guard.outputs.build == 'true'
+        uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
       - name: Configure GitHub CLI Repository
@@ -213,7 +215,7 @@ jobs:
 
       - name: Install GitHub CLI
         if: steps.guard.outputs.build == 'true'
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: gh
 

@@ -74,6 +74,7 @@ jobs:
       # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=c7g+c8g
       - cpu=8
       - ram=16
@@ -106,7 +107,7 @@ jobs:
           install_cargo_pgrx: "false"
 
       - name: Install required system tools
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: lsof libopenblas-dev lld
 

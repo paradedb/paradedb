@@ -1638,7 +1638,7 @@ unsafe fn require_fast_field(
             source.scan_info.add_field(attno, field);
             Ok(())
         }
-        None => Err(format!("{} is not a columnar field", describe())),
+        None => Err(format!("{} is not columnar", describe())),
     }
 }
 
@@ -1670,7 +1670,7 @@ unsafe fn require_named_fast_field(
         source.scan_info.add_field_by_name(attno, field);
         return Ok(());
     }
-    Err(format!("{} is not a fast field", describe()))
+    Err(format!("{} is not columnar", describe()))
 }
 
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
@@ -1825,10 +1825,8 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved =
-                resolve_fast_field_by_name(&field.field_name, indexrel).ok_or_else(|| {
-                    format!("pdb.agg field '{}' is not a fast field", field.field_name)
-                })?;
+            let resolved = resolve_fast_field_by_name(&field.field_name, indexrel)
+                .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source.scan_info.add_field_by_name(field.attno, resolved);
         }
     }

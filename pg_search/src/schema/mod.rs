@@ -615,6 +615,12 @@ impl SearchIndexSchema {
         fields
     }
 
+    /// The indexed fields that draw their data from the heap column `column`.
+    pub fn fields_sourced_from(&self, column: impl AsRef<str>) -> Vec<SearchField> {
+        let mut alias_lookup = self.alias_lookup();
+        self.take_fields_sourced_from(&mut alias_lookup, column)
+    }
+
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {

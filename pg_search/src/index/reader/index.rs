@@ -871,21 +871,56 @@ impl SearchIndexReader {
             .search_field(&field_name)
             .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
         if search_field.is_text() || search_field.is_json() {
-            let field = search_field.field();
-            let generator = SnippetGenerator::create(
-                &self.searcher,
-                &self.make_query(query, expr_context),
-                field,
-            )
-            .unwrap_or_else(|err| {
-                panic!("failed to create snippet generator for field: {field_name}... {err}")
-            });
+            let query = self.make_query(query, expr_context);
+            let field = self.highlight_field(&*query, &field_name, search_field.field());
+            let generator = SnippetGenerator::create(&self.searcher, &*query, field)
+                .unwrap_or_else(|err| {
+                    panic!("failed to create snippet generator for field: {field_name}... {err}")
+                });
             (field, generator)
         } else {
             panic!(
                 "failed to create snippet generator for field: {field_name}... can only highlight text fields"
             )
         }
+    }
+
+    /// The field whose terms and tokenizer should drive highlighting of `column`.
+    ///
+    /// A column can back more than one indexed field: an alias carries its own tokenizer over
+    /// the same text. Whichever of them the query addressed is the one holding the matched
+    /// terms, and [`SnippetGenerator`] keeps only terms belonging to the field it is built
+    /// for, so building for a field the query never touched yields nothing to mark up. Prefer
+    /// the column's own field and fall back to a sibling the query did address.
+    fn highlight_field(
+        &self,
+        query: &dyn Query,
+        column: impl AsRef<str>,
+        requested: tantivy::schema::Field,
+    ) -> tantivy::schema::Field {
+        if self.query_addresses(query, requested) {
+            return requested;
+        }
+        self.schema
+            .fields_sourced_from(column)
+            .into_iter()
+            .map(|sibling| sibling.field())
+            .find(|&sibling| sibling != requested && self.query_addresses(query, sibling))
+            .unwrap_or(requested)
+    }
+
+    /// Whether `query` addresses any term to `field`.
+    fn query_addresses(&self, query: &dyn Query, field: tantivy::schema::Field) -> bool {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .any(|segment_reader| {
+                let mut addressed = false;
+                query.query_terms(field, segment_reader, &mut |term, _| {
+                    addressed |= term.field() == field;
+                });
+                addressed
+            })
     }
 
     /// Search the Tantivy index for matching documents.

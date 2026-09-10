@@ -1,0 +1,44 @@
+name: APT Install with Retry
+description: Install APT packages with retry, exponential backoff, and index refresh
+
+inputs:
+  packages:
+    description: "APT packages to install"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install APT packages
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        sudo=""
+        if [ "$(id -u)" -ne 0 ]; then
+          sudo="sudo"
+        fi
+
+        # Re-run `apt-get update` on each retry: if an upstream package was superseded,
+        # a stale index causes `apt-get install` to 404 on the purged .deb. Updating
+        # fetches the current package list so install requests the new version.
+        delay=5
+        for attempt in $(seq 1 5); do
+          if [ "$attempt" -gt 1 ]; then
+            echo "Package installation failed (attempt $((attempt - 1))/5); retrying in ${delay}s..."
+            sleep "$delay"
+            delay=$((delay * 2))
+          fi
+
+          if $sudo DEBIAN_FRONTEND=noninteractive apt-get update && \
+             $sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+               -o Acquire::Retries=3 \
+               ${{ inputs.packages }}; then
+            break
+          fi
+
+          if [ "$attempt" -eq 5 ]; then
+            echo "Package installation failed after 5 attempts" >&2
+            exit 1
+          fi
+        done

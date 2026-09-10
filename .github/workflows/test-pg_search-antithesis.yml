@@ -126,13 +126,15 @@ jobs:
       COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo git ca-certificates curl gnupg lsb-release binutils
-
       - name: Checkout Git Repository
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Dependencies
+        uses: ./.github/actions/apt-install
+        with:
+          packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
       - name: Configure RunsOn Caching
         uses: runs-on/action@v2

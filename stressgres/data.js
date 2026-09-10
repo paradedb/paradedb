@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789055439940,
+  "lastUpdate": 1789055490502,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -330822,6 +330822,90 @@ window.BENCHMARK_DATA = {
             "value": 572.8345242853409,
             "unit": "median tps",
             "extra": "avg tps: 583.0034535495062, max tps: 754.7757397113594, count: 55165"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8df565f0495bf2dd5176ba23e04e4a42583b411b",
+          "message": "fix: Mark `pdb.agg` parallel safe. (#6269)\n\n## What\n\nMarks `pdb.agg` and its underlying placeholder C functions (`state` and\n`finalize`) as `PARALLEL SAFE` / `PARALLEL = SAFE`, and adds MPP\nregression test cases for `pdb.agg` in `mpp_aggregate`.\n\n## Why\n\nIn PR #6181, MPP execution was gated on\n`PlannerInfo.glob.parallelModeOK`. Because `pdb.agg` and its placeholder\nfunctions were declared without parallel safety markings in the catalog\n(`proparallel = 'u'`), PostgreSQL set `parallelModeOK = false`. This\nforced all queries containing `pdb.agg` to silently bypass\n`DistributedExec` and fall back to single-threaded serial execution\n(`CooperativeExec`).\n\n## How\n\n- In `pg_search/src/api/aggregate.rs`, added `const PARALLEL:\nOption<ParallelOption> = Some(ParallelOption::Safe);` to the `Aggregate`\ntrait implementations and annotated `fn state` and `fn finalize` with\n`#[pgrx(parallel_safe)]` across all three overloads (`AggPlaceholder`,\n`AggPlaceholderWithMvcc`, and `AggPlaceholderVisibility`).\n\n## Tests\n\n- In `pg_search/tests/pg_regress/sql/mpp_aggregate.sql`, added scalar\nand `GROUP BY` `pdb.agg` test cases across Pass 1 (serial baseline),\nPass 2 (MPP path exercising `DistributedExec`), and Pass 3 (size-gating\nfallback).",
+          "timestamp": "2026-09-10T08:31:05-07:00",
+          "tree_id": "9f14dfc273036a7d31f3be2eef9a49bfdfd65064",
+          "url": "https://github.com/paradedb/paradedb/commit/8df565f0495bf2dd5176ba23e04e4a42583b411b"
+        },
+        "date": 1789055486402,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 195.0283848903909,
+            "unit": "median tps",
+            "extra": "avg tps: 196.37361381865207, max tps: 216.59990276327594, count: 55405"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 197.66679039033238,
+            "unit": "median tps",
+            "extra": "avg tps: 198.9661273764337, max tps: 223.27709944856608, count: 55405"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 174.62054718823896,
+            "unit": "median tps",
+            "extra": "avg tps: 174.75511163418267, max tps: 202.20433312997972, count: 55405"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 464.1600690784299,
+            "unit": "median tps",
+            "extra": "avg tps: 471.20495388289174, max tps: 686.1363485401644, count: 55405"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 337.3542977526382,
+            "unit": "median tps",
+            "extra": "avg tps: 340.44168156327265, max tps: 445.810286556773, count: 55405"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.936687930775932,
+            "unit": "median tps",
+            "extra": "avg tps: 14.933190094354364, max tps: 16.084894505654763, count: 55405"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 659.1058512983017,
+            "unit": "median tps",
+            "extra": "avg tps: 660.0067246593326, max tps: 802.1329549490368, count: 55405"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 676.5488646332677,
+            "unit": "median tps",
+            "extra": "avg tps: 676.2381000077255, max tps: 824.3396929955323, count: 55405"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 263.18376210732544,
+            "unit": "median tps",
+            "extra": "avg tps: 264.7236924546491, max tps: 324.206781215561, count: 55405"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 581.7634382734799,
+            "unit": "median tps",
+            "extra": "avg tps: 582.7116937362301, max tps: 677.4494779263249, count: 55405"
           }
         ]
       }

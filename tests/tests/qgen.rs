@@ -308,6 +308,7 @@ async fn generated_joins_small(database: Db) {
             )
         }),
         limit in proptest::option::of(1..=50usize),
+        offset in proptest::option::of(0..=10usize),
         gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
@@ -362,8 +363,13 @@ async fn generated_joins_small(database: Db) {
         }
         let order_by = order_parts.join(", ");
 
+        let offset_clause = match offset {
+            Some(o) if o > 0 => format!(" OFFSET {o}"),
+            _ => "".to_string(),
+        };
+
         let limit_clause = match limit {
-            Some(l) => format!("LIMIT {l}"),
+            Some(l) => format!("LIMIT {l}{offset_clause}"),
             None => "".to_string(),
         };
 

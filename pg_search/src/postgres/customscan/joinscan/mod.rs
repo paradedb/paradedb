@@ -762,6 +762,9 @@ impl JoinScan {
         let order_by_len = join_clause.order_by.len();
         let query_pathkeys_len = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
         let private_data = PrivateData::new(join_clause, query_allows_parallel_mode(&*root));
+        // The target list for UPPERREL_FINAL lives in root->upper_targets, while
+        // rel (final_rel) has an empty reltarget created by fetch_upper_rel.
+        // We set path.pathtarget directly without mutating shared (*rel).reltarget.
         let pathtarget = {
             let final_target =
                 (*root).upper_targets[pg_sys::UpperRelationKind::UPPERREL_FINAL as usize];
@@ -771,9 +774,6 @@ impl JoinScan {
                 (*rel).reltarget
             }
         };
-        if !pathtarget.is_null() && !rel.is_null() && (*(*rel).reltarget).exprs.is_null() {
-            (*rel).reltarget = pathtarget;
-        }
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
@@ -1551,7 +1551,9 @@ impl CustomScan for JoinScan {
                             let fetch = lo
                                 .static_limit()
                                 .expect("static_limit must succeed after resolve_mut");
-                            let skip = lo.static_offset();
+                            let skip = lo
+                                .static_offset()
+                                .expect("static_offset must succeed after resolve_mut");
                             (skip, fetch)
                         })
                 };
@@ -2160,7 +2162,16 @@ impl JoinScan {
         let parse = (*root).parse;
         let input_rel = &*input_rel;
 
-        if (*parse).hasAggs || !(*parse).groupClause.is_null() || (*parse).hasWindowFuncs {
+        // Decline if the query has aggs, grouping, window functions, row locking (e.g. FOR UPDATE,
+        // which grouping_planner wraps in LockRows prior to UPPERREL_FINAL), non-SELECT commands,
+        // or set operations.
+        if (*parse).hasAggs
+            || !(*parse).groupClause.is_null()
+            || (*parse).hasWindowFuncs
+            || !(*parse).rowMarks.is_null()
+            || (*parse).commandType != pg_sys::CmdType::CMD_SELECT
+            || !(*parse).setOperations.is_null()
+        {
             return Err(JoinPathDecline::Quiet);
         }
 
@@ -2419,18 +2430,19 @@ impl JoinScan {
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
                 }
-                privdat::OutputColumnInfo::Unnested { .. } => {
-                    let unnested_col_idx = state
+                privdat::OutputColumnInfo::Unnested { .. }
+                | privdat::OutputColumnInfo::Expression => {
+                    let col_idx = state
                         .custom_state()
                         .output_batch_col_indices
                         .get(i)
                         .copied()
                         .flatten();
-                    let Some(col_idx) = unnested_col_idx else {
+                    let Some(col_idx) = col_idx else {
                         *nulls.add(i) = true;
                         continue;
                     };
-                    let unnested_col = batch.column(col_idx);
+                    let col = batch.column(col_idx);
                     let expected_type = {
                         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {
@@ -2441,13 +2453,11 @@ impl JoinScan {
                             (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
                         }
                     };
-                    if unnested_col.is_null(row_idx)
-                        || unnested_col.data_type() == &arrow_schema::DataType::Null
-                    {
+                    if col.is_null(row_idx) || col.data_type() == &arrow_schema::DataType::Null {
                         *nulls.add(i) = true;
                     } else {
                         match crate::postgres::types_arrow::arrow_array_to_datum(
-                            unnested_col.as_ref(),
+                            col.as_ref(),
                             row_idx,
                             pgrx::PgOid::from(expected_type),
                             None,
@@ -2460,51 +2470,7 @@ impl JoinScan {
                                 *nulls.add(i) = true;
                             }
                             Err(e) => {
-                                panic!("BUG: JoinScan unnest projection failed: {}", e);
-                            }
-                        }
-                    }
-                }
-                privdat::OutputColumnInfo::Expression => {
-                    let expr_col_idx = state
-                        .custom_state()
-                        .output_batch_col_indices
-                        .get(i)
-                        .copied()
-                        .flatten();
-                    let Some(col_idx) = expr_col_idx else {
-                        *nulls.add(i) = true;
-                        continue;
-                    };
-                    let expr_col = batch.column(col_idx);
-                    let expected_type = {
-                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                        {
-                            (*result_tupdesc).attrs.as_slice(natts)[i].atttypid
-                        }
-                        #[cfg(feature = "pg18")]
-                        {
-                            (*pg_sys::TupleDescAttr(result_tupdesc, i as i32)).atttypid
-                        }
-                    };
-                    if expr_col.is_null(row_idx) {
-                        *nulls.add(i) = true;
-                    } else {
-                        match crate::postgres::types_arrow::arrow_array_to_datum(
-                            expr_col.as_ref(),
-                            row_idx,
-                            pgrx::PgOid::from(expected_type),
-                            None,
-                        ) {
-                            Ok(Some(datum)) => {
-                                *datums.add(i) = datum;
-                                *nulls.add(i) = false;
-                            }
-                            Ok(None) => {
-                                *nulls.add(i) = true;
-                            }
-                            Err(e) => {
-                                panic!("BUG: JoinScan expression projection failed: {}", e);
+                                panic!("BUG: JoinScan projection failed: {}", e);
                             }
                         }
                     }

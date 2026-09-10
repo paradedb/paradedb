@@ -65,7 +65,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -94,7 +93,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_supplier |      name       
 ----------------+-----------------
  TECHCORP       | 
@@ -140,7 +138,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -169,7 +166,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_null |      name       
 ---------------+-----------------
  f             | 
@@ -215,7 +211,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -242,7 +237,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  combo_id |      name       
 ----------+-----------------
       119 | 
@@ -288,7 +282,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -317,7 +310,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  safe_supplier |      name       
 ---------------+-----------------
  TechCorp      | 
@@ -363,7 +355,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -392,7 +383,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
    name_id   |      name       
 -------------+-----------------
  TechCorp-1  | 
@@ -438,7 +428,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -467,7 +456,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -514,7 +502,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -543,7 +530,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  ?column? | name 
 ----------+------
  f        | 
@@ -562,7 +548,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -591,7 +576,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  has_name |      name       
 ----------+-----------------
  t        | 
@@ -635,7 +619,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -664,7 +647,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -708,7 +690,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -735,7 +716,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  big_id |      name       
 --------+-----------------
     100 | 
@@ -779,7 +759,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -806,7 +785,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
        ratio        |      name       
 --------------------+-----------------
  0.3333333333333333 | 
@@ -850,7 +828,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -879,7 +856,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  upper_name |      name       
 ------------+-----------------
  TECHCORP   | 
@@ -923,7 +899,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -952,7 +927,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  short_name |      name       
 ------------+-----------------
  TechC      | 
@@ -1000,7 +974,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1029,7 +1002,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_or_default |      name       
 ---------------------+-----------------
  TechCorp            | 
@@ -1077,7 +1049,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1109,7 +1080,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
  supplier_json |      name       
 ---------------+-----------------
@@ -1139,7 +1109,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1168,7 +1137,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
             mixed_key             |      name       
 ----------------------------------+-----------------
  D9CE5A9B751D2E18071CC135E51C524B | 
@@ -1214,7 +1182,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -1241,7 +1208,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on an expression is not pushed down, only plain columns are (target index 0) (table: join)
  supplier_null |   name    |      name       
 ---------------+-----------+-----------------
  f             | FastParts | 

@@ -1481,6 +1481,9 @@ impl AggregateScan {
         pdb_route: Option<PdbAggRoute>,
     ) -> Vec<pg_sys::CustomPath> {
         let alias = unsafe { resolve_decline_alias(builder.args()) };
+        let is_join_distinct = shape.is_distinct()
+            && builder.args().input_rel().reloptkind == pg_sys::RelOptKind::RELOPT_JOINREL
+            && gucs::enable_join_custom_scan();
         match Self::try_build_datafusion_aggregate_path(builder, shape, pdb_route) {
             Ok(path) => vec![path],
             Err(AggregatePathDecline::Quiet) => Vec::new(),
@@ -1488,7 +1491,14 @@ impl AggregateScan {
                 if has_paradedb_agg {
                     reason.emit_error();
                 } else if gucs::planner_warnings() != gucs::PlannerWarnings::Off {
-                    reason.emit(alias);
+                    // Suppress AggregateScan decline warnings for DISTINCT over a join
+                    // when JoinScan is enabled: JoinScan evaluates DISTINCT joins at
+                    // UPPERREL_FINAL (with support for expressions and late materialization).
+                    // Emitting an AggregateScan warning here produces false-alarm warnings
+                    // on queries that JoinScan subsequently accepts and plans.
+                    if !is_join_distinct {
+                        reason.emit(alias);
+                    }
                 }
                 Vec::new()
             }

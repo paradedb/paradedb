@@ -673,19 +673,20 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                 // Find the corresponding deferred field by tracing column lineage.
                 let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
                 let mut is_bytes = false;
-                if let Some(traced) = trace_column(&input, &target_col)
-                    && let Some(pos) = deferred_pool
+                if let Some(traced) = trace_column(&input, &target_col) {
+                    if let Some(pos) = deferred_pool
                         .iter()
                         .position(|d| traced.matches_deferred(d))
-                {
-                    let d = deferred_pool.remove(pos);
-                    is_bytes = d.is_bytes;
-                    new_deferred_fields.push(d);
-                } else if let Some(traced) = trace_column(&input, &target_col)
-                    && let Some(df) = traced.deferred_field
-                {
-                    is_bytes = df.is_bytes;
-                    new_deferred_fields.push(df);
+                    {
+                        let d = deferred_pool.remove(pos);
+                        is_bytes = d.is_bytes;
+                        new_deferred_fields.push(d);
+                    } else if let Some(df) = traced.deferred_field {
+                        // Tracing resolved the underlying deferred column from the scan node even
+                        // if not in the initial pool (e.g. newly exposed by optimizer projection changes).
+                        is_bytes = df.is_bytes;
+                        new_deferred_fields.push(df);
+                    }
                 }
 
                 // When DataFusion's `OptimizeProjections` rule rebuilds nodes, it trims the schema.

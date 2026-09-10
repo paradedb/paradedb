@@ -69,7 +69,6 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
-WARNING:  Aggregate Scan (DataFusion) not used: all tables in the join must have ParadeDB indexes (table: join)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: cl, contacts_companies)
  contact_id 
 ------------
@@ -85,7 +84,6 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
-WARNING:  Aggregate Scan (DataFusion) not used: all tables in the join must have ParadeDB indexes (table: join)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: cl, contacts_companies)
  contact_id 
 ------------

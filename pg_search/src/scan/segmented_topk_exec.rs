@@ -1085,7 +1085,18 @@ impl SegmentedTopKState {
                 // join, `row_to_seg_scratch` may be None because the row did not
                 // originate from any segment. Pass-through rows with NULL sort keys
                 // never inspect `seg_ord` downstream, so fallback to 0 is safe.
-                let seg_ord = self.row_to_seg_scratch[row_idx].unwrap_or(0);
+                let seg_ord = match self.row_to_seg_scratch[row_idx] {
+                    Some(seg) => seg,
+                    None => {
+                        debug_assert!(
+                            self.sort_arrays_scratch
+                                .iter()
+                                .any(|arr| arr.is_null(row_idx)),
+                            "pass-through row without resolved segment must have at least one NULL sort column"
+                        );
+                        0
+                    }
+                };
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
@@ -1156,10 +1167,6 @@ impl SegmentedTopKState {
         let mut state0_rows: Vec<usize> = Vec::new();
         let mut state1_rows: Vec<usize> = Vec::new();
         for row_idx in 0..num_rows {
-            if union_col.is_null(row_idx) {
-                pass_through[row_idx] = true;
-                continue;
-            }
             match type_ids[row_idx] {
                 0 => state0_rows.push(row_idx),
                 1 => state1_rows.push(row_idx),

@@ -267,7 +267,7 @@ WHERE id IN (SELECT id FROM asa_pair_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the aggregate scan (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the scan (table: join)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -298,7 +298,7 @@ WHERE id IN (SELECT id FROM asa_pair_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the aggregate scan (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: multi-column NOT IN cannot be pushed into the scan (table: join)
        label       | doc_count 
 -------------------+-----------
  Senior Programmer |         1
@@ -508,7 +508,7 @@ WHERE NOT EXISTS (SELECT 1 FROM asa_adv_third z
                   WHERE z.id = l.fk + (random()*0)::bigint)
   AND r.body @@@ 'doc'
 GROUP BY l.label ORDER BY l.label;
-WARNING:  Aggregate Scan (DataFusion) not used: correlated subquery cannot be lifted into the aggregate scan (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: correlated subquery cannot be lifted into the scan (table: join)
  label | c 
 -------+---
  A     | 1
@@ -539,7 +539,7 @@ WHERE NOT EXISTS (
 )
   AND r.body @@@ 'doc'
 GROUP BY l.label ORDER BY l.label;
-WARNING:  Aggregate Scan (DataFusion) not used: correlated subquery cannot be lifted into the aggregate scan (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: correlated subquery cannot be lifted into the scan (table: join)
  label | c 
 -------+---
  A     | 1

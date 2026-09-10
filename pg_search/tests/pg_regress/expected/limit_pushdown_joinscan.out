@@ -173,7 +173,7 @@ SELECT count(*) FROM (
     ORDER BY c.id ASC
     LIMIT 26
 ) sub;
-WARNING:  JoinScan not used: OR-nested subquery cannot be pushed into the aggregate scan (tables: c, p)
+WARNING:  JoinScan not used: OR-nested subquery cannot be pushed into the scan (tables: c, p)
  count 
 -------
     26

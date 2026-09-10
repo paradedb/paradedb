@@ -384,7 +384,7 @@ pub unsafe fn wrap_with_semi_anti(
                 plan_id,
                 par_param_len
             );
-            return Err("correlated subquery cannot be lifted into the aggregate scan".into());
+            return Err("correlated subquery cannot be lifted into the scan".into());
         }
 
         // Find the final rel for the inner subquery.
@@ -394,7 +394,7 @@ pub unsafe fn wrap_with_semi_anti(
                 "agg-on-join: SubPlan plan_id={plan_id} declined; \
                  find_final_rel returned NULL"
             );
-            return Err("subquery cannot be pushed into the aggregate scan".into());
+            return Err("subquery cannot be pushed into the scan".into());
         }
 
         let Some(inner_collected) = collect_join_sources(inner_root, inner_rel) else {
@@ -403,7 +403,7 @@ pub unsafe fn wrap_with_semi_anti(
                  inner relation cannot be pushed (no ParadeDB index, volatile, \
                  or un-pushdownable predicates)"
             );
-            return Err("subquery cannot be pushed into the aggregate scan".into());
+            return Err("subquery cannot be pushed into the scan".into());
         };
         let inner_node = inner_collected.plan;
         let inner_keys = inner_collected.join_keys;
@@ -430,7 +430,7 @@ pub unsafe fn wrap_with_semi_anti(
                     plan_id,
                     equi_keys.len()
                 );
-                return Err("multi-column NOT IN cannot be pushed into the aggregate scan".into());
+                return Err("multi-column NOT IN cannot be pushed into the scan".into());
             }
             (true, true) => JoinType::Anti { null_aware: true },
             (true, false) => JoinType::Anti { null_aware: false },
@@ -439,7 +439,7 @@ pub unsafe fn wrap_with_semi_anti(
                     "agg-on-join: declining IN lift (plan_id={}); testexpr undecodable",
                     plan_id
                 );
-                return Err("IN subquery cannot be pushed into the aggregate scan".into());
+                return Err("IN subquery cannot be pushed into the scan".into());
             }
             _ => JoinType::Semi,
         };
@@ -750,6 +750,17 @@ unsafe fn collect_join_sources_join_rel(
             ));
         }
 
+        if join_conditions.equi_keys.len() > 1
+            && join_conditions
+                .equi_keys
+                .iter()
+                .any(|k| !build::is_equi_key_redundant_const(root, k))
+        {
+            join_conditions
+                .equi_keys
+                .retain(|k| !build::is_equi_key_redundant_const(root, k));
+        }
+
         let jointype = (*join_path).jointype;
 
         let resolved = resolve_join_conditions(
@@ -999,10 +1010,20 @@ pub(crate) unsafe fn transparent_path_subpath(
     }
 }
 
-/// Helper to resolve the final relation from an inner query's PlannerInfo (`root`).
-/// A planned subquery has its own localized `root` with a `join_rel_list` and `simple_rel_array`.
-/// This function attempts to find the "top-most" `RelOptInfo` representing the fully joined result
-/// (or the single base relation if there is no join) so that we can recursively collect its sources.
+/// Helper to resolve the top-most join or base relation from a `PlannerInfo` (`root`).
+///
+/// In PostgreSQL, `join_rel_list` contains at most one `RelOptInfo` whose `relids`
+/// covers `all_baserels` (relations in `join_rel_list` are strictly deduplicated by
+/// their `relids` bitmap via `build_join_rel` / `find_join_rel`). The first matching
+/// rel is therefore uniquely the top join relation for the query.
+///
+/// The join tree skeleton is constructed deterministically from `root->parse->jointree`
+/// rather than from the lower path's join order, while the chosen lower path's
+/// `joinrestrictinfo` is walked solely to extract distributed equi-keys and verify
+/// complete predicate coverage.
+///
+/// If there are no joins (single-table query or subquery), this falls back to finding
+/// the single `RELOPT_BASEREL` in `simple_rel_array`.
 pub(crate) unsafe fn find_final_rel(root: *mut pg_sys::PlannerInfo) -> *mut pg_sys::RelOptInfo {
     let mut final_rel = std::ptr::null_mut();
 
@@ -1410,6 +1431,21 @@ unsafe fn extract_join_conditions_from_list(
         }
     }
 
+    // When multiple equi-join keys exist and some are redundant because both sides
+    // are already constrained to a constant in their equivalence classes,
+    // prune the redundant keys so they do not mandate columnar fast fields or
+    // induce redundant hash table lookups (matching PostgreSQL's `EC_MUST_BE_REDUNDANT`).
+    if result.equi_keys.len() > 1
+        && result
+            .equi_keys
+            .iter()
+            .any(|k| !build::is_equi_key_redundant_const(root, k))
+    {
+        result
+            .equi_keys
+            .retain(|k| !build::is_equi_key_redundant_const(root, k));
+    }
+
     result
 }
 
@@ -1673,12 +1709,23 @@ unsafe fn ensure_ctid(source: &mut JoinSource) {
 }
 
 /// Appends a specific attribute number to the list of output fields for a `JoinSource` if not already present.
+/// Emits a warning if a positive attno cannot be resolved as a fast field.
 unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
-    let _ = try_ensure_field(side, attno);
+    if attno <= 0 {
+        return;
+    }
+    if try_ensure_field(side, attno).is_none() {
+        pgrx::warning!(
+            "JoinScan: could not resolve fast field for attno {} on relation {}",
+            attno,
+            side.scan_info.heaprelid
+        );
+    }
 }
 
 /// Like `ensure_field`, but returns `Some(())` on success or `None` on failure
-/// (instead of printing a warning).
+/// without printing a warning. Used when probing whether an attribute has a fast field
+/// before falling back to an indexed expression.
 unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> Option<()> {
     if side.scan_info.fields.iter().any(|f| f.attno == attno) {
         return Some(());
@@ -2099,10 +2146,10 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
 /// Check if an expression in the target list can be evaluated and projected by JoinScan.
 ///
 /// Plain Vars, score functions, and indexed expressions are mapped to their respective
-/// ResolvedExpr variants. General expressions (and constants) are checked to ensure
-/// they contain no aggregates/window functions, all Var dependencies are fast fields
-/// (with score function arguments excluded from fast field requirements), and the
-/// return type is Arrow-convertible.
+/// ResolvedExpr variants. General expressions (and constants) are checked to ensure they
+/// contain no aggregates, window functions, or volatile functions, all Var dependencies are
+/// fast fields (with score function arguments excluded from fast field requirements), and
+/// the return type is Arrow-convertible.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     sources: &[&JoinSource],
@@ -2175,6 +2222,14 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     if pg_sys::contain_window_function(expr) {
         pgrx::debug1!(
             "JoinScan declined: target list expression contains a window \
+             function (tables: {})",
+            tables_str
+        );
+        return None;
+    }
+    if pg_sys::contain_volatile_functions(expr) {
+        pgrx::debug1!(
+            "JoinScan declined: target list expression contains a volatile \
              function (tables: {})",
             tables_str
         );

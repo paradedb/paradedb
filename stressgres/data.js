@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789032390915,
+  "lastUpdate": 1789032400570,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -195984,6 +195984,126 @@ window.BENCHMARK_DATA = {
             "value": 28.36328125,
             "unit": "median mem",
             "extra": "avg mem: 28.437327182141594, max mem: 28.98828125, count: 59311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789032396059,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.036080941767107, max cpu: 33.532936, count: 59293"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.33831552101429, max mem: 42.359375, count: 59293"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 18.426102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.984830092759845, max cpu: 38.17097, count: 59293"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.259460499658477, max mem: 20.296875, count: 59293"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3044731073797715, max cpu: 18.740849, count: 59293"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.87626576124079, max mem: 42.88671875, count: 59293"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14621,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15887.974398326953, max block_count: 31748.0, count: 59293"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.052648226704115, max cpu: 4.7244096, count: 59293"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.188518775403505, max mem: 21.234375, count: 59293"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.34258681463242, max segment_count: 39.0, count: 59293"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.404263466103709, max cpu: 23.856857, count: 59293"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.4795027448434, max mem: 41.4921875, count: 59293"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.361287,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.273628302001498, max cpu: 38.17097, count: 118586"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.64916798251902, max mem: 45.3203125, count: 118586"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.718636981203913, max cpu: 23.166023, count: 59293"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.186167501855195, max mem: 28.70703125, count: 59293"
           }
         ]
       }

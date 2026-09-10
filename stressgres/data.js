@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789045032286,
+  "lastUpdate": 1789045041542,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345720,6 +345720,96 @@ window.BENCHMARK_DATA = {
             "value": 44.68359375,
             "unit": "median mem",
             "extra": "avg mem: 45.56530751129038, max mem: 52.38671875, count: 58789"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789045037017,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 64.0234375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 62.661271410008844, max partition_index_size:MB: 83.953125, count: 58778"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.263068534772007, max cpu: 33.300297, count: 58778"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.292167336737386, max mem: 53.125, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.969252989349382, max cpu: 33.283802, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.676656099008135, max mem: 68.37109375, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.495549,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.672815901156394, max cpu: 32.637203, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 53.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.24014764771683, max mem: 66.58984375, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.87842769894004, max cpu: 34.852764, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.76521429148661, max mem: 60.97265625, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.188465564868995, max cpu: 33.168808, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.522192282295244, max mem: 52.546875, count: 58778"
           }
         ]
       }

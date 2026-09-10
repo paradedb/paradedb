@@ -26,7 +26,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
-use pgrx::{IntoDatum, PgBox, PgList, direct_function_call, pg_sys};
+use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 use tantivy::TantivyDocument;
@@ -242,7 +242,21 @@ impl RowMatcher {
     }
 
     pub(super) unsafe fn matches(&mut self, row: pg_sys::Datum) -> Option<bool> {
-        pg_sys::ExecStoreHeapTupleDatum(row, self.slot);
+        let header = pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast();
+        let row_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
+            pgrx::heap_tuple_header_get_type_id(header),
+            pgrx::heap_tuple_header_get_typmod(header),
+        ));
+        let conversion =
+            pg_sys::convert_tuples_by_name(row_desc.as_ptr(), (*self.slot).tts_tupleDescriptor);
+        if conversion.is_null() {
+            pg_sys::ExecStoreHeapTupleDatum(header.into(), self.slot);
+        } else {
+            let tuple = pgrx::composite_row_type_make_tuple(header.into());
+            let converted = pg_sys::execute_attr_map_tuple(tuple.as_ptr(), conversion);
+            pg_sys::ExecForceStoreHeapTuple(converted, self.slot, true);
+            pg_sys::free_conversion_map(conversion);
+        }
         pg_sys::slot_getallattrs(self.slot);
 
         let natts = (*self.slot).tts_nvalid as usize;
@@ -283,6 +297,9 @@ impl RowMatcher {
         )
         .unwrap_or_else(|error| panic!("failed to index row for inline evaluation: {error}"));
         pg_sys::ExecClearTuple(self.slot);
+        if header != row.cast_mut_ptr() {
+            pg_sys::pfree(header.cast());
+        }
 
         // Tantivy queries execute against segment readers, so expose the row as a temporary segment.
         let mut writer = SerialIndexWriter::in_memory(

@@ -194,12 +194,15 @@ pub fn aggregate(
 #[pgrx::pg_schema]
 mod pdb {
     use pgrx::aggregate::{Aggregate, ParallelOption};
-    use pgrx::{Internal, JsonB, pg_extern, pgrx};
+    use pgrx::{Internal, JsonB, pg_extern};
 
     /// Placeholder aggregate for `pdb.agg(jsonb)`.
     ///
     /// This aggregate should never actually execute - it's intercepted at planning time
     /// for window functions or by AggregateScan for (GROUP BY) aggregate queries.
+    ///
+    /// It is marked `PARALLEL SAFE` so that queries containing `pdb.agg()` can
+    /// be parallelized by PostgreSQL with MPP (`DistributedExec`).
     ///
     /// Usage:
     /// ```sql
@@ -220,7 +223,6 @@ mod pdb {
         type State = Internal;
         type Finalize = JsonB;
 
-        #[pgrx(parallel_safe)]
         fn state(
             _current: Self::State,
             _arg: Self::Args,
@@ -234,7 +236,6 @@ mod pdb {
             )
         }
 
-        #[pgrx(parallel_safe)]
         fn finalize(
             _current: Self::State,
             _direct_arg: Self::OrderedSetArgs,
@@ -267,7 +268,6 @@ mod pdb {
         type State = Internal;
         type Finalize = JsonB;
 
-        #[pgrx(parallel_safe)]
         fn state(
             _current: Self::State,
             _arg: Self::Args,
@@ -281,7 +281,6 @@ mod pdb {
             )
         }
 
-        #[pgrx(parallel_safe)]
         fn finalize(
             _current: Self::State,
             _direct_arg: Self::OrderedSetArgs,
@@ -317,7 +316,6 @@ mod pdb {
         type State = Internal;
         type Finalize = JsonB;
 
-        #[pgrx(parallel_safe)]
         fn state(
             _current: Self::State,
             _arg: Self::Args,
@@ -331,7 +329,6 @@ mod pdb {
             )
         }
 
-        #[pgrx(parallel_safe)]
         fn finalize(
             _current: Self::State,
             _direct_arg: Self::OrderedSetArgs,

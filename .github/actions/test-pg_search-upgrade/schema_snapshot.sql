@@ -13,7 +13,7 @@
 -- comparable across databases with different OIDs.
 SELECT
     pg_describe_object(d.classid, d.objid, d.objsubid)
-    || COALESCE(' [parallel=' || p.proparallel || ']', '') AS object
+    || COALESCE(' [parallel=' || p.proparallel::text || ']', '') AS object
 FROM pg_depend d
 JOIN pg_extension e ON e.oid = d.refobjid
 LEFT JOIN pg_proc p ON d.classid = 'pg_proc'::regclass AND p.oid = d.objid

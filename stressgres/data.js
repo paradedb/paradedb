@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789043927033,
+  "lastUpdate": 1789043935419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313530,6 +313530,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 194.95072780816156, max segment_count: 360.0, count: 59425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96f0ec2970b0d162026971ab7413591156ae241",
+          "message": "chore: Extract an action to retry apt-get. (#6268)\n\nWe've seen flakiness in `apt-get` recently, including spurious 404s.\n\nExtract an action to do retry, ensuring that `apt-get update` (which\ndoes not reliably fail for unreachable repositories) is inside of the\nretry loop.",
+          "timestamp": "2026-09-10T05:19:35-07:00",
+          "tree_id": "0dc9b440dee411ebcc8ce4008c5dd15d8f883833",
+          "url": "https://github.com/paradedb/paradedb/commit/b96f0ec2970b0d162026971ab7413591156ae241"
+        },
+        "date": 1789043931451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.932159230673456, max cpu: 33.41621, count: 59424"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.523811796370154, max mem: 44.8203125, count: 59424"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.86051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.91118886195608, max cpu: 43.835617, count: 59424"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.32891987033858, max mem: 102.36328125, count: 59424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26799,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25521.353459881528, max block_count: 29552.0, count: 59424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.16277934841142, max segment_count: 360.0, count: 59424"
           }
         ]
       }

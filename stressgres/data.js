@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789032448209,
+  "lastUpdate": 1789032456314,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313080,6 +313080,66 @@ window.BENCHMARK_DATA = {
             "value": 169,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.63842464024236, max segment_count: 359.0, count: 59415"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "142809952+aryanpatel-ctrl@users.noreply.github.com",
+            "name": "aryanpatel-ctrl",
+            "username": "aryanpatel-ctrl"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "559f671aa9abfa7695b5a1f88a3f51c5b33671c1",
+          "message": "fix: avoid double-scaling Numeric64 hash-join InList filters (#6192)\n\n## Summary\n- Fixes hash-join dynamic `InList` pushdown double-scaling\nalready-scaled `Numeric64` Arrow `Int64` values, which caused JoinScan\nto drop matching probe rows.\n- Adds `PdbOwnedValue::from_execution_scalar` and uses it only in\n`try_convert_in_list_to_query`; leaves `from_scalar` unchanged for\nlogical SQL literals.\n- Adds `issue_6158` pg_regress coverage (native vs JoinScan, probe\n`dynamic_filter_pushdown_*=1`, negatives/zero/scale-0 edges).\n\nCloses #6158\n\n## Out of scope\n- #6100 (cross-scale Numeric64 joins)\n- #6104 (range-partition sampled bound double conversion)\n- #6102 (Numeric64 query-literal rounding)\n\n## Test plan\n- [x] `cargo pgrx regress issue_6158`\n- [x] Related regresses: `join_hash`,\n`join_hash_dynamic_filters_sparse`, `topk_dynamic_filter`,\n`numeric_pushdown`, `pushdown_numeric`, `filter_pushdown_datafusion`\n- [x] Unit tests for `from_execution_scalar` vs `from_scalar`\n- [x] Negative control: restoring `from_scalar` at the InList site\nreturns empty JoinScan results while pushdown still fires\n\n\nMade with [Cursor](https://cursor.com)",
+          "timestamp": "2026-09-10T02:07:43-07:00",
+          "tree_id": "33dc3d5f0504bedbec6661beaac9d0981b820be7",
+          "url": "https://github.com/paradedb/paradedb/commit/559f671aa9abfa7695b5a1f88a3f51c5b33671c1"
+        },
+        "date": 1789032452347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.380419,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.820778683336993, max cpu: 33.718014, count: 59425"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.40284431531342, max mem: 44.828125, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.962963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.91286556750316, max cpu: 43.39528, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.14989600862431, max mem: 102.22265625, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26618,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25350.530366007573, max block_count: 29177.0, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.95072780816156, max segment_count: 360.0, count: 59425"
           }
         ]
       }

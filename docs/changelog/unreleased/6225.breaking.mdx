@@ -1,9 +1,0 @@
----
-header: breaking
----
-
-Whole-row searches no longer implicitly target the index's key field. A bare query such as `t @@@ 'shoes'`
-now searches across indexed fields. Field-specific builders such as `t @@@ pdb.term('shoes')` now raise an
-error; use an indexed column instead, for example `t.description @@@ pdb.term('shoes')` or
-`t.description === 'shoes'`. Whole-row `pdb.all()`, `pdb.empty()`, and `pdb.parse()` queries remain supported,
-including score adjustments.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789150430115,
+  "lastUpdate": 1789151735022,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -322232,6 +322232,126 @@ window.BENCHMARK_DATA = {
             "value": 7.984673555477719,
             "unit": "median tps",
             "extra": "avg tps: 21.94593068747407, max tps: 1227.4366458575241, count: 57431"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789151731875,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 176.57089877349955,
+            "unit": "median tps",
+            "extra": "avg tps: 182.14065898073457, max tps: 218.6832325921641, count: 57423"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 319.093006334051,
+            "unit": "median tps",
+            "extra": "avg tps: 344.28694811084694, max tps: 500.6738561607038, count: 57423"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4014.020990083722,
+            "unit": "median tps",
+            "extra": "avg tps: 4003.9132642980994, max tps: 4252.7905771190635, count: 57423"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 183.07316236958636,
+            "unit": "median tps",
+            "extra": "avg tps: 189.65823465442153, max tps: 231.94107579719298, count: 57423"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3368.4345396162826,
+            "unit": "median tps",
+            "extra": "avg tps: 3355.152660711593, max tps: 3380.9807277881846, count: 57423"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3334.4697484880835,
+            "unit": "median tps",
+            "extra": "avg tps: 3330.1458057390464, max tps: 3633.4994524930435, count: 57423"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 155.02360579503247,
+            "unit": "median tps",
+            "extra": "avg tps: 159.1477272340391, max tps: 184.90136977065112, count: 57423"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 273.8406650523806,
+            "unit": "median tps",
+            "extra": "avg tps: 287.3580838160597, max tps: 383.06718388094845, count: 57423"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 515.706437184725,
+            "unit": "median tps",
+            "extra": "avg tps: 526.3015082464323, max tps: 594.6669388814046, count: 57423"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 591.4811633418143,
+            "unit": "median tps",
+            "extra": "avg tps: 606.7392182923311, max tps: 742.0597901896027, count: 57423"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1269.1087496632947,
+            "unit": "median tps",
+            "extra": "avg tps: 1268.3297592547626, max tps: 1312.7273330476362, count: 57423"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 332.21572493808594,
+            "unit": "median tps",
+            "extra": "avg tps: 364.97491289200684, max tps: 586.512925928281, count: 57423"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 539.9350066669502,
+            "unit": "median tps",
+            "extra": "avg tps: 552.2309257463096, max tps: 644.055604684822, count: 57423"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2290.705993447165,
+            "unit": "median tps",
+            "extra": "avg tps: 2290.4759165519313, max tps: 2317.7291687882753, count: 57423"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1721.3363256603561,
+            "unit": "median tps",
+            "extra": "avg tps: 1732.7478403266355, max tps: 2013.2869618438194, count: 57423"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.297836279772916,
+            "unit": "median tps",
+            "extra": "avg tps: 26.512746783756043, max tps: 1291.6926081598804, count: 57423"
           }
         ]
       }

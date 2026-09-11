@@ -30,3 +30,11 @@ improves the response times of "cold" queries (i.e. the first search query after
 CREATE EXTENSION pg_prewarm;
 SELECT pg_prewarm('search_idx');
 ```
+
+### Partition for Segment Pruning (Beta)
+
+<Warning>
+  `partition_by` is currently a **Beta** feature under active development.
+</Warning>
+
+For aggregates filtered by high-selectivity keys (such as `tenant_id` in multi-tenant applications) or date ranges, configuring [`partition_by`](/documentation/indexing/partition-by) allows ParadeDB to prune non-matching segments before computing the aggregate. This avoids scanning columnar fast fields across the entire table.

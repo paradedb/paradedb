@@ -27,7 +27,8 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{MergeStyle, do_merge};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
+    MVCCEntry, MutableFreeze, MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
@@ -64,6 +65,10 @@ impl InsertModeImmutable {
 
 pub struct InsertModeMutable {
     ctids: Vec<u64>,
+    /// Estimated indexed varlena bytes for `ctids` in this aminsert series (#5950).
+    estimated_bytes: u64,
+    /// Largest single-row byte estimate in this series (drives large-doc eager freeze).
+    max_row_bytes: u64,
     key_field_name: FieldName,
     key_field_attno: usize,
     row_limit: usize,
@@ -115,6 +120,8 @@ impl InsertState {
 
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
+                estimated_bytes: 0,
+                max_row_bytes: 0,
                 key_field_name,
                 key_field_attno,
                 row_limit: row_limit.into(),
@@ -316,17 +323,26 @@ unsafe fn insert(
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
             }
 
-            if mode.ctids.len() < mode.row_limit {
+            let row_bytes = estimate_index_tuple_bytes(&state.indexrel, values, isnull);
+            // Buffer while still under the row cap and while adding this row would not
+            // trip the byte / large-doc freeze (#5950). A large row that would freeze is
+            // not buffered — we flush any prior mutable rows and write it immutably.
+            let under_row_limit = mode.ctids.len() < mode.row_limit;
+            let next_estimated = mode.estimated_bytes.saturating_add(row_bytes);
+            let next_max_row = mode.max_row_bytes.max(row_bytes);
+            let under_byte_limit = !state
+                .indexrel
+                .options()
+                .should_freeze_mutable_bytes(next_estimated, next_max_row);
+            if under_row_limit && under_byte_limit {
                 mode.ctids.push(ctid);
+                mode.estimated_bytes = next_estimated;
+                mode.max_row_bytes = next_max_row;
                 return;
             }
 
-            // A large number of inserts have already occurred within this aminsert series:
-            // switch modes for this insert, based on the assumption that more are likely
-            // on the way.
-            //
-            // Swap in the new mode, cleanup the old one, and then recurse to insert in the new
-            // mode.
+            // Caps reached for this aminsert series: flush mutable buffer and continue as
+            // immutable for this and subsequent rows.
             let new_mode = InsertMode::Immutable(
                 InsertModeImmutable::new(&state.indexrel)
                     .expect("failed to open index for writing"),
@@ -365,8 +381,11 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
 }
 
 pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
-    let created_segment = match mode {
-        InsertMode::Immutable(mode) => insertcleanup_immutable(mode),
+    let merge_after = match mode {
+        InsertMode::Immutable(mode) => {
+            insertcleanup_immutable(mode);
+            MergeAfter::Background
+        }
         InsertMode::Mutable(mode) => unsafe { insertcleanup_mutable(&state.indexrel, mode) },
         InsertMode::Completed => {
             panic!("insertcleanup was called twice.");
@@ -389,26 +408,89 @@ pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
             .expect("index should belong to a heap relation");
         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
 
-        if created_segment {
+        if merge_after != MergeAfter::Skip {
+            let force_foreground = merge_after == MergeAfter::ForceForeground;
             do_merge(
                 &state.indexrel,
                 MergeStyle::Insert,
                 Some(pg_sys::GetCurrentFullTransactionId()),
                 Some(pg_sys::ReadNextFullTransactionId()),
+                force_foreground,
             )
             .expect("should be able to merge");
+
+            // A byte/row cap freeze leaves a frozen mutable that queries rematerialize
+            // from the heap (#5950). Convert it immediately, then run a follow-up
+            // consolidation pass so the new immutable can coalesce with peers left by
+            // earlier freezes (candidates are computed once per do_merge call).
+            if force_foreground {
+                do_merge(
+                    &state.indexrel,
+                    MergeStyle::Insert,
+                    Some(pg_sys::GetCurrentFullTransactionId()),
+                    Some(pg_sys::ReadNextFullTransactionId()),
+                    true,
+                )
+                .expect("should be able to consolidate freeze-merge products");
+
+                const MAX_FREEZE_MERGE_ROUNDS: usize = 8;
+                for _ in 0..MAX_FREEZE_MERGE_ROUNDS {
+                    if !has_frozen_mutable_segment(&state.indexrel) {
+                        break;
+                    }
+                    do_merge(
+                        &state.indexrel,
+                        MergeStyle::Insert,
+                        Some(pg_sys::GetCurrentFullTransactionId()),
+                        Some(pg_sys::ReadNextFullTransactionId()),
+                        true,
+                    )
+                    .expect("should be able to merge frozen mutable segments");
+                }
+            }
         }
     }
 }
 
-fn insertcleanup_immutable(mode: InsertModeImmutable) -> bool {
+unsafe fn has_frozen_mutable_segment(indexrel: &PgSearchRelation) -> bool {
+    MetaPage::open(indexrel)
+        .segment_metas()
+        .list(None)
+        .into_iter()
+        .any(|entry| {
+            entry.visible()
+                && matches!(
+                    entry.content,
+                    SegmentMetaEntryContent::Mutable(content) if content.frozen
+                )
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MergeAfter {
+    Skip,
+    /// A new segment was created; run the normal post-insert merge path.
+    Background,
+    /// A mutable segment was newly frozen; foreground-merge immediately (#5950).
+    ForceForeground,
+}
+
+fn insertcleanup_immutable(mode: InsertModeImmutable) {
     mode.writer
         .commit()
         .expect("must be able to commit inserts in insertcleanup");
-    true
 }
 
-unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMutable) -> bool {
+unsafe fn insertcleanup_mutable(
+    indexrel: &PgSearchRelation,
+    mode: InsertModeMutable,
+) -> MergeAfter {
+    if mode.ctids.is_empty() {
+        return MergeAfter::Skip;
+    }
+
+    let batch_bytes = mode.estimated_bytes;
+    let max_row_bytes = mode.max_row_bytes;
     let entries = mode
         .ctids
         .into_iter()
@@ -418,24 +500,43 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
     let mut segment_metas = MetaPage::open(indexrel).segment_metas();
 
     // Attempt to insert into an existing mutable segment.
+    let mut freeze = MutableFreeze::None;
     let inserted = segment_metas.update_item(
         |entry| {
             matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen)
         },
         |entry| {
-            entry.mutable_add_items(indexrel, &entries).expect("update_item guard not executed properly")
+            freeze = entry
+                .mutable_add_items(indexrel, &entries, batch_bytes, max_row_bytes)
+                .expect("update_item guard not executed properly");
         },
     );
 
     // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
     // `Result`.
     if inserted.is_ok() {
-        return false;
+        return match freeze {
+            // Byte / large-doc freeze: merge immediately so rematerialize cost cannot linger.
+            MutableFreeze::ByBytes => MergeAfter::ForceForeground,
+            // Row-only freeze on append: historical behavior left the frozen mutable for
+            // later merge without forcing foreground work on this write.
+            MutableFreeze::ByRows | MutableFreeze::None => MergeAfter::Skip,
+        };
     }
 
     // If we didn't find an existing mutable segment, create a new one.
-    let (content, mut items) = SegmentMetaEntryMutable::create(indexrel);
+    let (mut content, mut items) = SegmentMetaEntryMutable::create(indexrel);
     items.add_items(&entries, None);
+    content.estimated_bytes = batch_bytes;
+    // Row freeze happens in `mutable_add_items` on a later append (historical behavior:
+    // a newly created mutable is left unfrozen so the first write does not immediately
+    // merge). Byte / large-doc freeze must apply here (#5950).
+    let frozen_by_bytes = indexrel
+        .options()
+        .should_freeze_mutable_bytes(content.estimated_bytes, max_row_bytes);
+    if frozen_by_bytes {
+        content.frozen = true;
+    }
     let entry = SegmentMetaEntry::new_mutable(
         SegmentId::generate_random(),
         entries.len().try_into().unwrap(),
@@ -444,7 +545,41 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
     );
     segment_metas.add_items(&[entry], None);
 
-    true
+    if frozen_by_bytes {
+        MergeAfter::ForceForeground
+    } else {
+        MergeAfter::Background
+    }
+}
+
+/// Estimate the rematerialize cost proxy for one indexed tuple: primarily detoasted varlena size.
+unsafe fn estimate_index_tuple_bytes(
+    indexrel: &PgSearchRelation,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+) -> u64 {
+    let tupdesc = indexrel.tuple_desc();
+    let mut total = 0u64;
+    for (i, attribute) in tupdesc.iter().enumerate() {
+        if *isnull.add(i) {
+            continue;
+        }
+        let datum = *values.add(i);
+        let attlen = attribute.attlen;
+        if attlen == -1 {
+            // varlena: use full detoasted size — matches query-time rematerialize cost (#5950)
+            total = total.saturating_add(pg_sys::toast_datum_size(datum) as u64);
+        } else if attlen == -2 {
+            let ptr = datum.cast_mut_ptr::<std::os::raw::c_char>();
+            if !ptr.is_null() {
+                let len = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_bytes().len() as u64;
+                total = total.saturating_add(len + 1);
+            }
+        } else if attlen > 0 {
+            total = total.saturating_add(attlen as u64);
+        }
+    }
+    total
 }
 
 #[cfg(any(test, feature = "pg_test"))]

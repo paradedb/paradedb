@@ -17,7 +17,7 @@
 
 use std::cell::{Ref, RefCell};
 use std::ffi::CStr;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::rc::Rc;
 
 use crate::api::{FieldName, HashMap};
@@ -76,6 +76,18 @@ pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 
 pub(crate) const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub(crate) const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
+
+/// Default cap on estimated indexed varlena bytes buffered in a mutable segment (#5950).
+/// Sized for ~1000 small (~1KB) rows. Large documents also freeze eagerly once a single
+/// row reaches [`LARGE_DOC_EAGER_FREEZE_BYTES`], so PDF-sized updates do not wait for 1MB.
+pub(crate) const DEFAULT_MUTABLE_SEGMENT_BYTES: u64 = 1024 * 1024; // 1MB
+pub(crate) const DEFAULT_MUTABLE_SEGMENT_BYTES_STR: &str = "1MB";
+/// A single indexed row at or above this size eagerly freezes the mutable segment (#5950).
+/// Keeps large-document rematerialize cost near one doc while preserving small-doc buffering
+/// up to [`DEFAULT_MUTABLE_SEGMENT_BYTES`].
+pub(crate) const LARGE_DOC_EAGER_FREEZE_BYTES: u64 = 64 * 1024; // 64kB
+/// Upper bound for the global override GUC (1GB).
+pub(crate) const MAX_MUTABLE_SEGMENT_BYTES: i32 = 1024 * 1024 * 1024;
 
 pub(crate) const DEFAULT_CENTROID_RATIO: f64 = 0.01;
 pub(crate) const DEFAULT_TRAINING_SAMPLES_PER_CENTROID: usize = 32;
@@ -232,6 +244,36 @@ fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
     })
 }
 
+#[pg_guard]
+extern "C-unwind" fn validate_mutable_segment_bytes(value: *const std::os::raw::c_char) {
+    if value.is_null() {
+        return;
+    }
+    let cstr = unsafe { CStr::from_ptr(value) };
+    let s = cstr
+        .to_str()
+        .expect("`mutable_segment_bytes` must be valid UTF-8");
+    let _ = parse_mutable_segment_bytes(s);
+}
+
+/// Parse a single Postgres size string (`1MB`, `512kB`, `0`, …) for the mutable byte cap.
+///
+/// Returns `None` when the byte freeze is disabled (`0` / empty).
+fn parse_mutable_segment_bytes(s: &str) -> Option<NonZeroU64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return NonZeroU64::new(DEFAULT_MUTABLE_SEGMENT_BYTES);
+    }
+    let bytes = unsafe {
+        u64::try_from(
+            direct_function_call::<i64>(pg_sys::pg_size_bytes, &[s.into_datum()])
+                .expect("`pg_size_bytes()` should not return NULL"),
+        )
+        .expect("`mutable_segment_bytes` must be non-negative")
+    };
+    NonZeroU64::new(bytes)
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -244,7 +286,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 20;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -333,6 +375,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "mutable_segment_rows".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: std::mem::offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "mutable_segment_bytes".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, mutable_segment_bytes_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -473,6 +522,31 @@ impl BM25IndexOptions {
             Some(0) => None,
             _ => self.options_data().mutable_segment_rows(),
         }
+    }
+
+    /// Cap on estimated indexed bytes buffered in a mutable segment before it is frozen.
+    ///
+    /// `None` disables the byte freeze (row limit still applies when mutable segments are enabled).
+    /// When enabled, a single row at or above [`LARGE_DOC_EAGER_FREEZE_BYTES`] also freezes
+    /// immediately so large-document rematerialize cost cannot accumulate (#5950).
+    pub fn mutable_segment_bytes(&self) -> Option<NonZeroU64> {
+        match gucs::global_mutable_segment_bytes() {
+            Some(bytes) if bytes > 0 => NonZeroU64::new(bytes),
+            Some(0) => None,
+            _ => self.options_data().mutable_segment_bytes(),
+        }
+    }
+
+    /// Whether the mutable segment should freeze for byte / large-doc reasons (#5950).
+    ///
+    /// Returns `false` when the byte freeze is disabled (`mutable_segment_bytes = 0`).
+    pub fn should_freeze_mutable_bytes(&self, estimated_bytes: u64, max_row_bytes: u64) -> bool {
+        let Some(lim) = self.mutable_segment_bytes() else {
+            return false;
+        };
+        let lim = lim.get();
+        let eager = LARGE_DOC_EAGER_FREEZE_BYTES.min(lim);
+        estimated_bytes >= lim || max_row_bytes >= eager
     }
 
     pub fn centroid_ratio(&self) -> f32 {
@@ -836,6 +910,7 @@ struct BM25IndexOptionsData {
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
     mutable_segment_rows: i32,
+    mutable_segment_bytes_offset: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
     centroid_ratio: f64,
@@ -880,6 +955,14 @@ impl BM25IndexOptionsData {
         } else {
             None
         }
+    }
+
+    pub fn mutable_segment_bytes(&self) -> Option<NonZeroU64> {
+        let value = self.get_str(
+            self.mutable_segment_bytes_offset,
+            DEFAULT_MUTABLE_SEGMENT_BYTES_STR.to_string(),
+        );
+        parse_mutable_segment_bytes(&value)
     }
 
     pub fn centroid_ratio(&self) -> f32 {
@@ -1117,6 +1200,14 @@ pub unsafe fn init() {
         DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
         0,
         MAX_MUTABLE_SEGMENT_ROWS as i32,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "mutable_segment_bytes".as_pg_cstr(),
+        "Max estimated indexed bytes buffered in a mutable segment before freeze (e.g. '1MB'; 0 disables)".as_pg_cstr(),
+        DEFAULT_MUTABLE_SEGMENT_BYTES_STR.as_pg_cstr(),
+        Some(validate_mutable_segment_bytes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

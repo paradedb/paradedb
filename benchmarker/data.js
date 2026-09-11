@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134544914,
+  "lastUpdate": 1789139596807,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3026,6 +3026,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.091,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a175c6771e3f8b30264e9b9e06923822194edc21",
+          "message": "perf: pushed down join InList filters on `uuid` keys. (#6278)\n\n## Ticket(s) Closed\n\n- Partially closes #6276\n\n## What\n\nThis PR makes the hash-join `InList` dynamic filter reach tantivy when\nthe join key is a `uuid` or a tokenizer-cast text column.\n\n## Why\n\n`PdbOwnedValue::from_scalar` mapped the Utf8 family onto\n`SearchFieldType::Text` only. `Uuid` and `Tokenized` store as `Utf8View`\ntoo, so the join-derived `InList` produced no term and\n`try_convert_in_list_to_query` gave up. The predicate showed up only as\na post-search pre-filter, which drops rows after the scan has already\nread and materialized them. So the probe side read every document in the\nindex.\n\n`Inet`, `Json`, `Range` and `Ltree` are `Utf8View`-backed as well but\nare not checked here. `Inet` stores as a tantivy IP field and the other\nthree carry path, bound or facet encoding. The pushdown rewrites the\nDataFusion filter to `lit(true)`, so nothing rechecks the term. A term\nbuilt the wrong way would silently drop rows that should match.\n\nThe `paradedb.hash_join_inlist_pushdown_max_distinct_values` cap still\napplies, so a build side above it keeps the old behaviour.\n\n## How\n\nWiden the string arm in `from_scalar` to accept `Text`, `Tokenized` and\n`Uuid`.\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/join_dynamic_filter_string_keys.sql`\n\nOn a 5,000 row probe with 20 build keys, `rows_scanned` drops from 5,000\nto 20.\n\nStep 1, build the fixture from #6276 and pick the group below the cap.\n\n```sql\nSET max_parallel_workers_per_gather = 0;\n\nEXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)\nSELECT parent.* FROM parent\nJOIN child ON child.parent_id = parent.id\nWHERE parent.id @@@ paradedb.all()\n  AND parent.deleted_at IS NULL\n  AND parent.group_id = md5('g2')::uuid\n  AND parent.active = true\n  AND child.amount >= 0\nORDER BY parent.created_at DESC, parent.id DESC\nLIMIT 25;\n```\n\nStep 2, read `rows_scanned` on the `child` scan. It goes from `1.00 M`\nto `10.18 K`.\n\nIssue #6276 stays open. The join still materializes every matching row\nbefore the Top-K, so it does work proportional to the build side rather\nthan to the 25 rows asked for. That part needs an ordered outer scan\nwith early exit, which is not in here.",
+          "timestamp": "2026-09-11T16:53:06+02:00",
+          "tree_id": "ce58b96090ce19c704141ca93fc1db1cbe0857cc",
+          "url": "https://github.com/paradedb/paradedb/commit/a175c6771e3f8b30264e9b9e06923822194edc21"
+        },
+        "date": 1789139592379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6467018097293777,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.579,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.065,
             "unit": "ms"
           }
         ]

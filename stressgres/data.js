@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789056776442,
+  "lastUpdate": 1789086633860,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -304368,6 +304368,54 @@ window.BENCHMARK_DATA = {
             "value": 24.115876379173375,
             "unit": "median tps",
             "extra": "avg tps: 38.470436510283015, max tps: 425.7649118023003, count: 59289"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086629849,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 24.074330962509094,
+            "unit": "median tps",
+            "extra": "avg tps: 34.35779316863845, max tps: 194.81589438563972, count: 59260"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 24.650356465190832,
+            "unit": "median tps",
+            "extra": "avg tps: 38.85039544002524, max tps: 444.8673887006337, count: 59260"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 27.58442925261988,
+            "unit": "median tps",
+            "extra": "avg tps: 45.75805061604534, max tps: 585.8951204634039, count: 59260"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 24.525559224566642,
+            "unit": "median tps",
+            "extra": "avg tps: 38.63713008521065, max tps: 436.57613441073187, count: 59260"
           }
         ]
       }

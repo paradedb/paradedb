@@ -61,11 +61,12 @@ WARNING:  JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains 
                      Worker Selection: Row-capped
                      Exec Method: NormalScanExecState
                      Scores: false
+                     Full Index Scan: true
                      Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                      SubPlan 1
                        ->  Seq Scan on public.companies c
                              Output: c.id
-(19 rows)
+(20 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -116,11 +117,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c,
                Worker Selection: Row-capped
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                SubPlan 1
                  ->  Seq Scan on public.companies c
                        Output: c.id
-(17 rows)
+(18 rows)
 
 SELECT DISTINCT
     p.id AS id,

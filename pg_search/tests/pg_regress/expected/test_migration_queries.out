@@ -694,8 +694,9 @@ SELECT * FROM products WHERE id @@@ pdb.all() ORDER BY id;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(8 rows)
+(9 rows)
 
 SELECT * FROM products WHERE id @@@ pdb.all() ORDER BY id;
  id |           description            |  category   | rating | price  |        created_at        

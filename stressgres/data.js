@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135578644,
+  "lastUpdate": 1789135593974,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -320462,6 +320462,126 @@ window.BENCHMARK_DATA = {
             "value": 12.991913244230057,
             "unit": "median tps",
             "extra": "avg tps: 27.33026929102429, max tps: 1333.7903788364813, count: 57422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135589765,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 169.35451203341213,
+            "unit": "median tps",
+            "extra": "avg tps: 175.10869358766357, max tps: 217.00024994515675, count: 57425"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 273.75094795098596,
+            "unit": "median tps",
+            "extra": "avg tps: 303.19196645619945, max tps: 486.42193091396706, count: 57425"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4061.153780059952,
+            "unit": "median tps",
+            "extra": "avg tps: 4048.8381309141923, max tps: 4321.265958075078, count: 57425"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 174.89172212329407,
+            "unit": "median tps",
+            "extra": "avg tps: 181.2994471463287, max tps: 231.27516849726777, count: 57425"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3409.9432794325558,
+            "unit": "median tps",
+            "extra": "avg tps: 3414.0123676177473, max tps: 3517.1735127091665, count: 57425"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3352.860292796,
+            "unit": "median tps",
+            "extra": "avg tps: 3330.298402842289, max tps: 3412.2830876743938, count: 57425"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 149.438811440443,
+            "unit": "median tps",
+            "extra": "avg tps: 153.22985281513388, max tps: 180.4787594247235, count: 57425"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 259.09693128130596,
+            "unit": "median tps",
+            "extra": "avg tps: 271.7006683995502, max tps: 366.9167289108622, count: 57425"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 499.5153733568486,
+            "unit": "median tps",
+            "extra": "avg tps: 507.94134383324746, max tps: 559.8217415089922, count: 57425"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 567.1601437983261,
+            "unit": "median tps",
+            "extra": "avg tps: 580.8254688828149, max tps: 662.9172658960425, count: 57425"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1265.6860493734769,
+            "unit": "median tps",
+            "extra": "avg tps: 1266.1097207094506, max tps: 1278.2147609125973, count: 57425"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 302.83446609937675,
+            "unit": "median tps",
+            "extra": "avg tps: 331.13168352120283, max tps: 550.5889486846613, count: 57425"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 521.0438063284483,
+            "unit": "median tps",
+            "extra": "avg tps: 531.8523087051984, max tps: 601.5454147293593, count: 57425"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2313.917778852235,
+            "unit": "median tps",
+            "extra": "avg tps: 2316.446978392692, max tps: 2492.8370503644096, count: 57425"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1713.3361418158354,
+            "unit": "median tps",
+            "extra": "avg tps: 1717.342126358174, max tps: 2135.9009710873765, count: 57425"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 38.746570181936356,
+            "unit": "median tps",
+            "extra": "avg tps: 40.74872457544966, max tps: 788.4159619541994, count: 57425"
           }
         ]
       }

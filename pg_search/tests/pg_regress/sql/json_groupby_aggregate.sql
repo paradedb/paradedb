@@ -30,7 +30,6 @@ INSERT INTO json_test_single (metadata, data) VALUES
 CREATE INDEX idx_json_single ON json_test_single
 USING paradedb (id, metadata, data)
 WITH (
-    key_field = 'id',
     json_fields = '{
         "metadata": {"indexed": true, "fast": true, "expand_dots": true},
         "data": {"indexed": true, "fast": true, "expand_dots": true}
@@ -74,7 +73,6 @@ INSERT INTO json_test_multiple (metadata) VALUES
 CREATE INDEX idx_json_multiple ON json_test_multiple
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -121,7 +119,6 @@ INSERT INTO json_test_aggregates (metadata) VALUES
 CREATE INDEX idx_json_aggregates ON json_test_aggregates
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -245,7 +242,6 @@ INSERT INTO json_test_nulls (metadata) VALUES
 CREATE INDEX idx_json_nulls ON json_test_nulls
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -286,7 +282,6 @@ INSERT INTO ledger_transactions (metadata_json, amount) VALUES
 CREATE INDEX idx_ledger_json ON ledger_transactions
 USING paradedb (id, metadata_json, amount)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -329,7 +324,6 @@ INSERT INTO json_test_deep (config) VALUES
 CREATE INDEX idx_json_deep ON json_test_deep
 USING paradedb (id, config)
 WITH (
-    key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -387,7 +381,6 @@ INSERT INTO json_test_mixed (data) VALUES
 CREATE INDEX idx_json_mixed ON json_test_mixed
 USING paradedb (id, data)
 WITH (
-    key_field = 'id',
     json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -466,7 +459,6 @@ INSERT INTO json_test_operators (payload) VALUES
 CREATE INDEX idx_json_operators ON json_test_operators
 USING paradedb (id, payload)
 WITH (
-    key_field = 'id',
     json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -546,7 +538,6 @@ INSERT INTO json_test_complex (document) VALUES
 CREATE INDEX idx_json_complex ON json_test_complex
 USING paradedb (id, document)
 WITH (
-    key_field = 'id',
     json_fields = '{"document": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -620,7 +611,6 @@ INSERT INTO json_test_reconstruction (config) VALUES
 CREATE INDEX idx_json_reconstruction ON json_test_reconstruction
 USING paradedb (id, config)
 WITH (
-    key_field = 'id',
     json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 
@@ -715,7 +705,6 @@ INSERT INTO json_test_multi_subfields (user_profile, order_details) VALUES
 CREATE INDEX idx_json_multi_subfields ON json_test_multi_subfields
 USING paradedb (id, user_profile, order_details)
 WITH (
-    key_field = 'id',
     json_fields = '{
         "user_profile": {"indexed": true, "fast": true, "expand_dots": true},
         "order_details": {"indexed": true, "fast": true, "expand_dots": true}
@@ -851,7 +840,6 @@ INSERT INTO json_test_special (content) VALUES
 CREATE INDEX idx_json_special ON json_test_special
 USING paradedb (id, content)
 WITH (
-    key_field = 'id',
     json_fields = '{"content": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 

@@ -28,7 +28,6 @@ CREATE TABLE delvec (
 CREATE INDEX delvec_idx ON delvec
     USING paradedb (id, label, vec vector_l2_ops)
     WITH (
-        key_field = id,
         target_segment_count = 1,
         mutable_segment_rows = 0,
         layer_sizes = '600kb',

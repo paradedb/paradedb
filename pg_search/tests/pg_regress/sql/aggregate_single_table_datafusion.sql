@@ -37,7 +37,6 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );

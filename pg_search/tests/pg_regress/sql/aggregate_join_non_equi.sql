@@ -64,7 +64,6 @@ INSERT INTO agg_nonequi_tiers (description, tier_name, threshold_price) VALUES
 CREATE INDEX agg_nonequi_products_idx ON agg_nonequi_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
 );
@@ -72,7 +71,6 @@ WITH (
 CREATE INDEX agg_nonequi_promos_idx ON agg_nonequi_promos
 USING paradedb (id, description, promo_code, min_price, max_price, min_rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "promo_code": {"fast": true}}',
     numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
 );
@@ -80,7 +78,6 @@ WITH (
 CREATE INDEX agg_nonequi_tiers_idx ON agg_nonequi_tiers
 USING paradedb (id, description, tier_name, threshold_price)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "tier_name": {"fast": true}}',
     numeric_fields = '{"threshold_price": {"fast": true}}'
 );

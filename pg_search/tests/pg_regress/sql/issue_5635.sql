@@ -57,7 +57,7 @@ USING paradedb (
     id,
     (document_id::pdb.literal),
     (title::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id');
+);
 
 SET paradedb.enable_join_custom_scan = on;
 

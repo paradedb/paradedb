@@ -46,7 +46,6 @@ WHERE i % 3 = 0 AND i % 15 = 0;
 CREATE INDEX items_idx ON items
 USING paradedb (id, name, alt_name, category)
 WITH (
-    key_field = id,
     text_fields = '{
         "name": {"fast": true, "tokenizer": {"type": "keyword"}},
         "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
@@ -57,7 +56,6 @@ WITH (
 CREATE INDEX exclusions_idx ON exclusions
 USING paradedb (id, pattern, reason)
 WITH (
-    key_field = id,
     text_fields = '{
         "pattern": {"fast": true, "tokenizer": {"type": "keyword"}},
         "reason": {"fast": true, "tokenizer": {"type": "keyword"}}
@@ -488,7 +486,6 @@ WHERE i % 5 = 0;
 CREATE INDEX items_vc_idx ON items_vc
 USING paradedb (id, name, alt_name, category)
 WITH (
-    key_field = id,
     text_fields = '{
         "name": {"fast": true, "tokenizer": {"type": "keyword"}},
         "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
@@ -499,7 +496,6 @@ WITH (
 CREATE INDEX exclusions_vc_idx ON exclusions_vc
 USING paradedb (id, pattern)
 WITH (
-    key_field = id,
     text_fields = '{
         "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
     }'
@@ -992,14 +988,12 @@ INSERT INTO coll_patterns (id, pattern) VALUES
 CREATE INDEX coll_items_idx ON coll_items
     USING paradedb (id, name, pattern_id)
     WITH (
-        key_field = id,
         text_fields = '{"name": {"fast": true, "tokenizer": {"type": "keyword"}}}',
         numeric_fields = '{"pattern_id": {"fast": true}}'
     );
 CREATE INDEX coll_patterns_idx ON coll_patterns
     USING paradedb (id, pattern)
     WITH (
-        key_field = id,
         text_fields = '{"pattern": {"fast": true, "tokenizer": {"type": "keyword"}}}'
     );
 

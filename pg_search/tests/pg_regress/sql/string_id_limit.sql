@@ -13,7 +13,6 @@ CREATE INDEX comments_search ON comments USING paradedb (
 	id, customer_id, text
 )
 WITH (
-	key_field='id',
 	text_fields='{
 		"id": {"tokenizer": {"type": "keyword"}, "fast": true},
 		"customer_id": {

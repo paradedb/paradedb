@@ -8,7 +8,7 @@ CREATE INDEX test_bm25 ON test
 USING paradedb (
 	id,
 	(lower(description)::pdb.literal_normalized('ascii_folding=true'))
-) WITH (key_field = id);
+);
 
 SELECT * FROM paradedb.schema('test_bm25');
 

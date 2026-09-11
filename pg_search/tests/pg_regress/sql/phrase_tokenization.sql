@@ -13,7 +13,6 @@ INSERT INTO test_phrase_table (flavour) VALUES
 
 CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, flavour)
     WITH (
-    key_field = 'id',
     text_fields = '{
             "flavour": {
                 "tokenizer": {"type": "default"}

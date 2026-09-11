@@ -135,7 +135,6 @@ fn test_index_fields(mut conn: PgConnection) {
         CREATE INDEX idx_test_fields ON test_fields USING paradedb (
             id, title, price, in_stock, metadata, price_range, created_at
         ) WITH (
-            key_field='id',
             text_fields='{"title": {"fast": true}}',
             numeric_fields='{"price": {}}',
             boolean_fields='{"in_stock": {}}',

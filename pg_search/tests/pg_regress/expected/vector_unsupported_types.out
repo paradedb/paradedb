@@ -13,12 +13,12 @@ CREATE TABLE unsupported_vec_types (
     bv bit(3)
 );
 -- halfvec: halfvec_l2_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, hv halfvec_l2_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, hv halfvec_l2_ops);
 ERROR:  operator class "halfvec_l2_ops" does not exist for access method "paradedb"
 -- sparsevec: sparsevec_l2_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, sv sparsevec_l2_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, sv sparsevec_l2_ops);
 ERROR:  operator class "sparsevec_l2_ops" does not exist for access method "paradedb"
 -- bit: bit_hamming_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, bv bit_hamming_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, bv bit_hamming_ops);
 ERROR:  operator class "bit_hamming_ops" does not exist for access method "paradedb"
 DROP TABLE unsupported_vec_types;

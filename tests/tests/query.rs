@@ -521,8 +521,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -560,8 +559,7 @@ fn more_like_this_text(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -592,8 +590,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -627,8 +624,7 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -661,8 +657,7 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -696,8 +691,7 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -730,8 +724,7 @@ fn more_like_this_literal_cast(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, year)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, year);
     "#
     .execute(&mut conn);
 
@@ -764,8 +757,7 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -798,8 +790,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -831,8 +822,7 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -866,8 +856,7 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -899,8 +888,7 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -933,8 +921,7 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -968,8 +955,7 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -1003,8 +989,7 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -1037,8 +1022,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour)
-        WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING paradedb (id, flavour);
     "#
     .execute(&mut conn);
 
@@ -1144,8 +1128,7 @@ fn range_term(mut conn: PgConnection) {
     );
 
     CREATE INDEX deliveries_idx ON deliveries
-    USING paradedb (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
-    WITH (key_field = 'delivery_id');
+    USING paradedb (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times);
     "#
     .execute(&mut conn);
 

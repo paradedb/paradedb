@@ -6,8 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description)
-WITH (key_field='id');
+USING paradedb (id, description);
 
 SET plan_cache_mode = force_generic_plan;
 

@@ -59,7 +59,7 @@ fn setup(conn: &mut PgConnection, mutable_segment_rows: usize) {
     DROP TABLE IF EXISTS test_table;
     CREATE TABLE test_table (id SERIAL8 PRIMARY KEY, message TEXT);
     CREATE INDEX idx_test_table ON test_table USING paradedb (id, message)
-    WITH (key_field = 'id', text_fields='{{"message": {{ "tokenizer": {{"type": "default"}} }} }}', mutable_segment_rows={mutable_segment_rows});
+    WITH (text_fields='{{"message": {{ "tokenizer": {{"type": "default"}} }} }}', mutable_segment_rows={mutable_segment_rows});
     ANALYZE test_table;
     "#)
     .execute(conn);

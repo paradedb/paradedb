@@ -34,7 +34,7 @@ INSERT INTO numeric64_test (price, quantity, rate) VALUES
 
 CREATE INDEX numeric64_idx ON numeric64_test USING paradedb (
     id, price, quantity, rate
-) WITH (key_field = 'id');
+);
 
 -- Test 1.1: Equality on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -144,7 +144,7 @@ INSERT INTO numeric_bytes_test (big_value, huge_precision) VALUES
 
 CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING paradedb (
     id, big_value, huge_precision
-) WITH (key_field = 'id');
+);
 
 -- Test 2.1: Equality on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -226,7 +226,7 @@ INSERT INTO numeric_mixed_test (small_numeric, large_numeric, unlimited_numeric)
 
 CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING paradedb (
     id, small_numeric, large_numeric, unlimited_numeric
-) WITH (key_field = 'id');
+);
 
 -- Test 3.1: Query on small NUMERIC (Numeric64)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -286,7 +286,7 @@ INSERT INTO numeric_edge_test (val) VALUES
 
 CREATE INDEX numeric_edge_idx ON numeric_edge_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Test 4.1: Zero value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -361,7 +361,7 @@ INSERT INTO numeric_precision_test (big_int) VALUES
 
 CREATE INDEX numeric_precision_idx ON numeric_precision_test USING paradedb (
     id, big_int
-) WITH (key_field = 'id');
+);
 
 -- This should find exactly 1 row - the value 123456789012345678
 -- If f64 conversion loses precision, this might return wrong results
@@ -412,7 +412,7 @@ INSERT INTO numeric_bytes_precision_test (precise_value) VALUES
 
 CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING paradedb (
     id, precise_value
-) WITH (key_field = 'id');
+);
 
 -- This should find exactly 1 row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -453,7 +453,7 @@ INSERT INTO int8range_precision_test (val) VALUES
 
 CREATE INDEX int8range_precision_idx ON int8range_precision_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for 9007199254740993 - should find only row 1
 -- If we used f64 conversion, this would fail because 9007199254740993 rounds to 9007199254740992 in f64
@@ -492,7 +492,7 @@ INSERT INTO numrange_precision_test (val) VALUES
 
 CREATE INDEX numrange_precision_idx ON numrange_precision_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for 9007199254740995 - should find row 2
 -- With hex-encoded sortable bytes, BM25 preserves full precision and matches PostgreSQL.
@@ -533,7 +533,7 @@ INSERT INTO numeric_array_test (vals) VALUES
 
 CREATE INDEX numeric_array_idx ON numeric_array_test USING paradedb (
     id, vals
-) WITH (key_field = 'id');
+);
 
 -- Query for array containing value 2.5
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -565,7 +565,7 @@ INSERT INTO numeric_array_precision_test (small_precision, large_precision) VALU
 
 CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING paradedb (
     id, small_precision, large_precision
-) WITH (key_field = 'id');
+);
 
 -- Query small_precision array
 SELECT * FROM numeric_array_precision_test
@@ -595,7 +595,7 @@ INSERT INTO large_decimal_test (val) VALUES
 
 CREATE INDEX large_decimal_idx ON large_decimal_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for exact match - should find only row 1
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -639,7 +639,7 @@ INSERT INTO large_decimal_range_test (val) VALUES
 
 CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Range query should find rows 2, 3, 4 (exclusive bounds)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -678,7 +678,7 @@ INSERT INTO numrange_large_decimal_test (val) VALUES
 
 CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for value in row 2's range
 SELECT * FROM numrange_large_decimal_test
@@ -706,7 +706,7 @@ INSERT INTO numeric64_max_precision_test (val) VALUES
 
 CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for exact match
 SELECT * FROM numeric64_max_precision_test
@@ -745,7 +745,7 @@ INSERT INTO numeric64_decimal_compare_test (val) VALUES
 
 CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Exact decimal match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -802,7 +802,7 @@ INSERT INTO numeric_large_precision_test (val) VALUES
 
 CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Exact match on large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -856,7 +856,7 @@ INSERT INTO numeric_very_large_test (val) VALUES
 
 CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query on very large precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -896,7 +896,7 @@ INSERT INTO numeric_unbounded_test (val) VALUES
 
 CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query exact match on unbounded
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -950,7 +950,7 @@ INSERT INTO numeric_high_scale_test (val) VALUES
 
 CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query on high-scale numeric
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -987,7 +987,7 @@ INSERT INTO numeric_unbounded_agg_test (category, amount) VALUES
 
 CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING paradedb (
     id, category, amount
-) WITH (key_field = 'id');
+);
 
 -- SUM aggregate on unbounded NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1026,7 +1026,7 @@ INSERT INTO numeric_mixed_precision_test (bounded_high, unbounded) VALUES
 
 CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING paradedb (
     id, bounded_high, unbounded
-) WITH (key_field = 'id');
+);
 
 -- Query on bounded high-precision
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1113,7 +1113,7 @@ INSERT INTO float8_test (value) VALUES
 
 CREATE INDEX float8_idx ON float8_test USING paradedb (
     id, value
-) WITH (key_field = 'id');
+);
 
 -- Equality query on F64 field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1164,7 +1164,7 @@ INSERT INTO sci_notation_test (val) VALUES
 
 CREATE INDEX sci_notation_idx ON sci_notation_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query with scientific notation comparison
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1210,7 +1210,7 @@ INSERT INTO small_decimal_test (val) VALUES
 
 CREATE INDEX small_decimal_idx ON small_decimal_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Exact match on very small value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1256,7 +1256,7 @@ INSERT INTO max_scale_test (val) VALUES
 
 CREATE INDEX max_scale_idx ON max_scale_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1318,7 +1318,7 @@ INSERT INTO negative_scale_test (val) VALUES
 
 CREATE INDEX negative_scale_idx ON negative_scale_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Exact match
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1403,7 +1403,7 @@ INSERT INTO nan_numeric64_test (val) VALUES
 -- If insert succeeded, create index and test queries
 CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for NaN in Numeric64 storage
 SELECT * FROM nan_numeric64_test
@@ -1501,7 +1501,7 @@ INSERT INTO nan_numeric_bytes_test (val) VALUES
 -- If insert succeeded, create index and test queries
 CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for NaN in NumericBytes storage
 SELECT * FROM nan_numeric_bytes_test
@@ -1580,7 +1580,7 @@ INSERT INTO special_values_test (val) VALUES
 
 CREATE INDEX special_values_idx ON special_values_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Query for regular value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1776,7 +1776,7 @@ INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
 
 CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING paradedb (
     id, val_small, val_large
-) WITH (key_field = 'id');
+);
 
 -- Test: Exact match on NUMERIC(5) - should use Numeric64 storage with scale=0
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1842,7 +1842,7 @@ INSERT INTO numeric_explicit_scale_zero (implicit_scale, explicit_scale) VALUES
 
 CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING paradedb (
     id, implicit_scale, explicit_scale
-) WITH (key_field = 'id');
+);
 
 -- Both columns should produce identical results
 SELECT * FROM numeric_explicit_scale_zero
@@ -1881,7 +1881,7 @@ INSERT INTO empty_range_test (val) VALUES
 
 CREATE INDEX empty_range_idx ON empty_range_test USING paradedb (
     id, val
-) WITH (key_field = 'id');
+);
 
 -- Empty numrange should match nothing (not even rows with value 0)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1928,7 +1928,7 @@ INSERT INTO window_agg_numeric64_test (category, price) VALUES
 
 CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING paradedb (
     id, category, price
-) WITH (key_field = 'id');
+);
 
 -- Window aggregate SUM on Numeric64 field in Top K query - should be pushed down
 -- Note: Must have ORDER BY and LIMIT for window aggregate pushdown
@@ -1984,7 +1984,7 @@ INSERT INTO window_agg_numericbytes_test (category, amount) VALUES
 
 CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING paradedb (
     id, category, amount
-) WITH (key_field = 'id');
+);
 
 -- Window aggregate on NumericBytes field in Top K query should error
 -- This query should fail with an error about NumericBytes not being aggregatable
@@ -2015,7 +2015,7 @@ INSERT INTO window_agg_highprec_test (category, value) VALUES
 
 CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING paradedb (
     id, category, value
-) WITH (key_field = 'id');
+);
 
 -- Window aggregate on high-precision NUMERIC in Top K query should error
 SELECT id, category, value,

@@ -13,16 +13,14 @@ CREATE INDEX idxexpr
                     id,
                     -- will cause an ERROR as it needs to be cast to a tokenizer
                     (lower(t))
-            )
-    WITH (key_field = 'id');
+            );
 
 CREATE INDEX idxexpr
     ON expr
         USING paradedb (
                     id,
                     (lower(t)::pdb.literal)
-            )
-    WITH (key_field = 'id');
+            );
 
 SELECT * FROM paradedb.schema('idxexpr') ORDER BY name;
 

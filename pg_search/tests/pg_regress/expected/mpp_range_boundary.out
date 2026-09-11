@@ -43,13 +43,13 @@ ANALYZE rb_comments;
 -- A serial build keeps the worker-count warning deterministic.
 SET max_parallel_maintenance_workers TO 0;
 CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
-WITH (key_field='id', target_segment_count=8, partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
+WITH (target_segment_count=8, partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
-WITH (key_field='id', target_segment_count=8, partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
+WITH (target_segment_count=8, partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
 WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
-WITH (key_field='id', target_segment_count=8, partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
+WITH (target_segment_count=8, partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
 WARNING:  only 0 parallel workers were available for index build
 CREATE TABLE rb_outcome (line text);
 SET statement_timeout = '120s';

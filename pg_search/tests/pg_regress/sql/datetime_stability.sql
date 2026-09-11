@@ -28,7 +28,6 @@ INSERT INTO events (description, occurred_at, occurred_at_tz) VALUES
 CREATE INDEX events_idx ON events
 USING paradedb (id, description, occurred_at, occurred_at_tz)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}}'
 );
 

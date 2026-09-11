@@ -36,9 +36,9 @@ CREATE TABLE mpp_ws_outcome (line text);
 CREATE TABLE mpp_ws_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws_products (id bigserial PRIMARY KEY, name text, age int);
 CREATE INDEX mpp_ws_users_idx ON mpp_ws_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 CREATE INDEX mpp_ws_products_idx ON mpp_ws_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws_users (name, age)
@@ -57,9 +57,9 @@ ANALYZE mpp_ws_products;
 CREATE TABLE mpp_ws1_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws1_products (id bigserial PRIMARY KEY, name text, age int);
 CREATE INDEX mpp_ws1_users_idx ON mpp_ws1_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 CREATE INDEX mpp_ws1_products_idx ON mpp_ws1_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws1_users (name, age)
@@ -329,9 +329,9 @@ RESET plan_cache_mode;
 CREATE TABLE mpp_ws4_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws4_products (id bigserial PRIMARY KEY, name text, age int);
 CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+WITH (text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws4_users (name, age)

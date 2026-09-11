@@ -14,7 +14,7 @@ INSERT INTO exists_json (description, data) VALUES ('CEO', NULL);
 INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 
 CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, data)
-WITH (key_field = 'id', json_fields = '{"data": {"fast": true}}');
+WITH (json_fields = '{"data": {"fast": true}}');
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description @@@ 'CEO';

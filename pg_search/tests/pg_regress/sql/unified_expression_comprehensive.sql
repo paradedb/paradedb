@@ -48,7 +48,7 @@ CREATE INDEX products_bm25_idx ON products USING paradedb (
     id,
     name,
     description
-) WITH (key_field = 'id');
+);
 
 -- Test Case 1: Query using only indexed columns - should return proper scores
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

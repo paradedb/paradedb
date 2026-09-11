@@ -43,7 +43,6 @@ INSERT INTO fb_reviews (product_id, rating) VALUES
 CREATE INDEX fb_products_idx ON fb_products
 USING paradedb (id, description, category, price)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}}'
 );
@@ -51,7 +50,6 @@ WITH (
 CREATE INDEX fb_tags_idx ON fb_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
@@ -59,7 +57,6 @@ WITH (
 CREATE INDEX fb_reviews_idx ON fb_reviews
 USING paradedb (id, product_id, rating)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
 );
 

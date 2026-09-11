@@ -52,7 +52,7 @@ CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, categor
 WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
 
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+WITH (text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -342,7 +342,7 @@ CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb (id, categor
 WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "category": {"fast": true}}');
 
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
+WITH (text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
 
 -- Insert 50K files across multiple segments (mutable_segment_rows=5000).
 -- Round-robin across the 5 documents. Titles zero-padded for clean sort.

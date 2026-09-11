@@ -19,7 +19,7 @@ INSERT INTO autocomplete (title) VALUES
 
 CREATE INDEX idx_autocomplete ON autocomplete USING paradedb
     (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
-    WITH (key_field = 'id', search_tokenizer = 'unicode_words');
+    WITH (search_tokenizer = 'unicode_words');
 
 -- "sho" stays as one token at search time -> matches titles with prefix "sho"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -51,7 +51,7 @@ INSERT INTO param_test (content) VALUES
 
 CREATE INDEX idx_param ON param_test USING paradedb
     (id, content)
-    WITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)');
+    WITH (search_tokenizer = 'simple(lowercase=false)');
 
 -- "Running" not lowered at search time -> no match against lowered index tokens -> 0 rows
 SELECT id, content FROM param_test WHERE content ||| 'Running' ORDER BY id;
@@ -65,8 +65,7 @@ SELECT id, content FROM param_test WHERE content ||| 'running' ORDER BY id;
 
 -- search_tokenizer should only be set as a WITH option, not per-field
 CREATE INDEX idx_bad ON autocomplete
-    USING paradedb (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')))
-    WITH (key_field = 'id');
+    USING paradedb (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')));
 
 -------------------------------------------------------------
 -- Cleanup

@@ -34,7 +34,6 @@ CREATE INDEX documents_bm25
 ON documents
 USING paradedb (row_id, file_id, file_title, doc_title, doc_parents)
 WITH (
-  key_field = 'row_id',
   text_fields = '{
     "file_title":  { "tokenizer": { "type": "default" }, "fast": true },
     "doc_title":   { "tokenizer": { "type": "default" }, "fast": true },

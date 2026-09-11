@@ -38,14 +38,12 @@ CREATE TABLE outer_pages (
 CREATE INDEX outer_files_idx ON outer_files
 USING paradedb (id, title, content)
 WITH (
-    key_field='id',
     text_fields='{"title": {"fast": true}, "content": {}}'
 );
 
 CREATE INDEX outer_pages_idx ON outer_pages
 USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
-    key_field='id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {"fast": true}}'
 );

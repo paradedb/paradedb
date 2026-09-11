@@ -53,17 +53,17 @@ CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
-) WITH (key_field = 'id');
+);
 
 CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
-) WITH (key_field = 'id');
+);
 
 CREATE INDEX ON reviews USING paradedb (
     id,
     book_id,
     review
-) WITH (key_field = 'id');
+);

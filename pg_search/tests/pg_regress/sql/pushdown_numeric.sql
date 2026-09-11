@@ -22,7 +22,7 @@ FROM generate_series(1, 100) i;
 
 CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING paradedb (
     id, text_col, numeric_col, float_col, int_col
-) WITH (key_field = 'id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM numeric_pushdown
@@ -132,8 +132,7 @@ INSERT INTO json_numeric_types (data) VALUES
     ('{"num": 200}'::jsonb);
 
 CREATE INDEX json_numeric_idx ON json_numeric_types
-    USING paradedb (id, data)
-    WITH (key_field = 'id');
+    USING paradedb (id, data);
 
 -- ============================================================================
 -- SECTION A: EQUALITY (=) OPERATOR
@@ -637,7 +636,7 @@ INSERT INTO json_fast_field_test (data) VALUES
 
 CREATE INDEX json_fast_idx ON json_fast_field_test
 USING paradedb (id, data)
-WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+WITH (text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 
 -- ============================================================================
 -- SECTION K: Comparison of NUMERIC vs FLOAT8 pushdown on JSON fast fields
@@ -744,7 +743,7 @@ INSERT INTO json_scientific_test (data) VALUES
 
 CREATE INDEX json_sci_idx ON json_scientific_test
 USING paradedb (id, data)
-WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+WITH (text_fields = '{}', json_fields = '{"data": {"fast": true}}');
 
 -- Test M1a: Query using scientific notation constant (integer result)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -833,8 +832,7 @@ INSERT INTO numeric_scientific_test (value) VALUES
     (9.99e2);        -- 999
 
 CREATE INDEX numeric_sci_idx ON numeric_scientific_test
-USING paradedb (id, value)
-WITH (key_field = 'id');
+USING paradedb (id, value);
 
 -- Test N1: Exact match with scientific notation constant
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

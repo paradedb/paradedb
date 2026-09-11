@@ -14,7 +14,7 @@ CREATE TABLE verify_test (
 );
 
 CREATE INDEX verify_test_idx ON verify_test USING paradedb (id, content, category, score) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 
 -- Insert data in multiple batches to create multiple segments
 INSERT INTO verify_test (content, category, score) VALUES
@@ -81,7 +81,7 @@ DROP TABLE verify_test CASCADE;
 DROP TABLE IF EXISTS verify_sampling_test CASCADE;
 CREATE TABLE verify_sampling_test (id SERIAL PRIMARY KEY, content TEXT);
 CREATE INDEX verify_sampling_idx ON verify_sampling_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 100);
+    WITH (mutable_segment_rows = 100);
 -- Insert in batches to create multiple segments
 INSERT INTO verify_sampling_test (content) SELECT 'batch1 content ' || i FROM generate_series(1, 250) i;
 INSERT INTO verify_sampling_test (content) SELECT 'batch2 content ' || i FROM generate_series(1, 250) i;
@@ -104,7 +104,7 @@ CREATE TABLE verify_parallel_test (id SERIAL PRIMARY KEY, content TEXT);
 -- Create index with low mutable_segment_rows to ensure segments are created
 CREATE INDEX verify_parallel_idx ON verify_parallel_test 
   USING paradedb (id, content) 
-  WITH (key_field = 'id', mutable_segment_rows = 10);
+  WITH (mutable_segment_rows = 10);
 
 -- Insert data in multiple separate statements (each creates a new segment)
 INSERT INTO verify_parallel_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 50) i;
@@ -159,13 +159,13 @@ DROP TABLE verify_parallel_test CASCADE;
 DROP TABLE IF EXISTS test_all_idx1, test_all_idx2;
 CREATE TABLE test_all_idx1 (id serial, content text);
 CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 5);
+    WITH (mutable_segment_rows = 5);
 INSERT INTO test_all_idx1 (content) SELECT 'test' || i FROM generate_series(1,10) i;
 INSERT INTO test_all_idx1 (content) SELECT 'more' || i FROM generate_series(1,10) i;
 
 CREATE TABLE test_all_idx2 (id serial, title text);
 CREATE INDEX test_all_idx2_idx ON test_all_idx2 USING paradedb (id, title) 
-    WITH (key_field = 'id', mutable_segment_rows = 5);
+    WITH (mutable_segment_rows = 5);
 INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,10) i;
 INSERT INTO test_all_idx2 (title) SELECT 'file' || i FROM generate_series(1,10) i;
 
@@ -196,7 +196,7 @@ DROP TABLE test_all_idx1, test_all_idx2;
 DROP TABLE IF EXISTS corruption_test CASCADE;
 CREATE TABLE corruption_test (id serial PRIMARY KEY, content text);
 CREATE INDEX corruption_idx ON corruption_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 -- Insert in batches to create multiple segments
 INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(1, 25) i;
 INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(26, 50) i;
@@ -236,14 +236,14 @@ DROP TABLE IF EXISTS verify_healthy_table, verify_corrupted_table CASCADE;
 -- Create healthy table and index with multiple segments
 CREATE TABLE verify_healthy_table (id serial PRIMARY KEY, content text);
 CREATE INDEX verify_healthy_idx ON verify_healthy_table USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO verify_healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
 INSERT INTO verify_healthy_table (content) SELECT 'more healthy ' || i FROM generate_series(1, 20) i;
 
 -- Create corrupted table and index with multiple segments
 CREATE TABLE verify_corrupted_table (id serial PRIMARY KEY, content text);
 CREATE INDEX verify_corrupted_idx ON verify_corrupted_table USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO verify_corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
 INSERT INTO verify_corrupted_table (content) SELECT 'more corrupted ' || i FROM generate_series(1, 20) i;
 
@@ -277,7 +277,7 @@ SET client_min_messages TO notice;
 DROP TABLE IF EXISTS progress_test CASCADE;
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX progress_idx ON progress_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 20);
+    WITH (mutable_segment_rows = 20);
 INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
@@ -294,7 +294,7 @@ DROP TABLE progress_test CASCADE;
 DROP TABLE IF EXISTS verbose_test CASCADE;
 CREATE TABLE verbose_test (id serial PRIMARY KEY, content text);
 CREATE INDEX verbose_idx ON verbose_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO verbose_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
 INSERT INTO verbose_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 
@@ -320,13 +320,13 @@ CREATE SCHEMA test_schema_b;
 
 CREATE TABLE test_schema_a.test_table (id serial, content text);
 CREATE INDEX test_a_idx ON test_schema_a.test_table USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 5);
+    WITH (mutable_segment_rows = 5);
 INSERT INTO test_schema_a.test_table (content) SELECT 'a' || i FROM generate_series(1, 10) i;
 INSERT INTO test_schema_a.test_table (content) SELECT 'aa' || i FROM generate_series(1, 10) i;
 
 CREATE TABLE test_schema_b.test_table (id serial, content text);
 CREATE INDEX test_b_idx ON test_schema_b.test_table USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 5);
+    WITH (mutable_segment_rows = 5);
 INSERT INTO test_schema_b.test_table (content) SELECT 'b' || i FROM generate_series(1, 10) i;
 INSERT INTO test_schema_b.test_table (content) SELECT 'bb' || i FROM generate_series(1, 10) i;
 
@@ -349,7 +349,7 @@ DROP SCHEMA test_schema_b CASCADE;
 DROP TABLE IF EXISTS empty_test CASCADE;
 CREATE TABLE empty_test (id serial PRIMARY KEY, content text);
 CREATE INDEX empty_idx ON empty_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 
 -- Verify empty index works
 SELECT check_name, passed
@@ -367,7 +367,7 @@ DROP TABLE empty_test CASCADE;
 DROP TABLE IF EXISTS empty_segments_test CASCADE;
 CREATE TABLE empty_segments_test (id serial PRIMARY KEY, content text);
 CREATE INDEX empty_segments_idx ON empty_segments_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 
 -- Should return 0 rows for empty index
 SELECT COUNT(*) as segment_count FROM pdb.index_segments('empty_segments_idx');
@@ -378,7 +378,7 @@ DROP TABLE empty_segments_test CASCADE;
 DROP TABLE IF EXISTS segment_columns_test CASCADE;
 CREATE TABLE segment_columns_test (id serial PRIMARY KEY, content text);
 CREATE INDEX segment_columns_idx ON segment_columns_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 20);
+    WITH (mutable_segment_rows = 20);
 INSERT INTO segment_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO segment_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
@@ -402,7 +402,7 @@ DROP TABLE segment_columns_test CASCADE;
 DROP TABLE IF EXISTS sample_edge_test CASCADE;
 CREATE TABLE sample_edge_test (id serial PRIMARY KEY, content text);
 CREATE INDEX sample_edge_idx ON sample_edge_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 20);
+    WITH (mutable_segment_rows = 20);
 INSERT INTO sample_edge_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO sample_edge_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
@@ -432,7 +432,7 @@ DROP TABLE sample_edge_test CASCADE;
 DROP TABLE IF EXISTS indexes_columns_test CASCADE;
 CREATE TABLE indexes_columns_test (id serial PRIMARY KEY, content text);
 CREATE INDEX indexes_columns_idx ON indexes_columns_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO indexes_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
 INSERT INTO indexes_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 
@@ -452,7 +452,7 @@ DROP TABLE indexes_columns_test CASCADE;
 DROP TABLE IF EXISTS verify_all_options_test CASCADE;
 CREATE TABLE verify_all_options_test (id serial PRIMARY KEY, content text);
 CREATE INDEX verify_all_options_idx ON verify_all_options_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 20);
+    WITH (mutable_segment_rows = 20);
 INSERT INTO verify_all_options_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
 INSERT INTO verify_all_options_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
@@ -472,7 +472,7 @@ DROP TABLE IF EXISTS verbose_resume_test CASCADE;
 CREATE TABLE verbose_resume_test (id serial PRIMARY KEY, content text);
 CREATE INDEX verbose_resume_idx ON verbose_resume_test 
     USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO verbose_resume_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 30) i;
 INSERT INTO verbose_resume_test (content) SELECT 'batch2 ' || i FROM generate_series(1, 30) i;
 
@@ -500,7 +500,7 @@ DROP TABLE IF EXISTS basic_progress_test CASCADE;
 CREATE TABLE basic_progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX basic_progress_idx ON basic_progress_test 
     USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO basic_progress_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
 
 -- report_progress without verbose should show simpler messages
@@ -522,7 +522,7 @@ SET client_min_messages TO warning;
 DROP TABLE IF EXISTS error_stop_healthy_test CASCADE;
 CREATE TABLE error_stop_healthy_test (id serial PRIMARY KEY, content text);
 CREATE INDEX error_stop_healthy_idx ON error_stop_healthy_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO error_stop_healthy_test (content) SELECT 'content ' || i FROM generate_series(1, 20) i;
 INSERT INTO error_stop_healthy_test (content) SELECT 'more content ' || i FROM generate_series(1, 20) i;
 
@@ -543,7 +543,7 @@ FROM pdb.verify_all_indexes(schema_pattern := 'nonexistent_schema_%');
 DROP TABLE IF EXISTS details_test CASCADE;
 CREATE TABLE details_test (id serial PRIMARY KEY, content text);
 CREATE INDEX details_idx ON details_test USING paradedb (id, content) 
-    WITH (key_field = 'id', mutable_segment_rows = 10);
+    WITH (mutable_segment_rows = 10);
 INSERT INTO details_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
 INSERT INTO details_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 

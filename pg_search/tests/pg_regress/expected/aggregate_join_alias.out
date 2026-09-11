@@ -35,9 +35,9 @@ USING paradedb (
     company_id,
     (lower(company_domain)::pdb.literal_normalized('ascii_folding=true')),
     (company_name::pdb.simple('alias=company_name_words', 'columnar=true'))
-) WITH (key_field=company_id);
+);
 CREATE INDEX repro_ti_idx ON repro_ti
-USING paradedb (company_id) WITH (key_field=company_id);
+USING paradedb (company_id);
 -- =====================================================================
 -- Test 1: GROUP BY on the aliased column
 -- Previously crashed with "No field named cccf_0.company_name".

@@ -31,7 +31,7 @@ INSERT INTO logs (id, message, country, timestamp) VALUES
 CREATE INDEX logs_idx
 ON logs
 USING paradedb (id, message, country)
-WITH (key_field = 'id', text_fields = '{"country": {"tokenizer": {"type": "keyword"} }}');
+WITH (text_fields = '{"country": {"tokenizer": {"type": "keyword"} }}');
 
 
 \echo 'Test 1: pdb.snippets (no UNNEST) on parent table'

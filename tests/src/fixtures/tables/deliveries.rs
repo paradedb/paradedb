@@ -48,7 +48,6 @@ BEGIN;
     );
    
     CREATE INDEX deliveries_idx ON deliveries
-    USING paradedb (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
-    WITH (key_field='delivery_id');
+    USING paradedb (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times);
 COMMIT;
 "#;

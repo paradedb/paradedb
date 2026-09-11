@@ -12,7 +12,7 @@ VALUES (ARRAY['dog', 'cat', 'bird']), (ARRAY['fox', 'rabbit', 'squirrel']);
 -- Test with literal tokenizer (should pushdown)
 CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, (description::pdb.literal)
-) WITH (key_field = 'id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM pushdown
@@ -32,7 +32,7 @@ DROP INDEX pushdown_idx;
 -- Test with non-literal tokenizer (should NOT pushdown)
 CREATE INDEX pushdown_idx ON pushdown USING paradedb (
     id, description
-) WITH (key_field = 'id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM pushdown

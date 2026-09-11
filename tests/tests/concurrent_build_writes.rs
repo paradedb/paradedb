@@ -70,7 +70,7 @@ async fn writes_during_a_concurrent_build(database: Db) -> Result<()> {
         sqlx::query(
             r#"
             CREATE INDEX CONCURRENTLY cic_writes_idx ON cic_writes
-            USING bm25 (id, body) WITH (key_field = 'id');
+            USING bm25 (id, body);
             "#,
         )
         .execute(&mut builder)

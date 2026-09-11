@@ -28,9 +28,9 @@ FROM generate_series(1, 2000) g;
 INSERT INTO issue_5567_child SELECT g, g FROM generate_series(1, 2000) g;
 CREATE TYPE issue_5567_ps AS (kind pdb.literal_normalized, category pdb.literal, name pdb.literal);
 CREATE INDEX issue_5567_parent_bm25 ON issue_5567_parent
-USING bm25 (id, (ROW(kind, category, name)::issue_5567_ps)) WITH (key_field = 'id');
+USING bm25 (id, (ROW(kind, category, name)::issue_5567_ps));
 CREATE INDEX issue_5567_child_bm25 ON issue_5567_child
-USING bm25 (id, parent_id) WITH (key_field = 'id');
+USING bm25 (id, parent_id);
 ANALYZE issue_5567_parent;
 ANALYZE issue_5567_child;
 SET enable_hashjoin = off;

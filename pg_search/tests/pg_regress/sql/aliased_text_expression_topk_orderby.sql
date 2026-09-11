@@ -10,8 +10,7 @@ USING paradedb (
   id,
   (lower(description)::pdb.literal),
   rating
-)
-WITH (key_field='id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
@@ -33,8 +32,7 @@ USING paradedb (
   id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
@@ -70,8 +68,7 @@ USING paradedb (
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating

@@ -19,7 +19,6 @@ INSERT INTO json_range_test (metadata) VALUES
 CREATE INDEX json_range_test_idx ON json_range_test
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata": {"fast": true}}'
 );
 

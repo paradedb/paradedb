@@ -1,4 +1,4 @@
--- Tests that MixedFF is used for UUIDs in the key field or in other fields.
+-- Tests that MixedFF is used for UUID primary keys and other UUID fields.
 \i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -24,13 +24,12 @@ VALUES
     (gen_random_uuid(), gen_random_uuid(), 'sally');
 CREATE INDEX idxproducts ON products USING paradedb (uuid_key, uuid, name)
 WITH (
-    key_field = 'uuid_key',
     text_fields = '{
         "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }
     }'
 );
--- Confirm that the UUID key_field is fast and gets MixedFF.
+-- Confirm that the UUID primary key is fast and gets MixedFF.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
  name 
 ------
@@ -53,7 +52,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- And that non-key UUID fields do too.
+-- And that other UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
  name 
 ------

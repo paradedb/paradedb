@@ -42,7 +42,6 @@ INSERT INTO mock_items (description, rating, created_at) VALUES
 CREATE INDEX mock_items_idx ON mock_items
 USING paradedb (id, description, rating, created_at)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}}',
     numeric_fields = '{"rating": {"fast": true}}'
 );

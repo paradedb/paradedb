@@ -42,7 +42,6 @@ values
 CREATE INDEX idx_stopwords_bm25 ON test_stopwords
     USING paradedb (id, name)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "name": {"tokenizer": {"type": "default", "stopwords": ["stopword"]}}
     }'

@@ -46,9 +46,9 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (4, 'DigitalGadgets', 'Distributor of consumer electronics, mobile accessories, and gadgets', 'China', 3),
 (5, 'PowerWave', 'Provider of energy solutions, power adapters, and desktop accessories', 'USA', 4);
 CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
+WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
-WITH (key_field = 'id', numeric_fields = '{"rating": {"fast": true}}');
+WITH (numeric_fields = '{"rating": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.enable_aggregate_custom_scan = on;
 -- =============================================================================
@@ -291,12 +291,11 @@ INSERT INTO work_items (id, title, abstract, researcher_id, year) VALUES
 (308, 'Geo-Replicated State Machines', 'Causal consistency with bounded staleness for planetary-scale applications', 204, 2023),
 (309, 'Graph-Augmented Language Models', 'Retrieval augmented generation over dynamic enterprise knowledge graphs', 205, 2025),
 (310, 'Prompt Optimization via Gradient Guidance', 'Discrete prompt optimization for domain-adapted foundation models', 205, 2024);
-CREATE INDEX organisations_bm25_idx ON organisations USING paradedb (id, name, location, field)
-WITH (key_field = 'id');
+CREATE INDEX organisations_bm25_idx ON organisations USING paradedb (id, name, location, field);
 CREATE INDEX researchers_bm25_idx ON researchers USING paradedb (id, name, bio, org_id, citations)
-WITH (key_field = 'id', numeric_fields = '{"org_id": {"fast": true}, "citations": {"fast": true}}');
+WITH (numeric_fields = '{"org_id": {"fast": true}, "citations": {"fast": true}}');
 CREATE INDEX work_items_bm25_idx ON work_items USING paradedb (id, title, abstract, researcher_id, year)
-WITH (key_field = 'id', numeric_fields = '{"researcher_id": {"fast": true}, "year": {"fast": true}}');
+WITH (numeric_fields = '{"researcher_id": {"fast": true}, "year": {"fast": true}}');
 -- =============================================================================
 -- TEST 5: 3-table transitive disjunctive search join (O -> R -> W)
 -- Matches:

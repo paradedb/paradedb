@@ -8,8 +8,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('columnar=true')))
-WITH (key_field = 'id');
+USING paradedb (id, (description::pdb.simple('columnar=true')));
 
 SELECT * FROM paradedb.schema('search_idx');
 
@@ -40,8 +39,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (lower(description)::pdb.simple('columnar=true')))
-WITH (key_field = 'id');
+USING paradedb (id, (lower(description)::pdb.simple('columnar=true')));
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, description FROM mock_items
@@ -70,8 +68,7 @@ LIMIT 5;
 DROP INDEX search_idx;
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (metadata::pdb.simple('columnar=true')))
-WITH (key_field = 'id');
+USING paradedb (id, (metadata::pdb.simple('columnar=true')));
 
 SELECT * FROM paradedb.schema('search_idx');
 

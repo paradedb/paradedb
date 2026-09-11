@@ -43,7 +43,7 @@ USING paradedb (
     id,
     (about_me::pdb.unicode_words('columnar=true')),
     (display_name::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+) WITH (target_segment_count = 8, background_layer_sizes = '0');
 -- The sorted table has three, so `title`'s `ff_index` overruns the joined table's helper.
 CREATE INDEX mpp_topk_posts_bm25 ON mpp_topk_posts
 USING paradedb (
@@ -52,7 +52,7 @@ USING paradedb (
     (title::pdb.unicode_words('columnar=true')),
     (body::pdb.unicode_words('columnar=true')),
     (tags::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+) WITH (target_segment_count = 8, background_layer_sizes = '0');
 INSERT INTO mpp_topk_users (id, about_me, display_name)
 SELECT i, 'about java code', 'David John Alex'
 FROM generate_series(1, 2500) i;

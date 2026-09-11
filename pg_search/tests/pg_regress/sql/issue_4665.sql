@@ -23,8 +23,7 @@ CREATE TABLE issue_4665_test (
 );
 
 CREATE INDEX issue_4665_idx ON issue_4665_test
-USING paradedb (id, content)
-WITH (key_field = 'id');
+USING paradedb (id, content);
 
 -- Four separate INSERTs so we get (at least) four segments
 INSERT INTO issue_4665_test (content)

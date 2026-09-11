@@ -37,7 +37,6 @@ INSERT INTO groupby_conflict_test (title, category, rating, price, views) VALUES
 CREATE INDEX groupby_conflict_idx ON groupby_conflict_test 
 USING paradedb (id, title, category, rating, price, views)
 WITH (
-    key_field='id',
     text_fields='{"title": {}, "category": {"fast": true}}',
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}, "views": {"fast": true}}'
 );

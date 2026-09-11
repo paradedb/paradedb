@@ -39,11 +39,9 @@ INSERT INTO items (id, name, content, category_id, rating) VALUES
 
 -- v2 API: numeric fields (id, category_id, rating) are columnar/fast by default,
 -- so no per-field options are needed for the aggregate/join/TopK paths.
-CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating)
-    WITH (key_field = 'id');
+CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating);
 
-CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name)
-    WITH (key_field = 'id');
+CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name);
 
 -- The index really is built with the `paradedb` access method.
 SELECT am.amname
@@ -90,12 +88,12 @@ DROP TABLE categories CASCADE;
 CREATE TABLE guard_test (id INTEGER PRIMARY KEY, content TEXT);
 INSERT INTO guard_test (id, content) VALUES (1, 'wireless keyboard'), (2, 'wired mouse');
 
-CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content);
 
-CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
+CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content);
 
 -- ...but CREATE INDEX CONCURRENTLY bypasses the guard, so the two coexist.
-CREATE INDEX CONCURRENTLY guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
+CREATE INDEX CONCURRENTLY guard_paradedb_idx ON guard_test USING paradedb (id, content);
 
 SELECT c.relname, am.amname
 FROM pg_class c

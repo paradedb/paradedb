@@ -24,7 +24,6 @@ USING bm25 (
     (owner_display_name::pdb.unicode_words('columnar=true')),
     owner_user_id
 ) WITH (
-    key_field = 'id',
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
     partition_by = 'id,owner_user_id'
 );
@@ -37,9 +36,7 @@ USING bm25 (
     user_id,
     class,
     tag_based
-) WITH (
-    key_field = 'id'
- );
+);
 
 CREATE INDEX comments_idx ON comments
 USING bm25 (
@@ -50,7 +47,6 @@ USING bm25 (
     creation_date,
     (user_display_name::pdb.literal)
 ) WITH (
-    key_field = 'id',
     partition_by = 'post_id'
 );
 
@@ -61,6 +57,5 @@ USING bm25 (
     (display_name::pdb.unicode_words('columnar=true')),
     reputation
 ) WITH (
-    key_field = 'id',
     partition_by = 'id'
 );

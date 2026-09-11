@@ -82,22 +82,70 @@ impl TryInto<Aggregations> for AggregateRequest {
 struct State {
     // these require the Spinlock mutex for atomic access (read and write)
     mutex: Spinlock,
+    _pad: [u8; 4],
     nlaunched: usize,
     remaining_segments: usize,
 }
+
+// SAFETY: State is #[repr(C)] with explicit padding. All fields are
+// integer types (Spinlock = i32 wrapper, usize). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for State {}
+unsafe impl bytemuck::Pod for State {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Config {
     indexrelid: pg_sys::Oid,
+    _pad1: [u8; 4],
     total_segments: usize,
-    solve_mvcc: bool,
-
+    solve_mvcc: u8,
+    _pad2: [u8; 7],
     memory_limit: u64,
     bucket_limit: u32,
+    _pad3: [u8; 4],
+}
+
+// SAFETY: Config is #[repr(C)] with explicit padding. All fields are
+// integer types (Oid = u32 wrapper, usize, u8, u64, u32). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for Config {}
+unsafe impl bytemuck::Pod for Config {}
+
+impl Config {
+    fn new(
+        indexrelid: pg_sys::Oid,
+        total_segments: usize,
+        solve_mvcc: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+    ) -> Self {
+        Self {
+            indexrelid,
+            _pad1: [0; 4],
+            total_segments,
+            solve_mvcc: solve_mvcc as u8,
+            _pad2: [0; 7],
+            memory_limit,
+            bucket_limit,
+            _pad3: [0; 4],
+        }
+    }
+
+    fn solve_mvcc(&self) -> bool {
+        self.solve_mvcc != 0
+    }
 }
 
 impl State {
+    fn new(nlaunched: usize, remaining_segments: usize) -> Self {
+        Self {
+            mutex: Spinlock::new(),
+            _pad: [0; 4],
+            nlaunched,
+            remaining_segments,
+        }
+    }
+
     fn set_launched_workers(&mut self, nlaunched: usize) {
         let _lock = self.mutex.acquire();
         self.nlaunched = nlaunched;
@@ -110,19 +158,44 @@ impl State {
 }
 
 type NumDeletedDocs = u32;
+
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+struct SegmentDeletedDocs {
+    segment_id_bytes: [u8; 16],
+    deleted_docs: u32,
+}
+
+impl SegmentDeletedDocs {
+    fn new(id: SegmentId, deleted: NumDeletedDocs) -> Self {
+        Self {
+            segment_id_bytes: *id.uuid_bytes(),
+            deleted_docs: deleted,
+        }
+    }
+
+    fn segment_id(&self) -> SegmentId {
+        SegmentId::from_bytes(self.segment_id_bytes)
+    }
+}
+
 struct ParallelAggregation {
     state: State,
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     bitmap_handle_bytes: Vec<u8>,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for (SegmentId, NumDeletedDocs) {}
+impl ParallelStateType for SegmentDeletedDocs {}
+
+const _: () = assert!(size_of::<State>() == 24);
+const _: () = assert!(size_of::<Config>() == 40);
+const _: () = assert!(size_of::<SegmentDeletedDocs>() == 20);
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -147,23 +220,19 @@ impl ParallelAggregation {
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            state: State {
-                mutex: Spinlock::new(),
-                nlaunched: 0,
-                remaining_segments: segment_ids.len(),
-            },
-            config: Config {
+            state: State::new(0, segment_ids.len()),
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             bitmap_handle_bytes: postcard::to_allocvec(&bitmap_handle)?,
@@ -178,7 +247,7 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    segment_ids: Vec<SegmentDeletedDocs>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// The owner's published claim table, attached lazily by bgworkers (the
@@ -219,7 +288,7 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: AggregateRequest,
         query: SearchQueryInput,
-        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
@@ -229,13 +298,13 @@ impl<'a> ParallelAggregationWorker<'a> {
     ) -> Self {
         Self {
             state,
-            config: Config {
+            config: Config::new(
                 indexrelid,
-                total_segments: segment_ids.len(),
+                segment_ids.len(),
                 solve_mvcc,
                 memory_limit,
                 bucket_limit,
-            },
+            ),
             aggregation: Some(aggregation),
             query,
             segment_ids,
@@ -272,8 +341,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         self.state.remaining_segments -= 1;
         self.segment_ids
             .get(self.state.remaining_segments)
-            .cloned()
-            .map(|(segment_id, _)| segment_id)
+            .map(|entry| entry.segment_id())
     }
 
     fn execute_aggregate(
@@ -332,7 +400,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             .heap_relation()
             .expect("index should belong to a heap relation");
         let (base_collector, vischeck) =
-            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc, limits);
+            aggregations.plan(&reader, &heaprel, self.config.solve_mvcc(), limits);
 
         let start = std::time::Instant::now();
         let intermediate_results = if let Some(vischeck) = vischeck {
@@ -369,7 +437,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(4)
+            .slice::<SegmentDeletedDocs>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
@@ -518,7 +586,7 @@ pub fn execute_aggregate(
         let segment_ids = reader
             .segment_readers()
             .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
             .collect::<Vec<_>>();
         // Publish the bitmap claim table for the worker pool: rebuild the
         // leader's bitmap into this scan's own DSA area, prepare one iterator
@@ -530,7 +598,8 @@ pub fn execute_aggregate(
             if consumers == 0 {
                 return None;
             }
-            let segments: Vec<SegmentId> = segment_ids.iter().map(|(id, _)| *id).collect();
+            let segments: Vec<SegmentId> =
+                segment_ids.iter().map(|entry| entry.segment_id()).collect();
             let handle = bitmap_exec.shared_source(consumers, &segments)?;
             if let Some(cell) = query.bitmap_cell()
                 && let Some(source) = bitmap_exec.source()
@@ -638,13 +707,9 @@ pub fn execute_aggregate(
             let segment_ids = reader
                 .segment_readers()
                 .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                .map(|r| SegmentDeletedDocs::new(r.segment_id(), r.num_deleted_docs()))
                 .collect::<Vec<_>>();
-            let mut state = State {
-                mutex: Spinlock::default(),
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
+            let mut state = State::new(1, segment_ids.len());
             let mut worker = ParallelAggregationWorker::new_local(
                 agg_req.clone(),
                 query,
@@ -1246,5 +1311,58 @@ pub mod mvcc_collector {
             self.flush();
             self.inner.harvest()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_deleted_docs_round_trips() {
+        let id = SegmentId::generate_random();
+        let entry = SegmentDeletedDocs::new(id, 42);
+
+        assert_eq!(entry.segment_id(), id);
+        assert_eq!(entry.deleted_docs, 42);
+    }
+
+    #[test]
+    fn segment_deleted_docs_bytes_match_fields() {
+        let entry = SegmentDeletedDocs {
+            segment_id_bytes: [1; 16],
+            deleted_docs: 99,
+        };
+        let bytes = bytemuck::bytes_of(&entry);
+        assert_eq!(bytes.len(), size_of::<SegmentDeletedDocs>());
+        assert_eq!(&bytes[..16], &[1u8; 16]);
+    }
+
+    #[test]
+    fn config_solve_mvcc_accessor() {
+        let mut config: Config = bytemuck::Zeroable::zeroed();
+        assert!(!config.solve_mvcc());
+        config.solve_mvcc = 1;
+        assert!(config.solve_mvcc());
+        config.solve_mvcc = 2;
+        assert!(config.solve_mvcc());
+    }
+
+    #[test]
+    fn config_zeroed_has_no_uninit_padding() {
+        let config: Config = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&config);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes[17..24], [0; 7]);
+        assert_eq!(bytes[36..40], [0; 4]);
+        assert_eq!(bytes.len(), 40);
+    }
+
+    #[test]
+    fn state_zeroed_has_no_uninit_padding() {
+        let state: State = bytemuck::Zeroable::zeroed();
+        let bytes = bytemuck::bytes_of(&state);
+        assert_eq!(bytes[4..8], [0; 4]);
+        assert_eq!(bytes.len(), 24);
     }
 }

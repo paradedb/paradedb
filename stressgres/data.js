@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087786898,
+  "lastUpdate": 1789087794994,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -348684,6 +348684,96 @@ window.BENCHMARK_DATA = {
             "value": 44.91796875,
             "unit": "median mem",
             "extra": "avg mem: 44.59137471871757, max mem: 51.08203125, count: 58771"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087791161,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.90625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 67.61189211746193, max partition_index_size:MB: 108.4609375, count: 58785"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.321799969414116, max cpu: 33.349876, count: 58785"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.81732611422982, max mem: 53.66015625, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.965880182589675, max cpu: 33.366436, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 59.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.43507039689121, max mem: 78.49609375, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.490856,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.516912609844539, max cpu: 28.585608, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.07624287658416, max mem: 66.6640625, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.901329862582934, max cpu: 33.38301, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.94867372894871, max mem: 61.609375, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.15213502541122, max cpu: 33.08715, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.79701075688951, max mem: 53.26953125, count: 58785"
           }
         ]
       }

@@ -31,7 +31,7 @@ use datafusion::common::{DataFusionError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocId, SegmentOrdinal};
+use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
 /// The Arrow extension name on a deferred column's field, which is how a schema tells one
 /// apart from any other `UInt64` column.
@@ -87,10 +87,16 @@ pub fn pack_doc_addresses(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> UIn
     )
 }
 
-/// Unpacks a doc address into its segment ordinal and doc id.
-pub fn unpack_doc_address(packed: u64) -> (SegmentOrdinal, DocId) {
+/// Unpacks a doc address.
+///
+/// A packed ctid column is always State 0, so it unpacks here instead of going through
+/// [`DeferredColumn`].
+pub fn unpack_doc_address(packed: u64) -> DocAddress {
     debug_assert_eq!(packed & TERM_ORDINAL_BIT, 0, "not a doc address");
-    ((packed >> 32) as u32, (packed & 0xFFFF_FFFF) as u32)
+    DocAddress::new(
+        (packed >> 32) as SegmentOrdinal,
+        (packed & 0xFFFF_FFFF) as DocId,
+    )
 }
 
 /// Packs a segment ordinal and a term ordinal in that segment's dictionary into one word
@@ -120,8 +126,8 @@ pub fn build_state_term_ordinals(segment_ord: SegmentOrdinal, ordinals: &UInt64A
 /// One row of a deferred column, as read through [`DeferredColumn`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeferredValue {
-    /// State 0: the row still carries its packed `(segment_ord, doc_id)`.
-    DocAddress(u64),
+    /// State 0: the row still names a Tantivy document, not a value.
+    DocAddress(DocAddress),
     /// State 1: the row's term ordinal in `segment_ord`'s dictionary.
     TermOrdinal {
         segment_ord: SegmentOrdinal,
@@ -157,7 +163,7 @@ impl<'a> DeferredColumn<'a> {
         }
         let packed = self.values.value(row);
         if packed & TERM_ORDINAL_BIT == 0 {
-            DeferredValue::DocAddress(packed)
+            DeferredValue::DocAddress(unpack_doc_address(packed))
         } else {
             DeferredValue::TermOrdinal {
                 segment_ord: ((packed & !TERM_ORDINAL_BIT) >> TERM_ORDINAL_BITS) as u32,
@@ -208,9 +214,9 @@ mod tests {
     fn pack_unpack_roundtrip() {
         let packed = pack_doc_addresses(3, &[10, 20, 30]);
         assert_eq!(packed.len(), 3);
-        assert_eq!(unpack_doc_address(packed.value(0)), (3, 10));
-        assert_eq!(unpack_doc_address(packed.value(1)), (3, 20));
-        assert_eq!(unpack_doc_address(packed.value(2)), (3, 30));
+        assert_eq!(unpack_doc_address(packed.value(0)), DocAddress::new(3, 10));
+        assert_eq!(unpack_doc_address(packed.value(1)), DocAddress::new(3, 20));
+        assert_eq!(unpack_doc_address(packed.value(2)), DocAddress::new(3, 30));
     }
 
     #[test]
@@ -218,9 +224,9 @@ mod tests {
         let packed_max = pack_doc_address(MAX_STATE0_SEGMENT_ORD as u32, u32::MAX);
         assert_eq!(
             unpack_doc_address(packed_max),
-            (MAX_STATE0_SEGMENT_ORD as u32, u32::MAX)
+            DocAddress::new(MAX_STATE0_SEGMENT_ORD as u32, u32::MAX)
         );
-        assert_eq!(unpack_doc_address(0), (0, 0));
+        assert_eq!(unpack_doc_address(0), DocAddress::new(0, 0));
     }
 
     #[test]
@@ -272,7 +278,7 @@ mod tests {
         assert_eq!(view.values().count(), 2);
         assert_eq!(
             view.value(0),
-            DeferredValue::DocAddress(pack_doc_address(3, 7))
+            DeferredValue::DocAddress(DocAddress::new(3, 7))
         );
 
         let ordinals = UInt64Array::from(vec![Some(5), None]);
@@ -306,7 +312,7 @@ mod tests {
                     segment_ord: 2,
                     term_ord: 40
                 },
-                DeferredValue::DocAddress(pack_doc_address(2, 2)),
+                DeferredValue::DocAddress(DocAddress::new(2, 2)),
                 DeferredValue::Null,
             ]
         );

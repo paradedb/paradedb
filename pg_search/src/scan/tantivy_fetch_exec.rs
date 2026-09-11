@@ -35,7 +35,7 @@ use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::visibility_filter::{
     DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
-use crate::scan::deferred_encode::{DeferredColumn, DeferredValue, unpack_doc_address};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
     preserved_ordering, rebuild_missing_ffhelpers,
@@ -57,7 +57,7 @@ use datafusion::physical_plan::metrics::{
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocId, SegmentOrdinal};
+use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
 /// A `ctid_<plan_position>` column (packed doc-addresses) that a `TantivyFetchExec` resolves
 /// to real ctids, so a `VisibilityFilterExec` above it consumes real ctids directly.
@@ -409,28 +409,28 @@ fn fetch_term_ordinals(
 ) -> Result<ArrayRef> {
     let deferred = DeferredColumn::try_new(column.as_ref())?;
     let num_segments = ffhelper.num_segments();
-    let mut packed_rows: Vec<(usize, u64)> = Vec::new();
+    let mut doc_addresses: Vec<(usize, DocAddress)> = Vec::new();
     for (row, value) in deferred.values().enumerate() {
-        if let DeferredValue::DocAddress(packed) = value {
-            let (segment_ord, _) = unpack_doc_address(packed);
+        if let DeferredValue::DocAddress(doc_address) = value {
+            let segment_ord = doc_address.segment_ord;
             if segment_ord as usize >= num_segments {
                 return Err(DataFusionError::Execution(format!(
                     "TantivyFetchExec: column '{}' row {row} names segment {segment_ord}, but its index has {num_segments} segments",
                     field.display_name
                 )));
             }
-            packed_rows.push((row, packed));
+            doc_addresses.push((row, doc_address));
         }
     }
-    if packed_rows.is_empty() {
+    if doc_addresses.is_empty() {
         return Ok(Arc::clone(column));
     }
 
     let mut resolved: Vec<(usize, SegmentOrdinal, Option<TermOrdinal>)> =
-        Vec::with_capacity(packed_rows.len());
+        Vec::with_capacity(doc_addresses.len());
     for_each_segment(
         num_segments,
-        packed_rows.into_iter(),
+        doc_addresses.into_iter(),
         |segment_ord, rows| {
             let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];

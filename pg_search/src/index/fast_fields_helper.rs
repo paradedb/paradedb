@@ -23,7 +23,6 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
-use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
@@ -568,23 +567,20 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     Arc::new(Schema::new(fields))
 }
 
-/// Partitions packed doc addresses by segment ordinal and invokes `process`
+/// Partitions doc addresses by segment ordinal and invokes `process`
 /// once per segment (in sorted segment order) with the segment ordinal and
 /// its `(row_index, doc_id)` pairs.
-///
-/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 pub fn for_each_segment<F>(
     num_segments: usize,
-    packed_iter: impl Iterator<Item = (usize, u64)>,
+    doc_addresses: impl Iterator<Item = (usize, DocAddress)>,
     mut process: F,
 ) -> Result<()>
 where
     F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
 {
     let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); num_segments];
-    for (row_idx, packed) in packed_iter {
-        let (seg_ord, doc_id) = unpack_doc_address(packed);
-        by_seg[seg_ord as usize].push((row_idx, doc_id));
+    for (row_idx, doc_address) in doc_addresses {
+        by_seg[doc_address.segment_ord as usize].push((row_idx, doc_address.doc_id));
     }
     for (seg_ord, mut rows) in by_seg.into_iter().enumerate() {
         if rows.is_empty() {

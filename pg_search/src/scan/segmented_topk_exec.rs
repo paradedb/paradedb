@@ -80,7 +80,7 @@ use crate::postgres::customscan::joinscan::visibility_filter::{
 };
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::deferred_encode::{DeferredColumn, DeferredValue, unpack_doc_address};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{LookupRebuildContext, open_rebuilt_ffhelper, rebuild_mvcc};
 use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{Array, ArrayRef, BooleanArray, RecordBatch, UInt64Array};
@@ -1148,13 +1148,12 @@ impl SegmentedTopKState {
         let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();
         for (row_idx, value) in deferred.values().enumerate() {
             match value {
-                DeferredValue::DocAddress(packed) => {
-                    let (seg_ord, doc_id) = unpack_doc_address(packed);
+                DeferredValue::DocAddress(doc_address) => {
                     state0_by_seg
-                        .entry(seg_ord)
+                        .entry(doc_address.segment_ord)
                         .or_default()
-                        .push((row_idx, doc_id));
-                    row_to_seg[row_idx] = Some(seg_ord);
+                        .push((row_idx, doc_address.doc_id));
+                    row_to_seg[row_idx] = Some(doc_address.segment_ord);
                 }
                 DeferredValue::TermOrdinal {
                     segment_ord,

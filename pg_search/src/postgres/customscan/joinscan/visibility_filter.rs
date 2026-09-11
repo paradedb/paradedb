@@ -79,6 +79,7 @@ use crate::index::fast_fields_helper::{FFHelper, for_each_segment};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::is_reduction_node;
 use crate::scan::table_provider::{VisibilitySourceMetadata, pg_search_provider_from_scan};
@@ -1167,15 +1168,15 @@ pub(crate) fn materialize_deferred_ctid(
     state: &mut DeferredCtidMaterializationState,
 ) -> Result<ArrayRef> {
     let num_rows = doc_addr_array.len();
-    let packed_iter = (0..num_rows)
+    let doc_addresses = (0..num_rows)
         .filter(|&i| !doc_addr_array.is_null(i))
-        .map(|i| (i, doc_addr_array.value(i)));
+        .map(|i| (i, unpack_doc_address(doc_addr_array.value(i))));
 
     state.resolved_ctids.clear();
     state.resolved_ctids.resize(num_rows, None);
 
     let num_segments = ffhelper.num_segments();
-    for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
+    for_each_segment(num_segments, doc_addresses, |seg_ord, rows| {
         state.segment_doc_ids.clear();
         state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 

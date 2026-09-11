@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789140678559,
+  "lastUpdate": 1789140698746,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -321212,6 +321212,126 @@ window.BENCHMARK_DATA = {
             "value": 38.746570181936356,
             "unit": "median tps",
             "extra": "avg tps: 40.74872457544966, max tps: 788.4159619541994, count: 57425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a175c6771e3f8b30264e9b9e06923822194edc21",
+          "message": "perf: pushed down join InList filters on `uuid` keys. (#6278)\n\n## Ticket(s) Closed\n\n- Partially closes #6276\n\n## What\n\nThis PR makes the hash-join `InList` dynamic filter reach tantivy when\nthe join key is a `uuid` or a tokenizer-cast text column.\n\n## Why\n\n`PdbOwnedValue::from_scalar` mapped the Utf8 family onto\n`SearchFieldType::Text` only. `Uuid` and `Tokenized` store as `Utf8View`\ntoo, so the join-derived `InList` produced no term and\n`try_convert_in_list_to_query` gave up. The predicate showed up only as\na post-search pre-filter, which drops rows after the scan has already\nread and materialized them. So the probe side read every document in the\nindex.\n\n`Inet`, `Json`, `Range` and `Ltree` are `Utf8View`-backed as well but\nare not checked here. `Inet` stores as a tantivy IP field and the other\nthree carry path, bound or facet encoding. The pushdown rewrites the\nDataFusion filter to `lit(true)`, so nothing rechecks the term. A term\nbuilt the wrong way would silently drop rows that should match.\n\nThe `paradedb.hash_join_inlist_pushdown_max_distinct_values` cap still\napplies, so a build side above it keeps the old behaviour.\n\n## How\n\nWiden the string arm in `from_scalar` to accept `Text`, `Tokenized` and\n`Uuid`.\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/join_dynamic_filter_string_keys.sql`\n\nOn a 5,000 row probe with 20 build keys, `rows_scanned` drops from 5,000\nto 20.\n\nStep 1, build the fixture from #6276 and pick the group below the cap.\n\n```sql\nSET max_parallel_workers_per_gather = 0;\n\nEXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)\nSELECT parent.* FROM parent\nJOIN child ON child.parent_id = parent.id\nWHERE parent.id @@@ paradedb.all()\n  AND parent.deleted_at IS NULL\n  AND parent.group_id = md5('g2')::uuid\n  AND parent.active = true\n  AND child.amount >= 0\nORDER BY parent.created_at DESC, parent.id DESC\nLIMIT 25;\n```\n\nStep 2, read `rows_scanned` on the `child` scan. It goes from `1.00 M`\nto `10.18 K`.\n\nIssue #6276 stays open. The join still materializes every matching row\nbefore the Top-K, so it does work proportional to the build side rather\nthan to the 25 rows asked for. That part needs an ordered outer scan\nwith early exit, which is not in here.",
+          "timestamp": "2026-09-11T16:53:06+02:00",
+          "tree_id": "ce58b96090ce19c704141ca93fc1db1cbe0857cc",
+          "url": "https://github.com/paradedb/paradedb/commit/a175c6771e3f8b30264e9b9e06923822194edc21"
+        },
+        "date": 1789140694848,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 172.21602440065394,
+            "unit": "median tps",
+            "extra": "avg tps: 176.9623233640473, max tps: 215.05100180280326, count: 57390"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 291.2805453189908,
+            "unit": "median tps",
+            "extra": "avg tps: 317.84605053863146, max tps: 508.8352110709516, count: 57390"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3974.3770564380884,
+            "unit": "median tps",
+            "extra": "avg tps: 3964.4512224967675, max tps: 4300.321371616744, count: 57390"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 177.59271121985327,
+            "unit": "median tps",
+            "extra": "avg tps: 182.95488280300248, max tps: 224.0849593390994, count: 57390"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3316.77248290841,
+            "unit": "median tps",
+            "extra": "avg tps: 3296.712799762797, max tps: 3630.5139141937293, count: 57390"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3374.2530419047225,
+            "unit": "median tps",
+            "extra": "avg tps: 3375.2726997273344, max tps: 3520.3239692025495, count: 57390"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 153.0449666492317,
+            "unit": "median tps",
+            "extra": "avg tps: 156.37139436312214, max tps: 185.741145984639, count: 57390"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 267.61495548090284,
+            "unit": "median tps",
+            "extra": "avg tps: 278.67428641784113, max tps: 378.7446788413273, count: 57390"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 506.3647653694551,
+            "unit": "median tps",
+            "extra": "avg tps: 514.4455068458554, max tps: 579.4013268193817, count: 57390"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 572.4593880004594,
+            "unit": "median tps",
+            "extra": "avg tps: 584.0981122613103, max tps: 683.9545467899737, count: 57390"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1256.8231606603508,
+            "unit": "median tps",
+            "extra": "avg tps: 1258.4480231506252, max tps: 1293.8328325930722, count: 57390"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 317.1173132985298,
+            "unit": "median tps",
+            "extra": "avg tps: 343.06402083997114, max tps: 575.9063668392538, count: 57390"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 527.1196111108084,
+            "unit": "median tps",
+            "extra": "avg tps: 537.5564249971783, max tps: 618.9680787020388, count: 57390"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2304.295671372595,
+            "unit": "median tps",
+            "extra": "avg tps: 2307.424651643338, max tps: 2520.2431163977885, count: 57390"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1726.7970974721725,
+            "unit": "median tps",
+            "extra": "avg tps: 1730.5355210465748, max tps: 2046.48751116022, count: 57390"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.93815705115192,
+            "unit": "median tps",
+            "extra": "avg tps: 23.263252978262006, max tps: 792.4897332955051, count: 57390"
           }
         ]
       }

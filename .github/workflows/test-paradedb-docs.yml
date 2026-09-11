@@ -69,7 +69,7 @@ jobs:
           save-if: false
 
       - name: Install System Dependencies
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: libsecret-1-dev libopenblas-dev
 

@@ -57,7 +57,7 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// Create a placeholder target list for aggregate custom scans.
 ///
 /// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
-/// It performs two main tasks:
+/// It performs three main tasks:
 /// 1. Replaces `pdb.agg_fn` FuncExprs with Const nodes that will be mutated with actual
 ///    aggregate values before each `ExecBuildProjectionInfo` call. This follows the basescan
 ///    pattern where Const values are baked in when projection is built.
@@ -67,6 +67,9 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 ///    By converting the original base relation Vars into `INDEX_VAR`s, `ExecProject` knows to
 ///    fetch the value from the virtual slot's attributes instead of attempting to evaluate
 ///    the original expressions (which would otherwise fail due to missing base columns).
+/// 3. In mixed expressions like `COUNT(*)::text || category`, rewrites grouping `Var`s to
+///    `INDEX_VAR`s at the grouping column's slot attribute so `ExecProject` reads the
+///    virtual slot instead of the heap attno.
 ///
 /// Returns: (placeholder_targetlist, const_nodes, needs_projection)
 /// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes and grouping columns converted to `INDEX_VAR`s.
@@ -102,11 +105,36 @@ pub(crate) unsafe fn create_placeholder_targetlist(
         return (std::ptr::null_mut(), Default::default(), false);
     }
 
+    // Pure grouping TEs → slot attr; used to rewrite grouping Vars in mixed expressions.
+    let mut grouping_var_slots: HashMap<(Varno, pg_sys::AttrNumber), pg_sys::AttrNumber> =
+        HashMap::default();
+    for (i, te) in targetlist_pg.iter_ptr().enumerate() {
+        if te.is_null() || (*te).expr.is_null() {
+            continue;
+        }
+        let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
+            && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
+        let contains_placeholder = is_top_level_placeholder
+            || expr_contains_placeholder_funcexpr(
+                (*te).expr as *mut pg_sys::Node,
+                placeholder_funcid,
+            );
+        if contains_placeholder {
+            continue;
+        }
+        for var in find_vars((*te).expr as *mut pg_sys::Node) {
+            grouping_var_slots
+                .entry(((*var).varno as Varno, (*var).varattno))
+                .or_insert((i + 1) as pg_sys::AttrNumber);
+        }
+    }
+
     // Context for the Const placeholder mutator (defined inside function since only used here)
-    struct ConstPlaceholderContext {
+    struct ConstPlaceholderContext<'a> {
         current_te_idx: usize,
         placeholder_funcid: pg_sys::Oid,
         const_nodes: Vec<Option<*mut pg_sys::Const>>,
+        grouping_var_slots: &'a HashMap<(Varno, pg_sys::AttrNumber), pg_sys::AttrNumber>,
     }
 
     #[pg_guard]
@@ -118,7 +146,7 @@ pub(crate) unsafe fn create_placeholder_targetlist(
             return std::ptr::null_mut();
         }
 
-        let ctx = &mut *(context as *mut ConstPlaceholderContext);
+        let ctx = &mut *(context as *mut ConstPlaceholderContext<'_>);
 
         // If this is our placeholder FuncExpr, replace it with a Const
         if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
@@ -133,6 +161,24 @@ pub(crate) unsafe fn create_placeholder_targetlist(
                 );
                 ctx.const_nodes[ctx.current_te_idx] = Some(const_node);
                 return const_node as *mut pg_sys::Node;
+            }
+        }
+
+        // Mixed agg+group exprs: map grouping Vars to the virtual slot, not heap attnos.
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            if let Some(&slot_attr) = ctx
+                .grouping_var_slots
+                .get(&((*var).varno as Varno, (*var).varattno))
+            {
+                return pg_sys::makeVar(
+                    pg_sys::INDEX_VAR,
+                    slot_attr,
+                    (*var).vartype,
+                    (*var).vartypmod,
+                    (*var).varcollid,
+                    0,
+                ) as *mut pg_sys::Node;
             }
         }
 
@@ -156,6 +202,7 @@ pub(crate) unsafe fn create_placeholder_targetlist(
         current_te_idx: 0,
         placeholder_funcid,
         const_nodes: vec![None; list_len],
+        grouping_var_slots: &grouping_var_slots,
     };
 
     // Build a new target list with ALL FuncExpr placeholders replaced by Const nodes.
@@ -194,7 +241,7 @@ pub(crate) unsafe fn create_placeholder_targetlist(
             // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)
             // For top-level: the mutator will replace the FuncExpr directly with a Const
             // For wrapped: the mutator will walk the tree and replace nested FuncExprs
-            let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext as *mut core::ffi::c_void;
+            let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext<'_> as *mut core::ffi::c_void;
             let new_expr = const_placeholder_mutator((*te).expr as *mut pg_sys::Node, ctx_ptr);
             (*new_te).expr = new_expr as *mut pg_sys::Expr;
         } else {

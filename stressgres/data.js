@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134448768,
+  "lastUpdate": 1789134458823,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -160568,6 +160568,66 @@ window.BENCHMARK_DATA = {
             "value": 20.66939262415487,
             "unit": "median tps",
             "extra": "avg tps: 20.71435975917068, max tps: 34.122268619029136, count: 59335"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134440651,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 78.42343675830995,
+            "unit": "median tps",
+            "extra": "avg tps: 78.66831359737364, max tps: 84.61255121068896, count: 59283"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 40.96783900256834,
+            "unit": "median tps",
+            "extra": "avg tps: 128.46777258175004, max tps: 7176.285054455397, count: 59283"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 741.1295073732167,
+            "unit": "median tps",
+            "extra": "avg tps: 765.6953410242885, max tps: 1254.965739249986, count: 59283"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 180.86535603673528,
+            "unit": "median tps",
+            "extra": "avg tps: 182.31290966400314, max tps: 205.21227352065205, count: 59283"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 217.1710006328128,
+            "unit": "median tps",
+            "extra": "avg tps: 145.8723538108659, max tps: 1634.8625629926053, count: 118566"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.60945357360485,
+            "unit": "median tps",
+            "extra": "avg tps: 19.669094984995077, max tps: 34.00257657924287, count: 59283"
           }
         ]
       }

@@ -254,6 +254,22 @@ SELECT paradedb.search_with_query_input_ctid(
            NULL::int, paradedb.empty(), '(0,1)'::tid
        ) IS NULL AS strict_anchor;
 
+SELECT paradedb.search_with_query_input_ctid_or_row(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, ARRAY[ROW(1)]::record[]
+       ) IS NULL AS null_inline_query,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, NULL::paradedb.searchqueryinput, '(0,1)'::tid, '{}'::record[]
+       ) IS NULL AS null_index_query,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), NULL::tid, ARRAY[ROW(1)]::record[]
+       ) IS NULL AS null_ctid,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), '(0,1)'::tid, NULL::record[]
+       ) IS NULL AS null_rows,
+       paradedb.search_with_query_input_ctid_or_row(
+           1, paradedb.empty(), '(0,1)'::tid, ARRAY[NULL::record]
+       ) IS NULL AS null_row;
+
 INSERT INTO sequential_scan_nulls VALUES
     (4, repeat('a', 4000), true), (5, repeat('b', 4000), true);
 CREATE TABLE sequential_scan_queries (label text, query paradedb.searchqueryinput);
@@ -269,6 +285,16 @@ SELECT label, pg_column_size(query) < 4000 AS compressed
 FROM sequential_scan_queries ORDER BY label;
 SELECT q.label, t.id,
        paradedb.search_with_query_input_ctid(t.id, q.query, t.ctid) AS matched
+FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
+WHERE t.id IN (4, 5)
+ORDER BY q.label, t.id;
+SELECT q.label, t.id,
+       paradedb.search_with_query_input_ctid_or_row(
+           NULL::int, q.query, t.ctid, ARRAY[t]::record[]
+       ) AS inline_match,
+       paradedb.search_with_query_input_ctid_or_row_strict(
+           1, q.query, t.ctid, ARRAY[t]::record[]
+       ) AS strict_inline_match
 FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
 WHERE t.id IN (4, 5)
 ORDER BY q.label, t.id;

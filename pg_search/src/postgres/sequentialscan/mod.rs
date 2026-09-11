@@ -151,16 +151,15 @@ pub fn search_with_query_input_ctid_or_row(
     assert_eq!(rows.len(), 1, "inline evaluation requires exactly one row");
     let row = rows.get(0)??;
 
+    let query_datum = unsafe { pg_getarg_datum(fcinfo, 1) }?;
+    let query_datum = unsafe { pg_sys::pg_detoast_datum(query_datum.cast_mut_ptr()) };
+
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
-    let query_datum = unsafe { pg_getarg_datum_raw(fcinfo, 1) };
-    let key = unsafe {
-        let varlena = query_datum.cast_mut_ptr::<pg_sys::varlena>();
-        pgrx::varlena_to_byte_slice(varlena).to_vec()
-    };
+    let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
 
     let matcher = cache.inline_rows.entry(key).or_insert_with(|| {
         let query = unsafe {
-            SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+            SearchQueryInput::from_datum(query_datum.into(), false)
                 .expect("the query argument cannot be NULL")
         };
         let index_oid = query.index_oid().unwrap_or_else(|| {

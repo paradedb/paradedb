@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087769034,
+  "lastUpdate": 1789087777197,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -355084,6 +355084,108 @@ window.BENCHMARK_DATA = {
             "value": 47.296875,
             "unit": "median mem",
             "extra": "avg mem: 45.7306215146443, max mem: 56.90625, count: 59221"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087773430,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.235825012648604, max cpu: 4.7244096, count: 59242"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.157981180475844, max mem: 17.18359375, count: 59242"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.538315104099965, max cpu: 4.754829, count: 59242"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.104202954090848, max mem: 17.11328125, count: 59242"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.370424,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.49410941465819, max cpu: 23.880596, count: 59242"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.498435442760204, max mem: 17.68359375, count: 59242"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.920056716519, max document_count: 10002.0, count: 59242"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.915988656696, max document_count: 10002.0, count: 59242"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.60769534863629, max cpu: 32.876713, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.63795757760541, max mem: 56.72265625, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.577648,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.5891504968452, max cpu: 33.119766, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.86623503753671, max mem: 57.19140625, count: 59242"
           }
         ]
       }

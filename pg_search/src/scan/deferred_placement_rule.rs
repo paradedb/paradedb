@@ -77,6 +77,7 @@ use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::gucs::{self, DeferredPlacement};
+use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
@@ -172,8 +173,7 @@ impl Decision {
         self.fetch_at_scan || self.eager
     }
 
-    /// Two scans of one index share a helper layout, so they share a decision; the deferred
-    /// choice wins because it is the one both paths were planned for.
+    /// The deferred choice wins, because it is the one both paths were planned for.
     fn merge(self, other: Decision) -> Decision {
         Decision {
             fetch_at_scan: self.fetch_at_scan && other.fetch_at_scan,
@@ -187,7 +187,12 @@ struct Context {
     decode_auto: bool,
     /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
     key_fields: HashMap<u32, Option<String>>,
-    decisions: HashMap<u32, Decision>,
+    /// Per column, since each one has its own consumer and so its own point to stop at.
+    /// Two scans of one index still share an entry: a column is named by its index and its
+    /// columnar position, which is the same pair on both sides of a self-join. To tell them
+    /// apart the scan and the decode need an identity they both carry, such as the plan
+    /// position. Sharing is safe because the merge keeps the deferred choice.
+    decisions: HashMap<CanonicalColumn, Decision>,
 }
 
 impl Context {
@@ -230,21 +235,28 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         for ((indexrelid, alias), path) in scans {
             let summary = summarize_path(&path, ctx);
             let decision = decide(&summary, bounded, ctx);
-            let merged = match ctx.decisions.get(&indexrelid) {
-                Some(existing) => existing.merge(decision),
-                None => decision,
-            };
-            ctx.decisions.insert(indexrelid, merged);
-            pgrx::debug1!(
-                "DeferredPlacement: {} out_of_order={} expansion={:?} eager_safe={} bounded={} -> fetch_at_scan={} eager={}",
-                alias,
-                summary.out_of_order,
-                summary.expansion,
-                summary.eager_safe,
-                bounded,
-                merged.fetch_at_scan,
-                merged.eager
-            );
+            for field in decode
+                .deferred_fields()
+                .iter()
+                .filter(|f| f.canonical.indexrelid == indexrelid)
+            {
+                let merged = match ctx.decisions.get(&field.canonical) {
+                    Some(existing) => existing.merge(decision),
+                    None => decision,
+                };
+                ctx.decisions.insert(field.canonical.clone(), merged);
+                pgrx::debug1!(
+                    "DeferredPlacement: {}.{} out_of_order={} expansion={:?} eager_safe={} bounded={} -> fetch_at_scan={} eager={}",
+                    alias,
+                    field.display_name,
+                    summary.out_of_order,
+                    summary.expansion,
+                    summary.eager_safe,
+                    bounded,
+                    merged.fetch_at_scan,
+                    merged.eager
+                );
+            }
         }
     }
 
@@ -417,8 +429,13 @@ fn equi_join_expansion<'a>(
 }
 
 /// Follows an output column down to the scan it comes from, through projections and
-/// schema-preserving nodes. Stops at a join, whose output no longer has a single source, and
-/// at an aggregate, whose groups are not the scan's rows.
+/// schema-preserving nodes. It stops at an aggregate, whose groups are not the scan's rows,
+/// and at a join.
+///
+/// A join is not a step to walk through. The caller reads the answer as "this key is
+/// unique", and a key field keeps that only while no join below it multiplied the rows,
+/// which is this same question one level down. A key that traces to nothing reads as an
+/// unknown fan-out, and that keeps the column deferred.
 fn trace_to_scan(plan: &Arc<dyn ExecutionPlan>, col: usize) -> Option<(u32, String)> {
     if plan.is::<AggregateExec>() {
         return None;
@@ -479,9 +496,12 @@ fn is_transparent(node: &Arc<dyn ExecutionPlan>) -> bool {
     node.supports_limit_pushdown() || node.is::<FilterPassthroughExec>()
 }
 
-fn moved(decisions: &HashMap<u32, Decision>, field: &PhysicalDeferredField) -> Option<Decision> {
+fn moved(
+    decisions: &HashMap<CanonicalColumn, Decision>,
+    field: &PhysicalDeferredField,
+) -> Option<Decision> {
     decisions
-        .get(&field.canonical.indexrelid)
+        .get(&field.canonical)
         .copied()
         .filter(Decision::moves)
 }
@@ -489,24 +509,29 @@ fn moved(decisions: &HashMap<u32, Decision>, field: &PhysicalDeferredField) -> O
 /// Applies the decisions bottom-up: a scan takes its columns over, and the fetch and decode
 /// above it drop them. The nodes in between are rebuilt so an eager column's new type reaches
 /// the decode point.
+///
+/// The walk is by hand rather than `transform_up`, which installs the new children before the
+/// node itself is visited. A `TantivyDecodeExec` refuses an input whose deferred column is
+/// already a string, so the field has to leave the node in the same step that gives it the
+/// eager input.
 fn rewrite(
     node: Arc<dyn ExecutionPlan>,
-    decisions: &HashMap<u32, Decision>,
+    decisions: &HashMap<CanonicalColumn, Decision>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        let Some(decision) = decisions.get(&scan.indexrelid).filter(|d| d.moves()) else {
+        let mut fetch_at_scan: Vec<String> = Vec::new();
+        let mut eager: Vec<String> = Vec::new();
+        for field in scan.deferred_fields() {
+            match decisions.get(&field.canonical).filter(|d| d.moves()) {
+                Some(decision) if decision.eager => eager.push(field.name.clone()),
+                Some(_) => fetch_at_scan.push(field.name.clone()),
+                None => {}
+            }
+        }
+        if fetch_at_scan.is_empty() && eager.is_empty() {
             return Ok(node);
-        };
-        let names: Vec<String> = scan
-            .deferred_fields()
-            .iter()
-            .map(|d| d.name.clone())
-            .collect();
-        return if decision.eager {
-            Ok(scan.with_deferred_placement(&[], &names)?)
-        } else {
-            Ok(scan.with_deferred_placement(&names, &[])?)
-        };
+        }
+        return Ok(scan.with_deferred_placement(&fetch_at_scan, &eager)?);
     }
 
     let children = node.children();
@@ -579,7 +604,7 @@ fn rewrite(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+    use crate::index::fast_fields_helper::FFHelper;
     use crate::query::SearchQueryInput;
     use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
@@ -713,7 +738,7 @@ mod tests {
                     col_idx: 0,
                     display_name: "title".into(),
                     is_bytes: false,
-                    canonical,
+                    canonical: canonical.clone(),
                     rebuild: None,
                 }],
                 ffhelpers,
@@ -723,7 +748,7 @@ mod tests {
 
         let mut decisions = HashMap::default();
         decisions.insert(
-            indexrelid,
+            canonical,
             Decision {
                 fetch_at_scan: false,
                 eager: true,

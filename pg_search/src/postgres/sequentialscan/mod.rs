@@ -191,10 +191,9 @@ pub fn ctid_is_valid(ctid: FakeCtid, fcinfo: pg_sys::FunctionCallInfo) -> bool {
 #[pg_extern(stable, strict, parallel_safe)]
 pub fn xmin_is_visible(xmin: pg_sys::TransactionId) -> bool {
     unsafe {
-        // EPQ may supply a version from a transaction that was still in progress
-        // at statement start. Our own transaction is not part of the snapshot's xip.
-        pg_sys::TransactionIdIsCurrentTransactionId(xmin)
-            || !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot())
+        // Current-command writes and EPQ replacements can be absent from the CTID set.
+        !pg_sys::TransactionIdIsCurrentTransactionId(xmin)
+            && !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot())
     }
 }
 

@@ -234,6 +234,26 @@ ORDER BY c.author
 LIMIT 5;
 
 -- =============================================================================
+-- A self-join reads one index through two scans, and each one gets its own
+-- answer. The build side comes back out of doc order, so it resolves its
+-- ordinals in the scan. The probe side joins on the build side's key field, so
+-- its rows arrive in doc order and at most once, and both halves stay deferred.
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c1.author, c2.author
+FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
+WHERE c1.body @@@ 'comment'
+ORDER BY c1.author, c2.author
+LIMIT 5;
+
+SELECT c1.author, c2.author
+FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
+WHERE c1.body @@@ 'comment'
+ORDER BY c1.author, c2.author
+LIMIT 5;
+
+-- =============================================================================
 -- Settings override the rule
 -- =============================================================================
 

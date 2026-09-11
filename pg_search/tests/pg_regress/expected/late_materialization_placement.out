@@ -519,6 +519,54 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
+-- A self-join reads one index through two scans, and each one gets its own
+-- answer. The build side comes back out of doc order, so it resolves its
+-- ordinals in the scan. The probe side joins on the build side's key field, so
+-- its rows arrive in doc order and at most once, and both halves stay deferred.
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c1.author, c2.author
+FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
+WHERE c1.body @@@ 'comment'
+ORDER BY c1.author, c2.author
+LIMIT 5;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c1.author, c2.author
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c1.author, c2.author
+         Relation Tree: c2 INNER c1
+         Join Cond: c1.post_id = c2.id
+         Limit: 5
+         Order By: c1.author asc, c2.author asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[author@3 as col_1, author@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyDecodeExec: decode=[author, author]
+           :     TantivyFetchExec: fetch=[author]
+           :       SegmentedTopKExec: expr=[author@3 ASC NULLS LAST, author@1 ASC NULLS LAST], k=5, visibility_checks=[c2, c1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@0, author@2, ctid_1@3, author@5]
+           :           CooperativeExec
+           :             PgSearchScan: table=c2, segments=2, fetch=[author], dynamic_filters=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=c1, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"comment","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT c1.author, c2.author
+FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
+WHERE c1.body @@@ 'comment'
+ORDER BY c1.author, c2.author
+LIMIT 5;
+  author   |  author   
+-----------+-----------
+ author 00 | author 00
+ author 00 | author 00
+ author 00 | author 07
+ author 00 | author 07
+ author 00 | author 07
+(5 rows)
+
+-- =============================================================================
 -- Settings override the rule
 -- =============================================================================
 SET paradedb.defer_string_decode = on;

@@ -820,6 +820,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     display_name: deferred.name.clone(),
                     is_bytes: deferred.is_bytes,
                     canonical: deferred.canonical.clone(),
+                    heap_rti: deferred.heap_rti,
                     rebuild: deferred.rebuild.clone(),
                 });
                 if !deferred.fetch_at_scan {
@@ -869,6 +870,11 @@ pub struct DeferredField {
     pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// The range table index of the scan's base relation, which is what tells two scans of
+    /// one index apart on a self-join. `canonical` names the column within the index, so it
+    /// is the same pair on both sides.
+    #[serde(default)]
+    pub heap_rti: u32,
     /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
     /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
     /// behavior of collecting the helper from the plan subtree.

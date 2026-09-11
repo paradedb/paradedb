@@ -76,7 +76,7 @@ use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::gucs::{self, DeferredPlacement};
-use crate::index::fast_fields_helper::CanonicalColumn;
+use crate::index::fast_fields_helper::FFIndex;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
@@ -161,6 +161,23 @@ enum Bound {
     TopK(LexOrdering),
 }
 
+/// One deferred column of one scan. The index is not enough on its own: a self-join reads
+/// one index through two scans, and each reaches its decode point by its own path.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+struct DeferredSource {
+    heap_rti: u32,
+    ff_index: FFIndex,
+}
+
+impl DeferredSource {
+    fn of(field: &PhysicalDeferredField) -> Self {
+        Self {
+            heap_rti: field.heap_rti,
+            ff_index: field.canonical.ff_index,
+        }
+    }
+}
+
 /// Where a source's deferred columns end up. Both flags false keeps them at the decode point.
 #[derive(Clone, Copy, Debug, Default)]
 struct Decision {
@@ -173,7 +190,8 @@ impl Decision {
         self.fetch_at_scan || self.eager
     }
 
-    /// The deferred choice wins, because it is the one both paths were planned for.
+    /// One column can still be read at two decode points. The deferred choice wins, because
+    /// it is the one both paths were planned for.
     fn merge(self, other: Decision) -> Decision {
         Decision {
             fetch_at_scan: self.fetch_at_scan && other.fetch_at_scan,
@@ -187,12 +205,9 @@ struct Context {
     decode_auto: bool,
     /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
     key_fields: HashMap<u32, Option<String>>,
-    /// Per column, since each one has its own consumer and so its own point to stop at.
-    /// Two scans of one index still share an entry: a column is named by its index and its
-    /// columnar position, which is the same pair on both sides of a self-join. To tell them
-    /// apart the scan and the decode need an identity they both carry, such as the plan
-    /// position. Sharing is safe because the merge keeps the deferred choice.
-    decisions: HashMap<CanonicalColumn, Decision>,
+    /// Per column of per scan, since each one has its own consumer and its own path, so its
+    /// own point to stop at.
+    decisions: HashMap<DeferredSource, Decision>,
 }
 
 impl Context {
@@ -228,23 +243,24 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         let wanted: Vec<u32> = decode
             .deferred_fields()
             .iter()
-            .map(|f| f.canonical.indexrelid)
+            .map(|f| f.heap_rti)
             .collect();
         let mut scans = Vec::new();
         collect_scans(node, &mut Vec::new(), &wanted, &mut scans);
-        for ((indexrelid, alias), path) in scans {
+        for ((heap_rti, alias), path) in scans {
             let summary = summarize_path(&path, ctx);
             let decision = decide(&summary, bounded, ctx);
             for field in decode
                 .deferred_fields()
                 .iter()
-                .filter(|f| f.canonical.indexrelid == indexrelid)
+                .filter(|f| f.heap_rti == heap_rti)
             {
-                let merged = match ctx.decisions.get(&field.canonical) {
+                let source = DeferredSource::of(field);
+                let merged = match ctx.decisions.get(&source) {
                     Some(existing) => existing.merge(decision),
                     None => decision,
                 };
-                ctx.decisions.insert(field.canonical.clone(), merged);
+                ctx.decisions.insert(source, merged);
                 pgrx::debug1!(
                     "DeferredPlacement: {}.{} out_of_order={} expansion={:?} eager_safe={} bounded={} -> fetch_at_scan={} eager={}",
                     alias,
@@ -297,7 +313,7 @@ fn segmented_topk_takes(order: &LexOrdering, decode: &TantivyDecodeExec) -> bool
 }
 
 /// Collects the scans under `node` whose deferred columns the decode point reads, each with
-/// the path of `(node, child index)` steps that leads down to it.
+/// its range table index and the path of `(node, child index)` steps that leads down to it.
 fn collect_scans(
     node: &Arc<dyn ExecutionPlan>,
     path: &mut Vec<PathStep>,
@@ -305,8 +321,11 @@ fn collect_scans(
     out: &mut Vec<((u32, String), Vec<PathStep>)>,
 ) {
     if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        if scan.has_deferred_fields() && wanted.contains(&scan.indexrelid) {
-            out.push(((scan.indexrelid, scan.table_alias.clone()), path.clone()));
+        // Every deferred column of one scan carries that scan's range table index.
+        if let Some(field) = scan.deferred_fields().first()
+            && wanted.contains(&field.heap_rti)
+        {
+            out.push(((field.heap_rti, scan.table_alias.clone()), path.clone()));
         }
         return;
     }
@@ -497,11 +516,11 @@ fn is_transparent(node: &Arc<dyn ExecutionPlan>) -> bool {
 }
 
 fn moved(
-    decisions: &HashMap<CanonicalColumn, Decision>,
+    decisions: &HashMap<DeferredSource, Decision>,
     field: &PhysicalDeferredField,
 ) -> Option<Decision> {
     decisions
-        .get(&field.canonical)
+        .get(&DeferredSource::of(field))
         .copied()
         .filter(Decision::moves)
 }
@@ -511,14 +530,18 @@ fn moved(
 /// the decode point.
 fn rewrite(
     plan: Arc<dyn ExecutionPlan>,
-    decisions: &HashMap<CanonicalColumn, Decision>,
+    decisions: &HashMap<DeferredSource, Decision>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut step = |node: Arc<dyn ExecutionPlan>, children: &[Arc<dyn ExecutionPlan>]| {
         if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
             let mut fetch_at_scan: Vec<String> = Vec::new();
             let mut eager: Vec<String> = Vec::new();
             for field in scan.deferred_fields() {
-                match decisions.get(&field.canonical).filter(|d| d.moves()) {
+                let source = DeferredSource {
+                    heap_rti: field.heap_rti,
+                    ff_index: field.canonical.ff_index,
+                };
+                match decisions.get(&source).filter(|d| d.moves()) {
                     Some(decision) if decision.eager => eager.push(field.name.clone()),
                     Some(_) => fetch_at_scan.push(field.name.clone()),
                     None => {}
@@ -591,7 +614,7 @@ fn rewrite(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::index::fast_fields_helper::FFHelper;
+    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
     use crate::query::SearchQueryInput;
     use crate::scan::deferred_encode::deferred_field;
     use crate::scan::late_materialization::DeferredField;
@@ -696,6 +719,7 @@ mod tests {
                 name: "title".into(),
                 is_bytes: false,
                 canonical: canonical.clone(),
+                heap_rti: 1,
                 rebuild: None,
                 fetch_at_scan: false,
             }],
@@ -726,6 +750,7 @@ mod tests {
                     display_name: "title".into(),
                     is_bytes: false,
                     canonical: canonical.clone(),
+                    heap_rti: 1,
                     rebuild: None,
                 }],
                 ffhelpers,
@@ -735,7 +760,10 @@ mod tests {
 
         let mut decisions = HashMap::default();
         decisions.insert(
-            canonical,
+            DeferredSource {
+                heap_rti: 1,
+                ff_index: canonical.ff_index,
+            },
             Decision {
                 fetch_at_scan: false,
                 eager: true,

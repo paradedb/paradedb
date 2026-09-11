@@ -410,6 +410,7 @@ impl PgSearchTableProvider {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
                     },
+                    heap_rti: self.scan_info.heap_rti,
                     // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).

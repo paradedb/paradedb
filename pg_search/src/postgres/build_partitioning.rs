@@ -46,7 +46,8 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BorrowedBuffer;
 use crate::postgres::utils::{
-    FieldSource, resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum,
+    FieldSource, item_pointer_to_u64, resolve_field_value, scalar_datum_to_tantivy_value,
+    unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -149,6 +150,11 @@ struct SampledField {
     categorized: CategorizedFieldData,
 }
 
+enum SampledPartitionField {
+    Ctid,
+    Categorized(Box<SampledField>),
+}
+
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
 /// onto `partition_by`, in that order.
 unsafe fn sample_partition_fields(
@@ -162,14 +168,20 @@ unsafe fn sample_partition_fields(
     let fields = partition_by
         .iter()
         .map(|name| {
-            categorized_fields
-                .iter()
-                .find(|(field, _)| field.field_name() == name)
-                .map(|(field, categorized)| SampledField {
-                    field: field.clone(),
-                    categorized: categorized.clone(),
-                })
-                .ok_or_else(|| anyhow::anyhow!("partition_by field `{name}` is not indexed"))
+            if name.is_ctid() {
+                Ok(SampledPartitionField::Ctid)
+            } else {
+                categorized_fields
+                    .iter()
+                    .find(|(field, _)| field.field_name() == name)
+                    .map(|(field, categorized)| {
+                        SampledPartitionField::Categorized(Box::new(SampledField {
+                            field: field.clone(),
+                            categorized: categorized.clone(),
+                        }))
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("partition_by field `{name}` is not indexed"))
+            }
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(categorized_fields);
@@ -199,9 +211,12 @@ unsafe fn sample_partition_fields(
         }
     };
 
-    let needs_expressions = fields
-        .iter()
-        .any(|f| !matches!(f.categorized.source, FieldSource::Heap { .. }));
+    let needs_expressions = fields.iter().any(|f| match f {
+        SampledPartitionField::Ctid => false,
+        SampledPartitionField::Categorized(sampled) => {
+            !matches!(sampled.categorized.source, FieldSource::Heap { .. })
+        }
+    });
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
     let mut sampler = unsafe {
@@ -297,8 +312,15 @@ unsafe fn sample_partition_fields(
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
 
-                    let point =
-                        project_row(&fields, values, isnull, &expr_results, created_by_version);
+                    let ctid_u64 = item_pointer_to_u64(t_self);
+                    let point = project_row(
+                        &fields,
+                        values,
+                        isnull,
+                        ctid_u64,
+                        &expr_results,
+                        created_by_version,
+                    );
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
@@ -329,57 +351,64 @@ unsafe fn sample_partition_fields(
 /// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
 /// fields, converting each datum the same way the index writer does.
 unsafe fn project_row(
-    fields: &[SampledField],
+    fields: &[SampledPartitionField],
     values: &[pg_sys::Datum],
     isnull: &[bool],
+    ctid: u64,
     expr_results: &[(pg_sys::Datum, bool)],
     created_by_version: Option<Version>,
 ) -> anyhow::Result<Point> {
     let unpacked_composites = unsafe {
-        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| {
-            if let FieldSource::CompositeField {
-                expression_idx,
-                composite_type_oid,
-                ..
-            } = f.categorized.source
-            {
-                let (datum, is_null) = expr_results[expression_idx];
-                Some((expression_idx, datum, is_null, composite_type_oid))
-            } else {
-                None
+        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| match f {
+            SampledPartitionField::Categorized(sampled) => {
+                if let FieldSource::CompositeField {
+                    expression_idx,
+                    composite_type_oid,
+                    ..
+                } = sampled.categorized.source
+                {
+                    let (datum, is_null) = expr_results[expression_idx];
+                    Some((expression_idx, datum, is_null, composite_type_oid))
+                } else {
+                    None
+                }
             }
+            SampledPartitionField::Ctid => None,
         }))
     };
 
     fields
         .iter()
-        .map(|f| {
-            let (datum, is_null) = resolve_field_value(
-                &f.categorized.source,
-                values,
-                isnull,
-                expr_results,
-                &unpacked_composites,
-            );
-            if is_null {
-                return Ok(PdbOwnedValue::Null);
+        .map(|f| match f {
+            SampledPartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+            SampledPartitionField::Categorized(sampled) => {
+                let (datum, is_null) = resolve_field_value(
+                    &sampled.categorized.source,
+                    values,
+                    isnull,
+                    expr_results,
+                    &unpacked_composites,
+                );
+                if is_null {
+                    return Ok(PdbOwnedValue::Null);
+                }
+                let datum = unsafe { unwrap_alias_datum(datum, sampled.categorized.pg_type) };
+                let value = unsafe {
+                    scalar_datum_to_tantivy_value(
+                        datum,
+                        sampled.field.field_type(),
+                        sampled.categorized.base_oid,
+                        created_by_version,
+                    )
+                }
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "could not sample partition_by field `{}`: {e}",
+                        sampled.field.field_name()
+                    )
+                })?;
+                Ok(value.0)
             }
-            let datum = unsafe { unwrap_alias_datum(datum, f.categorized.pg_type) };
-            let value = unsafe {
-                scalar_datum_to_tantivy_value(
-                    datum,
-                    f.field.field_type(),
-                    f.categorized.base_oid,
-                    created_by_version,
-                )
-            }
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "could not sample partition_by field `{}`: {e}",
-                    f.field.field_name()
-                )
-            })?;
-            Ok(value.0)
         })
         .collect()
 }
@@ -624,5 +653,44 @@ mod tests {
             saw_label_split,
             "expected at least one label split value: {tree}"
         );
+    }
+
+    #[pg_test]
+    fn boundaries_from_heap_sample_with_ctid() {
+        Spi::run(
+            r#"
+            CREATE TABLE sample_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_ctid (tenant_id, name)
+            SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_ctid_idx ON sample_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'ctid');
+
+            CREATE TABLE sample_multi_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_multi_ctid (tenant_id, name)
+            SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_multi_ctid_idx ON sample_multi_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (key_field = 'id', partition_by = 'tenant_id, ctid');
+            "#,
+        )
+        .unwrap();
+
+        let (heaprel, indexrel) = open_rels("sample_ctid", "sample_ctid_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
+        assert!((1..=4).contains(&tree.partition_count()), "{tree}");
+
+        let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(
+            tree.dims(),
+            &[FieldName::from("tenant_id"), FieldName::from("ctid")]
+        );
+        assert!((1..=4).contains(&tree.partition_count()), "{tree}");
     }
 }

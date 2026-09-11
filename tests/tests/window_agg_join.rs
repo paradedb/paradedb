@@ -193,3 +193,83 @@ fn global_window_aggregates_over_join_numeric(mut conn: PgConnection) -> Result<
 
     Ok(())
 }
+
+// Window aggregates embedded in target list expressions rather than standing
+// alone: a constant-arithmetic wrapper (native DataFusion path), a
+// function+cast wrapper (PgExprUdf path with a window input), a source column
+// mixed with a window value in one expression, and two window functions in a
+// single entry.
+#[rstest]
+fn global_window_aggregates_in_expressions(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+    setup(&mut conn);
+
+    let query = r#"
+        SELECT p.id,
+               r.score,
+               COUNT(*) OVER () + 1 AS count_plus_one,
+               r.score + COUNT(*) OVER () AS score_plus_count,
+               round(AVG(r.score) OVER (), 2)::float8 AS avg_rounded,
+               COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+        FROM wj_products p
+        JOIN wj_reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop'
+        ORDER BY r.score DESC
+        LIMIT 3
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    assert!(plan.contains("WindowAggExec"), "{plan}");
+
+    let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i64)>(&mut conn)?;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+        vec![(999, 1999), (997, 1997), (995, 1995)]
+    );
+    for (_, score, count_plus_one, score_plus_count, avg_rounded, count_plus_sum) in &rows {
+        assert_eq!(*count_plus_one, 1001);
+        assert_eq!(*score_plus_count, (*score as i64) + 1000);
+        assert_eq!(*avg_rounded, 1000.0);
+        assert_eq!(*count_plus_sum, 1_001_000);
+    }
+
+    Ok(())
+}
+
+// An expression whose result type is NUMERIC is not Arrow-convertible, so the
+// entry cannot be evaluated by the scan: JoinScan must decline (falling back
+// to PostgreSQL's WindowAgg) rather than erroring at execution.
+#[rstest]
+fn window_aggregate_numeric_result_expression_declines(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    setup_numeric(&mut conn);
+
+    let query = r#"
+        SELECT p.id, SUM(r.price) OVER () * 2 AS doubled_total
+        FROM wjn_products p
+        JOIN wjn_reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop'
+        ORDER BY r.id DESC
+        LIMIT 3
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(!plan.contains(JOIN_SCAN), "{plan}");
+    assert!(plan.contains("WindowAgg"), "{plan}");
+
+    let rows = query.fetch_result::<(i32, bigdecimal::BigDecimal)>(&mut conn)?;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+        vec![999, 997, 995]
+    );
+    let expected: bigdecimal::BigDecimal = "500000.00".parse().unwrap();
+    for (_, doubled_total) in &rows {
+        assert_eq!(*doubled_total, expected);
+    }
+
+    Ok(())
+}

@@ -41,15 +41,17 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-use super::build::ChildProjection;
 use super::planning::get_source_attno_by_name;
-use super::window_func::{SupportedWindowAggType, WindowAgg};
+use super::window_func::{
+    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
+};
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -88,6 +90,25 @@ fn resolve_var_to_df_col(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<Expr> {
+    // A window-aggregate sentinel Var (from rewrite_window_funcs_to_sentinels)
+    // resolves to the window step's output column — except for
+    // numeric-storage aggregates, whose column values are encoded (scaled
+    // i64, decimal bytes, avg blobs). Native DataFusion math over those
+    // would be wrong, so refuse here: per-node translation then falls back
+    // to the PgExprUdf path, whose window inputs decode via
+    // `JoinClauseMapper::window_input`.
+    if rti == WINDOW_SENTINEL_VARNO {
+        let index = WindowAggIndex::from_sentinel_attno(attno)?;
+        let window_agg = join_clause.window_aggs.get(index)?;
+        if window_agg
+            .arg_field_type()
+            .is_some_and(|ft| ft.is_numeric())
+        {
+            return None;
+        }
+        let canonical = join_clause.window_aggs.canonical_index(index);
+        return Some(col(canonical.as_col_name()));
+    }
     if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
         let source = join_clause
             .plan
@@ -103,7 +124,6 @@ fn resolve_var_to_df_col(
     })
 }
 
-<<<<<<< HEAD
 /// If a column cannot be resolved to an output DataFusion column, but its relation
 /// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
 /// from output), all its values in the join result are identically NULL.
@@ -133,16 +153,24 @@ fn resolve_var_or_pruned_null(
         .or_else(|| null_if_source_exists(join_clause, rti))
 }
 
-fn resolve_var_to_df_col_and_field(
+/// The registered field type of `(rti, attno)` when it is a NUMERIC fast
+/// field. Numeric columns arrive storage-encoded (scaled i64 or decimal
+/// bytes), so they need decode-aware handling wherever raw values would be
+/// consumed.
+fn numeric_fast_field_type(
     join_clause: &JoinCSClause,
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
-) -> Option<(Expr, &WhichFastField)> {
+) -> Option<SearchFieldType> {
     join_clause.plan.output_sources().iter().find_map(|source| {
         let mapped = source.map_var(rti, attno)?;
         let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
-        let field = source.column_name(mapped)?;
-        Some((make_source_col(source, &field), &field_info.field))
+        match &field_info.field {
+            WhichFastField::Named(_, ft) | WhichFastField::Deferred(_, ft) if ft.is_numeric() => {
+                Some(*ft)
+            }
+            _ => None,
+        }
     })
 }
 
@@ -153,17 +181,49 @@ fn resolve_var_to_df_col_and_field(
 /// For output projections, emitting NULL for columns of pruned relations (e.g.
 /// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
 /// they use `CombinedMapper` where pruned columns are rejected.
-=======
-/// Adapter that lets `PredicateTranslator` resolve Vars against a
-/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
->>>>>>> b4b023e43 (build output tuple)
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }
 
 impl<'a> ColumnMapper for JoinClauseMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // NUMERIC fast-field columns are storage-encoded; native DataFusion
+        // math over the raw column would be wrong. Refuse so per-node
+        // translation falls back to the PgExprUdf path, where `udf_input`
+        // supplies the decode. (Deliberately before the pruned-relation
+        // NULL fallback below — a numeric column must not degrade to NULL.)
+        if numeric_fast_field_type(self.join_clause, varno, varattno).is_some() {
+            return None;
+        }
         resolve_var_or_pruned_null(self.join_clause, varno, varattno)
+    }
+
+    fn udf_input(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<(Expr, InputDecode)> {
+        if varno == WINDOW_SENTINEL_VARNO {
+            let index = WindowAggIndex::from_sentinel_attno(varattno)?;
+            let window_agg = self.join_clause.window_aggs.get(index)?;
+            let canonical = self.join_clause.window_aggs.canonical_index(index);
+            return Some((
+                col(canonical.as_col_name()),
+                InputDecode::StorageEncoded {
+                    is_avg: matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
+                    field_type: window_agg.arg_field_type().cloned(),
+                },
+            ));
+        }
+        let field_type = numeric_fast_field_type(self.join_clause, varno, varattno)?;
+        let expr = resolve_var_to_df_col(self.join_clause, varno, varattno)?;
+        Some((
+            expr,
+            InputDecode::StorageEncoded {
+                is_avg: false,
+                field_type: Some(field_type),
+            },
+        ))
     }
 }
 
@@ -1010,29 +1070,19 @@ fn resolve_orderby_feature(
     }
 }
 
+/// Compute every extracted window aggregate as a `window_agg_N` column.
+/// Driven by `join_clause.window_aggs` rather than the output projection:
+/// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
+/// entry — only a sentinel Var referencing the column by name.
 fn apply_window_functions(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
-    let Some(projection) = &join_clause.output_projection else {
-        return Ok(df);
-    };
-
-    let info_indices = projection.iter().filter_map(|info| {
-        if let ChildProjection::WindowAgg { agg_index } = info {
-            Some(agg_index)
-        } else {
-            None
-        }
-    });
-
-    let window_exprs: Vec<Expr> = info_indices
-        .map(|index| {
-            let info = join_clause
-                .window_aggs
-                .get(*index)
-                .expect("should always be a valid window agg index");
-
-            let expr = window_expr(info, join_clause)?.alias(index.as_col_name());
-            Ok(expr)
-        })
+    let window_exprs: Vec<Expr> = join_clause
+        .window_aggs
+        .iter_indexed()
+        // Materialize only canonical entries: duplicates share the
+        // canonical column, and identical window expressions in one Window
+        // node trip DataFusion's CSE (see WindowAggList::canonical_index).
+        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
+        .map(|(index, info)| Ok(window_expr(info, join_clause)?.alias(index.as_col_name())))
         .collect::<Result<Vec<Expr>>>()?;
 
     if window_exprs.is_empty() {
@@ -1065,8 +1115,7 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     //
     // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
     // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plant
-    // serialization for parallel and MPP execution; decimal-bytes values are self-describing.
+    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
     match info.agg_type {
         SupportedWindowAggType::Sum => {
             let ce = col_expr.expect("should always have a column expression for SUM");
@@ -1278,7 +1327,10 @@ fn build_projection_expr(
                 }
             }
         }
-        ChildProjection::WindowAgg { agg_index } => return col(agg_index.as_col_name()),
+        ChildProjection::WindowAgg { agg_index } => {
+            let canonical = join_clause.window_aggs.canonical_index(*agg_index);
+            return col(canonical.as_col_name());
+        }
         ChildProjection::Column { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
                 return expr;

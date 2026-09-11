@@ -1016,6 +1016,36 @@ WHERE p.description @@@ 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
 
+-- Test 27c: Window aggregates embedded in target list expressions:
+-- constant arithmetic, a cast, a source column mixed with a window value,
+-- and two window functions in one entry.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
 -- Test 28: Window function in subquery
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT *

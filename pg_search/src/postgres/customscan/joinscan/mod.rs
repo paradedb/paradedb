@@ -665,7 +665,7 @@ impl JoinScan {
                     wf,
                     &all_sources,
                     parse,
-                    te.resno as pg_sys::AttrNumber,
+                    window_func::WindowAggId::bare(te.resno as pg_sys::AttrNumber),
                 ) {
                     Ok(wa) => wa,
                     Err(e) => {
@@ -673,11 +673,26 @@ impl JoinScan {
                     }
                 };
                 window_aggs.push(window_agg);
-            } else if planning::resolve_target_entry_expr(check_expr, &all_sources, root).is_none()
-            {
-                return Err(JoinDeclineReason::new(
-                    "JoinScan not used: target list expression cannot be evaluated",
-                ));
+            } else {
+                match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
+                    None => {
+                        return Err(JoinDeclineReason::new(
+                            "JoinScan not used: target list expression cannot be evaluated",
+                        ));
+                    }
+                    Some(planning::ResolvedExpr::Expression { window_deps, .. })
+                        if !window_deps.is_empty() =>
+                    {
+                        // Stamp the placeholder ids with the owning entry's
+                        // resno (ordinals were assigned in walker visit
+                        // order during resolution).
+                        for (ordinal, mut wa) in window_deps.into_iter().enumerate() {
+                            wa.id = window_func::WindowAggId::nested(te.resno, ordinal);
+                            window_aggs.push(wa);
+                        }
+                    }
+                    Some(_) => {}
+                }
             }
         }
 
@@ -1901,8 +1916,10 @@ unsafe fn compute_output_columns(
                     field_name: unnest_info.field_name.clone(),
                 });
             } else if is_supported_window_agg_node(check_expr) {
-                let resno = (*te).resno;
-                let agg_index = join_clause.window_aggs.find_index_by_resno(resno).expect(
+                let agg_index = join_clause
+                    .window_aggs
+                    .find_index(window_func::WindowAggId::bare((*te).resno))
+                    .expect(
                     "At this point, any window agg found should have successfully been extracted and be findable",
                 );
                 output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
@@ -2036,7 +2053,8 @@ unsafe fn build_output_projection(
             .output_columns
             .iter()
             .zip(&resolved_entries)
-            .map(|(info, resolved)| {
+            .zip(&scan_target_entries)
+            .map(|((info, resolved), te)| {
                 // If this column belongs to a relation pruned from output (e.g. the RHS
                 // of an Anti Join), do not construct projection expressions referencing
                 // the pruned source, as it does not exist in the physical scan plan.
@@ -2048,9 +2066,24 @@ unsafe fn build_output_projection(
                         expr_node,
                         input_vars,
                         result_type,
+                        window_deps,
                     }) => {
+                        // Embedded window functions cannot survive into the
+                        // serialized expression (the executor cannot evaluate
+                        // a WindowFunc outside a WindowAgg node): serialize a
+                        // copy with each one replaced by a sentinel Var that
+                        // resolves to the window step's output column.
+                        let expr_for_serialization = if window_deps.is_empty() {
+                            (*expr_node).cast::<pg_sys::Node>()
+                        } else {
+                            window_func::rewrite_window_funcs_to_sentinels(
+                                (*expr_node).cast(),
+                                (**te).resno,
+                                &private_data.join_clause.window_aggs,
+                            )
+                        };
                         let expr_string = {
-                            let node_str = pg_sys::nodeToString((*expr_node).cast());
+                            let node_str = pg_sys::nodeToString(expr_for_serialization.cast());
                             std::ffi::CStr::from_ptr(node_str)
                                 .to_string_lossy()
                                 .into_owned()

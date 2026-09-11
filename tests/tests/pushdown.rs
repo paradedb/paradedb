@@ -59,7 +59,7 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
         id serial8 not null primary key,
         bool_field bool
     );
-    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING paradedb (id, bool_field) WITH (key_field = 'id');
+    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING paradedb (id, bool_field);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
@@ -125,7 +125,6 @@ fn pushdown(mut conn: PgConnection) {
                       ON test
                    USING paradedb (id, col_boolean, {})
                    WITH (
-                    key_field='id',
                         text_fields = '{{
                             "col_text": {{"tokenizer": {{"type":"keyword"}} }},
                             "col_text_1": {{"tokenizer": {{"type":"keyword"}} }},
@@ -228,8 +227,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
             removed_at timestamp with time zone
         );
         CREATE INDEX mcp_server_search_idx ON mcp_server
-        USING paradedb (id, name, description, synced_at, removed_at)
-        WITH (key_field='id');
+        USING paradedb (id, name, description, synced_at, removed_at);
     "#
     .execute(&mut conn);
 
@@ -269,7 +267,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
 
     let sql = r#"
         CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, col_text, col_int8)
-        WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+        WITH (text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
     "#;
     sql.execute(&mut conn);
 
@@ -455,7 +453,7 @@ mod pushdown_is_not_null {
             .execute(&mut conn);
         let sql = r#"
             CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
-            WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+            WITH (text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
         "#;
         sql.execute(&mut conn);
 
@@ -656,7 +654,7 @@ mod pushdown_is_null {
             .execute(&mut conn);
         let sql = r#"
             CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
-            WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+            WITH (text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
         "#;
         sql.execute(&mut conn);
 
@@ -805,7 +803,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message);
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -837,7 +835,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message);
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -876,7 +874,7 @@ mod pushdown_is_bool_operator {
             message text
         );
 
-        CREATE INDEX idx_bool_null_test ON bool_null_test USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+        CREATE INDEX idx_bool_null_test ON bool_null_test USING paradedb (id, bool_field, message);
 
         -- Insert values: true, false, and NULL
         INSERT INTO bool_null_test (bool_field, message) VALUES (true, 'beer');

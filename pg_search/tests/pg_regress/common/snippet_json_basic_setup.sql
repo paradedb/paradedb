@@ -30,6 +30,4 @@ CREATE INDEX ON snippet_test USING paradedb (
     id,
     metadata_json,
     metadata_jsonb
-) WITH (
-    key_field = 'id'
 );

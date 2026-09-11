@@ -47,7 +47,6 @@ INSERT INTO test_multi_stopwords (content) VALUES
 CREATE INDEX idx_multi_stopwords_bm25 ON test_multi_stopwords
     USING paradedb (id, content)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "content": {"tokenizer": {"type": "default", "stopwords_language": ["English", "French"]}}
     }'
@@ -107,7 +106,6 @@ INSERT INTO test_single_stopwords (content) VALUES
 CREATE INDEX idx_single_stopwords_bm25 ON test_single_stopwords
     USING paradedb (id, content)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "content": {"tokenizer": {"type": "default", "stopwords_language": "English"}}
     }'

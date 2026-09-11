@@ -47,7 +47,6 @@ CREATE INDEX js_parallel_distinct_users_idx
 ON js_parallel_distinct_users
 USING paradedb (id, uuid, name, age)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }
@@ -60,7 +59,6 @@ CREATE INDEX js_parallel_distinct_products_idx
 ON js_parallel_distinct_products
 USING paradedb (id, uuid, name, age)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }
@@ -73,7 +71,6 @@ CREATE INDEX js_parallel_distinct_orders_idx
 ON js_parallel_distinct_orders
 USING paradedb (id, uuid, name, age)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }

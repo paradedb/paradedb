@@ -29,7 +29,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -56,7 +55,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -83,7 +81,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -111,7 +108,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -139,7 +135,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -165,7 +160,6 @@ CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_nam
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
 USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
 WITH (
-    key_field='id',
     text_fields='{
         "description": {},
         "category": {"fast": true, "normalizer": "raw"}
@@ -224,7 +218,6 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     CREATE INDEX numeric_bytes_idx ON numeric_bytes_test
     USING paradedb (id, description, amount, precise_value)
     WITH (
-        key_field = 'id',
         text_fields = '{"description": {}}',
         numeric_fields = '{"amount": {"fast": true}, "precise_value": {"fast": true}}'
     );
@@ -321,7 +314,6 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     CREATE INDEX orders_idx ON orders
     USING paradedb (id, product_name, total_amount)
     WITH (
-        key_field = 'id',
         text_fields = '{"product_name": {}}',
         numeric_fields = '{"total_amount": {"fast": true}}'
     );
@@ -329,7 +321,6 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     CREATE INDEX order_items_idx ON order_items
     USING paradedb (id, item_name, item_price)
     WITH (
-        key_field = 'id',
         text_fields = '{"item_name": {}}',
         numeric_fields = '{"item_price": {"fast": true}}'
     );

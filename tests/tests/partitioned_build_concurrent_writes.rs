@@ -107,7 +107,7 @@ async fn hot_updates_during_a_concurrent_build(database: Db) -> Result<()> {
             r#"
             CREATE INDEX CONCURRENTLY cic_race_idx ON cic_race
             USING bm25 (id, tenant_id, body)
-            WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8,
+            WITH (partition_by = 'tenant_id', target_segment_count = 8,
                   numeric_fields = '{"tenant_id": {"fast": true}}');
             "#,
         )
@@ -147,7 +147,7 @@ async fn writes_during_a_concurrent_build(database: Db) -> Result<()> {
             r#"
             CREATE INDEX CONCURRENTLY cic_race_idx ON cic_race
             USING bm25 (id, tenant_id, body)
-            WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 8,
+            WITH (partition_by = 'tenant_id', target_segment_count = 8,
                   numeric_fields = '{"tenant_id": {"fast": true}}');
             "#,
         )

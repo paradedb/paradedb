@@ -301,8 +301,7 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
 
     CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
@@ -315,8 +314,7 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#.execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
@@ -337,9 +335,9 @@ fn scores_survive_joins(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'b', schema_name => 'public');
     CALL paradedb.create_paradedb_test_table(table_name => 'c', schema_name => 'public');
 
-    CREATE INDEX idxa ON a USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
-    CREATE INDEX idxb ON b USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
-    CREATE INDEX idxc ON c USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
+    CREATE INDEX idxa ON a USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
+    CREATE INDEX idxb ON b USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
+    CREATE INDEX idxc ON c USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
@@ -372,8 +370,7 @@ fn join_issue_1776(mut conn: PgConnection) {
         );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at);
 
     CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
@@ -387,8 +384,7 @@ fn join_issue_1776(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -416,8 +412,7 @@ fn join_issue_1826(mut conn: PgConnection) {
         );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at);
 
     CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
@@ -431,8 +426,7 @@ fn join_issue_1826(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -519,8 +513,8 @@ fn cte_issue_1951(mut conn: PgConnection) {
         insert into t (id, data) select x, md5(x::text) || ' query' from generate_series(1, 100) x;
         insert into s (id, data) select x, md5(x::text) from generate_series(1, 100) x;
 
-        create index idxt on t using paradedb (id, data) with (key_field = id);
-        create index idxs on s using paradedb (id, data) with (key_field = id);
+        create index idxt on t using paradedb (id, data);
+        create index idxs on s using paradedb (id, data);
     "#.execute(&mut conn);
 
     let results = r#"
@@ -541,8 +535,7 @@ fn without_operator_guc(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, rating)
-    WITH (key_field='id');
+    USING paradedb (id, description, rating);
     "#
     .execute(&mut conn);
 
@@ -616,7 +609,7 @@ fn top_k_matches(mut conn: PgConnection) {
 
         -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id');
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity);
         CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
         DECLARE
             current_txid bigint;
@@ -715,10 +708,11 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 fn top_k_is_exhausted(mut conn: PgConnection) {
     r#"
         CREATE TABLE exhausted (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
-        CREATE INDEX exhausted_idx ON exhausted USING paradedb (id, message, severity) WITH (key_field = 'id');
+        CREATE INDEX exhausted_idx ON exhausted USING paradedb (id, message, severity);
         INSERT INTO exhausted (message, severity) VALUES ('beer wine cheese a', 1);
         SET max_parallel_workers = 0;
-    "#.execute(&mut conn);
+    "#
+    .execute(&mut conn);
 
     let (plan,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
@@ -742,7 +736,7 @@ fn top_k_completes_issue2511(mut conn: PgConnection) {
     r#"
         drop table if exists loop;
         create table loop (id serial8 not null primary key, message text) with (autovacuum_enabled = false);
-        create index idxloop on loop using paradedb (id, message) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        create index idxloop on loop using paradedb (id, message) WITH (layer_sizes = '1GB, 1GB');
 
         insert into loop (message) select md5(x::text) from generate_series(1, 5000) x;
 
@@ -772,7 +766,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
@@ -856,8 +850,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     -- Create ParadeDB BM25 index
     DROP INDEX IF EXISTS company_name_search_idx;
     CREATE INDEX company_name_search_idx ON company
-    USING paradedb (id, name)
-    WITH (key_field = 'id');
+    USING paradedb (id, name);
 
     -- Insert test data
     DELETE FROM company;
@@ -1150,7 +1143,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
 
     CREATE TABLE t (id bigint);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;
-    CREATE INDEX t_idx ON t USING paradedb (id) WITH (key_field='id');
+    CREATE INDEX t_idx ON t USING paradedb (id);
     "#
     .execute(&mut conn);
 
@@ -1195,9 +1188,9 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
         content TEXT
     ) WITH (autovacuum_enabled = false);
 
-    CREATE INDEX idxa ON a USING paradedb (a_id_pk, content) WITH (key_field = 'a_id_pk');
+    CREATE INDEX idxa ON a USING paradedb (a_id_pk, content);
 
-    CREATE INDEX idxb ON b USING paradedb (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk',
+    CREATE INDEX idxb ON b USING paradedb (b_id_pk, a_id_fk, content) WITH (
       text_fields = '{ "a_id_fk": { "fast": true, "tokenizer": { "type": "keyword" } } }');
 
     INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
@@ -1233,8 +1226,7 @@ fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(&mut conn);
 
     let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')".fetch(&mut conn);

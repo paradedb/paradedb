@@ -314,11 +314,6 @@ fn generated_queries_setup_inner(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let key_field = columns_def
-        .iter()
-        .find(|c| c.is_primary_key)
-        .map(|c| c.name)
-        .expect("At least one column must be a primary key");
 
     // Only include columns without index_expression in text_fields (v1 syntax)
     let text_fields = columns_def
@@ -428,7 +423,6 @@ CREATE TABLE {tname} (
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',
     json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}

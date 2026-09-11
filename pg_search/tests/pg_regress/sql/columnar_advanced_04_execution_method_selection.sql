@@ -44,7 +44,6 @@ USING paradedb (
     bool_field
 )
 WITH (
-    key_field = 'id',
     text_fields = '{"text_field1": {"tokenizer": {"type": "default"}, "fast": true}, "text_field2": {"tokenizer": {"type": "default"}, "fast": true}, "text_field3": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"num_field1": {"fast": true}, "num_field2": {"fast": true}, "num_field3": {"fast": true}}',
     boolean_fields = '{"bool_field": {"fast": true}}'

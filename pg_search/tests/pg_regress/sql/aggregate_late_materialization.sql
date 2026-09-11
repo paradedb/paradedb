@@ -31,10 +31,10 @@ INSERT INTO alm_tags (product_id, tag_name) VALUES
 
 CREATE INDEX alm_products_idx ON alm_products
 USING bm25 (id, description, category, price)
-WITH (key_field='id', text_fields='{"description": {}, "category": {"fast": true}}', numeric_fields='{"price": {"fast": true}}');
+WITH (text_fields='{"description": {}, "category": {"fast": true}}', numeric_fields='{"price": {"fast": true}}');
 CREATE INDEX alm_tags_idx ON alm_tags
 USING bm25 (id, product_id, tag_name)
-WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fields='{"tag_name": {"fast": true}}');
+WITH (numeric_fields='{"product_id": {"fast": true}}', text_fields='{"tag_name": {"fast": true}}');
 
 -- Delete a matched row so visibility actually filters. The deleted product must
 -- not appear in the aggregate.
@@ -93,10 +93,10 @@ INSERT INTO alm_views (post_id) SELECT id FROM alm_posts;
 
 CREATE INDEX alm_posts_idx ON alm_posts
 USING bm25 (id, title, author, labels)
-WITH (key_field='id', text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
+WITH (text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
 CREATE INDEX alm_views_idx ON alm_views
 USING bm25 (id, post_id)
-WITH (key_field='id', numeric_fields='{"post_id": {"fast": true}}');
+WITH (numeric_fields='{"post_id": {"fast": true}}');
 
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

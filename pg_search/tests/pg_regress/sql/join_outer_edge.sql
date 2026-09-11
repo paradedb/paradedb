@@ -30,13 +30,13 @@ FROM generate_series(1, 30) g;
 
 CREATE INDEX oj_fact_idx ON oj_fact
 USING paradedb (id, dim_id, txt)
-WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+WITH (numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
 CREATE INDEX oj_dim_idx ON oj_dim
 USING paradedb (id, txt, price)
-WITH (key_field='id', numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+WITH (numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
 CREATE INDEX oj_sub_idx ON oj_sub
 USING paradedb (id, dim_id, val)
-WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}, "val":{"fast":true}}');
+WITH (numeric_fields='{"dim_id":{"fast":true}, "val":{"fast":true}}');
 
 ANALYZE oj_fact;
 ANALYZE oj_dim;

@@ -17,7 +17,7 @@ INSERT INTO mlt (text_field_a, text_field_b, json_field, numeric_field) VALUES
     ('ddd eee fff', 'foo foo foo', '{"color": "ddd eee fff"}', 2),
     ('aaa aaa', 'baz baz', '{"color": "aaa aaa"}', 3);
 
-CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
+CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field);
 
 SELECT * from mlt where id @@@ pdb.more_like_this(1);
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a']);
@@ -76,7 +76,7 @@ INSERT INTO mlt_vec (description, embedding) VALUES
     ('aaa aaa', '[4,5,6]'),
     ('ddd eee fff', '[7,8,9]');
 
-CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (key_field = 'id');
+CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding);
 
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);
@@ -169,7 +169,7 @@ DROP TABLE mlt_keyless;
 -- The legacy key-value overload keeps working for non-integer keys too.
 CREATE TABLE mlt_text_key (id text PRIMARY KEY, body text);
 INSERT INTO mlt_text_key VALUES ('alpha', 'alpha alpha'), ('beta', 'beta beta');
-CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body) WITH (key_field = 'id');
+CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body);
 SELECT id FROM mlt_text_key WHERE id @@@ pdb.more_like_this(
     key_value => 'alpha'::text, fields => ARRAY['body']) ORDER BY id;
 DROP TABLE mlt_text_key;

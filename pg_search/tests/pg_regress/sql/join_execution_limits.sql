@@ -51,8 +51,8 @@ FROM generate_series(1, 1000) i;
 
 -- Note: large_orders.supplier_id must be columnar for the join key
 CREATE INDEX large_orders_bm25_idx ON large_orders USING paradedb (id, description, supplier_id)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
-CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country) WITH (key_field = 'id');
+WITH (numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country);
 
 -- This query may fall back to nested loop due to small work_mem
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -112,9 +112,9 @@ FROM generate_series(1, 500) AS i;
 -- Note: mem_test_products.supplier_id must be columnar for the join key
 CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
     USING paradedb (id, name, description, supplier_id)
-    WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+    WITH (numeric_fields = '{"supplier_id": {"fast": true}}');
 CREATE INDEX mem_test_suppliers_bm25_idx ON mem_test_suppliers
-    USING paradedb (id, name, info) WITH (key_field = 'id');
+    USING paradedb (id, name, info);
 
 -- Run with constrained work_mem to test memory handling
 -- Note: 64 is the minimum work_mem in PostgreSQL (KB)
@@ -178,8 +178,8 @@ FROM generate_series(1, 1000) AS i;
 
 -- Note: large_items.category_id must be columnar for the join key
 CREATE INDEX large_items_bm25_idx ON large_items USING paradedb (id, name, content, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description) WITH (key_field = 'id');
+WITH (numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description);
 
 -- Query with larger LIMIT to test larger result sets
 SELECT COUNT(*) AS wireless_count
@@ -228,8 +228,8 @@ INSERT INTO update_test_items (id, content, ref_id) VALUES
 
 -- Note: update_test_items.ref_id must be columnar for the join key
 CREATE INDEX update_items_bm25_idx ON update_test_items USING paradedb (id, content, ref_id)
-WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name) WITH (key_field = 'id');
+WITH (numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name);
 
 -- Initial query
 SELECT i.id, i.content, r.ref_name, i.version
@@ -303,8 +303,8 @@ INSERT INTO tiny_products VALUES
 
 -- Note: tiny_products.ref_id must be columnar for the join key
 CREATE INDEX tiny_products_bm25_idx ON tiny_products USING paradedb (id, description, ref_id)
-WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name) WITH (key_field = 'id');
+WITH (numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name);
 
 -- Query with very small build side - should work correctly regardless of algorithm
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -355,8 +355,8 @@ FROM generate_series(1, 200) i;
 
 -- Note: hint_test_products.category_id must be columnar for the join key
 CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING paradedb (id, description, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name) WITH (key_field = 'id');
+WITH (numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name);
 
 -- Query that exercises hash table with medium build side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

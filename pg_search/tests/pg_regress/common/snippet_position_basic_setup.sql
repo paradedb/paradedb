@@ -18,6 +18,4 @@ CREATE INDEX ON snippet_test USING paradedb (
     id,
     content,
     titles
-) WITH (
-    key_field = 'id'
 );

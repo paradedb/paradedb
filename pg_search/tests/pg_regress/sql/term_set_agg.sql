@@ -30,12 +30,10 @@ INSERT INTO plants (genus_id, name) VALUES
 (3, 'Siberian Crabapple');
 
 CREATE INDEX plants_idx ON plants
-USING paradedb (id, genus_id, name)
-WITH (key_field = id);
+USING paradedb (id, genus_id, name);
 
 CREATE INDEX genus_idx ON genus
-USING paradedb (id, name)
-WITH (key_field = id);
+USING paradedb (id, name);
 
 --
 -- Test 1: Basic CTE query

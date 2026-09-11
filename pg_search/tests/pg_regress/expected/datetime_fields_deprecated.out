@@ -17,7 +17,6 @@ INSERT INTO deprecated_dt (ts, tstz) VALUES
 CREATE INDEX deprecated_dt_idx ON deprecated_dt
 USING paradedb (id, ts, tstz)
 WITH (
-    key_field = 'id',
     datetime_fields = '{"ts": {"fast": true}, "tstz": {"fast": true}}'
 );
 WARNING:  As of v0.24.1, "datetime_fields" is deprecated and should be removed. It no longer has any effect. The performance improvement options it provided are now on by default.

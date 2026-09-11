@@ -24,7 +24,7 @@ ON issue_6197_json_fast_field_repro USING paradedb (
     id,
     body,
     (custom::pdb.simple('columnar=true'))
-) WITH (key_field = 'id');
+);
 
 VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
 
@@ -78,7 +78,7 @@ ON issue_6197_json_fast_field_repro USING paradedb (
     id,
     body,
     (((custom->>'score')::bigint)::pdb.alias('score'))
-) WITH (key_field = 'id');
+);
 
 VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
 

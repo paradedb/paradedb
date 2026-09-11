@@ -46,7 +46,6 @@ INSERT INTO cov_items (order_id, item_name, unit_price) VALUES
 CREATE INDEX cov_orders_idx ON cov_orders
 USING paradedb (id, description, customer, quantity, amount)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "customer": {"fast": true}}',
     numeric_fields='{"quantity": {"fast": true}, "amount": {"fast": true}}'
 );
@@ -54,7 +53,6 @@ WITH (
 CREATE INDEX cov_items_idx ON cov_items
 USING paradedb (id, order_id, item_name, unit_price)
 WITH (
-    key_field='id',
     numeric_fields='{"order_id": {"fast": true}, "unit_price": {"fast": true}}',
     text_fields='{"item_name": {"fast": true}}'
 );
@@ -219,7 +217,6 @@ INSERT INTO cov_logs (sensor_id, log_type) VALUES
 CREATE INDEX cov_sensors_idx ON cov_sensors
 USING paradedb (id, description, reading, priority)
 WITH (
-    key_field='id',
     text_fields='{"description": {}}',
     numeric_fields='{"reading": {"fast": true}, "priority": {"fast": true}}'
 );
@@ -227,7 +224,6 @@ WITH (
 CREATE INDEX cov_logs_idx ON cov_logs
 USING paradedb (id, sensor_id, log_type)
 WITH (
-    key_field='id',
     numeric_fields='{"sensor_id": {"fast": true}}',
     text_fields='{"log_type": {"fast": true}}'
 );
@@ -289,7 +285,6 @@ INSERT INTO cov_big_tags (big_id, tag) VALUES
 CREATE INDEX cov_big_idx ON cov_big
 USING paradedb (id, description, qty)
 WITH (
-    key_field='id',
     text_fields='{"description": {}}',
     numeric_fields='{"qty": {"fast": true}}'
 );
@@ -297,7 +292,6 @@ WITH (
 CREATE INDEX cov_big_tags_idx ON cov_big_tags
 USING paradedb (id, big_id, tag)
 WITH (
-    key_field='id',
     numeric_fields='{"big_id": {"fast": true}}',
     text_fields='{"tag": {"fast": true}}'
 );

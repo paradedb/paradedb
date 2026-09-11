@@ -25,8 +25,7 @@ INSERT INTO products (description, category, rating, price, created_at) VALUES
   ('Digital fitness tracker watch', 'electronics', 4, 79.99, '2025-10-14');
 
 CREATE INDEX search_idx ON products
-USING paradedb (id, description, (category::pdb.literal), rating, price, created_at)
-WITH (key_field = 'id');
+USING paradedb (id, description, (category::pdb.literal), rating, price, created_at);
 
 -------------------------------------------------------------
 -- Full-Text Queries

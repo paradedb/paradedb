@@ -31,7 +31,6 @@ fn aborted_segments_not_visible(mut conn: PgConnection) {
         CREATE INDEX idxtest_table ON public.test_table
         USING paradedb (id, value)
         WITH (
-            key_field = 'id',
             text_fields = '{
                 "value": {}
             }'

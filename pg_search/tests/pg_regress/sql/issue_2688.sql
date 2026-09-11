@@ -46,8 +46,6 @@ DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
 USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
-) WITH (
-    key_field = 'id'
 );
 
 SELECT id, title, valid_period

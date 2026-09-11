@@ -26,10 +26,10 @@ SELECT 1 + ((g * 7919) % 20000), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE
 FROM generate_series(1, 20000) g;
 
 CREATE INDEX sp_users_idx ON sp_users USING paradedb (id, display_name)
-WITH (key_field = 'id', partition_by = 'id', target_segment_count = 4,
+WITH (partition_by = 'id', target_segment_count = 4,
       text_fields = '{"display_name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 CREATE INDEX sp_posts_idx ON sp_posts USING paradedb (id, owner_user_id, title)
-WITH (key_field = 'id', partition_by = 'owner_user_id', target_segment_count = 4,
+WITH (partition_by = 'owner_user_id', target_segment_count = 4,
       numeric_fields = '{"owner_user_id": {"fast": true}}');
 
 SELECT relname, count(*) AS segments
@@ -101,7 +101,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
 CREATE TABLE sp_votes (id bigserial PRIMARY KEY, post_id bigint, kind text);
 CREATE INDEX sp_votes_idx ON sp_votes USING paradedb (id, post_id, kind)
-WITH (key_field = 'id', partition_by = 'post_id', target_segment_count = 4,
+WITH (partition_by = 'post_id', target_segment_count = 4,
       numeric_fields = '{"post_id": {"fast": true}}',
       text_fields = '{"kind": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 INSERT INTO sp_votes (post_id, kind)

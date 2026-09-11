@@ -124,7 +124,6 @@ fn setup_topk_desc_large(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_large_idx ON topk_desc_large USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 5000,
             layer_sizes = '10TB',
@@ -156,7 +155,6 @@ fn setup_many_segments(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_many_segs_idx ON topk_desc_many_segs USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 32,
             mutable_segment_rows = 1000,
             layer_sizes = '10TB',
@@ -186,7 +184,6 @@ fn setup_topk_asc_small(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_asc_small_idx ON topk_asc_small USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 1000,
             layer_sizes = '10TB',
@@ -210,7 +207,6 @@ fn setup_multi_term(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_multi_term_idx ON topk_desc_multi_term USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 5000,
             layer_sizes = '10TB',
@@ -238,7 +234,6 @@ fn setup_unanalyzed(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_unanalyzed_idx ON topk_unanalyzed USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 100,
             layer_sizes = '10TB',

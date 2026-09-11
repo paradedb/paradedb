@@ -9,8 +9,7 @@ CREATE TABLE numeric_conversion (
     amount numeric(36,0)
 );
 
-CREATE INDEX idx_numeric_conversion ON numeric_conversion USING paradedb (id, description, amount)
-WITH (key_field = 'id');
+CREATE INDEX idx_numeric_conversion ON numeric_conversion USING paradedb (id, description, amount);
 
 --
 -- Test thresholds for AnyNumeric -> TantivyValue conversion

@@ -71,7 +71,7 @@ SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
 DROP TABLE IF EXISTS edge_ngram_e2e;
 CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
 INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
-CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING paradedb (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
+CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING paradedb (id, (name::pdb.edge_ngram(2, 10)));
 SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
 DROP TABLE edge_ngram_e2e;
 
@@ -144,8 +144,7 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING parad
         (description::pdb.whitespace('alias=whitespace')),
         (description::pdb.source_code('alias=source_code')),
         (description::pdb.literal_normalized('alias=literal_normalized'))
-    )
-    WITH (key_field = 'id');
+    );
 
 SELECT indexdef from pg_indexes where indexname = 'idxtokenizer_typmod_display';
 DROP TABLE tokenizer_typmod_display;

@@ -12,7 +12,6 @@ CREATE TABLE test_index_config_errors
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     USING paradedb (id, name)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "some_wrong_key": {"tokenizer": {"type": "default"}}
     }'
@@ -22,7 +21,6 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     USING paradedb (id, name)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "name": {"tokenizer": {"type": "some_wrong_type"}}
     }'
@@ -32,7 +30,6 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     USING paradedb (id, name)
     WITH (
-    key_field = 'id',
     text_fields ='{
         "id": {"tokenizer": {"type": "default"}}
     }'

@@ -6,8 +6,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (metadata::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, (metadata::pdb.literal));
 
 SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items

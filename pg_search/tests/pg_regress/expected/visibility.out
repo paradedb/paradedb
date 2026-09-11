@@ -15,7 +15,7 @@ INSERT INTO vis_test (description, value)
 SELECT 'shoes running test', x FROM generate_series(1, 1000) x;
 CREATE INDEX idx_vis_test ON vis_test
 USING bm25 (id, description, value)
-WITH (key_field = 'id', numeric_fields = '{"value": {"fast": true}}');
+WITH (numeric_fields = '{"value": {"fast": true}}');
 -- Delete a tenth of the rows without vacuuming, so the index still holds
 -- entries for 1000 rows while only 900 are visible. Every assertion below turns
 -- on that gap: 900 means the visibility check ran, 1000 means it did not.

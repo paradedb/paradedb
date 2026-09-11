@@ -16,7 +16,7 @@ CREATE TABLE tbl_ltree (
     id SERIAL,
     category ltree
 );
-CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category) WITH (key_field = 'id');
+CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category);
 
 -- Insert test data with various ltree paths
 INSERT INTO tbl_ltree (category) VALUES 
@@ -42,13 +42,13 @@ SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
 -- Test sorting by ltree column (lexicographic order)
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
 
--- Test ltree as key field
+-- Test an ltree primary key
 DROP TABLE IF EXISTS tbl_ltree_key;
 CREATE TABLE tbl_ltree_key (
     path ltree,
     name TEXT
 );
-CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name) WITH (key_field = 'path');
+CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name);
 
 INSERT INTO tbl_ltree_key (path, name) VALUES 
     ('Root.Branch1', 'First Branch'),

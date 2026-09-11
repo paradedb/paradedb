@@ -52,14 +52,12 @@ INSERT INTO nonequi_offers (id, promo_name, description, target_category, min_pr
 -- All join, filter, and order-by columns must be fast fields for JoinScan
 CREATE INDEX nonequi_items_idx ON nonequi_items USING paradedb (id, name, description, category, price, rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
 );
 
 CREATE INDEX nonequi_offers_idx ON nonequi_offers USING paradedb (id, promo_name, description, target_category, min_price, max_price, min_rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"promo_name": {"fast": true}, "target_category": {"fast": true}}',
     numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
 );

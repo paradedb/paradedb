@@ -21,7 +21,7 @@ INSERT INTO date_agg_test (d, ts, tstz, t, ttz) VALUES
     (NULL, NULL, NULL, NULL, NULL);
 
 -- Create bm25 index
-CREATE INDEX ON date_agg_test USING paradedb (id, d, ts, tstz, t, ttz) WITH (key_field = 'id');
+CREATE INDEX ON date_agg_test USING paradedb (id, d, ts, tstz, t, ttz);
 
 -- Enable aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -81,7 +81,7 @@ CREATE TABLE all_null_dates (
     d date
 );
 INSERT INTO all_null_dates (d) VALUES (NULL), (NULL);
-CREATE INDEX ON all_null_dates USING paradedb (id, d) WITH (key_field = 'id');
+CREATE INDEX ON all_null_dates USING paradedb (id, d);
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT max(d) FROM all_null_dates WHERE id @@@ pdb.all();

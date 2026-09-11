@@ -32,10 +32,9 @@ SELECT i, 1 + (i % 100),
 FROM generate_series(1, 10000) s(i);
 
 CREATE INDEX documents_idx ON documents USING paradedb (id, tenant_id, body) WITH (
-    key_field = 'id',
     numeric_fields = '{"tenant_id": {"fast": true}}'
 );
-CREATE INDEX tenants_idx ON tenants USING paradedb (id, name) WITH (key_field = 'id');
+CREATE INDEX tenants_idx ON tenants USING paradedb (id, name);
 ANALYZE documents;
 ANALYZE tenants;
 

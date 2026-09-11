@@ -21,37 +21,37 @@ INSERT INTO sort_by_test (name, score, created_at) VALUES
 \echo 'Test 1.1: sort_by with id ASC'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='id ASC NULLS FIRST');
+    WITH (sort_by='id ASC NULLS FIRST');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 1.2: sort_by with id DESC'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='id DESC NULLS LAST');
+    WITH (sort_by='id DESC NULLS LAST');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 1.3: sort_by = none (disables segment sorting)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='none');
+    WITH (sort_by='none');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 1.4: Case insensitive - lowercase'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='score asc nulls first');
+    WITH (sort_by='score asc nulls first');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 1.5: Case insensitive - mixed case'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='score Desc Nulls Last');
+    WITH (sort_by='score Desc Nulls Last');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 1.6: ctid field (implicit fast field)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='ctid ASC NULLS FIRST');
+    WITH (sort_by='ctid ASC NULLS FIRST');
 DROP INDEX sort_by_test_idx;
 
 DROP TABLE sort_by_test CASCADE;
@@ -68,8 +68,7 @@ CREATE TABLE sort_by_test (
 
 \echo 'Test 2.1: No sort_by specified - defaults to none'
 CREATE INDEX sort_by_test_idx ON sort_by_test
-    USING paradedb (id, category, score)
-    WITH (key_field='id');
+    USING paradedb (id, category, score);
 DROP INDEX sort_by_test_idx;
 
 DROP TABLE sort_by_test CASCADE;
@@ -87,43 +86,43 @@ CREATE TABLE sort_by_test (
 \echo 'Test 3.1: sort_by with nonexistent field (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='nonexistent ASC NULLS FIRST');
+    WITH (sort_by='nonexistent ASC NULLS FIRST');
 
 \echo 'Test 3.2: sort_by with non-fast field (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='name ASC NULLS FIRST');
+    WITH (sort_by='name ASC NULLS FIRST');
 
 \echo 'Test 3.3: sort_by with invalid syntax (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='id ASCENDING');
+    WITH (sort_by='id ASCENDING');
 
 \echo 'Test 3.4a: sort_by with ASC NULLS LAST (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='id ASC NULLS LAST');
+    WITH (sort_by='id ASC NULLS LAST');
 
 \echo 'Test 3.4b: sort_by with DESC NULLS FIRST (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='id DESC NULLS FIRST');
+    WITH (sort_by='id DESC NULLS FIRST');
 
 \echo 'Test 3.5: sort_by with multiple fields (should error - not supported)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='score DESC NULLS LAST, id ASC NULLS FIRST');
+    WITH (sort_by='score DESC NULLS LAST, id ASC NULLS FIRST');
 
 \echo 'Test 3.6: Empty string (treated as none)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='');
+    WITH (sort_by='');
 DROP INDEX sort_by_test_idx;
 
 \echo 'Test 3.7: Whitespace only (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING paradedb (id, name, score)
-    WITH (key_field='id', sort_by='   ');
+    WITH (sort_by='   ');
 
 DROP TABLE sort_by_test CASCADE;
 
@@ -142,19 +141,19 @@ CREATE TABLE sort_by_types_test (
 \echo 'Test 4.1: sort_by with TIMESTAMP field'
 CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
     USING paradedb (id, category, ts_val, real_val, bigint_val)
-    WITH (key_field='id', sort_by='ts_val DESC NULLS LAST');
+    WITH (sort_by='ts_val DESC NULLS LAST');
 DROP INDEX sort_by_types_test_idx;
 
 \echo 'Test 4.2: sort_by with REAL field'
 CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
     USING paradedb (id, category, ts_val, real_val, bigint_val)
-    WITH (key_field='id', sort_by='real_val ASC NULLS FIRST');
+    WITH (sort_by='real_val ASC NULLS FIRST');
 DROP INDEX sort_by_types_test_idx;
 
 \echo 'Test 4.3: sort_by with BIGINT field'
 CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
     USING paradedb (id, category, ts_val, real_val, bigint_val)
-    WITH (key_field='id', sort_by='bigint_val DESC NULLS LAST');
+    WITH (sort_by='bigint_val DESC NULLS LAST');
 DROP INDEX sort_by_types_test_idx;
 
 DROP TABLE sort_by_types_test CASCADE;
@@ -167,14 +166,14 @@ DROP TYPE IF EXISTS order_key CASCADE;
 CREATE TYPE order_key AS (cust_id INTEGER, order_dt DATE);
 CREATE TABLE sort_by_composite (id SERIAL PRIMARY KEY, cust_id INTEGER, order_dt DATE);
 CREATE INDEX idx ON sort_by_composite USING paradedb (id, (ROW(cust_id, order_dt)::order_key))
-    WITH (key_field='id', sort_by='cust_id ASC NULLS FIRST');
+    WITH (sort_by='cust_id ASC NULLS FIRST');
 DROP TABLE sort_by_composite CASCADE;
 DROP TYPE order_key CASCADE;
 
 \echo 'Test 5.2: pdb.alias expression'
 CREATE TABLE sort_by_alias (id SERIAL PRIMARY KEY, price INTEGER, qty INTEGER);
 CREATE INDEX idx ON sort_by_alias USING paradedb (id, ((price * qty)::pdb.alias('total')))
-    WITH (key_field='id', sort_by='total DESC NULLS LAST');
+    WITH (sort_by='total DESC NULLS LAST');
 DROP TABLE sort_by_alias CASCADE;
 
 -- SECTION 6: Multi-valued fields (should error)
@@ -191,16 +190,16 @@ CREATE TABLE sort_by_multi_test (
 \echo 'Test 6.1: sort_by with array field (should error)'
 CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
     USING paradedb (id, tags, meta)
-    WITH (key_field='id', sort_by='tags ASC NULLS FIRST');
+    WITH (sort_by='tags ASC NULLS FIRST');
 
 \echo 'Test 6.2: sort_by with json field (should error)'
 CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
     USING paradedb (id, tags, meta)
-    WITH (key_field='id', sort_by='meta ASC NULLS FIRST');
+    WITH (sort_by='meta ASC NULLS FIRST');
 
 \echo 'Test 6.3: sort_by with aliased array expression (should error)'
 CREATE INDEX sort_by_multi_test_idx ON sort_by_multi_test
     USING paradedb (id, (int_array::pdb.alias('aliased_array')))
-    WITH (key_field='id', sort_by='aliased_array ASC NULLS FIRST');
+    WITH (sort_by='aliased_array ASC NULLS FIRST');
 
 DROP TABLE sort_by_multi_test CASCADE;

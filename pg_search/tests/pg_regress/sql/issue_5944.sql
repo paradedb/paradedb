@@ -19,7 +19,7 @@ FROM generate_series(1, 10000) x;
 
 CREATE INDEX issue_5944_idx ON issue_5944_mvcc_facet
 USING bm25 (id, grp)
-WITH (key_field = 'id', text_fields = '{"grp": {"fast": true}}');
+WITH (text_fields = '{"grp": {"fast": true}}');
 
 -- Delete 10% of the rows without vacuuming, leaving dead-but-still-in-index
 -- entries the aggregation should not count when solve_mvcc is enabled.

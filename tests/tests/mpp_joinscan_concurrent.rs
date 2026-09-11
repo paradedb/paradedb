@@ -55,15 +55,13 @@ CREATE TABLE mppc_test_multi (
     category_id INTEGER NOT NULL
 );
 
-CREATE INDEX mppc_test_idx ON mppc_test USING paradedb (id, message, category_id)
-WITH (key_field = 'id');
-CREATE INDEX mppc_test_multi_idx ON mppc_test_multi USING paradedb (id, message, category_id)
-WITH (key_field = 'id');
+CREATE INDEX mppc_test_idx ON mppc_test USING paradedb (id, message, category_id);
+CREATE INDEX mppc_test_multi_idx ON mppc_test_multi USING paradedb (id, message, category_id);
 -- Zeroed layer sizes keep the merge policy off both paths, so the build side holds its two
 -- immutable segments and its mutable one for the whole run. A merge would swap the segment set
 -- under the readers and hide what this test measures.
 CREATE INDEX mppc_categories_idx ON mppc_categories USING paradedb (id, (name::pdb.literal))
-WITH (key_field = 'id', layer_sizes = '0', background_layer_sizes = '0');
+WITH (layer_sizes = '0', background_layer_sizes = '0');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mppc_categories (id, name)

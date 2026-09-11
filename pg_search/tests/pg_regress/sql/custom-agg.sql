@@ -52,7 +52,6 @@ INSERT INTO logs (description, severity, category, response_time, unindexed_metr
 
 CREATE INDEX logs_idx ON logs USING paradedb (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
     numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}'
 );
@@ -891,7 +890,6 @@ INSERT INTO products (description, category, brand, rating, price) VALUES
 CREATE INDEX products_idx ON products
 USING paradedb (id, description, category, brand, rating, price)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
@@ -1123,7 +1121,6 @@ INSERT INTO mvcc_test (description, category, value) VALUES
 CREATE INDEX mvcc_test_idx ON mvcc_test
 USING paradedb (id, description, category, value)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}}',
     numeric_fields = '{"value": {"fast": true}}'
 );
@@ -1289,7 +1286,7 @@ INSERT INTO test_window_order VALUES
 (2, 'B', 10),
 (3, 'C', 20);
 
-CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id) WITH (key_field='id');
+CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id);
 
 -- NOTE: This query can _not_ be pushed down, because `name` is not fast/columnar.
 SELECT
@@ -1331,7 +1328,7 @@ SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
 FROM generate_series(1, 100) AS i;
 CREATE INDEX agg_param_test_idx ON agg_param_test
 USING paradedb (id, description, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+WITH (text_fields = '{"category": {"fast": true}}');
 
 -- Baseline: constant JSON literal pushes through AggregateScan.
 SELECT pdb.agg('{"terms":{"field":"category"}}'::jsonb) IS NOT NULL AS got_result
@@ -1363,7 +1360,7 @@ DROP TABLE agg_param_test;
 \echo '--- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---'
 CREATE TABLE cte_bm25_logs (id INT, description TEXT, category TEXT);
 INSERT INTO cte_bm25_logs VALUES (1, 'error event', 'cat1'), (2, 'warning event', 'cat2');
-CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (text_fields = '{"category": {"fast": true}}');
 
 CREATE TABLE cte_plain_tbl (cat TEXT);
 INSERT INTO cte_plain_tbl VALUES ('cat1'), ('cat2');

@@ -114,20 +114,19 @@ FROM generate_series(800, 1899) AS i;
 CREATE INDEX t1_idx ON t1
 USING paradedb (id, body, fk_a, fk_b, fk_c)
 WITH (
-    key_field = 'id',
     text_fields = '{"body": {"fast": true}}',
     numeric_fields = '{"fk_a": {"fast": true}, "fk_b": {"fast": true}, "fk_c": {"fast": true}}',
     sort_by = 'fk_a ASC NULLS FIRST'
 );
 
 CREATE INDEX t2_a_idx ON t2_a USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+WITH (numeric_fields = '{"fk": {"fast": true}}');
 
 CREATE INDEX t2_b_idx ON t2_b USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+WITH (numeric_fields = '{"fk": {"fast": true}}');
 
 CREATE INDEX t2_c_idx ON t2_c USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+WITH (numeric_fields = '{"fk": {"fast": true}}');
 
 ANALYZE t1;
 ANALYZE t2_a;

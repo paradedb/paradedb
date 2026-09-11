@@ -7,7 +7,6 @@ CREATE TABLE public.key_field_uuid_raw
 CREATE INDEX test_search_index on public.key_field_uuid_raw
     USING paradedb (id, metadata_json)
     WITH (
-    key_field = id,
     json_fields='{
 "metadata_json": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } },
 "metadata_json_new": { "fast": true, "tokenizer": { "type": "keyword", "lowercase": true }, "column": "metadata_json" }

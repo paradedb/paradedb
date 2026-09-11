@@ -47,7 +47,6 @@ INSERT INTO filter_agg_test (id, title, description, category, brand, status, pr
 CREATE INDEX filter_agg_idx ON filter_agg_test
 USING paradedb (id, title, description, category, brand, status, price, rating, in_stock, views)
 WITH (
-    key_field='id',
     text_fields='{
         "title": {},
         "description": {},

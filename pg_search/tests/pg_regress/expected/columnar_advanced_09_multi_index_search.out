@@ -36,7 +36,6 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
     string_field3,
     content
 ) WITH (
-    key_field = 'id',
     text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
@@ -107,7 +106,6 @@ CREATE INDEX documents_search ON documents USING paradedb (
     parents,
     content
 ) WITH (
-    key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 CREATE INDEX files_search ON files USING paradedb (
@@ -116,7 +114,6 @@ CREATE INDEX files_search ON files USING paradedb (
     title,
     file_path
 ) WITH (
-    key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 CREATE INDEX pages_search ON pages USING paradedb (
@@ -125,7 +122,6 @@ CREATE INDEX pages_search ON pages USING paradedb (
     content,
     page_number
 ) WITH (
-    key_field = 'id',
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );
@@ -158,7 +154,6 @@ CREATE INDEX category_search ON categories USING paradedb (
     name,
     description
 ) WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 INSERT INTO categories (name, description, parent_id) VALUES
@@ -184,7 +179,6 @@ CREATE INDEX product_search ON products USING paradedb (
     category_id,
     price
 ) WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"category_id": {"fast": true}, "price": {"fast": true}}'
 );
@@ -220,7 +214,6 @@ CREATE INDEX conversion_search ON conversion_test USING paradedb (
     timestamp_field,
     content
 ) WITH (
-    key_field = 'id',
     text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{
         "smallint_field": {"fast": true}, 
@@ -285,7 +278,6 @@ DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
 USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
-    key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
@@ -293,7 +285,6 @@ WITH (
 CREATE INDEX union_test_b_idx ON union_test_b
 USING paradedb (id, title, author, rating, year, price, is_published)
 WITH (
-    key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
@@ -410,7 +401,6 @@ DROP INDEX IF EXISTS reviews_idx;
 CREATE INDEX products_idx ON products
 USING paradedb (id, name, description, price, stock_count, is_available)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
     boolean_fields = '{"is_available": {"fast": true}}'
@@ -418,7 +408,6 @@ WITH (
 CREATE INDEX categories_idx ON categories
 USING paradedb (id, name, description, product_count, is_active)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"product_count": {"fast": true}}',
     boolean_fields = '{"is_active": {"fast": true}}'
@@ -426,7 +415,6 @@ WITH (
 CREATE INDEX reviews_idx ON reviews
 USING paradedb (id, reviewer_name, content, rating, helpful_votes)
 WITH (
-    key_field = 'id',
     text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
 );

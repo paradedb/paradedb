@@ -10,8 +10,7 @@ For example, consider the following statement where `metadata` is `JSONB`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, metadata)
-WITH (key_field='id');
+USING paradedb (id, metadata);
 ```
 
 ```ts Drizzle
@@ -87,8 +86,7 @@ By default, all text sub-fields of a JSON object use the same tokenizer. The tok
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (metadata::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, (metadata::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle
@@ -168,8 +166,7 @@ within a larger JSON:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle

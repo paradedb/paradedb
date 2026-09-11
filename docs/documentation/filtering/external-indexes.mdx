@@ -29,8 +29,7 @@ FROM mock_items
 CROSS JOIN generate_series(1, 2500) AS sample_id;
 
 CREATE INDEX geo_search_idx ON mock_items_geo
-USING paradedb (id, description, category)
-WITH (key_field = 'id');
+USING paradedb (id, description, category);
 ```
 
 Next, run a query that combines a ParadeDB text search with a geometric filter:

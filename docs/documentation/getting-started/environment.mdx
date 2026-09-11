@@ -6,6 +6,12 @@ canonical: https://www.paradedb.com/docs/documentation/getting-started/environme
 
 This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
 
+<Note>
+  The `key_field` index option is [deprecated and
+  ignored](/documentation/indexing/create-index). Some ORM client versions still
+  require the argument, so those examples retain it for compatibility.
+</Note>
+
 <Accordion title="SQL">
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
@@ -39,8 +45,7 @@ Next, let's create a ParadeDB index called `search_idx` on this table. A ParadeD
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, embedding vector_cosine_ops, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
+USING paradedb (id, description, embedding vector_cosine_ops, category, rating, in_stock, created_at, metadata, weight_range);
 ```
 
 Note that this includes text, vector, and metadata fields.
@@ -49,12 +54,6 @@ Note that this includes text, vector, and metadata fields.
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
   `ORDER BY`, or aggregate as part of a full text query should be added to the
   index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
 </Note>
 
 You're all set! Try [running some queries](/documentation/getting-started/queries).
@@ -139,12 +138,6 @@ Note that this includes text, vector, and metadata fields.
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
   `ORDER BY`, or aggregate as part of a full text query should be added to the
   index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
 </Note>
 
 Create a Drizzle Kit configuration that points at the same database:
@@ -297,12 +290,6 @@ Note that this includes text, vector, and metadata fields.
   index for faster performance.
 </Note>
 
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
-</Note>
-
 Run the migrations to create the table and index:
 
 ```bash
@@ -412,12 +399,6 @@ Note that this includes text, vector, and metadata fields.
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
   `ORDER BY`, or aggregate as part of a full text query should be added to the
   index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
 </Note>
 
 Copy this configuration into your `migrations/env.py`:
@@ -687,12 +668,6 @@ Note that this includes text, vector, and metadata fields.
   index for faster performance.
 </Note>
 
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
-</Note>
-
 Generate a migration for the search index:
 
 ```bash
@@ -867,12 +842,6 @@ Note that this includes text, vector, and metadata fields.
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
   `ORDER BY`, or aggregate as part of a full text query should be added to the
   index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more
-  details.
 </Note>
 
 Create the EF Core migration:

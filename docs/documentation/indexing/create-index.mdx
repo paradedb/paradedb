@@ -7,11 +7,16 @@ canonical: https://www.paradedb.com/docs/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
 The following code block creates a ParadeDB index over several columns in the `mock_items` table.
 
+<Note>
+  The `key_field` index option is deprecated and ignored. It is still accepted
+  for backward compatibility. New indexes do not require a designated key field
+  or a unique first column.
+</Note>
+
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category)
-WITH (key_field='id');
+USING paradedb (id, description, category);
 ```
 
 ```ts Drizzle
@@ -92,8 +97,10 @@ modelBuilder.Entity<MockItem>()
 </Note>
 
 <Note>
-  See the [getting started guide](/documentation/getting-started/environment)
-  for more detail on how to set up your ORM to run index creation commands.
+  Some ORM client versions still require a `key_field` argument, so the ORM
+  examples retain it for compatibility. See the [getting started
+  guide](/documentation/getting-started/environment) for client versions and
+  setup instructions.
 </Note>
 
 <Note>
@@ -146,8 +153,7 @@ For instance, if a column contains multiple languages, the ICU tokenizer may be 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.icu), category)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.icu), category);
 ```
 
 ```ts Drizzle
@@ -230,8 +236,7 @@ including columns used for sorting, grouping, filtering, and aggregations.
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
 ```
 
 ```ts Drizzle
@@ -343,17 +348,6 @@ FROM pg_stat_progress_create_index;
 Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
 `blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
 
-## Choosing a Key Field
-
-In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
-Every ParadeDB index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
-
-The `key_field` must:
-
-1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
-2. Be the first column in the column list.
-3. Be untokenized, if it is a text field.
-
 ## Token Filters
 
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
@@ -362,8 +356,7 @@ For example, the following code block adds English stemming to `description`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('stemmer=english')), category)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('stemmer=english')), category);
 ```
 
 ```ts Drizzle

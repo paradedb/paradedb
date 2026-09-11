@@ -13,8 +13,7 @@ The following statement indexes an expression which concatenates `description` a
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')))
-WITH (key_field='id');
+USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')));
 ```
 
 ```ts Drizzle
@@ -138,8 +137,7 @@ the expression `rating + 1`, which returns an integer:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')))
-WITH (key_field='id');
+USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')));
 ```
 
 ```ts Drizzle

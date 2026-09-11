@@ -45,8 +45,7 @@ no need to denormalize your existing schema.
 ```sql
 -- Index a table for full-text search
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, rating)
-WITH (key_field='id');
+USING paradedb (id, description, rating);
 
 -- Rank by relevance, then filter and sort like any other query
 SELECT description, pdb.score(id)

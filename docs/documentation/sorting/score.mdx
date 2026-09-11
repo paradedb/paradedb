@@ -8,7 +8,8 @@ BM25 scores measure how relevant a document is for a given query. Higher scores 
 
 ## Basic Usage
 
-The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
+The `pdb.score(<column>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
+Pass an indexed column from the table being searched, such as `id`.
 
 <CodeGroup>
 ```sql SQL
@@ -182,8 +183,7 @@ FOREIGN KEY (product_id)
 REFERENCES mock_items(id);
 
 CREATE INDEX orders_idx ON orders
-USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
-WITH (key_field = 'order_id');
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name);
 ```
 
 Next, let's compute a "combined BM25 score" over a join across both tables.

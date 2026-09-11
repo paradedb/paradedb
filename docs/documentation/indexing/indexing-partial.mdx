@@ -14,7 +14,6 @@ The ParadeDB index supports partial indexes using the same syntax as Postgres.
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category)
-WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
 

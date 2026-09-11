@@ -8,7 +8,7 @@ The parse query accepts a [Tantivy query string](https://docs.rs/tantivy/latest/
 The intended use case is for accepting raw query strings provided by the end user.
 
 To use it, pass the table name or alias to the left-hand side of `@@@` and `pdb.parse('<query>')` to the right-hand side.
-This whole-row form does not bind the query to the key field. Passing an indexed column with `pdb.parse()` also remains supported.
+Passing an indexed column with `pdb.parse()` also remains supported.
 
 <CodeGroup>
 ```sql SQL

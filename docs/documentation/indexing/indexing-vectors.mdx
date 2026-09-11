@@ -26,8 +26,7 @@ In this example, `embedding` is added to the ParadeDB index with cosine similari
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id');
+USING paradedb (id, description, category, embedding vector_cosine_ops);
 ```
 
 ```ts Drizzle
@@ -171,7 +170,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
+WITH (centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
 ```
 
 ```ts Drizzle

@@ -17,8 +17,7 @@ INSERT INTO array_demo (categories) VALUES
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON array_demo
-USING paradedb (id, categories)
-WITH (key_field = 'id');
+USING paradedb (id, categories);
 ```
 
 ```ts Drizzle
@@ -100,8 +99,7 @@ Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON array_demo
-USING paradedb (id, (categories::pdb.literal))
-WITH (key_field = 'id');
+USING paradedb (id, (categories::pdb.literal));
 ```
 
 ```ts Drizzle

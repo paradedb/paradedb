@@ -91,7 +91,7 @@ By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are C
 `target_segment_count` index option.
 
 ```sql
-CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description, rating) WITH (target_segment_count = 32, ...);
 ```
 
 This property is attached to the index so that during `REINDEX`, the same value will be used.

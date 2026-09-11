@@ -12,8 +12,7 @@ because they are integers, whereas `description` is not because it is text.
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, rating)
-WITH (key_field = 'id');
+USING paradedb (id, description, rating);
 ```
 
 ```ts Drizzle
@@ -87,8 +86,7 @@ To enable columnar indexing for text and JSON columns, cast the column to a [tok
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.unicode_words('columnar=true')), rating)
-WITH (key_field = 'id');
+USING paradedb (id, (description::pdb.unicode_words('columnar=true')), rating);
 ```
 
 ```ts Drizzle

@@ -32,15 +32,18 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::logical_expr::expr::WindowFunction;
+use datafusion::logical_expr::{Expr, Literal, WindowFunctionDefinition, col};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
+use super::build::ChildProjection;
 use super::planning::get_source_attno_by_name;
+use super::window_func::{SupportedWindowAggType, WindowAgg};
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
@@ -64,6 +67,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
+use crate::schema::SearchFieldType;
 use async_trait::async_trait;
 use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::session_state::SessionStateBuilder;
@@ -126,6 +130,19 @@ fn resolve_var_or_pruned_null(
 ) -> Option<Expr> {
     resolve_var_to_df_col(join_clause, rti, attno)
         .or_else(|| null_if_source_exists(join_clause, rti))
+}
+
+fn resolve_var_to_df_col_and_field(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<(Expr, &WhichFastField)> {
+    join_clause.plan.output_sources().iter().find_map(|source| {
+        let mapped = source.map_var(rti, attno)?;
+        let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
+        let field = source.column_name(mapped)?;
+        Some((make_source_col(source, &field), &field_info.field))
+    })
 }
 
 /// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
@@ -685,6 +702,8 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
+        let df = apply_window_functions(df, join_clause)?;
+
         // 4. Apply DISTINCT via GROUP BY
         let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
 
@@ -983,6 +1002,149 @@ fn resolve_orderby_feature(
         OrderByFeature::VectorDistance { .. } => {
             unimplemented!("Vector distance ORDER BY is not supported in JoinScan")
         }
+    }
+}
+
+fn apply_window_functions(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    let Some(projection) = &join_clause.output_projection else {
+        return Ok(df);
+    };
+
+    let info_indices = projection.iter().filter_map(|info| {
+        if let ChildProjection::WindowAgg { agg_index } = info {
+            Some(agg_index)
+        } else {
+            None
+        }
+    });
+
+    let window_exprs: Vec<Expr> = info_indices
+        .map(|index| {
+            let info = join_clause
+                .window_aggs
+                .get(*index)
+                .expect("should always be a valid window agg index");
+
+            let expr = window_expr(info, join_clause)?.alias(index.as_col_name());
+            Ok(expr)
+        })
+        .collect::<Result<Vec<Expr>>>()?;
+
+    if window_exprs.is_empty() {
+        return Ok(df);
+    }
+    df.window(window_exprs)
+}
+
+fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
+    use crate::customscan::datafusion::numeric_agg;
+    use datafusion::functions_aggregate::{average, count, min_max, sum};
+
+    let col_and_field = match &info.col_info {
+        Some(ci) => {
+            let Some(cf) = resolve_var_to_df_col_and_field(join_clause, ci.rti, ci.attno) else {
+                return Err(internal_datafusion_err!(
+                    "Failed to map column to fast field and column expr. rti: {}, attno: {}",
+                    ci.rti,
+                    ci.attno
+                ));
+            };
+            Some(cf)
+        }
+        None => None,
+    };
+    let (col_expr, ff) = col_and_field
+        .map(|(expr, ff)| (Some(expr), Some(ff)))
+        .unwrap_or((None, None));
+    let numeric_field = numeric_window_field(info.agg_type, ff)?;
+
+    // Match only basic aggregate functions. Missing and filters are not supported in global window
+    // functions
+    //
+    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
+    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives plan
+    // serialization for parallel and MPP execution; decimal-bytes values are self-describing.
+    match info.agg_type {
+        SupportedWindowAggType::Sum => {
+            let ce = col_expr.expect("should always have a column expression for SUM");
+            match numeric_field {
+                None => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
+                    vec![ce],
+                ))),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
+                    vec![ce, scale.lit()],
+                ))),
+                Some(_) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
+                    vec![ce],
+                ))),
+            }
+        }
+        SupportedWindowAggType::Avg => {
+            let ce = col_expr.expect("should always have a column expression for AVG");
+            match numeric_field {
+                None => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
+                    vec![ce],
+                ))),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
+                    vec![ce, scale.lit()],
+                ))),
+                Some(_) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
+                    vec![ce],
+                ))),
+            }
+        }
+        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
+            vec![col_expr.expect("should always have a column expression for MIN")],
+        ))),
+        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
+            vec![col_expr.expect("should always have a column expression for MAX")],
+        ))),
+        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
+            vec![col_expr.expect("should always have a column expression for COUNT")],
+        ))),
+        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
+    }
+}
+
+/// Determines if the field for this aggregate is a numeric and is supported for pushing
+/// down this aggregate.
+///
+/// Returns:
+/// - `Ok(None)` if the aggregate has no field requirements or this field is not numeric.
+/// - `Ok(Some(_))` if the field is a supported numeric field
+/// - `Err(_)` if the field is an unsupported numeric
+pub fn numeric_window_field(
+    agg_type: SupportedWindowAggType,
+    field: Option<&WhichFastField>,
+) -> Result<Option<&SearchFieldType>> {
+    match (agg_type, field) {
+        (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
+        (_, Some(WhichFastField::Named(_, ft)) | Some(WhichFastField::Deferred(_, ft))) => {
+            let field_type = if ft.is_numeric() {
+                ft
+            } else {
+                return Ok(None);
+            };
+
+            if field_type.numeric_scale().is_none() {
+                return Err(DataFusionError::Plan(
+                    "Non-count window aggregation on an unbounded NUMERIC column is not supported; declare a \
+                     precision and scale to enable aggregate pushdown".to_string(),
+                ));
+            }
+
+            Ok(Some(field_type))
+        }
+        _ => Ok(None),
     }
 }
 

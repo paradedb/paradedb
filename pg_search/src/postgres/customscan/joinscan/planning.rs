@@ -2024,7 +2024,7 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
     }
     for var_ptr in vars.iter_ptr() {
         let var = &*var_ptr;
-        if !is_fast_field(sources, var) {
+        if !resolve_fast_field_from_join_sources(sources, var).is_some() {
             return false;
         }
     }
@@ -2135,15 +2135,18 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
     })
 }
 
-pub fn is_fast_field(sources: &[&JoinSource], var: &pg_sys::Var) -> bool {
-    sources.iter().any(|source| {
+pub fn resolve_fast_field_from_join_sources(
+    sources: &[&JoinSource],
+    var: &pg_sys::Var,
+) -> Option<WhichFastField> {
+    sources.iter().find_map(|source| {
         if !source.contains_rti(var.varno as pg_sys::Index) {
-            return false;
+            return None;
         }
         let hr = PgSearchRelation::open(source.scan_info.heaprelid);
         let ir = PgSearchRelation::open(source.scan_info.indexrelid);
         let td = hr.tuple_desc();
-        unsafe { resolve_fast_field(var.varattno as i32, &td, &ir).is_some() }
+        unsafe { resolve_fast_field(var.varattno as i32, &td, &ir) }
     })
 }
 
@@ -2176,7 +2179,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     if let Some(var) = nodecast!(Var, T_Var, expr) {
         let var = unsafe { &*var };
         let varno = var.varno as pg_sys::Index;
-        let is_fast = is_fast_field(sources, var) || {
+        let is_fast = resolve_fast_field_from_join_sources(sources, var).is_some() || {
             crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, varno)
                 .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)))
         };

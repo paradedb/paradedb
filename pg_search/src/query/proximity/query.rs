@@ -108,10 +108,12 @@ impl Query for ProximityQuery {
         segment_reader: &SegmentReader,
         visitor: &mut dyn FnMut(&Term, bool),
     ) {
-        for term in self
-            .terms(field, Some(segment_reader))
-            .unwrap_or_else(|e| panic!("{e}"))
-        {
+        // Callers walk terms per field, so `field` is routinely one this query knows nothing
+        // about and resolving it fails. That is a normal miss, not a reason to abort planning.
+        let Ok(terms) = self.terms(field, Some(segment_reader)) else {
+            return;
+        };
+        for term in terms {
             visitor(&term, true)
         }
     }

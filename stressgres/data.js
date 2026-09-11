@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087794994,
+  "lastUpdate": 1789087806564,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -319712,6 +319712,126 @@ window.BENCHMARK_DATA = {
             "value": 7.429193401492052,
             "unit": "median tps",
             "extra": "avg tps: 20.97275664921261, max tps: 779.9429861677112, count: 57440"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087797004,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 173.40185392682267,
+            "unit": "median tps",
+            "extra": "avg tps: 178.60367404566773, max tps: 219.91788741106708, count: 57422"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 293.46600201406727,
+            "unit": "median tps",
+            "extra": "avg tps: 313.0224373764964, max tps: 508.72700435563456, count: 57422"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4025.1284020381468,
+            "unit": "median tps",
+            "extra": "avg tps: 4018.231707909287, max tps: 4152.68921101569, count: 57422"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 179.0174502990876,
+            "unit": "median tps",
+            "extra": "avg tps: 184.91922028584273, max tps: 233.1351239431951, count: 57422"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3372.666441564972,
+            "unit": "median tps",
+            "extra": "avg tps: 3355.468014152333, max tps: 3564.510927193899, count: 57422"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3396.305437922234,
+            "unit": "median tps",
+            "extra": "avg tps: 3394.081575018185, max tps: 3738.043808471669, count: 57422"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 152.63165092468665,
+            "unit": "median tps",
+            "extra": "avg tps: 156.3210690682882, max tps: 184.75201450550176, count: 57422"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 265.89163509959815,
+            "unit": "median tps",
+            "extra": "avg tps: 278.1383656398876, max tps: 388.6993641176406, count: 57422"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 514.9655852078803,
+            "unit": "median tps",
+            "extra": "avg tps: 525.9116028443541, max tps: 607.5369945983279, count: 57422"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 599.3830226987466,
+            "unit": "median tps",
+            "extra": "avg tps: 610.6643589209559, max tps: 714.1476161752572, count: 57422"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1280.1056554097697,
+            "unit": "median tps",
+            "extra": "avg tps: 1279.3744240018634, max tps: 1330.2173612414354, count: 57422"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 312.9609896653626,
+            "unit": "median tps",
+            "extra": "avg tps: 340.269513805771, max tps: 595.9276103784013, count: 57422"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 541.8930809098298,
+            "unit": "median tps",
+            "extra": "avg tps: 551.8252047456857, max tps: 646.742182249455, count: 57422"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2334.36456301803,
+            "unit": "median tps",
+            "extra": "avg tps: 2330.5203917126137, max tps: 2365.056010535898, count: 57422"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1764.5515819155387,
+            "unit": "median tps",
+            "extra": "avg tps: 1771.2024155319748, max tps: 2113.9809963205053, count: 57422"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 12.991913244230057,
+            "unit": "median tps",
+            "extra": "avg tps: 27.33026929102429, max tps: 1333.7903788364813, count: 57422"
           }
         ]
       }

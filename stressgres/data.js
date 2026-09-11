@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086666484,
+  "lastUpdate": 1789086673849,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -196974,6 +196974,126 @@ window.BENCHMARK_DATA = {
             "value": 28.21484375,
             "unit": "median mem",
             "extra": "avg mem: 28.270302723999528, max mem: 28.9921875, count: 59297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086670788,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.007783,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.003507973455752, max cpu: 37.907207, count: 59335"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.39637887629561, max mem: 42.41796875, count: 59335"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.603841395966769, max cpu: 37.227337, count: 59335"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.352292794619533, max mem: 20.36328125, count: 59335"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.912400166735407, max cpu: 18.55969, count: 59335"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.86590986296031, max mem: 42.87890625, count: 59335"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18914,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18997.663453273784, max block_count: 36421.0, count: 59335"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6489105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3036371657925026, max cpu: 4.6489105, count: 59335"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.207346462353584, max mem: 21.24609375, count: 59335"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.25843094295104, max segment_count: 39.0, count: 59335"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.18788489711096, max cpu: 24.20575, count: 59335"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.48234086647847, max mem: 41.5625, count: 59335"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.199808,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.110659072985852, max cpu: 37.227337, count: 118670"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.764100848203, max mem: 44.4765625, count: 118670"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.356726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.561941237245987, max cpu: 23.587223, count: 59335"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.27600956170473, max mem: 28.890625, count: 59335"
           }
         ]
       }

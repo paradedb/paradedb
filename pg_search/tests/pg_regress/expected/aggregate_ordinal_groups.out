@@ -124,7 +124,7 @@ ORDER BY category;
                Index: aog_products_idx
                Worker Selection: Row-capped
                Exec Method: ColumnarExecState
-               Fast Fields: category, price
+               Columnar: category, price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -303,7 +303,7 @@ WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enabl
                            Index: aog_products_idx
                            Worker Selection: Row-capped
                            Exec Method: ColumnarExecState
-                           Fast Fields: category, id
+                           Columnar: category, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
 (23 rows)

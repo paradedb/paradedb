@@ -1165,6 +1165,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
     );
 
     "SET paradedb.enable_custom_scan = false".execute(&mut conn);
+    "SET enable_indexonlyscan = off".execute(&mut conn);
 
     let (plan,) =
         "EXPLAIN (ANALYZE, FORMAT JSON) SELECT COUNT(*) FROM t WHERE id @@@ paradedb.all()"

@@ -20,8 +20,7 @@ VALUES
 -- Create ParadeDB index
 CREATE INDEX booltest_simple_idx
     ON booltest_simple
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
 
 -- Force ParadeDB planner path
 SET enable_seqscan = off;

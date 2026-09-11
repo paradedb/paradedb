@@ -201,7 +201,6 @@ CREATE INDEX IF NOT EXISTS
     contacts_search_idx ON app.contacts
     USING paradedb (id, org_id, search, created_at, assignee, tags)
     WITH (
-    key_field='id',
     text_fields='{
 			"org_id": {
 				"fast":true,

@@ -50,7 +50,6 @@ INSERT INTO mt_suppliers (product_id, supplier_name) VALUES
 CREATE INDEX mt_products_idx ON mt_products
 USING paradedb (id, description, category, price, in_stock)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}}',
     boolean_fields='{"in_stock": {"fast": true}}'
@@ -58,20 +57,17 @@ WITH (
 CREATE INDEX mt_tags_idx ON mt_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
 CREATE INDEX mt_reviews_idx ON mt_reviews
 USING paradedb (id, product_id, rating)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
 );
 CREATE INDEX mt_suppliers_idx ON mt_suppliers
 USING paradedb (id, product_id, supplier_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"supplier_name": {"fast": true}}'
 );

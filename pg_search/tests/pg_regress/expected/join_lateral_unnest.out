@@ -64,14 +64,11 @@ INSERT INTO jlu_stores (brand_id, store_name, regions) VALUES
 -- BM25 Index Creation with Array Fast Fields
 -- =====================================================================
 CREATE INDEX jlu_products_idx ON jlu_products
-USING paradedb (id, title, (categories::pdb.literal), price)
-WITH (key_field='id');
+USING paradedb (id, title, (categories::pdb.literal), price);
 CREATE INDEX jlu_brands_idx ON jlu_brands
-USING paradedb (id, product_id, brand_name, (tags::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, product_id, brand_name, (tags::pdb.literal));
 CREATE INDEX jlu_stores_idx ON jlu_stores
-USING paradedb (id, brand_id, store_name, (regions::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, brand_id, store_name, (regions::pdb.literal));
 -- =====================================================================
 -- TEST 1: Basic 2-table INNER JOIN with CROSS JOIN LATERAL unnest + LIMIT
 -- =====================================================================

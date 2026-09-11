@@ -15,8 +15,6 @@ CREATE INDEX idx_parade_core ON documents.core USING paradedb (
     dwf_doid,
     (lower(record_type)::pdb.literal),
     (author::pdb.literal)
-) WITH (
-    key_field='id'
 );
 CREATE VIEW documents.documents_view
 AS

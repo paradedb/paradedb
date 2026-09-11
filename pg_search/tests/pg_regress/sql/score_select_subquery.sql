@@ -18,8 +18,7 @@ INSERT INTO animals (description) VALUES
 ('description 4 parrot');
 
 CREATE INDEX animals_idx ON animals
-USING paradedb (id, description)
-WITH (key_field = 'id');
+USING paradedb (id, description);
 
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan = OFF;

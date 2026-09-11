@@ -30,7 +30,6 @@ INSERT INTO products (name, description, category, brand, price, rating, in_stoc
 CREATE INDEX products_idx ON products
 USING paradedb (id, name, description, category, brand, price, rating, in_stock, sales)
 WITH (
-    key_field='id',
     text_fields='{
         "name": {},
         "description": {},
@@ -929,8 +928,7 @@ INSERT INTO product_categories VALUES
 ('Laptops', 'Portable computing devices', 1);
 
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority)
-WITH (key_field='name');
+USING paradedb (name, description, priority);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 

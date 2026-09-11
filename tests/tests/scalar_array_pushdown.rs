@@ -195,7 +195,6 @@ INSERT INTO scalar_array_test (text_col, int_col, bool_col, ts_col, uuid_col) VA
 CREATE INDEX idx_scalar_array_test ON scalar_array_test
 USING paradedb (id, text_col, int_col, bool_col, ts_col, uuid_col)
 WITH (
-    key_field = 'id',
     text_fields = '{{
         "text_col": {{ {} }},
         "uuid_col": {{ {} }}

@@ -29,7 +29,6 @@ FROM generate_series(1, 10000) as s(a);
 
 CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
 WITH (
-key_field = 'id',
 text_fields = '
             {
                 "name": { "tokenizer": { "type": "keyword" }, "fast": true },
@@ -64,7 +63,6 @@ FROM generate_series(1, 10000) as s(a);
 
 CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
 WITH (
-key_field = 'id',
 text_fields = '
             {
                 "name": { "tokenizer": { "type": "keyword" }, "fast": true },
@@ -99,7 +97,6 @@ FROM generate_series(1, 10000) as s(a);
 
 CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
 WITH (
-key_field = 'id',
 text_fields = '
             {
                 "name": { "tokenizer": { "type": "keyword" }, "fast": true },

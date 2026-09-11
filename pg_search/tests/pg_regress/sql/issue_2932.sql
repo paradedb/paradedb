@@ -5,7 +5,7 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 
-CREATE INDEX on mock_items USING paradedb (id, description, rating) WITH (key_field='id');
+CREATE INDEX on mock_items USING paradedb (id, description, rating);
 
 -- Expressions involving pdb.score currently use a normal scan rather than Top K.
 

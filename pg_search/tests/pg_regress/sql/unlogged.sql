@@ -9,8 +9,7 @@ INSERT INTO test_unlogged (description) VALUES
     ('keyboard'), ('mouse'), ('monitor');
 
 CREATE INDEX ON test_unlogged
-USING paradedb (id, description)
-WITH (key_field='id');
+USING paradedb (id, description);
 
 -- Test: search on unlogged table
 SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:keyboard' ORDER BY id;

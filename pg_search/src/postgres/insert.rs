@@ -441,8 +441,7 @@ mod tests {
             r#"
             SET paradedb.global_mutable_segment_rows = 0;
             CREATE TABLE subxact_frame (id BIGINT PRIMARY KEY, body TEXT);
-            CREATE INDEX subxact_frame_idx ON subxact_frame USING bm25 (id, body)
-                WITH (key_field = 'id');
+            CREATE INDEX subxact_frame_idx ON subxact_frame USING bm25 (id, body);
             INSERT INTO subxact_frame VALUES (1, 'seed');
             DO $$
             BEGIN

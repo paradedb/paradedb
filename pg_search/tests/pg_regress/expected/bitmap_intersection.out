@@ -26,7 +26,7 @@ SELECT i,
        circle(point(i % 100, i / 100), 0.4)
 FROM generate_series(0, 9999) i;
 CREATE INDEX providers_paradedb ON providers
-    USING bm25 (id, description, gender, provider_type) WITH (key_field = 'id');
+    USING bm25 (id, description, gender, provider_type);
 CREATE INDEX providers_location ON providers USING gist (location);
 CREATE INDEX providers_service_area ON providers USING gist (service_area);
 CREATE INDEX providers_specialty ON providers (specialty text_pattern_ops);
@@ -730,7 +730,7 @@ INSERT INTO unsorted_providers
 SELECT i, 'cardiology notes ' || i, point(i % 100, i / 100)
 FROM generate_series(0, 999) i;
 CREATE INDEX unsorted_paradedb ON unsorted_providers
-    USING bm25 (id, description) WITH (key_field = 'id', sort_by = 'none');
+    USING bm25 (id, description) WITH (sort_by = 'none');
 CREATE INDEX unsorted_location ON unsorted_providers USING gist (location);
 VACUUM ANALYZE unsorted_providers;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

@@ -8,5 +8,5 @@ CREATE TABLE public.key_field_text_raw
 );
 
 CREATE INDEX idx_key_field_raw on public.key_field_text_raw USING paradedb (id, data)
-WITH (key_field = id, text_fields = '{"id": { "tokenizer": { "type": "keyword" } } }');
+WITH (text_fields = '{"id": { "tokenizer": { "type": "keyword" } } }');
 SELECT * FROM paradedb.schema('idx_key_field_raw') ORDER BY name;

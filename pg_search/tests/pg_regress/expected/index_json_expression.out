@@ -10,8 +10,7 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((metadata->>'color')::pdb.ngram(2, 3)))
-WITH (key_field='id');
+USING paradedb (id, ((metadata->>'color')::pdb.ngram(2, 3)));
 SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
@@ -44,7 +43,7 @@ CREATE TABLE json_topk_test (id SERIAL PRIMARY KEY, metadata JSONB, name TEXT);
 INSERT INTO json_topk_test (metadata, name) VALUES ('{"rating": 10}', 'foo'), ('{"rating": 20}', 'foo'), ('{"rating": 30}', 'bar');
 CREATE INDEX json_topk_idx ON json_topk_test
 USING paradedb (id, name, (((metadata->>'rating')::int)::pdb.alias('rating')))
-WITH (key_field='id', sort_by='rating DESC NULLS LAST');
+WITH (sort_by='rating DESC NULLS LAST');
 -- EXPLAIN to check if TopKScanExecState is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, (metadata->>'rating')::int AS rating

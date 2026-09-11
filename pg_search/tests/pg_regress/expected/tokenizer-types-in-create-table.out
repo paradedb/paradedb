@@ -33,7 +33,7 @@ CREATE INDEX idxall_types ON all_types USING paradedb (id, text_col, varchar_col
                                                    jieba_col, lindera_chinese_col,
                                                    lindera_japanese_col, lindera_korean_col,
                                                    ngram_col, regex_col, simple_col, stemmed_en_col,
-                                                   whitespace_col, source_code_col) WITH (key_field = 'id');
+                                                   whitespace_col, source_code_col);
 ERROR:  relation "all_types" does not exist
 SELECT * FROM all_types WHERE text_col @@@ 'HELLO';
 ERROR:  relation "all_types" does not exist at character 15

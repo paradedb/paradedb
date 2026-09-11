@@ -26,7 +26,6 @@ INSERT INTO nulls_test (text_col, int_col, float_col, json_col) VALUES
 CREATE INDEX idx_nulls_test ON nulls_test
 USING paradedb (id, text_col, int_col, float_col, json_col)
 WITH (
-    key_field = 'id',
     text_fields = '{"text_col": {"indexed": true, "fast": true}}',
     numeric_fields = '{"int_col": {"indexed": true, "fast": true}, "float_col": {"indexed": true, "fast": true}}',
     json_fields = '{"json_col": {"indexed": true, "fast": true, "expand_dots": true}}'

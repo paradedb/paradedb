@@ -19,13 +19,12 @@ INSERT INTO multi_bm25 (description, custom_identifiers) VALUES
 
 -- Older index lacks `custom_identifiers` -- represents a previous schema.
 CREATE INDEX CONCURRENTLY multi_bm25_old ON multi_bm25
-USING paradedb (id, description) WITH (key_field = 'id');
+USING paradedb (id, description);
 
 -- Newer index adds `custom_identifiers`. CONCURRENTLY bypasses the
 -- single-bm25-index restriction.
 CREATE INDEX CONCURRENTLY multi_bm25_new ON multi_bm25
-USING paradedb (id, description, (custom_identifiers::pdb.literal_normalized))
-WITH (key_field = 'id');
+USING paradedb (id, description, (custom_identifiers::pdb.literal_normalized));
 
 -- A query against the field that only `multi_bm25_new` knows about should
 -- succeed because we pick the highest-OID bm25 index, which is `multi_bm25_new`.

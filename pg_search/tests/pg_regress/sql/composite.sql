@@ -25,8 +25,7 @@ CREATE TABLE products (
 -- Create index using composite type expression
 CREATE INDEX idx_products
 ON products
-USING paradedb (id, (ROW(name, description, price)::product_info))
-WITH (key_field='id');
+USING paradedb (id, (ROW(name, description, price)::product_info));
 
 -- Insert test data
 INSERT INTO products (name, description, price) VALUES ('Widget', 'A useful widget', 19.99);
@@ -64,8 +63,7 @@ CREATE TABLE articles_fast (
 
 CREATE INDEX idx_articles_fast_bm25
 ON articles_fast
-USING paradedb (id, (ROW(title, body)::fast_article_search))
-WITH (key_field='id');
+USING paradedb (id, (ROW(title, body)::fast_article_search));
 
 INSERT INTO articles_fast (title, body) VALUES
     ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
@@ -116,7 +114,7 @@ CREATE INDEX idx_large ON large_table USING paradedb (id, (ROW(
     field_21, field_22, field_23, field_24, field_25,
     field_26, field_27, field_28, field_29, field_30,
     field_31, field_32, field_33, field_34, field_35
-)::large_composite)) WITH (key_field='id');
+)::large_composite));
 
 INSERT INTO large_table (field_1, field_20, field_35) VALUES ('alpha', 'beta', 'gamma');
 
@@ -153,7 +151,7 @@ BEGIN
 
     EXECUTE type_def;
     EXECUTE table_def;
-    EXECUTE format('CREATE INDEX idx_huge ON huge_table USING paradedb (id, (ROW(%s)::huge_composite)) WITH (key_field=''id'')', index_cols);
+    EXECUTE format('CREATE INDEX idx_huge ON huge_table USING paradedb (id, (ROW(%s)::huge_composite))', index_cols);
 END $$;
 
 INSERT INTO huge_table (f001, f050, f100) VALUES ('first_field', 'middle_field', 'last_field');
@@ -182,7 +180,7 @@ CREATE TABLE anon_test (
 
 -- This should fail: anonymous ROW without type cast
 \set ON_ERROR_STOP off
-CREATE INDEX idx_anon_test ON anon_test USING paradedb (id, ROW(a, b)) WITH (key_field='id');
+CREATE INDEX idx_anon_test ON anon_test USING paradedb (id, ROW(a, b));
 \set ON_ERROR_STOP on
 
 DROP TABLE anon_test;
@@ -210,7 +208,7 @@ CREATE TABLE nested_test (
 
 -- This should fail: nested composite
 \set ON_ERROR_STOP off
-CREATE INDEX idx_nested_test ON nested_test USING paradedb (id, (ROW(field1, field2)::outer_composite)) WITH (key_field='id');
+CREATE INDEX idx_nested_test ON nested_test USING paradedb (id, (ROW(field1, field2)::outer_composite));
 \set ON_ERROR_STOP on
 
 DROP TABLE nested_test;
@@ -237,7 +235,7 @@ CREATE TABLE domain_test (
 -- Use function to catch error and return standardized message
 CREATE OR REPLACE FUNCTION test_domain_rejection() RETURNS TEXT AS $$
 BEGIN
-    EXECUTE 'CREATE INDEX idx_domain_test ON domain_test USING paradedb (id, data) WITH (key_field=''id'')';
+    EXECUTE 'CREATE INDEX idx_domain_test ON domain_test USING paradedb (id, data)';
     RETURN 'UNEXPECTED: No error raised for domain over composite';
 EXCEPTION
     WHEN OTHERS THEN
@@ -278,7 +276,7 @@ CREATE INDEX idx_dup_comp ON dup_comp_test USING paradedb (
     id,
     (ROW(a_field, b_field)::comp_a),
     (ROW(c_field, d_field)::comp_b)
-) WITH (key_field='id');
+);
 \set ON_ERROR_STOP on
 
 DROP TABLE dup_comp_test;
@@ -303,7 +301,7 @@ CREATE INDEX idx_dup_field ON dup_field_test USING paradedb (
     id,
     name,
     (ROW(name, description)::dup_field_comp)
-) WITH (key_field='id');
+);
 \set ON_ERROR_STOP on
 
 DROP TABLE dup_field_test;
@@ -324,7 +322,7 @@ CREATE TABLE nullable_test (
 
 CREATE INDEX idx_nullable ON nullable_test USING paradedb (
     id, (ROW(name, description, price)::nullable_comp)
-) WITH (key_field='id');
+);
 
 -- Insert with NULL fields
 INSERT INTO nullable_test (name, description, price) VALUES ('Product A', 'Has description', 10.00);
@@ -351,7 +349,7 @@ CREATE TABLE reindex_test (
 
 CREATE INDEX idx_reindex ON reindex_test USING paradedb (
     id, (ROW(name, description, price)::reindex_comp)
-) WITH (key_field='id');
+);
 
 INSERT INTO reindex_test (name, description, price) VALUES ('Widget', 'A useful widget', 19.99);
 
@@ -378,7 +376,7 @@ CREATE TABLE large_val_test (
 
 CREATE INDEX idx_large_val ON large_val_test USING paradedb (
     id, (ROW(title, content, metadata)::large_val_comp)
-) WITH (key_field='id');
+);
 
 -- Insert with large text values
 INSERT INTO large_val_test (title, content, metadata) VALUES (
@@ -409,7 +407,7 @@ CREATE TABLE full_pipeline_test (
 
 CREATE INDEX idx_full_pipeline ON full_pipeline_test USING paradedb (
     id, (ROW(name, description, category, tags)::full_pipeline_comp)
-) WITH (key_field='id');
+);
 
 INSERT INTO full_pipeline_test (name, description, category, tags) VALUES
     ('Laptop', 'Powerful laptop computer', 'Electronics', 'computer tech'),
@@ -466,7 +464,7 @@ CREATE INDEX idx_multi_comp ON multi_comp_test USING paradedb (
     id,
     (ROW(title, body)::multi_comp_a),
     (ROW(author, category)::multi_comp_b)
-) WITH (key_field='id');
+);
 
 INSERT INTO multi_comp_test (title, body, author, category) VALUES
     ('PostgreSQL Guide', 'Learn about databases', 'Alice', 'tech'),
@@ -517,7 +515,7 @@ CREATE INDEX idx_hybrid ON hybrid_test USING paradedb (
     (ROW(description, notes)::hybrid_comp_a),
     category,
     (ROW(tags, keywords)::hybrid_comp_b)
-) WITH (key_field='id');
+);
 
 INSERT INTO hybrid_test (name, description, notes, category, tags, keywords) VALUES
     ('Widget', 'A useful widget', 'Some notes here', 'tools', 'gadget,useful', 'tool widget'),
@@ -571,8 +569,7 @@ ON articles
 USING paradedb (
     id,
     (ROW(title, body, upper(title))::article_search)
-)
-WITH (key_field='id');
+);
 
 INSERT INTO articles (title, body, created_at) VALUES
     ('First Post', 'This is the first post', '2024-01-15'),
@@ -607,8 +604,7 @@ CREATE TABLE mixed_data (
 
 CREATE INDEX idx_mixed
 ON mixed_data
-USING paradedb (id, (ROW(small, medium, large)::mixed_composite))
-WITH (key_field='id');
+USING paradedb (id, (ROW(small, medium, large)::mixed_composite));
 
 -- Test with mixed sizes: empty, small, medium, large, NULL
 INSERT INTO mixed_data (small, medium, large) VALUES
@@ -645,8 +641,7 @@ CREATE TABLE verify_table (
 
 CREATE INDEX verify_idx
 ON verify_table
-USING paradedb (id, (ROW(first_field, second_field)::verify_composite))
-WITH (key_field='id');
+USING paradedb (id, (ROW(first_field, second_field)::verify_composite));
 
 -- Verify the composite fields exist in the index schema
 SELECT EXISTS (SELECT 1 FROM paradedb.schema('verify_idx') WHERE name = 'first_field') AS first_field_exists;
@@ -682,8 +677,7 @@ CREATE TABLE products_schema (
 
 CREATE INDEX idx_products_schema
 ON products_schema
-USING paradedb (id, (ROW(product_name, product_desc, product_price)::product_schema))
-WITH (key_field='id');
+USING paradedb (id, (ROW(product_name, product_desc, product_price)::product_schema));
 
 -- Query the index schema to verify composite fields exist
 SELECT EXISTS (
@@ -724,7 +718,7 @@ CREATE TABLE tokenized_test (
 CREATE INDEX idx_tokenized ON tokenized_test USING paradedb (
     id,
     (ROW(title, title)::tokenized_fields)
-) WITH (key_field='id');
+);
 
 -- Validate that pdb.simple tokenizer was applied (should show 'default' tokenizer for title_simple)
 SELECT * FROM paradedb.schema('idx_tokenized') ORDER BY name;
@@ -758,7 +752,7 @@ CREATE TABLE ngram_test (
 CREATE INDEX idx_ngram ON ngram_test USING paradedb (
     id,
     (ROW(content, content)::ngram_fields)
-) WITH (key_field='id');
+);
 
 -- Validate that ngram tokenizer was applied (should show 'ngram_mingram:2_maxgram:4...' for content_ngram)
 SELECT * FROM paradedb.schema('idx_ngram') ORDER BY name;
@@ -792,7 +786,7 @@ CREATE TABLE stemmer_test (
 CREATE INDEX idx_stemmer ON stemmer_test USING paradedb (
     id,
     (ROW(content, content)::stemmer_fields)
-) WITH (key_field='id');
+);
 
 -- Validate that stemmer tokenizer was applied (should show 'default[stemmer=English]' for content_stemmed)
 SELECT * FROM paradedb.schema('idx_stemmer') ORDER BY name;
@@ -824,7 +818,7 @@ CREATE TABLE arr_test (id int PRIMARY KEY, b text[]);
 CREATE INDEX arr_idx ON arr_test USING paradedb (
     id,
     (ROW((b)::pdb.literal_normalized('fieldnorms=false'))::arr_search)
-) WITH (key_field='id');
+);
 INSERT INTO arr_test VALUES (1, ARRAY['x']), (2, ARRAY['y','z']);
 SELECT id FROM arr_test WHERE id @@@ 'b:x' ORDER BY id;
 SELECT id FROM arr_test WHERE id @@@ 'b:y' ORDER BY id;
@@ -835,7 +829,7 @@ CREATE TYPE arr_search_imp AS (b pdb.literal_normalized('fieldnorms=false'));
 CREATE TABLE arr_test_imp (id int PRIMARY KEY, b text[]);
 CREATE INDEX arr_idx_imp ON arr_test_imp USING paradedb (
     id, (ROW(b)::arr_search_imp)
-) WITH (key_field='id');
+);
 INSERT INTO arr_test_imp VALUES (1, ARRAY['hello']);
 SELECT id FROM arr_test_imp WHERE id @@@ 'b:hello';
 
@@ -853,7 +847,7 @@ CREATE INDEX multi_idx ON multi_test USING paradedb (
         (arr)::pdb.literal_normalized('fieldnorms=false'),
         (n)::bigint
     )::multi_search)
-) WITH (key_field='id');
+);
 INSERT INTO multi_test VALUES
     (1, 'hello world', ARRAY['action','adventure'], 10),
     (2, 'foo bar',     ARRAY['comedy'],             20);
@@ -898,8 +892,7 @@ INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VA
 -- FLOAT fields (rating, price) are automatically fast
 -- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
 CREATE INDEX smoke_idx ON smoke_test
-USING paradedb (id, (ROW(name, description, category)::smoke_product), rating, price)
-WITH (key_field = 'id');
+USING paradedb (id, (ROW(name, description, category)::smoke_product), rating, price);
 
 ------------------------------------------------------------
 -- TEST: Scoring with pdb.score()
@@ -1359,7 +1352,7 @@ CREATE TABLE json_test (
 CREATE INDEX idx_json_composite ON json_test USING paradedb (
     id,
     (ROW(metadata, tags)::json_composite)
-) WITH (key_field='id');
+);
 
 -- Validate schema shows JSON field
 SELECT * FROM paradedb.schema('idx_json_composite') ORDER BY name;
@@ -1368,7 +1361,7 @@ INSERT INTO json_test (metadata, tags) VALUES
     ('{"title": "PostgreSQL Guide", "author": "John", "year": 2024}', ARRAY['database', 'tutorial']),
     ('{"title": "Search Engine Basics", "author": "Jane", "year": 2023}', ARRAY['search', 'guide']);
 
--- Search JSON field using key_field with full path
+-- Search JSON field using id with full path
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:PostgreSQL');
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:PostgreSQL');
@@ -1378,7 +1371,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
 SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
 
--- Search JSON nested path using key_field
+-- Search JSON nested path using id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John');
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John');
@@ -1392,7 +1385,7 @@ SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
 -- TEST: Array fields in composite types
 ------------------------------------------------------------
 
--- Search array field using key_field
+-- Search array field using id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, tags FROM json_test WHERE id @@@ pdb.parse('tags:database');
 SELECT id, tags FROM json_test WHERE id @@@ pdb.parse('tags:database');
@@ -1419,7 +1412,7 @@ CREATE TABLE multi_tokenizer_test (
 CREATE INDEX idx_multi_tokenizer ON multi_tokenizer_test USING paradedb (
     id,
     (ROW(description, description::pdb.ngram(3,3))::multi_tokenizer_composite)
-) WITH (key_field='id');
+);
 
 -- Validate schema shows both fields with different tokenizers
 SELECT * FROM paradedb.schema('idx_multi_tokenizer') ORDER BY name;
@@ -1434,7 +1427,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
 SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
 
--- Search using ngram tokenizer via key_field (partial match - 'owe' is inside 'powerful')
+-- Search using ngram tokenizer via id (partial match - 'owe' is inside 'powerful')
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
 SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
@@ -1466,7 +1459,7 @@ CREATE TABLE numeric_expr_test (
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING paradedb (
     id,
     (ROW(price, price * 0.9)::numeric_expr_composite)
-) WITH (key_field='id');
+);
 
 -- Validate schema
 SELECT * FROM paradedb.schema('idx_numeric_expr') ORDER BY name;

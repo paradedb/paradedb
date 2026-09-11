@@ -11,12 +11,10 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX mock_items_1_idx ON mock_items_1
-USING paradedb (id, description, category)
-WITH (key_field='id');
+USING paradedb (id, description, category);
 
 CREATE INDEX mock_items_2_idx ON mock_items_2
-USING paradedb (id, description, category)
-WITH (key_field='id');
+USING paradedb (id, description, category);
 
 SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items_1_idx' OR relname = 'mock_items_2_idx';
 SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
@@ -28,8 +26,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX mock_items_not_ready_idx_ccnew ON mock_items_not_ready
-USING paradedb (id, description, category)
-WITH (key_field='id');
+USING paradedb (id, description, category);
 
 SET allow_system_table_mods = on;
 UPDATE pg_index

@@ -153,7 +153,7 @@ use self::planning::{
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::extract_window_agg;
+use self::window_func::{extract_window_agg, is_supported_window_agg_node};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -1898,6 +1898,12 @@ unsafe fn compute_output_columns(
                     source_rti: unnest_info.source_rti,
                     field_name: unnest_info.field_name.clone(),
                 });
+            } else if is_supported_window_agg_node(check_expr) {
+                let resno = (*te).resno;
+                let agg_index = join_clause.window_aggs.find_index_by_resno(resno).expect(
+                    "At this point, any window agg found should have successfully been extracted and be findable",
+                );
+                output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
             } else {
                 // Var references a relation pruned by an internal Semi/Anti
                 // join (e.g., the inner side of a flattened EXISTS).

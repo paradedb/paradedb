@@ -1672,6 +1672,15 @@ pub(super) unsafe fn collect_required_fields(
                         }
                     }
                 }
+                super::build::ChildProjection::WindowAgg { agg_index } => {
+                    let window_agg = join_clause
+                        .window_aggs
+                        .get(*agg_index)
+                        .expect("should always be valid");
+                    if let Some(ci) = &window_agg.col_info {
+                        ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+                    }
+                }
                 _ => {}
             }
         }

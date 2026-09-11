@@ -33,10 +33,10 @@ There are two primary reasons to use `partition_by`:
 
 ## How It Works
 
-During index creation (`CREATE INDEX` or `REINDEX`), ParadeDB samples the heap and constructs a spatial k-d tree (`KdTree`) across the columns specified in `partition_by`:
+During index creation (`CREATE INDEX` or `REINDEX`), ParadeDB samples table data and constructs a spatial k-d tree across the columns specified in `partition_by`:
 
 1. **Quantile Slicing**: The leader process computes quantile cuts along each dimension, dividing the space into bounding boxes that balance row counts across partitions.
-2. **Per-Segment Bounding Boxes**: As index workers build segments, each segment records its logical bounding box (lower and upper bounds) and empirical min/max values in its segment metadata (`.stats`).
+2. **Per-Segment Bounding Boxes**: As index workers build segments, each segment records its logical bounding box (lower and upper bounds) and empirical min/max values in its segment metadata.
 3. **Multi-Dimensional Partitioning**: When multiple columns are specified (e.g. `partition_by = 'tenant_id, created_at'`), the k-d tree recursively alternates cuts across dimensions based on rank spread, creating multi-dimensional bounding boxes.
 
 {/* TODO: Add issue link for incremental partition maintenance across writes once ticket is created */}
@@ -99,8 +99,8 @@ WITH (key_field = 'id', partition_by = 'owner_user_id', target_segment_count = 3
 Columns specified in `partition_by` must meet the following constraints:
 
 1. **Single-Valued Only**: Multi-valued types (arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used in `partition_by`.
-2. **Columnar Fast Field Required**: The column must be indexed with columnar storage enabled (`fast: true`).
-3. **Raw Ordering for Text**: If a text column is used, it must be indexed with the `raw` normalizer so that index sorting reflects raw column order. Normalized or tokenized text fields cannot be partitioned.
+2. **Columnar Indexed Required**: The column must be columnar indexed. All non-text and non-JSON columns (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
+3. **Raw Ordering for Text Columns**: If a text column is used in `partition_by`, it must be columnar indexed using the [`literal`](/documentation/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`). This ensures index sorting reflects raw column order rather than normalized or stemmed tokens.
 4. **Avoid Low-Cardinality Standalone Columns**: Do not use low-cardinality flags (such as boolean `is_active` or a 2-state `status` column) as the sole partition column. A column with only 2 distinct values cannot split into more than 2 partitions, capping effective segment counts and causing extreme segment skew.
 
 ---
@@ -130,8 +130,7 @@ USING paradedb (id, tenant_id, title, body)
 WITH (
   key_field = 'id',
   partition_by = 'tenant_id',
-  target_segment_count = 8,
-  numeric_fields = '{"tenant_id": {"fast": true}}'
+  target_segment_count = 8
 );
 ```
 
@@ -155,7 +154,7 @@ In the resulting plan, `PgSearchScan` scans only the single segment responsible 
 
 Without co-partitioning, at least one stage boundary is created to exchange data across workers (either one stage boundary to broadcast the build side in a `CollectLeft` join, or two stage boundaries to shuffle both sides in a `Partitioned` join).
 
-When both tables are range-partitioned along their equi-join keys using `partition_by`, ParadeDB coordinates partition split points between the two scans (`RangePartitioningRule`). Co-partitioning results in **zero stage boundaries** for a two-table join: the join executes directly over the scans in the same worker stage without any cross-worker data movement:
+When both tables are range-partitioned along their equi-join keys using `partition_by`, ParadeDB coordinates partition split points between the two scans. Co-partitioning results in **zero stage boundaries** for a two-table join: the join executes directly over the scans in the same worker stage without any cross-worker data movement:
 
 ```sql
 SET paradedb.enable_join_custom_scan TO on;
@@ -244,7 +243,7 @@ Notice that:
 
 | Parameter                                | Type         | Default         | Description                                                                                                                        |
 | :--------------------------------------- | :----------- | :-------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
-| `partition_by`                           | Index Option | `""` (disabled) | Comma-separated list of columnar fields used to partition segments.                                                                |
+| `partition_by`                           | Index Option | `""` (disabled) | Comma-separated list of columnar indexed fields used to partition segments.                                                        |
 | `target_segment_count`                   | Index Option | CPU count       | Target number of segments to produce during build or reindex. When using `partition_by`, recommend setting to 2–8X CPU core count. |
 | `paradedb.enable_range_partitioned_join` | GUC          | `off`           | Enables range co-partitioning optimizations for MPP parallel joins.                                                                |
 | `paradedb.enable_join_custom_scan`       | GUC          | `on`            | Enables or disables ParadeDB custom join execution.                                                                                |

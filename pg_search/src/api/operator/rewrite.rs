@@ -133,7 +133,7 @@ impl SearchOperator {
     fn invalid_rhs(self) -> ! {
         match self {
             Self::Parse => {
-                panic!(
+                pgrx::error!(
                     "The right-hand side of the `@@@` operator must be a text value, pdb.query, or a complete proximity clause"
                 )
             }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135614302,
+  "lastUpdate": 1789135622787,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -350514,6 +350514,96 @@ window.BENCHMARK_DATA = {
             "value": 45.0625,
             "unit": "median mem",
             "extra": "avg mem: 45.79701075688951, max mem: 53.26953125, count: 58785"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135619055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 71.6171875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 65.92681126746184, max partition_index_size:MB: 96.015625, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.261994316364813, max cpu: 33.0546, count: 58771"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.8948526776599, max mem: 52.515625, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.95575077261446, max cpu: 33.283802, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 61.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.212042690059725, max mem: 78.12890625, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.36558699678826, max cpu: 32.764503, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 52.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.99481807566657, max mem: 65.59765625, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.85989601372651, max cpu: 33.23442, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.413093099168805, max mem: 61.31640625, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.151756727427475, max cpu: 33.03835, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.62240391998179, max mem: 50.9921875, count: 58771"
           }
         ]
       }

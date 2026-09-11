@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135622787,
+  "lastUpdate": 1789135655469,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -107970,6 +107970,54 @@ window.BENCHMARK_DATA = {
             "value": 2154.146048040341,
             "unit": "median tps",
             "extra": "avg tps: 2116.297445448903, max tps: 2339.1984075104406, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135651544,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1335.4396249158187,
+            "unit": "median tps",
+            "extra": "avg tps: 1352.9869327779054, max tps: 1446.1680783042273, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.712688206766387,
+            "unit": "median tps",
+            "extra": "avg tps: 2.971512211166139, max tps: 5.229040510780834, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1852.8676709355825,
+            "unit": "median tps",
+            "extra": "avg tps: 1840.8290991001782, max tps: 1872.265918884295, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2098.690071666265,
+            "unit": "median tps",
+            "extra": "avg tps: 2059.799116669993, max tps: 2292.501884399037, count: 59411"
           }
         ]
       }

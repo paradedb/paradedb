@@ -223,7 +223,7 @@ BEGIN
     FOREACH nullable_anchor IN ARRAY ARRAY[false, true] LOOP
         DROP INDEX products_search;
         DROP INDEX orders_search;
-        fields := CASE WHEN nullable_anchor THEN 'color, id, (name::pdb.literal)'
+        fields := CASE WHEN nullable_anchor THEN 'color, (name::pdb.literal)'
                        ELSE 'id, (name::pdb.literal), (color::pdb.literal)' END;
         EXECUTE format('CREATE INDEX products_search ON products USING paradedb (%s) WHERE id < 0', fields);
         EXECUTE format('CREATE INDEX orders_search ON orders USING paradedb (%s) WHERE id < 0', fields);

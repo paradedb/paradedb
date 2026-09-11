@@ -63,7 +63,7 @@ fn explain(conn: &mut PgConnection, query: &str) -> String {
 
 #[derive(Clone, Copy)]
 enum LimitSafetyCase {
-    WindowCount,
+    WindowCountAbsorbed,
     RowReducingSrf,
     GroupBy,
     PlainPagination,
@@ -73,7 +73,7 @@ enum LimitSafetyCase {
 }
 
 #[rstest]
-#[case::window_count(LimitSafetyCase::WindowCount)]
+#[case::window_count_absorbed(LimitSafetyCase::WindowCountAbsorbed)]
 #[case::row_reducing_srf(LimitSafetyCase::RowReducingSrf)]
 #[case::group_by(LimitSafetyCase::GroupBy)]
 #[case::plain_pagination(LimitSafetyCase::PlainPagination)]
@@ -87,9 +87,10 @@ fn limit_pushdown_safety(
     setup(&mut conn);
 
     match case {
-        LimitSafetyCase::WindowCount => {
-            // count(*) OVER () must count all 1334 joined rows, so the LIMIT cannot
-            // be pushed below it and the JoinScan must decline.
+        LimitSafetyCase::WindowCountAbsorbed => {
+            // count(*) OVER () must count all 1334 joined rows even though the
+            // JoinScan absorbs both the window aggregate and the LIMIT (#5637):
+            // the limit applies above the window operator, never below it (#5561).
             let query = r#"
                 SELECT p.id, count(*) OVER () AS total
                 FROM ls_parent p JOIN ls_child c ON c.parent_id = p.id
@@ -98,7 +99,7 @@ fn limit_pushdown_safety(
                 LIMIT 5
             "#;
 
-            assert!(!explain(&mut conn, query).contains(JOIN_SCAN));
+            assert!(explain(&mut conn, query).contains(JOIN_SCAN));
 
             let rows = query.fetch_result::<(i32, i64)>(&mut conn)?;
             assert_eq!(rows.len(), 5);

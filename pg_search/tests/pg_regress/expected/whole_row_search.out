@@ -154,7 +154,7 @@ EXPLAIN (COSTS OFF) EXECUTE whole_row_query(pdb.all());
          Table: whole_row_search
          Index: whole_row_search_idx
          Exec Method: ColumnarExecState
-         Fast Fields: sku
+         Columnar: sku
          Scores: true
          Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('whole_row_search_idx'::regclass, paradedb.to_search_query_input($1))"}}}
 (9 rows)

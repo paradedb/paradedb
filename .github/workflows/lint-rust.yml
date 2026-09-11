@@ -6,6 +6,7 @@
 name: Lint Rust
 
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -30,6 +31,7 @@ jobs:
       # Compute-optimized c-family — Rust clippy/fmt is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=c7g+c8g
       - cpu=4
       - ram=8
@@ -37,6 +39,7 @@ jobs:
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
+      fail-fast: false
       matrix:
         pg_version: [18]
 
@@ -95,3 +98,14 @@ jobs:
       # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
       - name: Check Cargo.toml Formatting
         run: taplo format --check
+
+  merge-gate:
+    name: lint-rust gate
+    if: ${{ always() }}
+    needs: [lint-rust]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

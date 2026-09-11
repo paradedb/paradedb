@@ -6,6 +6,7 @@
 name: Test pg_search
 
 on:
+  merge_group:
   # We run nightly to update the code coverage baseline without excessive post-PR runs
   schedule:
     - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
@@ -37,6 +38,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -323,6 +325,7 @@ jobs:
         if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
           path: coverage-*.lcov
           retention-days: 1
@@ -352,6 +355,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
           path: postgres-${{ matrix.pg_version }}.log
           retention-days: 1
@@ -382,3 +386,14 @@ jobs:
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  merge-gate:
+    name: test-pg_search gate
+    if: ${{ always() }}
+    needs: [test-pg_search, upload-coverage]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

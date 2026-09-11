@@ -6,6 +6,7 @@
 name: Test Stressgres (Docker)
 
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
@@ -30,6 +31,7 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m7g+m8g
       - cpu=8
       - ram=32
@@ -74,3 +76,14 @@ jobs:
             echo "Error: Container failed to start properly"
             exit 1
           fi
+
+  merge-gate:
+    name: test-stressgres-docker gate
+    if: ${{ always() }}
+    needs: [test-stressgres-docker]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

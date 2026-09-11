@@ -6,6 +6,7 @@
 name: Test pg_search (Upgrade)
 
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -74,6 +75,7 @@ jobs:
       # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=c7g+c8g
       - cpu=8
       - ram=16
@@ -132,3 +134,14 @@ jobs:
           prior_pg_search_version: ${{ matrix.prior.pg_search_version }}
           prior_pgrx_version: ${{ matrix.prior.pgrx_version }}
           pg_version: ${{ matrix.pg_version }}
+
+  merge-gate:
+    name: test-pg_search-upgrade gate
+    if: ${{ always() }}
+    needs: [discover-upgrade-starting-points, test-pg_search-upgrade]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

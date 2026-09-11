@@ -6,6 +6,7 @@
 name: Test pg_search (Schema)
 
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -31,6 +32,7 @@ jobs:
       # Compute-optimized c-family — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=c7g+c8g
       - cpu=8
       - ram=16
@@ -41,6 +43,7 @@ jobs:
       run:
         shell: bash -eo pipefail {0}
     strategy:
+      fail-fast: false
       matrix:
         pg_version: [18]
 
@@ -85,7 +88,7 @@ jobs:
       - name: Switch to Base git rev and Generate Schema Again
         env:
           BASE_REPO: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.ref_name }}
         run: |
           # Switch to the base git rev
           git checkout .
@@ -165,7 +168,7 @@ jobs:
             if [ -n "$PR_NUMBER" ]; then
               MATCHING_FILES=(pg_search/sql/unreleased/"${PR_NUMBER}".*.sql)
             else
-              # Fallback for non-PR events (workflow_dispatch, push)
+              # Fallback for non-PR events (workflow_dispatch, merge_group)
               MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
             fi
 
@@ -209,3 +212,14 @@ jobs:
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
+
+  merge-gate:
+    name: test-pg_search-schema gate
+    if: ${{ always() }}
+    needs: [test-pg_search-schema]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

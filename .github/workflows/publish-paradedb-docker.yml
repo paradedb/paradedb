@@ -173,6 +173,10 @@ jobs:
     needs:
       - set-matrix
       - generate-dockerfiles
+    permissions:
+      contents: read
+      actions: read
+      checks: read
     uses: ./.github/workflows/test-pg_search-docker.yml
     with:
       ref: ${{ needs.generate-dockerfiles.outputs.branch }}

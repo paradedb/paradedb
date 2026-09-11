@@ -6,6 +6,7 @@
 name: Test ParadeDB (Docs)
 
 on:
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -28,6 +29,7 @@ jobs:
       # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=c7g+c8g
       - cpu=8
       - ram=16
@@ -35,6 +37,7 @@ jobs:
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
+      fail-fast: false
       matrix:
         pg_version: [18]
 
@@ -185,3 +188,14 @@ jobs:
 
       - name: Smoke Test Code Snippets
         run: ./.github/scripts/smoke_test_code_snippets.sh
+
+  merge-gate:
+    name: test-paradedb-docs gate
+    if: ${{ always() }}
+    needs: [test-paradedb-docs]
+    permissions:
+      actions: read
+      checks: read
+    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
+    with:
+      job_results: ${{ toJSON(needs) }}

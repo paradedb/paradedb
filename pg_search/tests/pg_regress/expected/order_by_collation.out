@@ -355,7 +355,7 @@ WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable t
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_c
+         Columnar: name_c
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
@@ -394,7 +394,7 @@ WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disab
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_c
+         Columnar: name_c
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
@@ -422,7 +422,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_case_insensitive
+         Columnar: name_case_insensitive
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
@@ -468,7 +468,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                Table: collation_test
                Index: collation_test_idx
                Exec Method: ColumnarExecState
-               Fast Fields: name_c, name_case_insensitive
+               Columnar: name_c, name_case_insensitive
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}

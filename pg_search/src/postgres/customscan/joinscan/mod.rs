@@ -675,7 +675,7 @@ impl JoinScan {
                         .is_none()
                     {
                         return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join conditions must reference columnar fields",
+                            "JoinScan not used: join conditions must reference columnar indexed fields",
                         ));
                     }
                 }
@@ -2504,7 +2504,7 @@ impl JoinScan {
         )
         .map_err(|_| {
             warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar)",
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar indexed)",
             ))
         })?;
         join_clause = join_clause_updated;

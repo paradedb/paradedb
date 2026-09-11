@@ -72,6 +72,24 @@ pub extern "C-unwind" fn amrescan(
         let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
 
         match strategy {
+            ScanStrategy::TextQuery if key.sk_attno != 1 => {
+                // Fielded searches must be rewritten before reaching the index AM.
+                let query = unsafe {
+                    if is_array {
+                        format!(
+                            "{:?}",
+                            Vec::<String>::from_datum(key.sk_argument, false)
+                                .expect("text array argument should not be NULL")
+                        )
+                    } else {
+                        String::from_datum(key.sk_argument, false)
+                            .expect("text argument should not be NULL")
+                    }
+                };
+                panic!(
+                    "query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`"
+                )
+            }
             ScanStrategy::TextQuery => {
                 if is_array {
                     let strings = unsafe {

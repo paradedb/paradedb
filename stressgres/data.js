@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086673849,
+  "lastUpdate": 1789086681983,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312472,6 +312472,42 @@ window.BENCHMARK_DATA = {
             "value": 10.361987422285699,
             "unit": "median tps",
             "extra": "avg tps: 8.985230922294292, max tps: 12.20399388388, count: 59423"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086658111,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.500682330067326,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9785864925900505, max tps: 7.901534091242781, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.384349938005537,
+            "unit": "median tps",
+            "extra": "avg tps: 9.020739982926855, max tps: 12.230642507824244, count: 59408"
           }
         ]
       }

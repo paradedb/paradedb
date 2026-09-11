@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086658786,
+  "lastUpdate": 1789086666484,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -160358,6 +160358,66 @@ window.BENCHMARK_DATA = {
             "value": 20.614889010735382,
             "unit": "median tps",
             "extra": "avg tps: 20.761202074082505, max tps: 34.315407113357416, count: 59297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086630393,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.65833458388933,
+            "unit": "median tps",
+            "extra": "avg tps: 79.31075344216589, max tps: 84.13769011829585, count: 59335"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 507.9378624989958,
+            "unit": "median tps",
+            "extra": "avg tps: 549.2382326899304, max tps: 7289.9305948331985, count: 59335"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 908.1721283180989,
+            "unit": "median tps",
+            "extra": "avg tps: 879.6865116388723, max tps: 955.7316346384996, count: 59335"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 197.36778716259764,
+            "unit": "median tps",
+            "extra": "avg tps: 194.97706541811476, max tps: 212.5817152487854, count: 59335"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 224.62924497441304,
+            "unit": "median tps",
+            "extra": "avg tps: 310.56841216055744, max tps: 2271.3961411097484, count: 118670"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.66939262415487,
+            "unit": "median tps",
+            "extra": "avg tps: 20.71435975917068, max tps: 34.122268619029136, count: 59335"
           }
         ]
       }

@@ -1984,7 +1984,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         return Err(candidate_decline.unwrap_or_else(|| {
             JoinDeclineReason::new(
-                "JoinScan not used: ORDER BY columns must be fast fields and have a byte-ordered (C-like) collation",
+                "JoinScan not used: ORDER BY columns must be columnar and have a byte-ordered (C-like) collation",
             )
         }));
     }

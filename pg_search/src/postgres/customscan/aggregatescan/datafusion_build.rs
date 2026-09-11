@@ -1834,10 +1834,8 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved =
-                resolve_fast_field_by_name(&field.field_name, indexrel).ok_or_else(|| {
-                    format!("pdb.agg field '{}' is not a fast field", field.field_name)
-                })?;
+            let resolved = resolve_fast_field_by_name(&field.field_name, indexrel)
+                .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source.scan_info.add_field_by_name(field.attno, resolved);
         }
     }

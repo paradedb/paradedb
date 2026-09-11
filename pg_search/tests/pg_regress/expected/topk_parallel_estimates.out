@@ -20,15 +20,15 @@ CREATE INDEX logs_idx ON logs
     USING bm25 (id, at, (body::pdb.simple))
     WITH (key_field = 'id');
 -- Two batches so the index holds more than one segment and parallel is structurally possible.
--- `failed to place order` lands on a fifth of the rows and its four words only ever appear
--- together, which is the correlation an independence estimate misses. `crashed while writing the
--- audit ledger` is the rare counterpart, on one row in a hundred.
+-- `failed to place order` lands on just under a fifth of the rows and its four words only ever
+-- appear together, which is the correlation an independence estimate misses. `crashed while
+-- writing the audit ledger` is the rare counterpart, on one row in a hundred.
 INSERT INTO logs
 SELECT g,
        TIMESTAMP '2025-09-23 00:00:00' + ((g % 3600) || ' seconds')::interval,
        CASE
-           WHEN g % 50 < 10 THEN 'failed to place order ' || g
            WHEN g % 100 = 1 THEN 'crashed while writing the audit ledger ' || g
+           WHEN g % 50 < 10 THEN 'failed to place order ' || g
            WHEN g % 5 = 1   THEN 'charged card ending ' || g
            WHEN g % 5 = 2   THEN 'charging retry ' || g
            ELSE 'request served in ' || g || ' ms'
@@ -38,8 +38,8 @@ INSERT INTO logs
 SELECT g,
        TIMESTAMP '2025-09-23 00:00:00' + ((g % 3600) || ' seconds')::interval,
        CASE
-           WHEN g % 50 < 10 THEN 'failed to place order ' || g
            WHEN g % 100 = 1 THEN 'crashed while writing the audit ledger ' || g
+           WHEN g % 50 < 10 THEN 'failed to place order ' || g
            WHEN g % 5 = 1   THEN 'charged card ending ' || g
            WHEN g % 5 = 2   THEN 'charging retry ' || g
            ELSE 'request served in ' || g || ' ms'
@@ -49,13 +49,13 @@ ANALYZE logs;
 SELECT count(*) AS common_phrase FROM logs WHERE body @@@ '"failed to place order"';
  common_phrase 
 ---------------
-         40000
+         38000
 (1 row)
 
 SELECT count(*) AS rare_phrase FROM logs WHERE body @@@ '"crashed while writing the audit ledger"';
  rare_phrase 
 -------------
-           0
+        2000
 (1 row)
 
 SELECT count(*) AS regex_matches FROM logs WHERE id @@@ paradedb.regex('body', 'charg.*');
@@ -95,11 +95,11 @@ WHERE body @@@ '"failed to place order"'
 ORDER BY pdb.score(id) DESC, id LIMIT 5;
  id |          body           
 ----+-------------------------
-  1 | failed to place order 1
   2 | failed to place order 2
   3 | failed to place order 3
   4 | failed to place order 4
   5 | failed to place order 5
+  6 | failed to place order 6
 (5 rows)
 
 -- ============================================================================
@@ -199,7 +199,7 @@ ORDER BY pdb.score(id) DESC, id LIMIT 5;
          Output: id, body, pdb.score(id)
          Table: logs
          Index: logs_idx
-         Worker Selection: Cost model
+         Worker Selection: Cost model (LIMIT)
          Exec Method: TopKScanExecState
          Scores: true
             TopK Order By: pdb.score() desc, id asc
@@ -210,8 +210,13 @@ ORDER BY pdb.score(id) DESC, id LIMIT 5;
 SELECT id, body FROM logs
 WHERE body @@@ '"crashed while writing the audit ledger"'
 ORDER BY pdb.score(id) DESC, id LIMIT 5;
- id | body 
-----+------
-(0 rows)
+ id  |                    body                    
+-----+--------------------------------------------
+   1 | crashed while writing the audit ledger 1
+ 101 | crashed while writing the audit ledger 101
+ 201 | crashed while writing the audit ledger 201
+ 301 | crashed while writing the audit ledger 301
+ 401 | crashed while writing the audit ledger 401
+(5 rows)
 
 DROP TABLE logs CASCADE;

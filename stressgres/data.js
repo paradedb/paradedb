@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134477156,
+  "lastUpdate": 1789134485603,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313042,6 +313042,42 @@ window.BENCHMARK_DATA = {
             "value": 10.384349938005537,
             "unit": "median tps",
             "extra": "avg tps: 9.020739982926855, max tps: 12.230642507824244, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134457827,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.573603896711208,
+            "unit": "median tps",
+            "extra": "avg tps: 7.038154870616374, max tps: 7.950103398616572, count: 59414"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.389896499340411,
+            "unit": "median tps",
+            "extra": "avg tps: 9.012821693572528, max tps: 12.275016867203561, count: 59414"
           }
         ]
       }

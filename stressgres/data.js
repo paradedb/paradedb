@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789142198765,
+  "lastUpdate": 1789142208323,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -321482,6 +321482,126 @@ window.BENCHMARK_DATA = {
             "value": 15.93815705115192,
             "unit": "median tps",
             "extra": "avg tps: 23.263252978262006, max tps: 792.4897332955051, count: 57390"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee28005bac85e07cdc4eae0641196c865c01817e",
+          "message": "fix: kept null-extended rows NULL in a deferred string column. (#6247)\n\n## Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nThis PR changes the encoding of a deferred string column from a dense\n`UnionArray` to a packed `UInt64` with a validity bitmap.\n\nIt also rebuilds every scan's projection when a relation's columns turn\ndeferred, not just the first scan the rule reaches.\n\n## Why\n\nA dense union has no validity bitmap. When an outer join null-extends a\nside, DataFusion builds those rows with arrow's `take`, which for a NULL\nindex copies row 0 instead of writing a NULL. Every null-extended row\nthen carries the first build row's doc address.\n\n#6236 guards against that by reading the relation's ctid in\n`TantivyFetchExec` and `TantivyDecodeExec`, so the decoded value comes\nout NULL. `SegmentedTopKExec` sits below both and still ranks on the\nborrowed ordinal, so the wrong rows survive the Top-K. On 350dbfbcf:\n\n```sql\nSELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k\nWHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;\n```\n\nreturns `oj_dim` row 1, then twenty null-extended rows, then rows 2 to\n5. Postgres returns rows 1 to 20 and then five null-extended ones.\nKeeping the nulls in the column fixes it for every reader at once, so\nthe ctid guard goes away with it.\n\nThe rule that flips a relation to the deferred schema sets a flag on the\nshared provider, and a plan can read one relation through more than one\nscan. A `pdb.agg` with a nested level on an array field is planned as\none scan per level group, so the scans the flag skips keep claiming the\ncolumn is a string. The rule then anchors a decode over columns that\nwere never deferred, and with the placement rule of #6231 on top the\narray level's buckets belong to no parent and drop out of the result.\n\n## How\n\nA row is one `u64`: a packed doc address (segment ordinal in the high 32\nbits, doc id in the low 32) or a packed term ordinal (top bit set,\nsegment ordinal above bit 40, ordinal below), and a NULL is an Arrow\nNULL. The field's `ARROW:extension:name` metadata is what tells a\ndeferred column apart from any other `UInt64`. `DeferredColumn` is the\none reader for the fetch, the decode and the Top-K, and\n`with_term_ordinals` writes fetched rows in place. `SegmentedTopKExec`\ntreats a NULL row as having no segment, which covers a NULL value and a\nnull-extended row alike. The logical rule tells a deferred column apart\nby its scan's index and its name, since a plain `UInt64` column such as\nan `oid` can share the name.\n\nOne word per row is also cheaper to carry than a union with a struct\nchild: a join's `take` copies one buffer, and the fetch changes a row's\nstate without changing the column's type.\n\n## Tests\n\n- `join_outer_deferred_sort`\n- An array-level case in `aggregate_late_materialization`\n- Unit tests in `deferred_encode.rs`",
+          "timestamp": "2026-09-11T16:59:17+02:00",
+          "tree_id": "747cbc5ca2e5effca568f9d221f4fd1f1e5162db",
+          "url": "https://github.com/paradedb/paradedb/commit/ee28005bac85e07cdc4eae0641196c865c01817e"
+        },
+        "date": 1789142200554,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 182.13641618580127,
+            "unit": "median tps",
+            "extra": "avg tps: 184.91960761350433, max tps: 220.12667497688892, count: 57431"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 355.8223300858053,
+            "unit": "median tps",
+            "extra": "avg tps: 363.7411654048241, max tps: 528.1595571342501, count: 57431"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4043.5439190643174,
+            "unit": "median tps",
+            "extra": "avg tps: 4040.437857065662, max tps: 4181.6834403746725, count: 57431"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 188.76324977724929,
+            "unit": "median tps",
+            "extra": "avg tps: 192.16866517693805, max tps: 230.8658813216926, count: 57431"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3443.3081189084014,
+            "unit": "median tps",
+            "extra": "avg tps: 3438.9100007938587, max tps: 3554.274437080679, count: 57431"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3399.893343909983,
+            "unit": "median tps",
+            "extra": "avg tps: 3395.1543301934407, max tps: 3444.8868533420264, count: 57431"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 158.36052758522672,
+            "unit": "median tps",
+            "extra": "avg tps: 160.6297207004592, max tps: 188.91582871444416, count: 57431"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 287.1605057608062,
+            "unit": "median tps",
+            "extra": "avg tps: 293.06623699667364, max tps: 392.1585668117356, count: 57431"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 526.8138820498189,
+            "unit": "median tps",
+            "extra": "avg tps: 531.566615085563, max tps: 619.2438861857603, count: 57431"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 609.4917218913166,
+            "unit": "median tps",
+            "extra": "avg tps: 613.07524792917, max tps: 703.2771735963834, count: 57431"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1275.8591807403875,
+            "unit": "median tps",
+            "extra": "avg tps: 1276.2915912082356, max tps: 1321.7702441532974, count: 57431"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 353.23314380390724,
+            "unit": "median tps",
+            "extra": "avg tps: 369.43699417071565, max tps: 609.7720154341957, count: 57431"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 555.8852750196693,
+            "unit": "median tps",
+            "extra": "avg tps: 559.9687563092654, max tps: 640.6425435046519, count: 57431"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2319.1656313886324,
+            "unit": "median tps",
+            "extra": "avg tps: 2319.1969991554324, max tps: 2336.9463961564657, count: 57431"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1738.0043414904846,
+            "unit": "median tps",
+            "extra": "avg tps: 1741.4744167504518, max tps: 1821.2829244326483, count: 57431"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 7.984673555477719,
+            "unit": "median tps",
+            "extra": "avg tps: 21.94593068747407, max tps: 1227.4366458575241, count: 57431"
           }
         ]
       }

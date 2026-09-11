@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789142246430,
+  "lastUpdate": 1789149276315,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -161138,6 +161138,66 @@ window.BENCHMARK_DATA = {
             "value": 20.434937477029237,
             "unit": "median tps",
             "extra": "avg tps: 20.48969902004424, max tps: 33.98734963656647, count: 59293"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149272537,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.5958148393488,
+            "unit": "median tps",
+            "extra": "avg tps: 79.34354893712994, max tps: 86.53985116876396, count: 59307"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.782305793215,
+            "unit": "median tps",
+            "extra": "avg tps: 548.7993762898951, max tps: 5921.603213806035, count: 59307"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 931.8056163122368,
+            "unit": "median tps",
+            "extra": "avg tps: 907.455039247504, max tps: 1061.909272671412, count: 59307"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 196.61582988967146,
+            "unit": "median tps",
+            "extra": "avg tps: 194.92835433673082, max tps: 206.91378701429394, count: 59307"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 223.82533532592834,
+            "unit": "median tps",
+            "extra": "avg tps: 307.95077026040144, max tps: 2073.6504996324456, count: 118614"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.561229716966043,
+            "unit": "median tps",
+            "extra": "avg tps: 21.616675217688446, max tps: 34.38426784959551, count: 59307"
           }
         ]
       }

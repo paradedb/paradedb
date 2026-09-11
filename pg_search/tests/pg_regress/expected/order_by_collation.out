@@ -134,7 +134,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead)
                Table: collation_test
                Index: collation_test_idx
                Exec Method: ColumnarExecState
-               Fast Fields: id, name_icu
+               Columnar: id, name_icu
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -355,7 +355,7 @@ WARNING:  Aggregate Scan not used: GROUPING SETS are not supported. To disable t
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_c
+         Columnar: name_c
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
@@ -394,7 +394,7 @@ WARNING:  Aggregate Scan not used: could not verify GROUP BY semantics. To disab
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_c
+         Columnar: name_c
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_c = 'apple'::text)"}]}}]}}
@@ -422,7 +422,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
          Table: collation_test
          Index: collation_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_case_insensitive
+         Columnar: name_case_insensitive
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
@@ -468,7 +468,7 @@ WARNING:  Aggregate Scan not used: GROUP BY uses a nondeterministic collation. T
                Table: collation_test
                Index: collation_test_idx
                Exec Method: ColumnarExecState
-               Fast Fields: name_c, name_case_insensitive
+               Columnar: name_c, name_case_insensitive
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
@@ -515,7 +515,7 @@ ORDER BY city ASC NULLS FIRST;
          Table: collation_sortby_test
          Index: collation_sortby_test_idx
          Exec Method: ColumnarExecState
-         Fast Fields: city, id
+         Columnar: city, id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
@@ -706,7 +706,7 @@ WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) 
                            Table: collation_join_products
                            Index: collation_join_products_idx
                            Exec Method: ColumnarExecState
-                           Fast Fields: id, name_icu
+                           Columnar: id, name_icu
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (14 rows)

@@ -263,7 +263,7 @@ pub unsafe fn extract_join_level_conditions(
                                     )
                                 });
                         return Err(format!(
-                            "Multi-table predicate '{}' references non-fast-field columns",
+                            "Multi-table predicate '{}' references non-columnar fields",
                             formatted
                         ));
                     }

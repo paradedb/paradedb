@@ -414,15 +414,17 @@ fn exists_query(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
-    // Non fast field should fail
+    // Non-columnar field should fail
     match r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.exists('description')
     "#
     .execute_result(&mut conn)
     {
-        Err(err) => assert!(err.to_string().contains("not a fast field")),
-        _ => panic!("exists() over non-fast field should fail"),
+        Err(err) => assert!(err.to_string().contains(
+            "exists field 'description' must be columnar. Add it to the index with 'columnar=true'"
+        )),
+        _ => panic!("exists() over non-columnar field should fail"),
     }
 
     // Exists with boolean query

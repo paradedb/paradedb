@@ -1,10 +1,16 @@
 # workflows/check-released-migrations.yml
 #
-# Check Released Migrations
-# Fails a PR that edits a pg_search migration script whose target version is
-# already released (a `vX.Y.Z` tag exists), since such edits never reach users
-# already on that version. New schema must go on the current upgrade path after
-# bumping the workspace version -- see RELEASE.md.
+# Check Released Migrations & Lint Migration Fragments
+# 1. Fails a PR that edits a pg_search migration script whose target version is
+#    already released (a `vX.Y.Z` tag exists), since such edits never reach users
+#    already on that version. New schema must go on the current upgrade path after
+#    bumping the workspace version -- see RELEASE.md.
+# 2. Lints unreleased migration fragments (pg_search/sql/unreleased/*.sql):
+#    - PRs on main: verifies depends-on declarations and forbids mixing edits to
+#      already-released objects with unreleased objects in the same fragment.
+#    - PRs on stable branches (0.*.x): enforces that fragments are byte-for-byte
+#      identical to origin/main and that any depends-on PRs exist in the branch history.
+#    See CONTRIBUTING.md and pg_search/sql/unreleased/.gitkeep for rules.
 
 name: Check Released Migrations
 
@@ -44,3 +50,11 @@ jobs:
             fi
           done
           exit $fail
+
+      # Validates fragment dependency rules and prevents fragment divergence between
+      # stable release branches and main. See CONTRIBUTING.md for details.
+      - name: Lint Migration Fragments
+        run: |
+          ./scripts/release.sh lint-fragments \
+            --base-ref "${{ github.base_ref }}" \
+            --base-sha "${{ github.event.pull_request.base.sha }}"

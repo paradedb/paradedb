@@ -63,8 +63,6 @@ pub struct PhysicalDeferredField {
     pub canonical: CanonicalColumn,
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
-    #[serde(default)]
-    pub ctid_col_name: Option<String>,
 }
 
 impl PhysicalDeferredField {

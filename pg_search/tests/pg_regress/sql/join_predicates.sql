@@ -299,7 +299,7 @@ CREATE TABLE qgen_products (
 
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
--- Note: age must be a fast field for the join key
+-- Note: age must be columnar for the join key
 CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, name, age) WITH (
     key_field = 'id',
     text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',

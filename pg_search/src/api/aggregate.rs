@@ -193,13 +193,16 @@ pub fn aggregate(
 
 #[pgrx::pg_schema]
 mod pdb {
-    use pgrx::aggregate::Aggregate;
+    use pgrx::aggregate::{Aggregate, ParallelOption};
     use pgrx::{Internal, JsonB, pg_extern};
 
     /// Placeholder aggregate for `pdb.agg(jsonb)`.
     ///
     /// This aggregate should never actually execute - it's intercepted at planning time
     /// for window functions or by AggregateScan for (GROUP BY) aggregate queries.
+    ///
+    /// It is marked `PARALLEL SAFE` so that queries containing `pdb.agg()` can
+    /// be parallelized by PostgreSQL with MPP (`DistributedExec`).
     ///
     /// Usage:
     /// ```sql
@@ -213,8 +216,9 @@ mod pdb {
     #[aggregate_name = "agg"]
     pub struct AggPlaceholder;
 
-    #[pgrx::pg_aggregate(parallel_safe)]
+    #[pgrx::pg_aggregate]
     impl Aggregate<AggPlaceholder> for AggPlaceholder {
+        const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);
         type Args = JsonB;
         type State = Internal;
         type Finalize = JsonB;
@@ -257,8 +261,9 @@ mod pdb {
     #[aggregate_name = "agg"]
     pub struct AggPlaceholderWithMvcc;
 
-    #[pgrx::pg_aggregate(parallel_safe)]
+    #[pgrx::pg_aggregate]
     impl Aggregate<AggPlaceholderWithMvcc> for AggPlaceholderWithMvcc {
+        const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);
         type Args = (JsonB, bool);
         type State = Internal;
         type Finalize = JsonB;
@@ -304,8 +309,9 @@ mod pdb {
     #[aggregate_name = "agg"]
     pub struct AggPlaceholderVisibility;
 
-    #[pgrx::pg_aggregate(parallel_safe)]
+    #[pgrx::pg_aggregate]
     impl Aggregate<AggPlaceholderVisibility> for AggPlaceholderVisibility {
+        const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);
         type Args = (JsonB, String);
         type State = Internal;
         type Finalize = JsonB;

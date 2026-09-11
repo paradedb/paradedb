@@ -7,3 +7,4 @@ self-hosted-runner:
     - cpu=*
     - ram=*
     - volume=*
+    - retry=when-interrupted

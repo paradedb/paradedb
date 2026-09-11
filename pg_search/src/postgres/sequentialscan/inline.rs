@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::api::operator::search_with_query_input_exec_procoids;
 use crate::api::version::Version;
+use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SerialIndexWriter;
@@ -25,6 +25,7 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::ExpressionState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
+use crate::postgres::var::{find_one_var, find_var_relation, find_vars};
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
@@ -38,16 +39,17 @@ use tantivy::query::Weight;
 /// An expression that materializes a row if the index scan fast path cannot be taken.
 ///
 /// This happens when either:
+/// - the row comes from a subquery or CTE
 /// - the row's CTID is invalid
 /// - the row was created outside the search snapshot
 /// - the index predicate is not satisfied
-pub(crate) struct MaybeInlineRow(Option<NonNull<pg_sys::CaseExpr>>);
+pub(crate) struct MaybeInlineRow(Option<NonNull<pg_sys::Node>>);
 
 impl MaybeInlineRow {
     pub(crate) unsafe fn new(
         root: *mut pg_sys::PlannerInfo,
         base_var: *mut pg_sys::Var,
-        ctid: *mut pg_sys::Var,
+        ctid: Option<*mut pg_sys::Var>,
         indexrel: &PgSearchRelation,
     ) -> Self {
         // Building a whole-row reference requires a planner query and a Var that names an
@@ -63,6 +65,111 @@ impl MaybeInlineRow {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
         let Some(rte) = rtable.get_ptr((*base_var).varno as usize - 1) else {
             return Self(None);
+        };
+
+        let whole_row = pg_sys::makeWholeRowVar(rte, (*base_var).varno, 0, false);
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            (*whole_row).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
+        }
+
+        let row = if ctid.is_none() {
+            let (heap_oid, _, targetlist) = find_var_relation(base_var, root);
+            let targetlist = targetlist.expect("derived row should have a target list");
+            let source = targetlist
+                .get_ptr((*base_var).varattno as usize - 1)
+                .and_then(|entry| find_one_var((*entry).expr.cast()));
+            let mut fields = PgList::<pg_sys::Node>::new();
+            let mut names = PgList::<pg_sys::Node>::new();
+            let mut attributes: HashMap<_, Option<*mut pg_sys::TargetEntry>> = HashMap::default();
+            for entry in targetlist.iter_ptr() {
+                if (*entry).resjunk
+                    || (*entry).resorigtbl != heap_oid
+                    || (*entry).resorigcol <= 0
+                    || source.is_some_and(|source| {
+                        find_one_var((*entry).expr.cast()).is_none_or(|var| {
+                            (*var).varno != (*source).varno
+                                || (*var).varlevelsup != (*source).varlevelsup
+                        })
+                    })
+                {
+                    continue;
+                }
+                attributes
+                    .entry((*entry).resorigcol)
+                    .and_modify(|previous| {
+                        if (*entry).resno == (*base_var).varattno {
+                            *previous = Some(entry);
+                        } else if previous.is_some_and(|previous| {
+                            (*previous).resno != (*base_var).varattno
+                                && !pg_sys::equal((*previous).expr.cast(), (*entry).expr.cast())
+                        }) {
+                            *previous = None;
+                        }
+                    })
+                    .or_insert(Some(entry));
+            }
+            for entry in targetlist
+                .iter_ptr()
+                .filter(|entry| attributes.get(&(**entry).resorigcol) == Some(&Some(*entry)))
+            {
+                let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+                (*var).varattno = (*entry).resno;
+                (*var).varattnosyn = (*entry).resno;
+                (*var).vartype = pg_sys::exprType((*entry).expr.cast());
+                (*var).vartypmod = pg_sys::exprTypmod((*entry).expr.cast());
+                (*var).varcollid = pg_sys::exprCollation((*entry).expr.cast());
+                fields.push(var.cast());
+                names.push(
+                    pg_sys::makeString(pg_sys::get_attname(heap_oid, (*entry).resorigcol, false))
+                        .cast(),
+                );
+            }
+            let mut row = PgBox::<pg_sys::RowExpr>::alloc_node(pg_sys::NodeTag::T_RowExpr);
+            row.args = fields.into_pg();
+            row.row_typeid = pg_sys::RECORDOID;
+            row.row_format = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+            row.colnames = names.into_pg();
+            row.location = (*whole_row).location;
+
+            let mut is_null = PgBox::<pg_sys::NullTest>::alloc_node(pg_sys::NodeTag::T_NullTest);
+            is_null.arg = whole_row.cast();
+            is_null.nulltesttype = pg_sys::NullTestType::IS_NULL;
+            is_null.argisrow = false;
+            let mut when = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
+            when.expr = is_null.into_pg().cast();
+            when.result = pg_sys::makeNullConst(pg_sys::RECORDOID, -1, pg_sys::Oid::INVALID).cast();
+            let mut cases = PgList::<pg_sys::Node>::new();
+            cases.push(when.into_pg().cast());
+            let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
+            case.casetype = pg_sys::RECORDOID;
+            case.args = cases.into_pg();
+            case.defresult = row.into_pg().cast();
+            case.location = (*whole_row).location;
+            case.into_pg().cast::<pg_sys::Node>()
+        } else {
+            whole_row.cast()
+        };
+        let row_type = pg_sys::exprType(row);
+        let array_type = pg_sys::get_array_type(row_type);
+        let mut rows = PgList::<pg_sys::Node>::new();
+        rows.push(row);
+        let mut inline_row = PgBox::<pg_sys::ArrayExpr>::alloc_node(pg_sys::NodeTag::T_ArrayExpr);
+        inline_row.array_typeid = array_type;
+        inline_row.element_typeid = row_type;
+        inline_row.elements = rows.into_pg();
+        inline_row.location = (*whole_row).location;
+
+        // A shard has a different table row type from its coordinator relation.
+        let inline_row = pg_sys::makeRelabelType(
+            inline_row.into_pg().cast(),
+            pg_sys::RECORDARRAYOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
+        );
+        let Some(ctid) = ctid else {
+            return Self(NonNull::new(inline_row.cast()));
         };
 
         let mut valid_args = PgList::<pg_sys::Node>::new();
@@ -107,33 +214,6 @@ impl MaybeInlineRow {
             requirements.push(pg_sys::make_ands_explicit(predicate));
         }
 
-        // Build the fallback row reference, preserving outer-join null extension.
-        let whole_row = pg_sys::makeWholeRowVar(rte, (*base_var).varno, 0, false);
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            (*whole_row).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
-        }
-
-        let row_type = (*whole_row).vartype;
-        let array_type = pg_sys::get_array_type(row_type);
-        let mut rows = PgList::<pg_sys::Node>::new();
-        rows.push(whole_row.cast());
-        let mut inline_row = PgBox::<pg_sys::ArrayExpr>::alloc_node(pg_sys::NodeTag::T_ArrayExpr);
-        inline_row.array_typeid = array_type;
-        inline_row.element_typeid = row_type;
-        inline_row.elements = rows.into_pg();
-        inline_row.location = (*whole_row).location;
-
-        // A shard has a different table row type from its coordinator relation.
-        // Keep every CASE result record[] when the expression is parsed on a worker.
-        let inline_row = pg_sys::makeRelabelType(
-            inline_row.into_pg().cast(),
-            pg_sys::RECORDARRAYOID,
-            -1,
-            pg_sys::Oid::INVALID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CAST,
-        );
-
         let mut when_list = PgList::<pg_sys::Node>::new();
         for requirement in requirements {
             // Both FALSE and NULL mean the index cannot answer for this row.
@@ -167,7 +247,7 @@ impl MaybeInlineRow {
         )
         .cast();
         case.location = (*whole_row).location;
-        Self(NonNull::new(case.into_pg()))
+        Self(NonNull::new(case.into_pg().cast()))
     }
 
     pub(crate) fn as_ptr(&self) -> Option<*mut pg_sys::Node> {
@@ -231,7 +311,7 @@ impl RowMatcher {
             })
             .cloned()
             .collect();
-        let required_expressions = categorized_fields
+        let required_expressions: HashSet<_> = categorized_fields
             .iter()
             .filter_map(|(_, categorized)| match categorized.source {
                 FieldSource::Heap { .. } => None,
@@ -248,7 +328,41 @@ impl RowMatcher {
                 .compile_match_weight(&guard, false)
                 .expect("row matcher exists query should be constructable")
         });
-        let slot = pg_sys::MakeSingleTupleTableSlot(heap_relation.rd_att, &pg_sys::TTSOpsVirtual);
+        let mut required_attributes: HashSet<_> = categorized_fields
+            .iter()
+            .filter_map(|(_, field)| match field.source {
+                FieldSource::Heap { attno } => Some(attno),
+                _ => None,
+            })
+            .collect();
+        let expressions = index_relation.index_expressions();
+        for expression in &required_expressions {
+            for var in find_vars(expressions.get_ptr(*expression).unwrap().cast()) {
+                if (*var).varattno == 0 {
+                    required_attributes.extend(0..(*heap_relation.rd_att).natts as usize);
+                } else if (*var).varattno > 0 {
+                    required_attributes.insert((*var).varattno as usize - 1);
+                }
+            }
+        }
+        let tuple_desc = pg_sys::CreateTupleDescCopy(heap_relation.rd_att);
+        for attribute in 0..(*tuple_desc).natts as usize {
+            if !required_attributes.contains(&attribute) {
+                #[cfg(not(feature = "pg18"))]
+                {
+                    (*tuple_desc)
+                        .attrs
+                        .as_mut_slice((*tuple_desc).natts as usize)[attribute]
+                        .attisdropped = true;
+                }
+                #[cfg(feature = "pg18")]
+                {
+                    (*pg_sys::TupleDescAttr(tuple_desc, attribute as _)).attisdropped = true;
+                    pg_sys::populate_compact_attribute(tuple_desc, attribute as _);
+                }
+            }
+        }
+        let slot = pg_sys::MakeSingleTupleTableSlot(tuple_desc, &pg_sys::TTSOpsVirtual);
 
         Self {
             expression_state: ExpressionState::new_in_context(

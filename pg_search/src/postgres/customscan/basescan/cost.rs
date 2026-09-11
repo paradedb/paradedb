@@ -215,7 +215,7 @@ pub(super) enum TopKPrunability {
 ///
 /// `root` must point to a valid `PlannerInfo` for the duration of this call. This
 /// is a planner-only helper and must not be called from execution.
-pub(super) unsafe fn topk_can_prune_for_method(
+pub(super) fn topk_can_prune_for_method(
     method: &ExecMethodType,
     root: *mut pg_sys::PlannerInfo,
     quals: &Qual,

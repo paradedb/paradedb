@@ -140,7 +140,7 @@ impl BitmapPlanner {
     /// (the Aggregate Scan). HeapFilter expressions are collected through AND-position
     /// structure (`must` chains and score-neutral wrappers); a HeapFilter under
     /// `should`/`must_not` disqualifies for the same reason OR/NOT do in `from_query`.
-    pub unsafe fn from_search_query(
+    pub fn from_search_query(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         bm25_oid: pg_sys::Oid,

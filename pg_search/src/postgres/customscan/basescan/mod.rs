@@ -399,15 +399,15 @@ impl BaseScan {
 /// entry itself is pdb.agg(), the planner hook did not replace it (e.g. not a
 /// TopK query), and we reject it. Recursive detection is only for window_agg()
 /// placeholders because plan_custom_path deserializes those recursively later.
-pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
+pub(super) fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
 
-    if root.is_null() || (*root).parse.is_null() {
+    if root.is_null() || unsafe { (*root).parse.is_null() } {
         return false;
     }
 
-    let parse = (*root).parse;
+    let parse = unsafe { &*(*root).parse };
     let window_agg_func_oid = window_agg_oid();
 
     // If functions don't exist yet (e.g., during extension creation), skip check
@@ -416,14 +416,14 @@ pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerIn
     }
 
     let paradedb_agg_func_oid = crate::api::agg_funcoid();
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    if !parse.targetList.is_null() {
+        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList) };
         for te in target_list.iter_ptr() {
-            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) else {
+            let Some(func_expr) = (unsafe { nodecast!(FuncExpr, T_FuncExpr, (*te).expr) }) else {
                 continue;
             };
 
-            let func_oid = (*func_expr).funcid.to_u32();
+            let func_oid = unsafe { (*func_expr).funcid }.to_u32();
             if func_oid == window_agg_func_oid.to_u32() {
                 return true;
             }
@@ -478,12 +478,14 @@ pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerIn
         found: false,
     };
 
-    if !(*parse).targetList.is_null() {
-        expression_tree_walker(
-            (*parse).targetList.cast(),
-            Some(walker),
-            (&mut context as *mut Context).cast(),
-        );
+    if !parse.targetList.is_null() {
+        unsafe {
+            expression_tree_walker(
+                parse.targetList.cast(),
+                Some(walker),
+                (&mut context as *mut Context).cast(),
+            )
+        };
     }
 
     context.found
@@ -524,19 +526,25 @@ impl TargetListSrf {
 /// argument is a ParadeDB snippet placeholder function is treated as safe;
 /// everything else — arbitrary `unnest` of a user expression, or any other
 /// SRF — is unsafe so LIMIT pushdown stops above the scan.
-unsafe fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
-    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
+fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
+    if root.is_null()
+        || unsafe { (*root).parse.is_null() }
+        || unsafe { (*(*root).parse).targetList.is_null() }
+    {
         return TargetListSrf::None;
     }
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    let target_list =
+        unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList) };
     let mut found_safe = false;
     for te in target_list.iter_ptr() {
-        if (*te).expr.is_null() || !pg_sys::expression_returns_set((*te).expr.cast()) {
+        let te = unsafe { &*te };
+        if te.expr.is_null() || !unsafe { pg_sys::expression_returns_set(te.expr.cast()) } {
             continue;
         }
-        match nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+        match unsafe { nodecast!(FuncExpr, T_FuncExpr, te.expr) } {
             Some(func_expr)
-                if is_unnest_func((*func_expr).funcid) && unnest_arg_is_paradedb_srf(func_expr) =>
+                if is_unnest_func(unsafe { (*func_expr).funcid })
+                    && unsafe { unnest_arg_is_paradedb_srf(func_expr) } =>
             {
                 found_safe = true
             }
@@ -1367,13 +1375,11 @@ impl CustomScan for BaseScan {
         builder.custom_state().snippet_funcoids = snippet_funcoids;
         builder.custom_state().snippets_funcoids = snippets_funcoids;
         builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-        builder.custom_state().need_scores = unsafe {
-            uses_scores(
-                builder.target_list().as_ptr().cast(),
-                score_funcoids,
-                builder.custom_state().execution_rti,
-            )
-        };
+        builder.custom_state().need_scores = uses_scores(
+            builder.target_list().as_ptr().cast(),
+            score_funcoids,
+            builder.custom_state().execution_rti,
+        );
 
         // Store join snippet predicates in the scan state
         builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
@@ -1430,16 +1436,14 @@ impl CustomScan for BaseScan {
             .custom_private()
             .range_table_index()
             .expect("range table index should have been set");
-        builder.custom_state().snippet_generators = unsafe {
-            uses_snippets(
-                builder.custom_state().planning_rti,
-                &builder.custom_state().var_attname_lookup,
-                node,
-                snippet_funcoids,
-                snippets_funcoids,
-                snippet_positions_funcoids,
-            )
-        }
+        builder.custom_state().snippet_generators = uses_snippets(
+            builder.custom_state().planning_rti,
+            &builder.custom_state().var_attname_lookup,
+            node,
+            snippet_funcoids,
+            snippets_funcoids,
+            snippet_positions_funcoids,
+        )
         .into_iter()
         .map(|snippet_type| (snippet_type, None))
         .collect();
@@ -2580,7 +2584,7 @@ unsafe fn inject_window_aggregate_placeholders(
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
-unsafe fn replace_window_agg_with_const(
+fn replace_window_agg_with_const(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
     result_type_oid: pg_sys::Oid,
@@ -2590,28 +2594,31 @@ unsafe fn replace_window_agg_with_const(
     }
 
     // Check if this is the window_agg FuncExpr
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if (*funcexpr).funcid == window_agg_procid {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        let funcexpr = unsafe { &*funcexpr };
+        if funcexpr.funcid == window_agg_procid {
             // Found it! Replace with a Const node
-            let const_node = pg_sys::makeConst(
-                result_type_oid,
-                -1,
-                pg_sys::DEFAULT_COLLATION_OID,
-                if result_type_oid == pg_sys::INT8OID {
-                    8
-                } else {
-                    -1
-                },
-                pg_sys::Datum::null(),
-                true,                               // constisnull
-                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
-            );
+            let const_node = unsafe {
+                pg_sys::makeConst(
+                    result_type_oid,
+                    -1,
+                    pg_sys::DEFAULT_COLLATION_OID,
+                    if result_type_oid == pg_sys::INT8OID {
+                        8
+                    } else {
+                        -1
+                    },
+                    pg_sys::Datum::null(),
+                    true,                               // constisnull
+                    result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                )
+            };
 
             return (const_node.cast(), Some(const_node));
         }
 
         // Not window_agg, but might have window_agg as an argument
-        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
         let mut new_args = PgList::<pg_sys::Node>::new();
         let mut found_const = None;
         let mut modified = false;
@@ -2631,14 +2638,16 @@ unsafe fn replace_window_agg_with_const(
 
         if modified {
             // Create a new FuncExpr with modified arguments
-            let new_funcexpr = pg_sys::makeFuncExpr(
-                (*funcexpr).funcid,
-                (*funcexpr).funcresulttype,
-                new_args.into_pg(),
-                (*funcexpr).funccollid,
-                (*funcexpr).inputcollid,
-                (*funcexpr).funcformat,
-            );
+            let new_funcexpr = unsafe {
+                pg_sys::makeFuncExpr(
+                    funcexpr.funcid,
+                    funcexpr.funcresulttype,
+                    new_args.into_pg(),
+                    funcexpr.funccollid,
+                    funcexpr.inputcollid,
+                    funcexpr.funcformat,
+                )
+            };
             return (new_funcexpr.cast(), found_const);
         }
     }
@@ -2978,28 +2987,26 @@ unsafe fn is_left_join_lateral(
 }
 
 /// Recursively check if a node contains a LEFT JOIN LATERAL pattern
-unsafe fn has_left_join_lateral_pattern(
-    node: *mut pg_sys::Node,
-    query: *mut pg_sys::Query,
-) -> bool {
+fn has_left_join_lateral_pattern(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
     if node.is_null() {
         return false;
     }
 
-    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+        let join_expr = unsafe { &*join_expr };
         // Check if this is a LEFT JOIN
-        if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT {
+        if join_expr.jointype == pg_sys::JoinType::JOIN_LEFT {
             // Check if the right side has LATERAL
-            if is_lateral_subquery((*join_expr).rarg, query) {
+            if is_lateral_subquery(join_expr.rarg, query) {
                 return true;
             }
         }
 
         // Recursively check nested joins
-        if has_left_join_lateral_pattern((*join_expr).larg, query) {
+        if has_left_join_lateral_pattern(join_expr.larg, query) {
             return true;
         }
-        if has_left_join_lateral_pattern((*join_expr).rarg, query) {
+        if has_left_join_lateral_pattern(join_expr.rarg, query) {
             return true;
         }
     }
@@ -3008,28 +3015,29 @@ unsafe fn has_left_join_lateral_pattern(
 }
 
 /// Check if a node represents a LATERAL subquery
-unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
+fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
     if node.is_null() || query.is_null() {
         return false;
     }
 
     // Check if it's a RangeTblRef pointing to a LATERAL RTE
-    if let Some(rtref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
-        let rtable = (*query).rtable;
+    if let Some(rtref) = unsafe { nodecast!(RangeTblRef, T_RangeTblRef, node) } {
+        let rtable = unsafe { (*query).rtable };
         if !rtable.is_null() {
-            let rte = pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable);
-            if !rte.is_null() && (*rte).lateral {
+            let rte = unsafe { pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable) };
+            if !rte.is_null() && unsafe { (*rte).lateral } {
                 return true;
             }
         }
     }
 
     // For nested joins, recursively check
-    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
-        if is_lateral_subquery((*join_expr).larg, query) {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+        let join_expr = unsafe { &*join_expr };
+        if is_lateral_subquery(join_expr.larg, query) {
             return true;
         }
-        if is_lateral_subquery((*join_expr).rarg, query) {
+        if is_lateral_subquery(join_expr.rarg, query) {
             return true;
         }
     }

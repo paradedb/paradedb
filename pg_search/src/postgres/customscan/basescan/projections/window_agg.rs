@@ -399,9 +399,7 @@ unsafe fn convert_window_func_to_aggregate_type(
 /// - nodeToString creates a new string copy (not a pointer to planner hook memory)
 /// - stringToNode allocates new nodes in current memory context
 /// - The deserialized nodes live as long as needed for planning and execution
-unsafe fn convert_filter_expr_to_search_query(
-    filter_expr: *mut pg_sys::Expr,
-) -> Option<SearchQueryInput> {
+fn convert_filter_expr_to_search_query(filter_expr: *mut pg_sys::Expr) -> Option<SearchQueryInput> {
     if filter_expr.is_null() {
         return None;
     }
@@ -474,25 +472,22 @@ unsafe fn window_has_custom_frame_clause(
 }
 
 /// Check if the window function has a PARTITION BY clause
-unsafe fn window_has_partition_by(
-    parse: *mut pg_sys::Query,
-    partition_clause: *mut pg_sys::List,
-) -> bool {
-    if partition_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
+fn window_has_partition_by(parse: *mut pg_sys::Query, partition_clause: *mut pg_sys::List) -> bool {
+    if partition_clause.is_null() || parse.is_null() || unsafe { (*parse).targetList.is_null() } {
         return false;
     }
 
-    let partition_list = PgList::<pg_sys::Node>::from_pg(partition_clause);
+    let partition_list = unsafe { PgList::<pg_sys::Node>::from_pg(partition_clause) };
     !partition_list.is_empty()
 }
 
 /// Check if the window function has an ORDER BY clause within the OVER()
-unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::List) -> bool {
-    if order_clause.is_null() || parse.is_null() || (*parse).targetList.is_null() {
+fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_sys::List) -> bool {
+    if order_clause.is_null() || parse.is_null() || unsafe { (*parse).targetList.is_null() } {
         return false;
     }
 
-    let order_list = PgList::<pg_sys::Node>::from_pg(order_clause);
+    let order_list = unsafe { PgList::<pg_sys::Node>::from_pg(order_clause) };
     !order_list.is_empty()
 }
 
@@ -506,7 +501,7 @@ unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_s
 /// This two-phase approach is necessary because:
 /// 1. At planner_hook time: We serialize filters as PostgresExpression (no PlannerInfo yet)
 /// 2. At plan_custom_path time: We convert to SearchQueryInput (PlannerInfo available)
-pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
+pub fn resolve_window_aggregate_filters_at_plan_time(
     window_aggregates: &mut [WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
@@ -562,9 +557,7 @@ pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
 /// 4. Creates `WindowAggregateInfo` with the current position as target_entry_index
 ///
 /// Returns: Vec of WindowAggregateInfo, one for each window aggregate in the query
-pub unsafe fn deserialize_window_agg_placeholders(
-    tlist: *mut pg_sys::List,
-) -> Vec<WindowAggregateInfo> {
+pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<WindowAggregateInfo> {
     use pgrx::pg_guard;
     use pgrx::pg_sys::expression_tree_walker;
     use std::ffi::CStr;
@@ -643,10 +636,10 @@ pub unsafe fn deserialize_window_agg_placeholders(
     };
 
     // Iterate through target entries explicitly to track their indices
-    let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+    let target_entries = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(tlist) };
     for (idx, te) in target_entries.iter_ptr().enumerate() {
         context.current_te_index = idx;
-        walker((*te).expr.cast(), addr_of_mut!(context).cast());
+        unsafe { walker((*te).expr.cast(), addr_of_mut!(context).cast()) };
     }
 
     context.window_aggs

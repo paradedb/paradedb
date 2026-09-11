@@ -52,7 +52,7 @@ impl CustomScanClause<AggregateScan> for Option<LimitOffset> {
         _index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
-        let limit_offset = unsafe { LimitOffset::from_parse(parse) };
+        let limit_offset = LimitOffset::from_parse(parse);
 
         // Bucket-limit guard only applies when the row count is statically
         // known. Parameterized LIMIT/OFFSET values flow through unchecked at

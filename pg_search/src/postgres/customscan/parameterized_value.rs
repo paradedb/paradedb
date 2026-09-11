@@ -94,13 +94,14 @@ where
     /// Recurses through `FuncExpr` (single arg), `RelabelType`, and
     /// `CoerceViaIO` wrappers — these are commonly inserted by the parser
     /// around LIMIT/OFFSET expressions for type coercion.
-    pub unsafe fn from_node(node: *mut pg_sys::Node) -> Option<Self> {
+    pub fn from_node(node: *mut pg_sys::Node) -> Option<Self> {
         if node.is_null() {
             return None;
         }
 
-        if let Some(const_node) = nodecast!(Const, T_Const, node) {
-            let value = T::from_datum((*const_node).constvalue, (*const_node).constisnull)?;
+        if let Some(const_node) = unsafe { nodecast!(Const, T_Const, node) } {
+            let value =
+                unsafe { T::from_datum((*const_node).constvalue, (*const_node).constisnull)? };
             return Some(ParameterizedValue::Static(value));
         }
 
@@ -112,24 +113,25 @@ where
     /// `Static(v)` returns `Some(v.clone())`.
     /// `Param { param_id }` looks up `estate.es_param_list_info.params[param_id - 1]`.
     /// Returns `None` if the parameter is null or out of range.
-    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> Option<T> {
+    pub fn resolve(&self, estate: *mut pg_sys::EState) -> Option<T> {
         match self {
             ParameterizedValue::Static(v) => Some(v.clone()),
             ParameterizedValue::Param { param_id } => {
                 if estate.is_null() {
                     return None;
                 }
-                let param_list = (*estate).es_param_list_info;
+                let param_list = unsafe { (*estate).es_param_list_info };
                 if param_list.is_null() {
                     return None;
                 }
-                let num_params = (*param_list).numParams as usize;
+                let param_list = unsafe { &*param_list };
+                let num_params = param_list.numParams as usize;
                 let idx = (*param_id - 1) as usize;
                 if idx >= num_params {
                     return None;
                 }
-                let param_data = &(*param_list).params.as_slice(num_params)[idx];
-                T::from_datum(param_data.value, param_data.isnull)
+                let param_data = &unsafe { param_list.params.as_slice(num_params) }[idx];
+                unsafe { T::from_datum(param_data.value, param_data.isnull) }
             }
         }
     }
@@ -155,7 +157,7 @@ where
     /// Columnar, JoinScan). Snippet configs use `resolve()` instead
     /// because `SnippetType` is a `HashMap` key and only `&self` is
     /// available there.
-    pub unsafe fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&T> {
+    pub fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&T> {
         if self.is_param() {
             let value = self.resolve(estate)?;
             *self = ParameterizedValue::Static(value);
@@ -200,31 +202,34 @@ impl<T: Clone + Hash> Hash for ParameterizedValue<T> {
 /// Walk through commonly-inserted coercion wrappers to find an extern Param's
 /// `paramid`. Returns `None` if the node is not (or does not wrap) a Param of
 /// kind `PARAM_EXTERN`.
-unsafe fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
+fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
     if node.is_null() {
         return None;
     }
 
-    if let Some(param) = nodecast!(Param, T_Param, node) {
-        if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
-            return Some((*param).paramid);
+    if let Some(param) = unsafe { nodecast!(Param, T_Param, node) } {
+        let param = unsafe { &*param };
+        if param.paramkind == pg_sys::ParamKind::PARAM_EXTERN {
+            return Some(param.paramid);
         }
         return None;
     }
 
-    if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
+    if let Some(func_expr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func_expr).args) };
         if args.len() == 1 {
             return unwrap_to_extern_param_id(args.get_ptr(0).unwrap());
         }
     }
 
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-        return unwrap_to_extern_param_id((*relabel).arg.cast());
+    if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+        let relabel = unsafe { &*relabel };
+        return unwrap_to_extern_param_id(relabel.arg.cast());
     }
 
-    if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        return unwrap_to_extern_param_id((*coerce).arg.cast());
+    if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+        let coerce = unsafe { &*coerce };
+        return unwrap_to_extern_param_id(coerce.arg.cast());
     }
 
     None

@@ -103,7 +103,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
             for member in members.iter_ptr() {
                 let member = unsafe { &*member };
                 let (expr, is_unnest) =
-                    unsafe { strip_unnest_and_relabel(member.em_expr as *mut pg_sys::Node) };
+                    strip_unnest_and_relabel(member.em_expr as *mut pg_sys::Node);
 
                 let var_context = VarContext::from_planner(args.root);
 

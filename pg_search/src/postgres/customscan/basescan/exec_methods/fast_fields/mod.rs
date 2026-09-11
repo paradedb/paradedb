@@ -76,39 +76,40 @@ pub unsafe fn collect_fast_fields(
     .unwrap_or_default()
 }
 
-unsafe fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
+fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
     if list.is_null() {
         return;
     }
-    let list = PgList::<pg_sys::Node>::from_pg(list);
+    let list = unsafe { PgList::<pg_sys::Node>::from_pg(list) };
     for node in list.iter_ptr() {
         fix_varno_in_place(node, old_varno, new_varno);
     }
 }
 
-unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
+fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
     if node.is_null() {
         return;
     }
-    if let Some(var) = nodecast!(Var, T_Var, node) {
-        if (*var).varno as i32 == old_varno {
-            (*var).varno = new_varno as _;
+    if let Some(var) = unsafe { nodecast!(Var, T_Var, node) } {
+        let var = unsafe { &mut *var };
+        if var.varno as i32 == old_varno {
+            var.varno = new_varno as _;
         }
-        if (*var).varnosyn as i32 == old_varno {
-            (*var).varnosyn = new_varno as _;
+        if var.varnosyn as i32 == old_varno {
+            var.varnosyn = new_varno as _;
         }
-    } else if let Some(expr) = nodecast!(OpExpr, T_OpExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(RelabelType, T_RelabelType, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(OpExpr, T_OpExpr, node) } {
+        fix_varno_list(unsafe { (*expr).args }, old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        fix_varno_list(unsafe { (*expr).args }, old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(BoolExpr, T_BoolExpr, node) } {
+        fix_varno_list(unsafe { (*expr).args }, old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+        fix_varno_in_place(unsafe { (*expr).arg.cast() }, old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+        fix_varno_in_place(unsafe { (*expr).arg.cast() }, old_varno, new_varno);
+    } else if let Some(expr) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+        fix_varno_in_place(unsafe { (*expr).arg.cast() }, old_varno, new_varno);
     }
 }
 

@@ -106,20 +106,20 @@ mod identity_ops {
 /// If nothing can be safely stripped, returns `expr` unchanged.
 ///
 /// Safe to call with a null pointer; returns null in that case.
-pub(crate) unsafe fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub(crate) fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if expr.is_null() {
             return expr;
         }
-        match (*expr).type_ {
+        match unsafe { (*expr).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::RelabelType)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_CoerceToDomain => {
-                expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::CoerceToDomain)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_OpExpr => {
-                match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                match unsafe { try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) } {
                     Some(inner) => expr = inner,
                     None => return expr,
                 }
@@ -162,31 +162,34 @@ unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_
 ///
 /// `const_on_right` indicates whether the constant is the right operand.
 /// For non-commutative operators like `-` and `/`, the constant must be on the right.
-unsafe fn is_identity_operation(
+fn is_identity_operation(
     opno: pg_sys::Oid,
     konst: *mut pg_sys::Const,
     const_on_right: bool,
 ) -> bool {
-    if konst.is_null() || (*konst).constisnull {
+    if konst.is_null() || unsafe { (*konst).constisnull } {
         return false;
     }
+    let konst = unsafe { &*konst };
 
-    let Some(&op) = identity_ops::lookup().get(&opno) else {
+    let Some(&op) = unsafe { identity_ops::lookup() }.get(&opno) else {
         return false;
     };
 
     let const_is = |expected: i64| -> bool {
-        let datum = (*konst).constvalue;
-        let typoid = (*konst).consttype;
-        match typoid {
-            pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
-            pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
-            pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
-            pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
-            pg_sys::NUMERICOID => {
-                AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+        let datum = konst.constvalue;
+        let typoid = konst.consttype;
+        unsafe {
+            match typoid {
+                pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
+                pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
+                pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
+                pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+                pg_sys::NUMERICOID => {
+                    AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+                }
+                _ => false,
             }
-            _ => false,
         }
     };
 
@@ -451,7 +454,7 @@ pub unsafe fn find_var_relation(
 }
 
 /// Find all the Vars referenced in the specified node
-pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
+pub fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -475,7 +478,7 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
 
     let mut data = Data { vars: Vec::new() };
 
-    walker(node, addr_of_mut!(data).cast());
+    unsafe { walker(node, addr_of_mut!(data).cast()) };
     data.vars
 }
 
@@ -506,7 +509,7 @@ pub unsafe fn fieldname_from_var(
 /// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
 ///
 /// If there is not exactly one Var in the node, then this function will return `None`.
-pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+pub fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
     let mut vars = find_vars(node);
     if vars.len() == 1 {
         Some(vars.pop().unwrap())
@@ -517,7 +520,7 @@ pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> 
 
 /// Find an `Aggref` node in an expression tree using Postgres's `expression_tree_walker`
 /// for robust traversal through all wrapper types (RelabelType, CoerceViaIO, FuncExpr, etc.).
-pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+pub fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -540,7 +543,7 @@ pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Ag
     let mut data = Data {
         found: std::ptr::null_mut(),
     };
-    walker(node, addr_of_mut!(data).cast());
+    unsafe { walker(node, addr_of_mut!(data).cast()) };
     if data.found.is_null() {
         None
     } else {

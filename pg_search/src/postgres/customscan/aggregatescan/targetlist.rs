@@ -180,7 +180,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
         for expr in target_list.iter_ptr() {
             let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-            let (actual_expr, _) = unsafe { strip_unnest_and_relabel(expr as *mut pg_sys::Node) };
+            let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
 
             let maybe_field_name = if let Some((_, field_name)) =
                 unsafe { find_one_var_and_fieldname(var_context, actual_expr) }

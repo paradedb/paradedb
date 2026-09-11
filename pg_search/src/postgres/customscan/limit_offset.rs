@@ -47,12 +47,14 @@ impl LimitOffset {
     ///
     /// Returns `None` if there is no LIMIT clause. Handles both `Const` and
     /// extern `Param` nodes (the latter for GENERIC prepared plans).
-    pub unsafe fn from_parse(parse: *mut pg_sys::Query) -> Option<Self> {
+    pub fn from_parse(parse: *mut pg_sys::Query) -> Option<Self> {
         if parse.is_null() {
             return None;
         }
-        let limit = ParameterizedValue::<i64>::from_node((*parse).limitCount)?;
-        let offset = ParameterizedValue::<i64>::from_node((*parse).limitOffset);
+        let parse = unsafe { &*parse };
+
+        let limit = ParameterizedValue::<i64>::from_node(parse.limitCount)?;
+        let offset = ParameterizedValue::<i64>::from_node(parse.limitOffset);
         Some(Self { limit, offset })
     }
 
@@ -64,21 +66,22 @@ impl LimitOffset {
     /// `limit_tuples == -1` as a "do not push" signal (e.g., BaseScan beneath
     /// a GROUP BY) should consult `(*root).limit_tuples` themselves and gate
     /// usage of the returned `LimitOffset` accordingly.
-    pub unsafe fn from_root(root: *mut pg_sys::PlannerInfo) -> Option<Self> {
+    pub fn from_root(root: *mut pg_sys::PlannerInfo) -> Option<Self> {
         if root.is_null() {
             return None;
         }
-        let parse = (*root).parse;
+        let root = unsafe { &*root };
+        let parse = root.parse;
         if parse.is_null() {
             return None;
         }
 
-        if (*root).limit_tuples > -1.0 {
-            let limit_pv = ParameterizedValue::<i64>::from_node((*parse).limitCount);
-            let offset_pv = ParameterizedValue::<i64>::from_node((*parse).limitOffset);
+        if root.limit_tuples > -1.0 {
+            let limit_pv = ParameterizedValue::<i64>::from_node(unsafe { (*parse).limitCount });
+            let offset_pv = ParameterizedValue::<i64>::from_node(unsafe { (*parse).limitOffset });
 
             if let (Some(ParameterizedValue::Static(_)), maybe_offset) = (&limit_pv, &offset_pv) {
-                let combined = (*root).limit_tuples as i64;
+                let combined = root.limit_tuples as i64;
                 let offset_val = match offset_pv {
                     Some(ParameterizedValue::Static(o)) => o,
                     _ => 0,
@@ -132,7 +135,7 @@ impl LimitOffset {
     /// Returns `LIMIT + OFFSET` resolved at execution time. This is the number
     /// of rows our scan must produce so PostgreSQL's outer Limit node has
     /// enough rows to apply OFFSET and return LIMIT.
-    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+    pub fn resolve(&self, estate: *mut pg_sys::EState) -> Option<usize> {
         let limit = self.limit.resolve(estate)?.max(0) as usize;
         let offset = self
             .offset
@@ -146,7 +149,7 @@ impl LimitOffset {
     /// Resolve both LIMIT and OFFSET `Param`s to `Static` in place. Returns
     /// `&mut Self` on success so callers can chain `.static_fetch()` to read
     /// the now-static sum.
-    pub unsafe fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&mut Self> {
+    pub fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&mut Self> {
         self.limit.resolve_mut(estate)?;
         if let Some(ref mut o) = self.offset {
             o.resolve_mut(estate);

@@ -1415,7 +1415,7 @@ impl AggregateScan {
 
         // If it's not a plain relation (e.g. it's a partitioned table), we can't do Tantivy agg directly.
         // Parent partitioned tables are not yet supported for aggregate pushdown.
-        let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
+        let Some(heap_relid) = range_table::get_plain_relation_relid(heap_rte) else {
             if has_paradedb_agg {
                 pgrx::error!(
                     "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
@@ -1600,7 +1600,7 @@ impl AggregateScan {
                         // or UNION arms within the subquery.
                         if rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY {
                             let subquery = unsafe { (*rte_ptr).subquery };
-                            if !subquery.is_null() && unsafe { query_will_use_topk(subquery) } {
+                            if !subquery.is_null() && query_will_use_topk(subquery) {
                                 return Err(AggregatePathDecline::Quiet);
                             }
                         }
@@ -1641,9 +1641,9 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        let path_info = match unsafe {
-            datafusion_build::check_join_path_predicates(root, input_rel, &sources)
-        } {
+        let path_info = match datafusion_build::check_join_path_predicates(
+            root, input_rel, &sources,
+        ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
                 return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
@@ -1706,16 +1706,14 @@ impl AggregateScan {
             if let Some(parse) = parse
                 && !parse.havingQual.is_null()
             {
-                let having = unsafe {
-                    privdat::FilterExpr::from_pg_node(
-                        parse.havingQual,
-                        &datafusion_build::FilterExprBuildContext::Having {
-                            targetlist: &targetlist,
-                            plan: &plan,
-                            outer_root_id,
-                        },
-                    )
-                }
+                let having = privdat::FilterExpr::from_pg_node(
+                    parse.havingQual,
+                    &datafusion_build::FilterExprBuildContext::Having {
+                        targetlist: &targetlist,
+                        plan: &plan,
+                        outer_root_id,
+                    },
+                )
                 .ok_or_else(|| {
                     warn(AggregateDeclineReason::Other(
                         "HAVING clause cannot be translated for aggregate-on-join".into(),
@@ -2770,7 +2768,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
 }
 
 /// Check if an expression tree contains any UNNEST nodes
-unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
+fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
     use pgrx::pg_guard;
     use std::ptr::addr_of_mut;
 
@@ -2796,12 +2794,12 @@ unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
     }
 
     let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
+    unsafe { walker(node, addr_of_mut!(found).cast()) };
     found
 }
 
 /// Check if an expression tree contains any Aggref nodes
-unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
+fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
     use pgrx::pg_guard;
     use std::ptr::addr_of_mut;
 
@@ -2824,7 +2822,7 @@ unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
     }
 
     let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
+    unsafe { walker(node, addr_of_mut!(found).cast()) };
     found
 }
 
@@ -2897,26 +2895,29 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 /// and an `ORDER BY` on a ParadeDB index), we want to silently decline it instead. This is because
 /// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
 /// bothering the user with a planner warning.
-unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
+fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
 
     // If there is an explicit LIMIT, check if TopK pushdown will natively optimize it
-    if !(*parse).limitCount.is_null()
+    if unsafe { !(*parse).limitCount.is_null() }
         && crate::gucs::enable_custom_scan()
         && validate_topk_compatibility(parse)
     {
         return true;
     }
+    let parse = unsafe { &*parse };
 
     // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    if !parse.rtable.is_null() {
+        let rtable =
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
         for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_will_use_topk((*rte).subquery)
+            let rte = unsafe { &*rte };
+            if rte.rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
+                && !rte.subquery.is_null()
+                && query_will_use_topk(rte.subquery)
             {
                 return true;
             }
@@ -2924,11 +2925,12 @@ unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     }
 
     // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
+    if !parse.cteList.is_null() {
         let ctelist =
-            pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
         for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_will_use_topk((*cte).ctequery.cast()) {
+            let cte = unsafe { &*cte };
+            if !cte.ctequery.is_null() && query_will_use_topk(cte.ctequery.cast()) {
                 return true;
             }
         }

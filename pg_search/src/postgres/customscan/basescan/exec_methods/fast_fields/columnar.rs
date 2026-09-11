@@ -400,8 +400,7 @@ impl ExecMethod for ColumnarExecState {
         } = state.exec_method_type
         {
             let estate = unsafe { (*cstate).ss.ps.state };
-            if let Some(fetch) = unsafe { lo.resolve_mut(estate) }.and_then(|lo| lo.static_fetch())
-            {
+            if let Some(fetch) = lo.resolve_mut(estate).and_then(|lo| lo.static_fetch()) {
                 self.batch_size_hint = Some(fetch * 2);
             }
         }

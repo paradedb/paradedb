@@ -72,7 +72,7 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes and grouping columns converted to `INDEX_VAR`s.
 /// - const_nodes: Vec of Const node pointers for later mutation, indexed by target entry position.
 /// - needs_projection: true if projection is needed (e.g., wrapped expressions exist).
-pub(crate) unsafe fn create_placeholder_targetlist(
+pub(crate) fn create_placeholder_targetlist(
     targetlist: *mut pg_sys::List,
 ) -> (*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>, bool) {
     if targetlist.is_null() {
@@ -80,22 +80,20 @@ pub(crate) unsafe fn create_placeholder_targetlist(
     }
 
     let placeholder_funcid = placeholder_procid();
-    let targetlist_pg = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    let targetlist_pg = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(targetlist) };
 
     // Check if any target entries have wrapped placeholder FuncExprs (not top-level)
     let needs_projection = targetlist_pg.iter_ptr().any(|te| {
-        if te.is_null() || (*te).expr.is_null() {
+        if te.is_null() || unsafe { (*te).expr.is_null() } {
             return false;
         }
+        let te = unsafe { &*te };
         // Check if the expression is NOT a direct FuncExpr placeholder but CONTAINS one
-        let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
-            && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
+        let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
+            && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
 
         !is_top_level_placeholder
-            && expr_contains_placeholder_funcexpr(
-                (*te).expr as *mut pg_sys::Node,
-                placeholder_funcid,
-            )
+            && expr_contains_placeholder_funcexpr(te.expr as *mut pg_sys::Node, placeholder_funcid)
     });
 
     if !needs_projection {
@@ -165,63 +163,64 @@ pub(crate) unsafe fn create_placeholder_targetlist(
     // pdb.agg_fn() FuncExpr and fail with "placeholder should not be executed".
     let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
     for (i, te) in targetlist_pg.iter_ptr().enumerate() {
-        let new_te = pg_sys::flatCopyTargetEntry(te);
+        let new_te = unsafe { pg_sys::flatCopyTargetEntry(te) };
+        let te = unsafe { &*te };
 
         ctx.current_te_idx = i;
 
         // AggregateScan assumes a contiguous, non-resjunk targetlist.
         // Wrapper support doesn't change this assumption.
         debug_assert!(
-            !(*te).resjunk,
+            !te.resjunk,
             "AggregateScan does not support resjunk target entries"
         );
         debug_assert!(
-            (*te).resno as usize == i + 1,
+            te.resno as usize == i + 1,
             "AggregateScan expects contiguous resno values (1, 2, 3, ...)"
         );
 
         // Check if this expression contains any placeholder FuncExpr (wrapped or top-level)
-        let is_top_level_placeholder = (*(*te).expr).type_ == pg_sys::NodeTag::T_FuncExpr
-            && (*((*te).expr as *mut pg_sys::FuncExpr)).funcid == placeholder_funcid;
+        let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
+            && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
 
         let contains_placeholder = is_top_level_placeholder
-            || expr_contains_placeholder_funcexpr(
-                (*te).expr as *mut pg_sys::Node,
-                placeholder_funcid,
-            );
+            || expr_contains_placeholder_funcexpr(te.expr as *mut pg_sys::Node, placeholder_funcid);
 
         if contains_placeholder {
             // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)
             // For top-level: the mutator will replace the FuncExpr directly with a Const
             // For wrapped: the mutator will walk the tree and replace nested FuncExprs
             let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext as *mut core::ffi::c_void;
-            let new_expr = const_placeholder_mutator((*te).expr as *mut pg_sys::Node, ctx_ptr);
-            (*new_te).expr = new_expr as *mut pg_sys::Expr;
+            let new_expr =
+                unsafe { const_placeholder_mutator(te.expr as *mut pg_sys::Node, ctx_ptr) };
+            unsafe { (*new_te).expr = new_expr as *mut pg_sys::Expr };
         } else {
             // It's a grouping column!
             // The value for this column will be placed directly in the scan_slot at attribute (i + 1).
             // We must replace the original expression with an INDEX_VAR that reads from the virtual scan_slot,
             // otherwise ExecProject will try to evaluate the original expression (which usually refers
             // to the base relation tuple) against our virtual scan_slot and fail with "attribute number exceeds number of columns".
-            let var = pg_sys::makeVar(
-                pg_sys::INDEX_VAR,
-                (i + 1) as pg_sys::AttrNumber,
-                pg_sys::exprType((*te).expr as *mut pg_sys::Node),
-                pg_sys::exprTypmod((*te).expr as *mut pg_sys::Node),
-                pg_sys::exprCollation((*te).expr as *mut pg_sys::Node),
-                0,
-            );
-            (*new_te).expr = var as *mut pg_sys::Expr;
+            let var = unsafe {
+                pg_sys::makeVar(
+                    pg_sys::INDEX_VAR,
+                    (i + 1) as pg_sys::AttrNumber,
+                    pg_sys::exprType(te.expr as *mut pg_sys::Node),
+                    pg_sys::exprTypmod(te.expr as *mut pg_sys::Node),
+                    pg_sys::exprCollation(te.expr as *mut pg_sys::Node),
+                    0,
+                )
+            };
+            unsafe { (*new_te).expr = var as *mut pg_sys::Expr };
         }
 
-        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
+        new_targetlist = unsafe { pg_sys::lappend(new_targetlist, new_te.cast()) };
     }
 
     (new_targetlist, ctx.const_nodes, true)
 }
 
 /// Check if an expression tree contains a placeholder FuncExpr with the given funcid.
-unsafe fn expr_contains_placeholder_funcexpr(
+fn expr_contains_placeholder_funcexpr(
     node: *mut pg_sys::Node,
     placeholder_funcid: pg_sys::Oid,
 ) -> bool {
@@ -256,7 +255,7 @@ unsafe fn expr_contains_placeholder_funcexpr(
         found: false,
         funcid: placeholder_funcid,
     };
-    walker(node, addr_of_mut!(ctx).cast());
+    unsafe { walker(node, addr_of_mut!(ctx).cast()) };
     ctx.found
 }
 
@@ -380,7 +379,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     ReturnedNodePointer(None)
 }
 
-pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
+pub fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -418,7 +417,7 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     };
 
     let data = addr_of_mut!(data).cast();
-    walker(node, data)
+    unsafe { walker(node, data) }
 }
 
 /// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain

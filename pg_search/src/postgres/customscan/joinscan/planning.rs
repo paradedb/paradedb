@@ -69,10 +69,7 @@ const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
-pub(super) unsafe fn expr_uses_scores_from_source(
-    node: *mut pg_sys::Node,
-    source: &JoinSource,
-) -> bool {
+pub(super) fn expr_uses_scores_from_source(node: *mut pg_sys::Node, source: &JoinSource) -> bool {
     // We use a walker to find score functions
     use pgrx::pg_sys::expression_tree_walker;
     use std::ptr::addr_of_mut;
@@ -117,7 +114,7 @@ pub(super) unsafe fn expr_uses_scores_from_source(
         found: false,
     };
 
-    walker(node, addr_of_mut!(data).cast());
+    unsafe { walker(node, addr_of_mut!(data).cast()) };
     data.found
 }
 
@@ -976,7 +973,7 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
 /// JoinScan is decided downstream (`is_limit_pushdown_safe`, activation
 /// checks, fast-field validation) -- this helper's only job is to surface
 /// the underlying `JoinPath` so those gates can run.
-unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path {
+fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path {
     loop {
         if path.is_null() {
             return path;
@@ -999,35 +996,37 @@ unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path
 /// returned subpath as the semantic source of join predicates, so wrappers
 /// that filter, deduplicate, limit, or otherwise change rows do not belong
 /// here.
-pub(crate) unsafe fn transparent_path_subpath(
-    path: *mut pg_sys::Path,
-) -> Option<*mut pg_sys::Path> {
+pub(crate) fn transparent_path_subpath(path: *mut pg_sys::Path) -> Option<*mut pg_sys::Path> {
     if path.is_null() {
         return None;
     }
 
-    match (*path).type_ {
-        // Parallel-to-serial bridge: same row set, same schema.
-        pg_sys::NodeTag::T_GatherPath => Some((*(path as *mut pg_sys::GatherPath)).subpath),
-        // Sorted parallel-to-serial bridge: same rows, preserves order.
-        pg_sys::NodeTag::T_GatherMergePath => {
-            Some((*(path as *mut pg_sys::GatherMergePath)).subpath)
+    unsafe {
+        match (*path).type_ {
+            // Parallel-to-serial bridge: same row set, same schema.
+            pg_sys::NodeTag::T_GatherPath => Some((*(path as *mut pg_sys::GatherPath)).subpath),
+            // Sorted parallel-to-serial bridge: same rows, preserves order.
+            pg_sys::NodeTag::T_GatherMergePath => {
+                Some((*(path as *mut pg_sys::GatherMergePath)).subpath)
+            }
+            // Required below GatherMerge when PG sorts each worker's partial
+            // path before merging: same rows, only adds ordering.
+            pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
+            // Cached materialisation for inner-side replay: same rows, same schema.
+            pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
+            // Cached parameterised execution for inner-side replay: same rows, same schema.
+            pg_sys::NodeTag::T_MemoizePath => Some((*(path as *mut pg_sys::MemoizePath)).subpath),
+            // Incremental sort wrapper: same rows, only adds ordering.
+            pg_sys::NodeTag::T_IncrementalSortPath => {
+                Some((*(path as *mut pg_sys::IncrementalSortPath)).spath.subpath)
+            }
+            // Adjusts the target list above the underlying path; the join
+            // structure (RTIs, equi-keys, jointype) remains unchanged.
+            pg_sys::NodeTag::T_ProjectionPath => {
+                Some((*(path as *mut pg_sys::ProjectionPath)).subpath)
+            }
+            _ => None,
         }
-        // Required below GatherMerge when PG sorts each worker's partial
-        // path before merging: same rows, only adds ordering.
-        pg_sys::NodeTag::T_SortPath => Some((*(path as *mut pg_sys::SortPath)).subpath),
-        // Cached materialisation for inner-side replay: same rows, same schema.
-        pg_sys::NodeTag::T_MaterialPath => Some((*(path as *mut pg_sys::MaterialPath)).subpath),
-        // Cached parameterised execution for inner-side replay: same rows, same schema.
-        pg_sys::NodeTag::T_MemoizePath => Some((*(path as *mut pg_sys::MemoizePath)).subpath),
-        // Incremental sort wrapper: same rows, only adds ordering.
-        pg_sys::NodeTag::T_IncrementalSortPath => {
-            Some((*(path as *mut pg_sys::IncrementalSortPath)).spath.subpath)
-        }
-        // Adjusts the target list above the underlying path; the join
-        // structure (RTIs, equi-keys, jointype) remains unchanged.
-        pg_sys::NodeTag::T_ProjectionPath => Some((*(path as *mut pg_sys::ProjectionPath)).subpath),
-        _ => None,
     }
 }
 
@@ -1172,10 +1171,10 @@ unsafe fn extract_subplan_from_or_clause(
 
 /// Unwrap a `RestrictInfo` node to its inner clause. Returns the node unchanged
 /// if it is not a RestrictInfo.
-unsafe fn unwrap_restrict_info(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    if !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_RestrictInfo {
-        let ri = node as *mut pg_sys::RestrictInfo;
-        (*ri).clause.cast()
+fn unwrap_restrict_info(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if !node.is_null() && unsafe { (*node).type_ } == pg_sys::NodeTag::T_RestrictInfo {
+        let ri = unsafe { &*(node as *mut pg_sys::RestrictInfo) };
+        ri.clause.cast()
     } else {
         node
     }
@@ -1347,18 +1346,24 @@ unsafe fn extract_equi_keys_from_subplan(
 }
 
 /// Resolve the base-table Var exported by an IN/NOT IN subquery's targetlist.
-unsafe fn resolve_subplan_output_var(
+fn resolve_subplan_output_var(
     inner_root: *mut pg_sys::PlannerInfo,
 ) -> Option<(pg_sys::Index, pg_sys::AttrNumber)> {
-    if inner_root.is_null() || (*inner_root).parse.is_null() {
+    if inner_root.is_null() || unsafe { (*inner_root).parse.is_null() } {
         return None;
     }
+    let inner_root = unsafe { &*inner_root };
+    let parse = unsafe { &*inner_root.parse };
 
-    let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*inner_root).parse).targetList);
-    let te = targetlist.iter_ptr().find(|te| !(*(*te)).resjunk)?;
-    let expr = strip_wrappers((*te).expr.cast());
-    let var = nodecast!(Var, T_Var, expr)?;
-    Some(((*var).varno as pg_sys::Index, (*var).varattno))
+    let targetlist = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList) };
+    let te = targetlist
+        .iter_ptr()
+        .find(|te| unsafe { !(*(*te)).resjunk })?;
+    let te = unsafe { &*te };
+    let expr = strip_wrappers(te.expr.cast());
+    let var = unsafe { nodecast!(Var, T_Var, expr) }?;
+    let var = unsafe { &*var };
+    Some((var.varno as pg_sys::Index, var.varattno))
 }
 /// Parses a given list of `RestrictInfo` nodes to extract equi-join conditions and other join filters.
 /// Iterates over the given restrict list and groups conditions according to whether they are
@@ -2416,7 +2421,7 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 
 /// Check if an expression is a sum of one or more `pdb.score(var)` calls.
 /// Returns the list of RTIs for the referenced relations if it matches.
-pub(super) unsafe fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg_sys::Index>> {
+pub(super) fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg_sys::Index>> {
     let mut rtis = Vec::new();
     if !collect_score_sum_rtis(expr, &mut rtis) || rtis.is_empty() {
         return None;
@@ -2424,34 +2429,36 @@ pub(super) unsafe fn extract_score_sum(expr: *mut pg_sys::Node) -> Option<Vec<pg
     Some(rtis)
 }
 
-unsafe fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>) -> bool {
+fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys::Index>) -> bool {
     if node.is_null() {
         return false;
     }
     let stripped = strip_identity_wrappers(strip_wrappers(node));
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, stripped) {
-        if score_funcoids().contains(&(*funcexpr).funcid) {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, stripped) } {
+        let funcexpr = unsafe { &*funcexpr };
+        if score_funcoids().contains(&funcexpr.funcid) {
+            let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
             if args.len() == 1
                 && let Some(arg) = args.get_ptr(0)
-                && let Some(var) = nodecast!(Var, T_Var, strip_wrappers(arg))
+                && let Some(var) = unsafe { nodecast!(Var, T_Var, strip_wrappers(arg)) }
             {
-                rtis.push((*var).varno as pg_sys::Index);
+                rtis.push(unsafe { (*var).varno } as pg_sys::Index);
                 return true;
             }
         }
         return false;
     }
-    if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, stripped) {
-        let opno = (*opexpr).opno;
-        let opname_ptr = pg_sys::get_opname(opno);
-        let namespace_oid = pg_sys::get_func_namespace(pg_sys::get_opcode(opno));
-        let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
+    if let Some(opexpr) = unsafe { nodecast!(OpExpr, T_OpExpr, stripped) } {
+        let opexpr = unsafe { &*opexpr };
+        let opno = opexpr.opno;
+        let opname_ptr = unsafe { pg_sys::get_opname(opno) };
+        let namespace_oid = unsafe { pg_sys::get_func_namespace(pg_sys::get_opcode(opno)) };
+        let namespace_ptr = unsafe { pg_sys::get_namespace_name(namespace_oid) };
         if !opname_ptr.is_null() && !namespace_ptr.is_null() {
-            let schema = std::ffi::CStr::from_ptr(namespace_ptr).to_bytes();
-            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_bytes();
+            let schema = unsafe { std::ffi::CStr::from_ptr(namespace_ptr) }.to_bytes();
+            let opname = unsafe { std::ffi::CStr::from_ptr(opname_ptr) }.to_bytes();
             if schema == b"pg_catalog" && opname == b"+" {
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(opexpr.args) };
                 if args.len() == 2
                     && let Some(left) = args.get_ptr(0)
                     && let Some(right) = args.get_ptr(1)
@@ -2467,20 +2474,20 @@ unsafe fn collect_score_sum_rtis(node: *mut pg_sys::Node, rtis: &mut Vec<pg_sys:
 
 /// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.
 /// Handles implicit casts and placeholder wrappers.
-pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Index> {
+pub(super) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Index> {
     if expr.is_null() {
         return None;
     }
     let stripped_expr = strip_wrappers(expr.cast());
-    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, stripped_expr) {
-        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, stripped_expr) } {
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func).args) };
         if !args.is_empty()
             && let Some(arg) = args.get_ptr(0)
         {
             let stripped_arg = strip_wrappers(arg);
-            if let Some(var) = nodecast!(Var, T_Var, stripped_arg) {
-                let varno = (*var).varno as pg_sys::Index;
-                if is_score_func(stripped_expr.cast(), varno) {
+            if let Some(var) = unsafe { nodecast!(Var, T_Var, stripped_arg) } {
+                let varno = unsafe { (*var).varno } as pg_sys::Index;
+                if unsafe { is_score_func(stripped_expr.cast(), varno) } {
                     return Some(varno);
                 }
             }
@@ -2498,19 +2505,19 @@ pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::I
 }
 
 /// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.
-unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) -> bool {
+fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) -> bool {
     if expr.is_null() {
         return false;
     }
-    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
-        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, expr) } {
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func).args) };
         if !args.is_empty()
             && let Some(arg) = args.get_ptr(0)
-            && let Some(var) = nodecast!(Var, T_Var, arg)
+            && let Some(var) = unsafe { nodecast!(Var, T_Var, arg) }
         {
-            let varno = (*var).varno as pg_sys::Index;
+            let varno = unsafe { (*var).varno } as pg_sys::Index;
             if source.contains_rti(varno) {
-                return is_score_func(expr.cast(), varno);
+                return unsafe { is_score_func(expr.cast(), varno) };
             }
         }
     }

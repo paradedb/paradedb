@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789142238786,
+  "lastUpdate": 1789142246430,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -142582,6 +142582,108 @@ window.BENCHMARK_DATA = {
             "value": 98.9453125,
             "unit": "median mem",
             "extra": "avg mem: 98.42388045552273, max mem: 103.5234375, count: 59418"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee28005bac85e07cdc4eae0641196c865c01817e",
+          "message": "fix: kept null-extended rows NULL in a deferred string column. (#6247)\n\n## Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nThis PR changes the encoding of a deferred string column from a dense\n`UnionArray` to a packed `UInt64` with a validity bitmap.\n\nIt also rebuilds every scan's projection when a relation's columns turn\ndeferred, not just the first scan the rule reaches.\n\n## Why\n\nA dense union has no validity bitmap. When an outer join null-extends a\nside, DataFusion builds those rows with arrow's `take`, which for a NULL\nindex copies row 0 instead of writing a NULL. Every null-extended row\nthen carries the first build row's doc address.\n\n#6236 guards against that by reading the relation's ctid in\n`TantivyFetchExec` and `TantivyDecodeExec`, so the decoded value comes\nout NULL. `SegmentedTopKExec` sits below both and still ranks on the\nborrowed ordinal, so the wrong rows survive the Top-K. On 350dbfbcf:\n\n```sql\nSELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k\nWHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;\n```\n\nreturns `oj_dim` row 1, then twenty null-extended rows, then rows 2 to\n5. Postgres returns rows 1 to 20 and then five null-extended ones.\nKeeping the nulls in the column fixes it for every reader at once, so\nthe ctid guard goes away with it.\n\nThe rule that flips a relation to the deferred schema sets a flag on the\nshared provider, and a plan can read one relation through more than one\nscan. A `pdb.agg` with a nested level on an array field is planned as\none scan per level group, so the scans the flag skips keep claiming the\ncolumn is a string. The rule then anchors a decode over columns that\nwere never deferred, and with the placement rule of #6231 on top the\narray level's buckets belong to no parent and drop out of the result.\n\n## How\n\nA row is one `u64`: a packed doc address (segment ordinal in the high 32\nbits, doc id in the low 32) or a packed term ordinal (top bit set,\nsegment ordinal above bit 40, ordinal below), and a NULL is an Arrow\nNULL. The field's `ARROW:extension:name` metadata is what tells a\ndeferred column apart from any other `UInt64`. `DeferredColumn` is the\none reader for the fetch, the decode and the Top-K, and\n`with_term_ordinals` writes fetched rows in place. `SegmentedTopKExec`\ntreats a NULL row as having no segment, which covers a NULL value and a\nnull-extended row alike. The logical rule tells a deferred column apart\nby its scan's index and its name, since a plain `UInt64` column such as\nan `oid` can share the name.\n\nOne word per row is also cheaper to carry than a union with a struct\nchild: a join's `take` copies one buffer, and the fetch changes a row's\nstate without changing the column's type.\n\n## Tests\n\n- `join_outer_deferred_sort`\n- An array-level case in `aggregate_late_materialization`\n- Unit tests in `deferred_encode.rs`",
+          "timestamp": "2026-09-11T16:59:17+02:00",
+          "tree_id": "747cbc5ca2e5effca568f9d221f4fd1f1e5162db",
+          "url": "https://github.com/paradedb/paradedb/commit/ee28005bac85e07cdc4eae0641196c865c01817e"
+        },
+        "date": 1789142243370,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08346520319181172, max background_merging: 2.0, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.660418203251805, max cpu: 9.585621, count: 59402"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.27485941919043, max mem: 19.421875, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.945675926366719, max cpu: 28.304668, count: 59402"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 52.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.661441586562745, max mem: 52.26171875, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52491,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52311.56390357227, max block_count: 52491.0, count: 59402"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.80719504393791, max segment_count: 105.0, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.575638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.062286245394482, max cpu: 33.990894, count: 59402"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 80.00942518770412, max mem: 83.79296875, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669939884846923, max cpu: 23.403217, count: 59402"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 51.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.692949758636075, max mem: 51.9140625, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8206528114714615, max cpu: 23.750618, count: 59402"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.58621730697199, max mem: 48.609375, count: 59402"
           }
         ]
       }

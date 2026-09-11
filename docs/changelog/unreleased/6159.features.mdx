@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Vector indexes now route queries to clusters through a stacked IVF index over the centroids instead of a neighborhood graph. For vectors under 256 dimensions the router stops ranking clusters once the estimated recall reaches the new `paradedb.vector_router_recall` GUC (default `0.9`); higher-dimensional vectors, or a target of `1.0`, rank a fixed fraction of the routing index. The `training_samples_per_centroid` index option is replaced by `training_sample_ratio` (default `0.32`), the fraction of vectors sampled for clustering at build time.

@@ -283,6 +283,19 @@ pub fn vector_fixed_probe_cost_rows() -> f64 {
     VECTOR_FIXED_PROBE_COST_ROWS.get()
 }
 
+/// Recall target for the stacked IVF router's centroid ranking. Below `1.0`
+/// the router stops scanning its centroid lists once the estimated recall
+/// of the top clusters reaches the target (adaptive partition scanning);
+/// `1.0` ranks with the fixed per-level nprobe fractions instead. Tantivy
+/// ignores the target and uses the nprobe path at or above
+/// `APS_MAX_DIM` (256) dimensions, where the estimate is unreliable.
+static VECTOR_ROUTER_RECALL: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+
+pub fn vector_router_recall() -> f32 {
+    VECTOR_ROUTER_RECALL.get() as f32
+}
+
 /// Doc-count boundary at which a merged segment's vector storage switches
 /// from flat (exact scan) to IVF (clustered). Captured into the index's
 /// stored `IndexSettings` at CREATE INDEX time, so it applies to every merge
@@ -552,6 +565,17 @@ pub fn init() {
         &VECTOR_FIXED_PROBE_COST_ROWS,
         0.001,
         10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_recall",
+        c"Recall target for the stacked IVF router's centroid ranking in vector ORDER BY queries",
+        c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of 256 or more dimensions where the recall estimate is unreliable.",
+        &VECTOR_ROUTER_RECALL,
+        0.000001,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );

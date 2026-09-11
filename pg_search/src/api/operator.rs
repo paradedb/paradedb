@@ -138,9 +138,10 @@ impl ReturnedNodePointer {
         let Some(base_var) = find_vars(lhs).into_iter().next() else {
             return Self::unsupported();
         };
-        // EXISTS conversion can simplify child quals with the parent's root. Keep the
-        // original LHS until a query without SubLinks can bind it without that ambiguity.
-        let keep_original_lhs = (*(*(*request).root).parse).hasSubLinks
+        // Retain the field binding while EXISTS conversion or subquery pushdown can
+        // change the original LHS's relation context.
+        let derived = find_node_relation(lhs, (*request).root).2.is_some();
+        let keep_original_lhs = ((*(*(*request).root).parse).hasSubLinks || derived)
             && (original_lhs.is_some()
                 || matches!(rhs_rewrite, SimplifyRhs::Rewrite(_))
                     && get_expr_result_type(rhs) != searchqueryinput_typoid());
@@ -179,21 +180,42 @@ impl ReturnedNodePointer {
         let base_var = resolve_lhs_var_for_group((*request).root, base_var);
 
         let original_lhs = lhs;
-        let lhs = make_lhs(&indexrel, base_var);
+        let lhs = if derived {
+            lhs
+        } else {
+            make_lhs(&indexrel, base_var)
+        };
         let Some(rhs) = wrap_with_index(&indexrel, rhs, inferred_field) else {
             return Self::unsupported();
         };
-        let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-        (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-        (*ctid).varattnosyn = (*ctid).varattno;
-        (*ctid).vartype = pg_sys::TIDOID;
-        (*ctid).vartypmod = -1;
-        (*ctid).varcollid = pg_sys::Oid::INVALID;
+        let ctid = (!derived).then(|| {
+            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
+            (*ctid).varattnosyn = (*ctid).varattno;
+            (*ctid).vartype = pg_sys::TIDOID;
+            (*ctid).vartypmod = -1;
+            (*ctid).varcollid = pg_sys::Oid::INVALID;
+            ctid
+        });
 
         let mut args = PgList::<pg_sys::Node>::new();
         args.push(lhs);
         args.push(rhs);
-        args.push(ctid.cast());
+        args.push(ctid.map_or_else(
+            || {
+                pg_sys::makeConst(
+                    pg_sys::TIDOID,
+                    -1,
+                    pg_sys::Oid::INVALID,
+                    size_of::<pg_sys::ItemPointerData>() as _,
+                    pg_sys::ItemPointerData::default().into_datum().unwrap(),
+                    false,
+                    false,
+                )
+                .cast()
+            },
+            |ctid| ctid.cast(),
+        ));
 
         let inline_row = MaybeInlineRow::new((*request).root, base_var, ctid, &indexrel);
         if let Some(row) = inline_row.as_ptr() {
@@ -227,7 +249,8 @@ impl ReturnedNodePointer {
         // a NOT NULL heap column; expression attributes remain conservatively nullable.
         let index_info = *indexrel.index_info();
         let heap_attno = index_info.ii_IndexAttrNumbers[0];
-        let anchor_is_not_null = heap_attno > 0
+        let anchor_is_not_null = !derived
+            && heap_attno > 0
             && indexrel.heap_relation().is_some_and(|heaprel| {
                 heaprel
                     .tuple_desc()
@@ -754,7 +777,7 @@ pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> Option<(PgSearchRelation, Option<FieldName>)> {
-    let (heaprelid, _, _) = find_node_relation(node, root);
+    let (heaprelid, _, targetlist) = find_node_relation(node, root);
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
@@ -765,8 +788,21 @@ pub unsafe fn tantivy_field_name_from_node(
         )
     });
 
-    let field_name =
-        field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node);
+    let (field_node, context) = if targetlist.is_some() {
+        let node = pg_sys::copyObjectImpl(node.cast()).cast();
+        for var in find_vars(node) {
+            let (relation, attribute, _) = find_var_relation(var, root);
+            if relation != heaprelid {
+                return None;
+            }
+            (*var).varattno = attribute;
+            (*var).varattnosyn = attribute;
+        }
+        (node, VarContext::from_exec(heaprelid))
+    } else {
+        (node, VarContext::from_planner(root))
+    };
+    let field_name = field_name_from_node(context, &heaprel, &indexrel, field_node);
     if field_name.is_none() {
         let var = nodecast!(Var, T_Var, node)?;
         if (*var).varattno != 0 {

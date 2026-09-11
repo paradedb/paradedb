@@ -56,6 +56,7 @@
 use std::sync::Arc;
 
 use datafusion::common::config::ConfigOptions;
+use datafusion::common::tree_node::Transformed;
 use datafusion::common::{JoinType, Result};
 use datafusion::physical_expr::LexOrdering;
 use datafusion::physical_expr::expressions::Column;
@@ -70,9 +71,7 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{
-    ChildrenPropertiesMode, ExecutionPlan, Partitioning, ReplaceChildrenOptions,
-};
+use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
@@ -83,6 +82,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+use crate::scan::plan_rewrite::transform_up_with_children;
 use crate::scan::segmented_topk_rule::resolve_physical_index;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -509,95 +509,82 @@ fn moved(
 /// Applies the decisions bottom-up: a scan takes its columns over, and the fetch and decode
 /// above it drop them. The nodes in between are rebuilt so an eager column's new type reaches
 /// the decode point.
-///
-/// The walk is by hand rather than `transform_up`, which installs the new children before the
-/// node itself is visited. A `TantivyDecodeExec` refuses an input whose deferred column is
-/// already a string, so the field has to leave the node in the same step that gives it the
-/// eager input.
 fn rewrite(
-    node: Arc<dyn ExecutionPlan>,
+    plan: Arc<dyn ExecutionPlan>,
     decisions: &HashMap<CanonicalColumn, Decision>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        let mut fetch_at_scan: Vec<String> = Vec::new();
-        let mut eager: Vec<String> = Vec::new();
-        for field in scan.deferred_fields() {
-            match decisions.get(&field.canonical).filter(|d| d.moves()) {
-                Some(decision) if decision.eager => eager.push(field.name.clone()),
-                Some(_) => fetch_at_scan.push(field.name.clone()),
-                None => {}
+    let mut step = |node: Arc<dyn ExecutionPlan>, children: &[Arc<dyn ExecutionPlan>]| {
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+            let mut fetch_at_scan: Vec<String> = Vec::new();
+            let mut eager: Vec<String> = Vec::new();
+            for field in scan.deferred_fields() {
+                match decisions.get(&field.canonical).filter(|d| d.moves()) {
+                    Some(decision) if decision.eager => eager.push(field.name.clone()),
+                    Some(_) => fetch_at_scan.push(field.name.clone()),
+                    None => {}
+                }
             }
+            if fetch_at_scan.is_empty() && eager.is_empty() {
+                return Ok(Transformed::no(node));
+            }
+            return Ok(Transformed::yes(
+                scan.with_deferred_placement(&fetch_at_scan, &eager)?,
+            ));
         }
-        if fetch_at_scan.is_empty() && eager.is_empty() {
-            return Ok(node);
-        }
-        return Ok(scan.with_deferred_placement(&fetch_at_scan, &eager)?);
-    }
 
-    let children = node.children();
-    let mut new_children = Vec::with_capacity(children.len());
-    let mut changed = false;
-    for child in children {
-        let new_child = rewrite(Arc::clone(child), decisions)?;
-        changed |= !Arc::ptr_eq(child, &new_child);
-        new_children.push(new_child);
-    }
+        if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
+            if Arc::ptr_eq(&children[0], proj.input()) {
+                return Ok(Transformed::no(node));
+            }
+            // The projector caches the schema it was built against, so putting the new input
+            // back through `replace_children` would keep an eager column's old type.
+            return Ok(Transformed::yes(Arc::new(ProjectionExec::try_new(
+                proj.expr().to_vec(),
+                Arc::clone(&children[0]),
+            )?)));
+        }
 
-    if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
-        if !changed {
-            return Ok(node);
+        if let Some(fetch) = node.downcast_ref::<TantivyFetchExec>() {
+            let keep: Vec<PhysicalDeferredField> = fetch
+                .fetch_fields()
+                .iter()
+                .filter(|f| moved(decisions, f).is_none())
+                .cloned()
+                .collect();
+            if keep.len() == fetch.fetch_fields().len() {
+                return Ok(Transformed::no(node));
+            }
+            let input = Arc::clone(&children[0]);
+            if keep.is_empty() && fetch.ctid_columns().is_empty() {
+                return Ok(Transformed::yes(input));
+            }
+            return Ok(Transformed::yes(Arc::new(
+                fetch.with_input_and_fields(input, keep)?,
+            )));
         }
-        // The projector caches its output schema, so a rebuild through `replace_children`
-        // would keep the old column type.
-        let input = new_children.remove(0);
-        return Ok(Arc::new(ProjectionExec::try_new(
-            proj.expr().to_vec(),
-            input,
-        )?));
-    }
 
-    if let Some(fetch) = node.downcast_ref::<TantivyFetchExec>() {
-        let keep: Vec<PhysicalDeferredField> = fetch
-            .fetch_fields()
-            .iter()
-            .filter(|f| moved(decisions, f).is_none())
-            .cloned()
-            .collect();
-        let input = new_children.remove(0);
-        if keep.len() == fetch.fetch_fields().len() && !changed {
-            return Ok(node);
+        if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
+            let keep: Vec<PhysicalDeferredField> = decode
+                .deferred_fields()
+                .iter()
+                .filter(|f| !moved(decisions, f).is_some_and(|d| d.eager))
+                .cloned()
+                .collect();
+            if keep.len() == decode.deferred_fields().len() {
+                return Ok(Transformed::no(node));
+            }
+            let input = Arc::clone(&children[0]);
+            if keep.is_empty() {
+                return Ok(Transformed::yes(input));
+            }
+            return Ok(Transformed::yes(Arc::new(
+                decode.with_input_and_fields(input, keep)?,
+            )));
         }
-        if keep.is_empty() && fetch.ctid_columns().is_empty() {
-            return Ok(input);
-        }
-        return Ok(Arc::new(fetch.with_input_and_fields(input, keep)?));
-    }
 
-    if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-        let keep: Vec<PhysicalDeferredField> = decode
-            .deferred_fields()
-            .iter()
-            .filter(|f| !moved(decisions, f).is_some_and(|d| d.eager))
-            .cloned()
-            .collect();
-        let input = new_children.remove(0);
-        if keep.len() == decode.deferred_fields().len() && !changed {
-            return Ok(node);
-        }
-        if keep.is_empty() {
-            return Ok(input);
-        }
-        return Ok(Arc::new(decode.with_input_and_fields(input, keep)?));
-    }
-
-    if changed {
-        node.replace_children(
-            new_children,
-            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
-        )
-    } else {
-        Ok(node)
-    }
+        Ok(Transformed::no(node))
+    };
+    transform_up_with_children(plan, &mut step).map(|rewritten| rewritten.data)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

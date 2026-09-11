@@ -1,5 +1,0 @@
----
-header: performance
----
-
-A join whose key is a `uuid` column, or a text column with a tokenizer cast, now pushes the hash-join key set into the Tantivy query. Before, only a plain `text` key did, so the other side of the join read every document in the index and filtered afterwards.

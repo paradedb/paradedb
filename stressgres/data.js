@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789149324642,
+  "lastUpdate": 1789149333051,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -305832,6 +305832,54 @@ window.BENCHMARK_DATA = {
             "value": 24.785159556466166,
             "unit": "median tps",
             "extra": "avg tps: 38.933707526997644, max tps: 457.7088634900114, count: 59258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149278329,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 23.3676872376796,
+            "unit": "median tps",
+            "extra": "avg tps: 34.39221367168966, max tps: 194.67431623217868, count: 59234"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 24.080427488102774,
+            "unit": "median tps",
+            "extra": "avg tps: 38.89880049953568, max tps: 435.9903561424595, count: 59234"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 27.265378302318187,
+            "unit": "median tps",
+            "extra": "avg tps: 45.80173422982226, max tps: 596.0533739736386, count: 59234"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 24.026486225518497,
+            "unit": "median tps",
+            "extra": "avg tps: 38.80990260090858, max tps: 434.69681232480553, count: 59234"
           }
         ]
       }

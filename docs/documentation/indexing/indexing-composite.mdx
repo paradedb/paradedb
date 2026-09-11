@@ -24,8 +24,7 @@ Then reference the columns in a `ROW()` expression cast to the composite type:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (ROW(description, category, rating)::item_fields))
-WITH (key_field='id');
+USING paradedb (id, (ROW(description, category, rating)::item_fields));
 ```
 
 Each field in the composite type is indexed as if it were a standalone column. Queries use the field names
@@ -49,8 +48,7 @@ CREATE TYPE item_fields AS (
 );
 
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (ROW(description, category, in_stock)::item_fields))
-WITH (key_field='id');
+USING paradedb (id, (ROW(description, category, in_stock)::item_fields));
 ```
 
 ## Constraints

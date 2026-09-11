@@ -26,8 +26,7 @@ must use either this tokenizer or [`literal_normalized`](/documentation/tokenize
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.literal));
 ```
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:

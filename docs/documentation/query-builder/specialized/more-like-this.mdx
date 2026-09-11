@@ -5,8 +5,14 @@ canonical: https://www.paradedb.com/docs/documentation/query-builder/specialized
 ---
 
 The more like this (MLT) query finds documents that are "like" another document.
-To use this query, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) value of the input document
-to `pdb.more_like_this`.
+To use this query, specify the field that identifies the reference document on the left-hand side of `@@@`
+and pass its value to `pdb.more_like_this`.
+
+<Note>
+  Use a field with unique values to identify the reference document. If the
+  field is not unique and multiple documents match the supplied value, the first
+  matching document is used as the reference.
+</Note>
 
 For instance, the following query finds documents that are "like" a document with an `id` of `3`:
 
@@ -184,7 +190,7 @@ Let's look at how the MLT query works under the hood:
 
 ## Using a Custom Input Document
 
-In addition to providing a key field value, a custom document can also be provided as JSON.
+In addition to providing a value that identifies the reference document, a custom document can also be provided as JSON.
 The JSON keys are field names and must correspond to field names in the index.
 
 <CodeGroup>

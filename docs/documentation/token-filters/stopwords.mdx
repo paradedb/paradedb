@@ -12,8 +12,7 @@ for one or more languages.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('stopwords_language=english')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('stopwords_language=english')));
 ```
 
 Valid languages are `Czech`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Hungarian`, `Italian`, `Norwegian`, `Polish`, `Portuguese`, `Russian`, `Spanish`, and `Swedish`. Language names are case-insensitive.
@@ -24,8 +23,7 @@ For documents containing multiple languages, you can specify multiple stopword l
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('stopwords_language=English,French')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('stopwords_language=English,French')));
 ```
 
 ```sql

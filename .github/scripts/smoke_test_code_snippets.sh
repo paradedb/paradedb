@@ -135,7 +135,7 @@ if [[ $ORMS =~ "django" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+    if ! grep -Eq 'schema_editor\.add_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -173,7 +173,7 @@ if [[ $ORMS =~ "rails" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'add_paradedb_index' "$snippet_file"; then
+    if ! grep -Eq 'add_paradedb_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -217,7 +217,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'idx.create' "$snippet_file"; then
+    if ! grep -Eq 'idx\.create|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 

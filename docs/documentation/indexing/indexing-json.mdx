@@ -10,8 +10,7 @@ For example, consider the following statement where `metadata` is `JSONB`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, metadata)
-WITH (key_field='id');
+USING paradedb (id, metadata);
 ```
 
 ```ts Drizzle
@@ -22,48 +21,27 @@ indexing.paradedbIndex("search_idx").on(mockItems.id, mockItems.metadata);
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "metadata": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, metadata);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.metadata_),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, metadata);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    metadata: {}
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, metadata);
+SQL
 ```
 
 ```cs EF Core
@@ -87,8 +65,7 @@ By default, all text sub-fields of a JSON object use the same tokenizer. The tok
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (metadata::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, (metadata::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle
@@ -104,54 +81,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
-from paradedb.search import Tokenizer
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "metadata": {
-                    "tokenizer": Tokenizer.ngram(2, 3),
-                },
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (metadata::pdb.ngram(2,3)));
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing, tokenizer
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(
-        MockItem.metadata_,
-        tokenizer=tokenizer.ngram(2, 3),
-    ),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (metadata::pdb.ngram(2,3)));
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    metadata: { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, (metadata::pdb.ngram(2,3)));
+SQL
 ```
 
 ```cs EF Core
@@ -168,8 +118,7 @@ within a larger JSON:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)))
-WITH (key_field='id');
+USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
 ```
 
 ```ts Drizzle
@@ -188,58 +137,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
-from paradedb.search import Tokenizer
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "metadata": {
-                    "json_keys": {
-                        "color": {
-                            "tokenizer": Tokenizer.ngram(2, 3),
-                        },
-                    },
-                },
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import expr, indexing, tokenizer
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(
-        expr.json_text(MockItem.metadata_, "color"),
-        tokenizer=tokenizer.ngram(2, 3),
-    ),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.ngram(2, 3) }
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, ((metadata->>'color')::pdb.ngram(2,3)));
+SQL
 ```
 
 ```cs EF Core

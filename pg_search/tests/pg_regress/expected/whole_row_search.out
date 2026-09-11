@@ -11,7 +11,8 @@ INSERT INTO whole_row_search VALUES
     ('SKU-2', 'wireless keyboard', 'shoes'),
     ('SKU-3', 'cotton shirt', 'apparel');
 CREATE INDEX whole_row_search_idx ON whole_row_search
-USING paradedb (sku, description, category) WITH (key_field = 'sku');
+USING paradedb (sku, description, category)
+WITH (text_fields = '{"sku": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 -- Bare terms search across indexed fields instead of the key field.
 SELECT sku FROM whole_row_search AS t WHERE t @@@ 'shoes' ORDER BY sku;
   sku  

@@ -497,6 +497,7 @@ pub mod reader {
             Self { blocks }
         }
 
+        #[allow(dead_code)]
         pub fn get(&self, i: usize) -> Option<pg_sys::BlockNumber> {
             self.blocks.get(i).cloned()
         }
@@ -508,6 +509,227 @@ pub mod reader {
 
         fn into_iter(self) -> Self::IntoIter {
             self.blocks.into_iter()
+        }
+    }
+
+    /// Lazily-parsed view of a blocklist, for point `get(ord)` lookups.
+    ///
+    /// The eager [`BlockList`] decompresses every ord -> blockno mapping up
+    /// front, which for large files means walking every blocklist page and
+    /// bit-unpacking hundreds of thousands of entries per reader — even when
+    /// a query resolves only a handful of ordinals. This variant parses chunk
+    /// headers incrementally (stopping as soon as the requested ordinal is
+    /// covered) and decompresses only the single chunk a lookup lands in,
+    /// memoizing the last decoded chunk. State lives only as long as the
+    /// reader (one query), so first-access cost is unchanged.
+    pub struct LazyBlockList {
+        state: std::cell::UnsafeCell<LazyState>,
+    }
+
+    // SAFETY: Postgres backends are single-threaded.
+    unsafe impl Send for LazyBlockList {}
+    unsafe impl Sync for LazyBlockList {}
+
+    impl std::fmt::Debug for LazyBlockList {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("LazyBlockList(..)")
+        }
+    }
+
+    struct ChunkMeta {
+        start_ord: usize,
+        len: usize,
+        blockno: pg_sys::BlockNumber,
+        /// offset of the chunk's tag byte within its page slice
+        tag_offset: usize,
+    }
+
+    struct LazyState {
+        chunks: Vec<ChunkMeta>,
+        covered: usize,
+        next_blockno: pg_sys::BlockNumber,
+        decoded: Option<(usize, Vec<pg_sys::BlockNumber>)>,
+    }
+
+    impl LazyBlockList {
+        pub fn new(starting_block: pg_sys::BlockNumber) -> Self {
+            Self {
+                state: std::cell::UnsafeCell::new(LazyState {
+                    chunks: Vec::new(),
+                    covered: 0,
+                    next_blockno: starting_block,
+                    decoded: None,
+                }),
+            }
+        }
+
+        pub fn get(&self, ord: usize, bman: &BufferManager) -> Option<pg_sys::BlockNumber> {
+            // SAFETY: Postgres backends are single-threaded.
+            let state = unsafe { &mut *self.state.get() };
+            while ord >= state.covered && state.next_blockno != pg_sys::InvalidBlockNumber {
+                Self::parse_next_page(state, bman);
+            }
+            if ord >= state.covered {
+                return None;
+            }
+            if let Some((idx, blocks)) = &state.decoded {
+                let meta = &state.chunks[*idx];
+                if ord >= meta.start_ord && ord < meta.start_ord + meta.len {
+                    return Some(blocks[ord - meta.start_ord]);
+                }
+            }
+            let idx = state.chunks.partition_point(|c| c.start_ord <= ord) - 1;
+            let blocks = Self::decode_chunk(&state.chunks[idx], bman);
+            let block = blocks.get(ord - state.chunks[idx].start_ord).copied();
+            state.decoded = Some((idx, blocks));
+            block
+        }
+
+        /// Parse the chunk headers of the next blocklist page into the
+        /// directory, without decompressing any chunk payloads.
+        fn parse_next_page(state: &mut LazyState, bman: &BufferManager) {
+            let blockno = state.next_blockno;
+            let block = bman.get_buffer(blockno);
+            let page = block.page();
+            let slice = page.as_slice();
+
+            let mut offset = 0;
+            loop {
+                let tag_offset = offset;
+                let tag = ChunkStyleTag::from(slice[offset]);
+                offset += 1;
+                let (len, payload) = match tag {
+                    ChunkStyleTag::Sorted1x | ChunkStyleTag::StrictlySorted1x => {
+                        let num_bits = slice[offset] as usize;
+                        offset += 1 + size_of::<pg_sys::BlockNumber>();
+                        (
+                            BitPacker1x::BLOCK_LEN,
+                            num_bits * BitPacker1x::BLOCK_LEN / 8,
+                        )
+                    }
+                    ChunkStyleTag::Sorted4x | ChunkStyleTag::StrictlySorted4x => {
+                        let num_bits = slice[offset] as usize;
+                        offset += 1 + size_of::<pg_sys::BlockNumber>();
+                        (
+                            BitPacker4x::BLOCK_LEN,
+                            num_bits * BitPacker4x::BLOCK_LEN / 8,
+                        )
+                    }
+                    ChunkStyleTag::Sorted8x | ChunkStyleTag::StrictlySorted8x => {
+                        let num_bits = slice[offset] as usize;
+                        offset += 1 + size_of::<pg_sys::BlockNumber>();
+                        (
+                            BitPacker8x::BLOCK_LEN,
+                            num_bits * BitPacker8x::BLOCK_LEN / 8,
+                        )
+                    }
+                    ChunkStyleTag::Uncompressed => {
+                        let len = slice[offset] as usize;
+                        offset += 1;
+                        (len, len * size_of::<pg_sys::BlockNumber>())
+                    }
+                };
+                offset += payload;
+                state.chunks.push(ChunkMeta {
+                    start_ord: state.covered,
+                    len,
+                    blockno,
+                    tag_offset,
+                });
+                state.covered += len;
+                if offset >= slice.len() {
+                    break;
+                }
+            }
+
+            state.next_blockno = page.special::<BM25PageSpecialData>().next_blockno;
+        }
+
+        /// Decompress a single chunk's blocknos.
+        fn decode_chunk(meta: &ChunkMeta, bman: &BufferManager) -> Vec<pg_sys::BlockNumber> {
+            let block = bman.get_buffer(meta.blockno);
+            let page = block.page();
+            let slice = page.as_slice();
+
+            let mut offset = meta.tag_offset;
+            let tag = ChunkStyleTag::from(slice[offset]);
+            offset += 1;
+            let mut blocks = vec![0; meta.len];
+            match tag {
+                ChunkStyleTag::Uncompressed => {
+                    offset += 1;
+                    let mut tmp = [0u8; size_of::<pg_sys::BlockNumber>()];
+                    for entry in blocks.iter_mut() {
+                        tmp.copy_from_slice(
+                            &slice[offset..offset + size_of::<pg_sys::BlockNumber>()],
+                        );
+                        offset += size_of::<pg_sys::BlockNumber>();
+                        *entry = u32::from_le_bytes(tmp);
+                    }
+                }
+                tag => {
+                    let num_bits = slice[offset];
+                    offset += 1;
+                    let initial = u32::from_le_bytes(
+                        slice[offset..offset + size_of::<pg_sys::BlockNumber>()]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    offset += size_of::<pg_sys::BlockNumber>();
+                    match tag {
+                        ChunkStyleTag::Sorted1x => {
+                            BitPacker1x::new().decompress_sorted(
+                                initial,
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::Sorted4x => {
+                            BitPacker4x::new().decompress_sorted(
+                                initial,
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::Sorted8x => {
+                            BitPacker8x::new().decompress_sorted(
+                                initial,
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::StrictlySorted1x => {
+                            BitPacker1x::new().decompress_strictly_sorted(
+                                (initial != 0).then_some(initial),
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::StrictlySorted4x => {
+                            BitPacker4x::new().decompress_strictly_sorted(
+                                (initial != 0).then_some(initial),
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::StrictlySorted8x => {
+                            BitPacker8x::new().decompress_strictly_sorted(
+                                (initial != 0).then_some(initial),
+                                &slice[offset..],
+                                &mut blocks,
+                                num_bits,
+                            );
+                        }
+                        ChunkStyleTag::Uncompressed => unreachable!(),
+                    }
+                }
+            }
+            blocks
         }
     }
 }

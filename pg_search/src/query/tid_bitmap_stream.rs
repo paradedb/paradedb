@@ -189,75 +189,70 @@ impl BitmapCursorSource {
     /// absent from the table — means a collector broke the one-scorer-per-stream
     /// invariant, and raises an execution error rather than silently degrading.
     pub(crate) unsafe fn claim(&self, consumer_id: u32, segment: SegmentId) -> BitmapCursor {
-        unsafe {
-            match self {
-                Self::Private {
-                    tbm,
-                    claims,
-                    counters,
-                } => {
-                    let mut claims = claims.lock().unwrap();
-                    if claims.contains(&(consumer_id, segment)) {
-                        pgrx::error!(
-                            "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
-                            segment.uuid_string()
-                        );
-                    }
-                    claims.push((consumer_id, segment));
-                    BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters)
-                }
-                Self::Shared { area, table } => {
-                    let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
-                    let entries = header.add(1).cast::<SharedEntry>();
-                    let nentries = (*header).nentries as usize;
-                    for i in 0..nentries {
-                        let entry = &*entries.add(i);
-                        if entry.consumer_id == consumer_id
-                            && entry.segment_id == *segment.uuid_bytes()
-                        {
-                            if entry
-                                .claimed
-                                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-                                .is_err()
-                            {
-                                pgrx::error!(
-                                    "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
-                                    segment.uuid_string()
-                                );
-                            }
-                            let iter = pg_sys::tbm_attach_shared_iterate(*area, entry.iterator);
-                            return BitmapCursor::shared(
-                                iter,
-                                &(*header).counters as *const CursorCounters,
-                            );
-                        }
-                    }
+        match self {
+            Self::Private {
+                tbm,
+                claims,
+                counters,
+            } => {
+                let mut claims = claims.lock().unwrap();
+                if claims.contains(&(consumer_id, segment)) {
                     pgrx::error!(
-                        "bitmap intersection stream (consumer {consumer_id}, segment {}) missing from the shared table",
+                        "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
                         segment.uuid_string()
                     );
                 }
+                claims.push((consumer_id, segment));
+                unsafe { BitmapCursor::private(*tbm, counters.as_ref() as *const CursorCounters) }
             }
+            Self::Shared { area, table } => unsafe {
+                let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
+                let entries = header.add(1).cast::<SharedEntry>();
+                let nentries = (*header).nentries as usize;
+                for i in 0..nentries {
+                    let entry = &*entries.add(i);
+                    if entry.consumer_id == consumer_id && entry.segment_id == *segment.uuid_bytes()
+                    {
+                        if entry
+                            .claimed
+                            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                            .is_err()
+                        {
+                            pgrx::error!(
+                                "bitmap intersection stream (consumer {consumer_id}, segment {}) claimed twice",
+                                segment.uuid_string()
+                            );
+                        }
+                        let iter = pg_sys::tbm_attach_shared_iterate(*area, entry.iterator);
+                        return BitmapCursor::shared(
+                            iter,
+                            &(*header).counters as *const CursorCounters,
+                        );
+                    }
+                }
+                pgrx::error!(
+                    "bitmap intersection stream (consumer {consumer_id}, segment {}) missing from the shared table",
+                    segment.uuid_string()
+                );
+            },
         }
     }
 
     /// Counter totals for EXPLAIN ANALYZE.
     pub(crate) fn counters(&self) -> (u64, u64, u64, u64) {
-        unsafe {
-            let c = match self {
-                Self::Private { counters, .. } => counters.as_ref() as *const CursorCounters,
-                Self::Shared { area, table } => {
-                    let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
-                    &(*header).counters as *const CursorCounters
-                }
-            };
-            (
-                (*c).exact_pages.load(Ordering::Relaxed),
-                (*c).lossy_pages.load(Ordering::Relaxed),
-                (*c).recheck_pages.load(Ordering::Relaxed),
-                (*c).rejected_docs.load(Ordering::Relaxed),
-            )
-        }
+        let c: &CursorCounters = match self {
+            Self::Private { counters, .. } => counters.as_ref(),
+            Self::Shared { area, table } => unsafe {
+                let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
+                &(*header).counters
+            },
+        };
+        (
+            c.exact_pages.load(Ordering::Relaxed),
+            c.lossy_pages.load(Ordering::Relaxed),
+            c.recheck_pages.load(Ordering::Relaxed),
+            c.rejected_docs.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -418,23 +413,18 @@ impl BitmapCursor {
     }
 
     fn count_rejected(&self) {
-        unsafe {
-            (*self.counters)
-                .rejected_docs
-                .fetch_add(1, Ordering::Relaxed)
-        };
+        let c = unsafe { &*self.counters };
+        c.rejected_docs.fetch_add(1, Ordering::Relaxed);
     }
 
     unsafe fn count_page(&self, lossy: bool, recheck: bool) {
-        unsafe {
-            let c = &*self.counters;
-            if lossy {
-                c.lossy_pages.fetch_add(1, Ordering::Relaxed);
-            } else {
-                c.exact_pages.fetch_add(1, Ordering::Relaxed);
-                if recheck {
-                    c.recheck_pages.fetch_add(1, Ordering::Relaxed);
-                }
+        let c = unsafe { &*self.counters };
+        if lossy {
+            c.lossy_pages.fetch_add(1, Ordering::Relaxed);
+        } else {
+            c.exact_pages.fetch_add(1, Ordering::Relaxed);
+            if recheck {
+                c.recheck_pages.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -473,37 +463,34 @@ impl BitmapCursor {
 
     #[cfg(not(feature = "pg18"))]
     unsafe fn next_page(&mut self) {
-        unsafe {
-            let res = match &mut self.iter {
-                CursorIter::Private(iter) => pg_sys::tbm_iterate(*iter),
-                CursorIter::Shared(iter) => pg_sys::tbm_shared_iterate(*iter),
-            };
-            if res.is_null() {
-                self.state = PageState::Exhausted;
-                return;
-            }
-            let lossy = (*res).ntuples < 0;
-            let noffsets = if lossy {
-                0
-            } else {
-                let n = ((*res).ntuples as usize).min(OFFSETS_CAP);
-                // The result struct is reused by the next iterate call; copy out.
-                std::ptr::copy_nonoverlapping(
-                    (*res).offsets.as_ptr(),
-                    self.offsets.as_mut_ptr(),
-                    n,
-                );
-                n
-            };
-            self.count_page(lossy, (*res).recheck);
-            self.state = PageState::Page {
-                block: (*res).blockno,
-                lossy,
-                recheck: (*res).recheck,
-                noffsets,
-                pos: 0,
-            };
+        let res = match &mut self.iter {
+            CursorIter::Private(iter) => unsafe { pg_sys::tbm_iterate(*iter) },
+            CursorIter::Shared(iter) => unsafe { pg_sys::tbm_shared_iterate(*iter) },
+        };
+        if res.is_null() {
+            self.state = PageState::Exhausted;
+            return;
         }
+        let res = unsafe { &*res };
+        let lossy = res.ntuples < 0;
+        let noffsets = if lossy {
+            0
+        } else {
+            let n = (res.ntuples as usize).min(OFFSETS_CAP);
+            // The result struct is reused by the next iterate call; copy out.
+            unsafe {
+                std::ptr::copy_nonoverlapping(res.offsets.as_ptr(), self.offsets.as_mut_ptr(), n);
+            }
+            n
+        };
+        unsafe { self.count_page(lossy, res.recheck) };
+        self.state = PageState::Page {
+            block: res.blockno,
+            lossy,
+            recheck: res.recheck,
+            noffsets,
+            pos: 0,
+        };
     }
 }
 

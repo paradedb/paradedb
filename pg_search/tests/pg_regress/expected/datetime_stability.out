@@ -174,8 +174,9 @@ LIMIT 3;
          Scores: false
             TopK Order By: occurred_at asc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 -- =====================================================================
 -- 9. date_histogram with a nested sub-agg — sub-bucket structure preserved

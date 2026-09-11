@@ -107,8 +107,9 @@ WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from i
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+(15 rows)
 
 SELECT not_indexed, COUNT(*)
 FROM issue_3827_t
@@ -146,8 +147,9 @@ WARNING:  Aggregate Scan not used: grouping column txt exists, but is not column
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
+               Full Index Scan: true
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(14 rows)
+(15 rows)
 
 SELECT txt, n, COUNT(*)
 FROM issue_3827_t

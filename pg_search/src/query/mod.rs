@@ -44,8 +44,10 @@ use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType, pg_sys, varlena_to_byte_slice,
+    FromDatum, IntoDatum, PgBuiltInOids, PgLogLevel, PgOid, PgSqlErrorCode, PostgresType,
+    function_name, pg_sys, varlena_to_byte_slice,
 };
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -325,6 +327,10 @@ fn is_plain_single_term(s: &str) -> bool {
 
 impl SearchQueryInput {
     /// Whole-row searches accept queries that do not require an implicit field.
+    /// Keep these variants aligned with the field-independent arms of
+    /// [`pdb::Query::into_tantivy_query`]: `All`, `Empty`, and `Parse`, plus
+    /// `ScoreAdjusted` when its inner query is also field-independent.
+    /// Unclassified strings without modifiers are parsed across the index.
     pub fn from_unfielded(query: pdb::Query) -> Self {
         match query {
             // pdb.all() scores matches as 1, unlike the internal zero-score match-all query.
@@ -358,9 +364,16 @@ impl SearchQueryInput {
                     pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
                 }
             }
-            _ => pgrx::error!(
-                "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference"
-            ),
+            _ => {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+                    "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference",
+                    function_name!(),
+                )
+                .set_hint("Use an indexed column on the left-hand side.")
+                .report(PgLogLevel::ERROR);
+                unreachable!()
+            }
         }
     }
 
@@ -448,6 +461,10 @@ impl SearchQueryInput {
         match self {
             // All by itself is a full scan
             SearchQueryInput::All => true,
+            SearchQueryInput::FieldedQuery {
+                query: pdb::Query::All,
+                ..
+            } => true,
 
             // Boolean queries - analyze based on Boolean semantics:
             // A document matches if it matches ALL Must AND NONE of MustNot AND at least one of (Must OR Should)

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134468417,
+  "lastUpdate": 1789134477156,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -197304,6 +197304,126 @@ window.BENCHMARK_DATA = {
             "value": 28.27734375,
             "unit": "median mem",
             "extra": "avg mem: 28.27600956170473, max mem: 28.890625, count: 59335"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134463984,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.076246,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.933950900360912, max cpu: 37.591778, count: 59283"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.271278101437176, max mem: 42.28125, count: 59283"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 18.667963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.597309321095342, max cpu: 28.276878, count: 59283"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 20.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.33299992198438, max mem: 20.34375, count: 59283"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.286468234244104, max cpu: 18.695229, count: 59283"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 42.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.8481045103571, max mem: 42.86328125, count: 59283"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15010,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15715.93224027124, max block_count: 31102.0, count: 59283"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.159158190374981, max cpu: 4.6875, count: 59283"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.22934793437832, max mem: 21.26953125, count: 59283"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.90555471214345, max segment_count: 37.0, count: 59283"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.393347,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.44896659728694, max cpu: 23.976025, count: 59283"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 41.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.453431132238585, max mem: 41.46484375, count: 59283"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.01916904043311, max cpu: 28.430405, count: 118566"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.20288795507354, max mem: 45.296875, count: 118566"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.430255,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.971445680567673, max cpu: 23.233301, count: 59283"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.252383627578734, max mem: 28.734375, count: 59283"
           }
         ]
       }

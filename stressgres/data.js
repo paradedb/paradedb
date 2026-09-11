@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134485603,
+  "lastUpdate": 1789134494733,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -315600,6 +315600,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 194.75821438190144, max segment_count: 361.0, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134490193,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.026464439926364, max cpu: 33.667336, count: 59414"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.541436927218335, max mem: 44.9296875, count: 59414"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.888342,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.86396738960204, max cpu: 43.417088, count: 59414"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.13341381555693, max mem: 102.17578125, count: 59414"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26590,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25369.929679873432, max block_count: 29146.0, count: 59414"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 195.15757228935942, max segment_count: 362.0, count: 59414"
           }
         ]
       }

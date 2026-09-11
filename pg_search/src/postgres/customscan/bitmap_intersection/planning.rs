@@ -251,14 +251,14 @@ impl BitmapPlanner {
         bhp: *mut pg_sys::BitmapHeapPath,
         build_cost: f64,
     ) -> Option<HarvestedBitmap> {
+        // A parameterized path's index quals reference outer rels or nestloop
+        // params the custom scan's plan context never supplies.
+        if unsafe { !(*bhp).path.param_info.is_null() } {
+            return None;
+        }
+        let mut clauses = Vec::new();
+        let mut pending = vec![unsafe { (*bhp).bitmapqual }];
         unsafe {
-            // A parameterized path's index quals reference outer rels or nestloop
-            // params the custom scan's plan context never supplies.
-            if !(*bhp).path.param_info.is_null() {
-                return None;
-            }
-            let mut clauses = Vec::new();
-            let mut pending = vec![(*bhp).bitmapqual];
             while let Some(path) = pending.pop() {
                 match (*path).type_ {
                     pg_sys::NodeTag::T_BitmapAndPath => {
@@ -299,38 +299,38 @@ impl BitmapPlanner {
                     }
                 }
             }
-
-            if !clauses.iter().any(|c| c.matched_heap_expr) {
-                pgrx::debug1!(
-                    "[bitmap_intersection] skipping BitmapHeapPath: covers no heap_filter clause"
-                );
-                return None;
-            }
-
-            for clause in &clauses {
-                pgrx::debug1!(
-                    "[bitmap_intersection] index={} lossy={} matched_heap_expr={}",
-                    clause.index_name,
-                    clause.lossy,
-                    clause.matched_heap_expr,
-                );
-            }
-            pgrx::debug1!(
-                "[bitmap_intersection] harvested BitmapHeapPath: {} index clause(s), {} matched heap_filter clause(s), est rows={:.0}",
-                clauses.len(),
-                clauses.iter().filter(|c| c.matched_heap_expr).count(),
-                (*bhp).path.rows,
-            );
-            Some(HarvestedBitmap {
-                path: bhp.cast(),
-                build_cost,
-                covered: clauses
-                    .into_iter()
-                    .filter(|c| c.matched_heap_expr)
-                    .map(|c| (c.clause, c.lossy))
-                    .collect(),
-            })
         }
+
+        if !clauses.iter().any(|c| c.matched_heap_expr) {
+            pgrx::debug1!(
+                "[bitmap_intersection] skipping BitmapHeapPath: covers no heap_filter clause"
+            );
+            return None;
+        }
+
+        for clause in &clauses {
+            pgrx::debug1!(
+                "[bitmap_intersection] index={} lossy={} matched_heap_expr={}",
+                clause.index_name,
+                clause.lossy,
+                clause.matched_heap_expr,
+            );
+        }
+        pgrx::debug1!(
+            "[bitmap_intersection] harvested BitmapHeapPath: {} index clause(s), {} matched heap_filter clause(s), est rows={:.0}",
+            clauses.len(),
+            clauses.iter().filter(|c| c.matched_heap_expr).count(),
+            unsafe { (*bhp).path.rows },
+        );
+        Some(HarvestedBitmap {
+            path: bhp.cast(),
+            build_cost,
+            covered: clauses
+                .into_iter()
+                .filter(|c| c.matched_heap_expr)
+                .map(|c| (c.clause, c.lossy))
+                .collect(),
+        })
     }
 
     /// Build a `BitmapHeapPath` over the non-ParadeDB index whose bitmap is worth
@@ -487,15 +487,14 @@ impl BitmapPlanner {
 /// subtree (`BitmapIndexScan` / `BitmapAnd`). Shared by every scan type that carries a
 /// harvested child.
 pub unsafe fn keep_bitmap_child_plan<CS: CustomScan>(builder: &mut CustomScanBuilder<CS>) {
-    unsafe {
-        let custom_plans = PgList::<pg_sys::Plan>::from_pg(builder.custom_plans());
-        if let Some(child) = custom_plans.get_ptr(0)
-            && (*child).type_ == pg_sys::NodeTag::T_BitmapHeapScan
-        {
-            let mut replacement = PgList::<pg_sys::Plan>::new();
-            replacement.push((*child).lefttree);
-            builder.set_custom_plans(replacement.into_pg());
-        }
+    let custom_plans = unsafe { PgList::<pg_sys::Plan>::from_pg(builder.custom_plans()) };
+    if let Some(child) = custom_plans.get_ptr(0)
+        && let child = unsafe { &*child }
+        && child.type_ == pg_sys::NodeTag::T_BitmapHeapScan
+    {
+        let mut replacement = PgList::<pg_sys::Plan>::new();
+        replacement.push(child.lefttree);
+        builder.set_custom_plans(replacement.into_pg());
     }
 }
 

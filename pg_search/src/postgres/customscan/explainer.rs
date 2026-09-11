@@ -69,27 +69,25 @@ impl Explainer {
         if node.is_null() {
             return None;
         }
-        unsafe {
-            let es = self.state.as_ptr();
-            let cxt = (*es).deparse_cxt;
-            if cxt.is_null() {
-                return None;
-            }
-            pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
-                let deparsed = pg_sys::deparse_expression(node.cast(), cxt, true, false);
-                if deparsed.is_null() {
-                    None
-                } else {
-                    Some(
-                        std::ffi::CStr::from_ptr(deparsed)
-                            .to_string_lossy()
-                            .into_owned(),
-                    )
-                }
-            }))
-            .catch_others(|_| None)
-            .execute()
+        let es = self.state.as_ptr();
+        let cxt = unsafe { (*es).deparse_cxt };
+        if cxt.is_null() {
+            return None;
         }
+        pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+            let deparsed = unsafe { pg_sys::deparse_expression(node.cast(), cxt, true, false) };
+            if deparsed.is_null() {
+                None
+            } else {
+                Some(
+                    unsafe { std::ffi::CStr::from_ptr(deparsed) }
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            }
+        }))
+        .catch_others(|_| None)
+        .execute()
     }
 
     /// Deserializes a PostgreSQL node from string format and deparses it using the active context.

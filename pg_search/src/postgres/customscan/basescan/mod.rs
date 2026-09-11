@@ -1327,110 +1327,111 @@ impl CustomScan for BaseScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        unsafe {
-            builder.custom_state().heaprelid = builder
-                .custom_private()
-                .heaprelid()
-                .expect("heaprelid should have a value");
-            builder.custom_state().indexrelid = builder
-                .custom_private()
-                .indexrelid()
-                .expect("indexrelid should have a value");
+        builder.custom_state().heaprelid = builder
+            .custom_private()
+            .heaprelid()
+            .expect("heaprelid should have a value");
+        builder.custom_state().indexrelid = builder
+            .custom_private()
+            .indexrelid()
+            .expect("indexrelid should have a value");
 
-            builder
-                .custom_state()
-                .open_relations(pg_sys::AccessShareLock as _);
+        builder
+            .custom_state()
+            .open_relations(pg_sys::AccessShareLock as _);
 
-            builder.custom_state().execution_rti =
-                (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
+        builder.custom_state().execution_rti =
+            unsafe { (*builder.args().cscan).scan.scanrelid } as pg_sys::Index;
 
-            builder.custom_state().exec_method_type =
-                builder.custom_private().exec_method_type().clone();
+        builder.custom_state().exec_method_type =
+            builder.custom_private().exec_method_type().clone();
 
-            builder.custom_state().targetlist_len = builder.target_list().len();
+        builder.custom_state().targetlist_len = builder.target_list().len();
 
-            builder.custom_state().segment_count = builder.custom_private().segment_count();
-            builder.custom_state().worker_selection_reason =
-                builder.custom_private().worker_selection_reason();
-            builder.custom_state().var_attname_lookup = builder
-                .custom_private()
-                .var_attname_lookup()
-                .as_ref()
-                .cloned()
-                .expect("should have an attribute name lookup");
+        builder.custom_state().segment_count = builder.custom_private().segment_count();
+        builder.custom_state().worker_selection_reason =
+            builder.custom_private().worker_selection_reason();
+        builder.custom_state().var_attname_lookup = builder
+            .custom_private()
+            .var_attname_lookup()
+            .as_ref()
+            .cloned()
+            .expect("should have an attribute name lookup");
 
-            let score_funcoids = score_funcoids();
-            let snippet_funcoids = snippet_funcoids();
-            let snippets_funcoids = snippets_funcoids();
-            let snippet_positions_funcoids = snippet_positions_funcoids();
+        let score_funcoids = score_funcoids();
+        let snippet_funcoids = snippet_funcoids();
+        let snippets_funcoids = snippets_funcoids();
+        let snippet_positions_funcoids = snippet_positions_funcoids();
 
-            builder.custom_state().score_funcoids = score_funcoids;
-            builder.custom_state().snippet_funcoids = snippet_funcoids;
-            builder.custom_state().snippets_funcoids = snippets_funcoids;
-            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-            builder.custom_state().need_scores = uses_scores(
+        builder.custom_state().score_funcoids = score_funcoids;
+        builder.custom_state().snippet_funcoids = snippet_funcoids;
+        builder.custom_state().snippets_funcoids = snippets_funcoids;
+        builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
+        builder.custom_state().need_scores = unsafe {
+            uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoids,
                 builder.custom_state().execution_rti,
-            );
+            )
+        };
 
-            // Store join snippet predicates in the scan state
-            builder.custom_state().join_predicates =
-                builder.custom_private().join_predicates().clone();
+        // Store join snippet predicates in the scan state
+        builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
 
-            // Store window aggregates in the scan state
-            let window_aggs = builder.custom_private().window_aggregates().clone();
-            builder.custom_state().window_aggregates = window_aggs;
+        // Store window aggregates in the scan state
+        let window_aggs = builder.custom_private().window_aggregates().clone();
+        builder.custom_state().window_aggregates = window_aggs;
 
-            // store our query into our custom state too
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
-            builder
-                .custom_state()
-                .set_base_search_query_input(base_query);
+        // store our query into our custom state too
+        let base_query = builder
+            .custom_private()
+            .query()
+            .clone()
+            .expect("should have a SearchQueryInput");
+        builder
+            .custom_state()
+            .set_base_search_query_input(base_query);
 
-            if builder.custom_state().need_scores {
-                let state = builder.custom_state();
-                // Pre-compute enhanced score query if we have join predicates that could affect scoring
-                let mut enhanced_score_query = None;
-                if let Some(ref join_predicate) = state.join_predicates {
-                    // Check the ORIGINAL base query for this relation, not the modified search_query_input
-                    // which may contain simplified join predicates from other relations
-                    let original_base_query = state.base_search_query_input();
+        if builder.custom_state().need_scores {
+            let state = builder.custom_state();
+            // Pre-compute enhanced score query if we have join predicates that could affect scoring
+            let mut enhanced_score_query = None;
+            if let Some(ref join_predicate) = state.join_predicates {
+                // Check the ORIGINAL base query for this relation, not the modified search_query_input
+                // which may contain simplified join predicates from other relations
+                let original_base_query = state.base_search_query_input();
 
-                    // Only enhance scoring if the base query doesn't already have search predicates
-                    // If base query has @@@ conditions, it already provides scoring context
-                    if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
-                        // Combine base query with join predicate using Boolean structure
-                        // This provides enhanced search context for scoring while maintaining
-                        // the same filtering behavior as the base query
-                        enhanced_score_query = Some(SearchQueryInput::Boolean {
-                            must: vec![original_base_query.clone()],
-                            should: vec![join_predicate.clone()],
-                            must_not: vec![],
-                            minimum_should_match: None,
-                        });
-                    }
-                }
-
-                // Store enhanced score query for use during search execution
-                // This will be None for single-table queries, which is correct
-                if let Some(enhanced_score_query) = enhanced_score_query {
-                    builder
-                        .custom_state()
-                        .set_base_search_query_input(enhanced_score_query);
+                // Only enhance scoring if the base query doesn't already have search predicates
+                // If base query has @@@ conditions, it already provides scoring context
+                if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                    // Combine base query with join predicate using Boolean structure
+                    // This provides enhanced search context for scoring while maintaining
+                    // the same filtering behavior as the base query
+                    enhanced_score_query = Some(SearchQueryInput::Boolean {
+                        must: vec![original_base_query.clone()],
+                        should: vec![join_predicate.clone()],
+                        must_not: vec![],
+                        minimum_should_match: None,
+                    });
                 }
             }
 
-            let node = builder.target_list().as_ptr().cast();
-            builder.custom_state().planning_rti = builder
-                .custom_private()
-                .range_table_index()
-                .expect("range table index should have been set");
-            builder.custom_state().snippet_generators = uses_snippets(
+            // Store enhanced score query for use during search execution
+            // This will be None for single-table queries, which is correct
+            if let Some(enhanced_score_query) = enhanced_score_query {
+                builder
+                    .custom_state()
+                    .set_base_search_query_input(enhanced_score_query);
+            }
+        }
+
+        let node = builder.target_list().as_ptr().cast();
+        builder.custom_state().planning_rti = builder
+            .custom_private()
+            .range_table_index()
+            .expect("range table index should have been set");
+        builder.custom_state().snippet_generators = unsafe {
+            uses_snippets(
                 builder.custom_state().planning_rti,
                 &builder.custom_state().var_attname_lookup,
                 node,
@@ -1438,29 +1439,28 @@ impl CustomScan for BaseScan {
                 snippets_funcoids,
                 snippet_positions_funcoids,
             )
-            .into_iter()
-            .map(|snippet_type| (snippet_type, None))
-            .collect();
-
-            builder.custom_state().ambulkdelete_epoch =
-                builder.custom_private().ambulkdelete_epoch();
-
-            assign_exec_method(&mut builder);
-
-            let state = builder.build();
-
-            // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
-            // (matching what begin_custom_scan will use via table_slot_callbacks).
-            // This ensures ExecInitQual compiles plan.qual expressions for the
-            // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            {
-                (*state).csstate.slotOps =
-                    pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
-            }
-
-            state
         }
+        .into_iter()
+        .map(|snippet_type| (snippet_type, None))
+        .collect();
+
+        builder.custom_state().ambulkdelete_epoch = builder.custom_private().ambulkdelete_epoch();
+
+        assign_exec_method(&mut builder);
+
+        let state = builder.build();
+
+        // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
+        // (matching what begin_custom_scan will use via table_slot_callbacks).
+        // This ensures ExecInitQual compiles plan.qual expressions for the
+        // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        unsafe {
+            (*state).csstate.slotOps =
+                pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+        }
+
+        state
     }
 
     fn explain_custom_scan(

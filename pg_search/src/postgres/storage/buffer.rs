@@ -530,16 +530,16 @@ impl<'a> Page<'a> {
     }
 
     pub fn as_slice(&self) -> &[u8] {
+        let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
+        let slice_len = self.header().pd_lower as usize - header_size;
         unsafe {
-            let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
-            let slice_len = self.header().pd_lower as usize - header_size;
             std::slice::from_raw_parts((self.pg_page as *const u8).add(header_size), slice_len)
         }
     }
 
     pub fn as_slice_range(&self, offset: usize, len: usize) -> &[u8] {
+        let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
         unsafe {
-            let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
             std::slice::from_raw_parts((self.pg_page as *const u8).add(header_size + offset), len)
         }
     }
@@ -579,15 +579,13 @@ impl<'a> PageMut<'a> {
 
     pub fn mark_item_dead(&mut self, offno: pg_sys::OffsetNumber) {
         self.buffer.assert_mutable();
-        unsafe {
-            let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
-            debug_assert!(
-                (*item_id).lp_flags() != pg_sys::LP_DEAD,
-                "item is already dead"
-            );
-            (*item_id).set_lp_flags(pg_sys::LP_DEAD);
-            self.buffer.dirty = true;
-        }
+        let item_id = unsafe { &mut *pg_sys::PageGetItemId(self.pg_page, offno) };
+        debug_assert!(
+            item_id.lp_flags() != pg_sys::LP_DEAD,
+            "item is already dead"
+        );
+        item_id.set_lp_flags(pg_sys::LP_DEAD);
+        self.buffer.dirty = true;
     }
 
     pub fn deserialize_item<T: From<PgItem>>(
@@ -706,14 +704,14 @@ impl<'a> PageMut<'a> {
     pub fn free_space_slice_mut(&mut self, len: usize) -> Option<&mut [u8]> {
         self.buffer.assert_mutable();
         let len: u16 = len.try_into().expect("bytes length too large for a page");
+        let start = self.header().pd_lower;
+        let end = self.header().pd_upper;
+        if start + len > end {
+            // bytes won't fit here
+            return None;
+        }
+        #[allow(clippy::unnecessary_cast)]
         let slice = unsafe {
-            let start = self.header().pd_lower;
-            let end = self.header().pd_upper;
-            if start + len > end {
-                // bytes won't fit here
-                return None;
-            }
-            #[allow(clippy::unnecessary_cast)]
             std::slice::from_raw_parts_mut(
                 (self.pg_page as *mut u8).add(start as usize),
                 len as usize,
@@ -729,14 +727,14 @@ impl<'a> PageMut<'a> {
             .len()
             .try_into()
             .expect("bytes length too large for a page");
+        let start = self.header().pd_lower;
+        let end = self.header().pd_upper;
+        if start + len > end {
+            // bytes won't fit here
+            return false;
+        }
+        #[allow(clippy::unnecessary_cast)]
         let slice = unsafe {
-            let start = self.header().pd_lower;
-            let end = self.header().pd_upper;
-            if start + len > end {
-                // bytes won't fit here
-                return false;
-            }
-            #[allow(clippy::unnecessary_cast)]
             std::slice::from_raw_parts_mut(
                 (self.pg_page as *mut u8).add(start as usize),
                 len as usize,

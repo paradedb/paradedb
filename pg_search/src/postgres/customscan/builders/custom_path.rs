@@ -55,30 +55,29 @@ impl OrderByStyle {
     }
 
     pub fn direction(&self) -> SortDirection {
-        unsafe {
-            let pathkey = self.pathkey();
-            assert!(!pathkey.is_null());
-            let nulls_first = (*pathkey).pk_nulls_first;
+        let pathkey = self.pathkey();
+        assert!(!pathkey.is_null());
+        let pathkey = unsafe { &*pathkey };
+        let nulls_first = pathkey.pk_nulls_first;
 
-            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-            let is_asc = match (*pathkey).pk_strategy as u32 {
-                pg_sys::BTLessStrategyNumber => true,
-                pg_sys::BTGreaterStrategyNumber => false,
-                value => panic!("unrecognized sort strategy number: {value}"),
-            };
-            #[cfg(feature = "pg18")]
-            let is_asc = match (*pathkey).pk_cmptype {
-                pg_sys::CompareType::COMPARE_LT => true,
-                pg_sys::CompareType::COMPARE_GT => false,
-                value => panic!("unrecognized compare type: {value}"),
-            };
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        let is_asc = match pathkey.pk_strategy as u32 {
+            pg_sys::BTLessStrategyNumber => true,
+            pg_sys::BTGreaterStrategyNumber => false,
+            value => panic!("unrecognized sort strategy number: {value}"),
+        };
+        #[cfg(feature = "pg18")]
+        let is_asc = match pathkey.pk_cmptype {
+            pg_sys::CompareType::COMPARE_LT => true,
+            pg_sys::CompareType::COMPARE_GT => false,
+            value => panic!("unrecognized compare type: {value}"),
+        };
 
-            match (is_asc, nulls_first) {
-                (true, true) => SortDirection::AscNullsFirst,
-                (true, false) => SortDirection::AscNullsLast,
-                (false, true) => SortDirection::DescNullsFirst,
-                (false, false) => SortDirection::DescNullsLast,
-            }
+        match (is_asc, nulls_first) {
+            (true, true) => SortDirection::AscNullsFirst,
+            (true, false) => SortDirection::AscNullsLast,
+            (false, true) => SortDirection::DescNullsFirst,
+            (false, false) => SortDirection::DescNullsLast,
         }
     }
 
@@ -224,28 +223,26 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         rel: *mut pg_sys::RelOptInfo,
         args: CS::Args,
     ) -> Self {
-        unsafe {
-            Self {
-                args,
-                flags: Default::default(),
+        let pathtarget = unsafe { (*rel).reltarget };
+        let param_info = unsafe {
+            pg_sys::get_baserel_parampathinfo(root, rel, pg_sys::bms_copy((*rel).lateral_relids))
+        };
+        Self {
+            args,
+            flags: Default::default(),
 
-                custom_path_node: pg_sys::CustomPath {
-                    path: pg_sys::Path {
-                        type_: pg_sys::NodeTag::T_CustomPath,
-                        pathtype: pg_sys::NodeTag::T_CustomScan,
-                        parent: rel,
-                        pathtarget: (*rel).reltarget,
-                        param_info: pg_sys::get_baserel_parampathinfo(
-                            root,
-                            rel,
-                            pg_sys::bms_copy((*rel).lateral_relids),
-                        ),
-                        ..Default::default()
-                    },
-                    methods: CS::custom_path_methods(),
+            custom_path_node: pg_sys::CustomPath {
+                path: pg_sys::Path {
+                    type_: pg_sys::NodeTag::T_CustomPath,
+                    pathtype: pg_sys::NodeTag::T_CustomScan,
+                    parent: rel,
+                    pathtarget,
+                    param_info,
                     ..Default::default()
                 },
-            }
+                methods: CS::custom_path_methods(),
+                ..Default::default()
+            },
         }
     }
 

@@ -61,57 +61,52 @@ pub extern "C-unwind" fn ambuild(
 
     // ensure we only allow one ParadeDB index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
-    unsafe {
-        let index_tuple = &(*index_relation.rd_index);
-        let is_reindex = !index_tuple.indisvalid;
-        let is_concurrent = (*index_info).ii_Concurrent;
+    let index_tuple = unsafe { &*index_relation.rd_index };
+    let is_reindex = !index_tuple.indisvalid;
+    let is_concurrent = unsafe { (*index_info).ii_Concurrent };
 
-        if !is_reindex {
-            for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-                if existing_index.oid() == index_relation.oid() {
-                    // the index we're about to build already exists on the table.
-                    continue;
-                }
+    if !is_reindex {
+        for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
+            if existing_index.oid() == index_relation.oid() {
+                // the index we're about to build already exists on the table.
+                continue;
+            }
 
-                if is_bm25_index(&existing_index) && !is_concurrent {
-                    panic!("a relation may only have one ParadeDB index");
-                }
+            if is_bm25_index(&existing_index) && !is_concurrent {
+                panic!("a relation may only have one ParadeDB index");
             }
         }
     }
 
-    unsafe {
-        let heap_tuples = build_index(
-            heap_relation,
-            index_relation.clone(),
-            (*index_info).ii_Concurrent,
-        )
+    let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)
         .unwrap_or_else(|e| panic!("{e}"));
 
-        pgrx::debug1!("build_index: flushing buffers");
+    pgrx::debug1!("build_index: flushing buffers");
 
-        // if we're configured to defer WAL logging, now is the time to do it
-        if deferred_wal && needs_wal {
-            let nblocks =
-                pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+    // if we're configured to defer WAL logging, now is the time to do it
+    if deferred_wal && needs_wal {
+        let nblocks = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM)
+        };
 
-            pgrx::debug1!(
-                "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes",
-                nblocks as usize * pg_sys::BLCKSZ as usize
-            );
+        pgrx::debug1!(
+            "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes",
+            nblocks as usize * pg_sys::BLCKSZ as usize
+        );
 
-            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
-        }
-
-        if needs_wal {
-            custom_rmgr::emit_init_record();
-        }
-
-        let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
-        result.heap_tuples = heap_tuples;
-        result.index_tuples = heap_tuples;
-        result.into_pg()
+        unsafe {
+            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true)
+        };
     }
+
+    if needs_wal {
+        custom_rmgr::emit_init_record();
+    }
+
+    let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
+    result.heap_tuples = heap_tuples;
+    result.index_tuples = heap_tuples;
+    result.into_pg()
 }
 
 #[pg_guard]

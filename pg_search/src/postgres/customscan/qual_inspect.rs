@@ -495,13 +495,16 @@ impl From<&Qual> for SearchQueryInput {
                 opno,
                 scalar_array_use_or,
                 ..
-            } => unsafe {
+            } => {
+                let val = unsafe { &**val };
                 if let Some(use_or) = *scalar_array_use_or {
-                    let elements: Vec<SearchQueryInput> = pgrx::FromDatum::from_polymorphic_datum(
-                        (**val).constvalue,
-                        (**val).constisnull,
-                        searchqueryinput_typoid(),
-                    )
+                    let elements: Vec<SearchQueryInput> = unsafe {
+                        pgrx::FromDatum::from_polymorphic_datum(
+                            val.constvalue,
+                            val.constisnull,
+                            searchqueryinput_typoid(),
+                        )
+                    }
                     .expect("ScalarArrayOpExpr should not contain NULL");
 
                     if elements.is_empty() {
@@ -525,7 +528,7 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     }
                 } else {
-                    match SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull) {
+                    match unsafe { SearchQueryInput::from_datum(val.constvalue, val.constisnull) } {
                         Some(input) => input,
                         None => {
                             let op_name = crate::api::operator::operator_name_from_oid(*opno);
@@ -537,7 +540,7 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     }
                 }
-            },
+            }
             // Convert to SearchQueryInput::PostgresExpression, which will be solved by
             // `solve_postgres_expressions`.
             Qual::Expr { node, expr_desc } => {

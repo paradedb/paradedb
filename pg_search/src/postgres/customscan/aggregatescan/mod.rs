@@ -1477,19 +1477,21 @@ impl AggregateScan {
         bm25_oid: pg_sys::Oid,
         aggregate_clause: &mut AggregateCSClause,
     ) -> CustomPathBuilder<Self> {
-        unsafe {
-            let root = builder.args().root;
-            let base_rel = if !(*root).simple_rel_array.is_null()
-                && (heap_rti as i32) < (*root).simple_rel_array_size
-            {
-                *(*root).simple_rel_array.add(heap_rti as usize)
+        let root = builder.args().root;
+        let base_rel = {
+            let root = unsafe { &*root };
+            if !root.simple_rel_array.is_null() && (heap_rti as i32) < root.simple_rel_array_size {
+                unsafe { *root.simple_rel_array.add(heap_rti as usize) }
             } else {
                 std::ptr::null_mut()
-            };
+            }
+        };
 
-            let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
-                .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
-            if let Some(harvested) = BitmapPlanner::from_search_query(
+        let bm25_row_estimate = unsafe { base_rel.as_ref() }
+            .filter(|base_rel| base_rel.tuples > 0.0)
+            .map(|base_rel| base_rel.tuples * PARAMETERIZED_SELECTIVITY);
+        if let Some(harvested) = unsafe {
+            BitmapPlanner::from_search_query(
                 root,
                 base_rel,
                 bm25_oid,
@@ -1497,19 +1499,18 @@ impl AggregateScan {
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
-            {
-                harvested.rewrite_query(aggregate_clause.query_mut());
-                let mut children = PgList::<pg_sys::Path>::new();
-                children.push(harvested.path);
-                let startup_cost = builder.startup_cost() + harvested.build_cost;
-                let total_cost = builder.total_cost() + harvested.build_cost;
-                builder = builder
-                    .set_custom_paths(children)
-                    .set_startup_cost(startup_cost)
-                    .set_total_cost(total_cost);
-            }
-            builder
+        } {
+            unsafe { harvested.rewrite_query(aggregate_clause.query_mut()) };
+            let mut children = PgList::<pg_sys::Path>::new();
+            children.push(harvested.path);
+            let startup_cost = builder.startup_cost() + harvested.build_cost;
+            let total_cost = builder.total_cost() + harvested.build_cost;
+            builder = builder
+                .set_custom_paths(children)
+                .set_startup_cost(startup_cost)
+                .set_total_cost(total_cost);
         }
+        builder
     }
 
     /// New DataFusion-backed aggregate path for JOINs.
@@ -1622,9 +1623,9 @@ impl AggregateScan {
             // DISTINCT ON can't be modelled as an aggregate. A GROUP BY under a
             // DISTINCT ON still pushes down, with PG applying the DISTINCT ON
             // above the grouped output, so this is gated on the shape.
-            let has_distinct_on = unsafe {
+            let has_distinct_on = {
                 let parse = builder.args().root().parse;
-                !parse.is_null() && (*parse).hasDistinctOn
+                !parse.is_null() && unsafe { (*parse).hasDistinctOn }
             };
             if has_distinct_on {
                 return Err(warn(AggregateDeclineReason::DistinctOn));
@@ -1700,17 +1701,21 @@ impl AggregateScan {
         // targetlist refs themselves don't carry it.
         let outer_root_id =
             crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
-        let having_filter = unsafe {
-            let parse = builder.args().root().parse;
-            if !parse.is_null() && !(*parse).havingQual.is_null() {
-                let having = privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext::Having {
-                        targetlist: &targetlist,
-                        plan: &plan,
-                        outer_root_id,
-                    },
-                )
+        let having_filter = {
+            let parse = unsafe { builder.args().root().parse.as_ref() };
+            if let Some(parse) = parse
+                && !parse.havingQual.is_null()
+            {
+                let having = unsafe {
+                    privdat::FilterExpr::from_pg_node(
+                        parse.havingQual,
+                        &datafusion_build::FilterExprBuildContext::Having {
+                            targetlist: &targetlist,
+                            plan: &plan,
+                            outer_root_id,
+                        },
+                    )
+                }
                 .ok_or_else(|| {
                     warn(AggregateDeclineReason::Other(
                         "HAVING clause cannot be translated for aggregate-on-join".into(),

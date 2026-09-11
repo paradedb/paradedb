@@ -256,56 +256,60 @@ impl VarContext {
                 let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
                 (heaprelid, varattno)
             }
-            Self::Query(parse) => unsafe {
+            Self::Query(parse) => {
                 // Early return for null pointers
                 if var.is_null() || parse.is_null() {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, unsafe { (*var).varattno });
                 }
 
-                let query_ptr = *parse;
-                let varno = (*var).varno;
-                let rtable = (*query_ptr).rtable;
+                let var = unsafe { &*var };
+                let query = unsafe { &**parse };
+                let varno = var.varno;
+                let rtable = query.rtable;
 
                 // Early return for invalid rtable or varno
                 if rtable.is_null() || varno <= 0 {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, var.varattno);
                 }
 
-                let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+                let rtable_list = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(rtable) };
                 let rte_index = (varno - 1) as usize;
 
                 // Early return for out of bounds index
                 if rte_index >= rtable_list.len() {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, var.varattno);
                 }
 
-                let varattno = (*var).varattno;
+                let varattno = var.varattno;
                 let rte = match rtable_list.get_ptr(rte_index) {
                     Some(rte) => rte,
                     None => return (pg_sys::InvalidOid, varattno),
                 };
 
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                    return ((*rte).relid, varattno);
-                } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
-                    let subquery = (*rte).subquery;
+                let rtekind = unsafe { (*rte).rtekind };
+                if rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    return (unsafe { (*rte).relid }, varattno);
+                } else if rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
+                    let subquery = unsafe { (*rte).subquery };
                     if !subquery.is_null() {
+                        let subquery = unsafe { &*subquery };
                         let targetlist =
-                            PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
+                            unsafe { PgList::<pg_sys::TargetEntry>::from_pg(subquery.targetList) };
                         if varattno > 0
                             && (varattno as usize) <= targetlist.len()
                             && let Some(te) = targetlist.get_ptr(varattno as usize - 1)
-                            && (*te).resorigtbl != pg_sys::InvalidOid
+                            && let te = unsafe { &*te }
+                            && te.resorigtbl != pg_sys::InvalidOid
                         {
-                            return ((*te).resorigtbl, (*te).resorigcol);
+                            return (te.resorigtbl, te.resorigcol);
                         }
                     }
                 }
 
                 #[cfg(feature = "pg18")]
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
+                if rtekind == pg_sys::RTEKind::RTE_GROUP {
                     // PG18: grouped Vars point at RTE_GROUP, not the base relation.
-                    if let Some(group_var) = resolve_rte_group_var(rte, varattno) {
+                    if let Some(group_var) = unsafe { resolve_rte_group_var(rte, varattno) } {
                         let (heaprelid, group_attno) = self.var_relation(group_var);
                         if heaprelid != pg_sys::InvalidOid {
                             return (heaprelid, group_attno);
@@ -314,7 +318,7 @@ impl VarContext {
                 }
 
                 (pg_sys::InvalidOid, varattno)
-            },
+            }
             Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135603860,
+  "lastUpdate": 1789135614302,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -346858,6 +346858,60 @@ window.BENCHMARK_DATA = {
             "value": 37.11719821981658,
             "unit": "median tps",
             "extra": "avg tps: 58.14460566726784, max tps: 541.3252494834138, count: 58785"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135600864,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.64883035903311,
+            "unit": "median tps",
+            "extra": "avg tps: 55.54380466767458, max tps: 543.4266291221026, count: 58771"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.42409702040182,
+            "unit": "median tps",
+            "extra": "avg tps: 29.625917308646468, max tps: 354.69889338729575, count: 58771"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 81.77866422605369,
+            "unit": "median tps",
+            "extra": "avg tps: 145.07705678834478, max tps: 1193.1739928199172, count: 58771"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.555581519083834,
+            "unit": "median tps",
+            "extra": "avg tps: 30.079338291586705, max tps: 275.9150541702302, count: 58771"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.4653751221392,
+            "unit": "median tps",
+            "extra": "avg tps: 58.751287981454965, max tps: 552.9600226492425, count: 58771"
           }
         ]
       }

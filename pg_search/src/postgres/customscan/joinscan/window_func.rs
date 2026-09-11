@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::schema::SearchFieldType;
 use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -55,10 +56,19 @@ impl SupportedWindowAggType {
 pub struct ColumnInfo {
     pub rti: pg_sys::Index,
     pub attno: pg_sys::AttrNumber,
+    pub field_type: Option<SearchFieldType>,
 }
 impl ColumnInfo {
-    pub fn new(rti: pg_sys::Index, attno: pg_sys::AttrNumber) -> Self {
-        Self { rti, attno }
+    pub fn new(
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+        field_type: Option<SearchFieldType>,
+    ) -> Self {
+        Self {
+            rti,
+            attno,
+            field_type,
+        }
     }
 }
 
@@ -72,6 +82,11 @@ pub struct WindowAgg {
     pub col_info: Option<ColumnInfo>,
     pub result_type: ResultType,
     pub resno: pg_sys::AttrNumber,
+}
+impl WindowAgg {
+    pub fn arg_field_type(&self) -> Option<&SearchFieldType> {
+        self.col_info.as_ref().and_then(|ci| ci.field_type.as_ref())
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -196,11 +211,15 @@ pub fn extract_window_agg(
                 assert!(!var.is_null());
                 let var = unsafe { *var };
 
-                if !resolve_fast_field_from_join_sources(sources, &var).is_some() {
+                let Some(ff) = resolve_fast_field_from_join_sources(sources, &var) else {
                     return Err("arguments to window aggregate must be fast fields".to_string());
                 };
 
-                Some(ColumnInfo::new(var.varno as pg_sys::Index, var.varattno))
+                Some(ColumnInfo::new(
+                    var.varno as pg_sys::Index,
+                    var.varattno,
+                    ff.field_type().cloned(),
+                ))
             }
             _ => {
                 return Err("multi-argument window aggregates are not supported".to_string());

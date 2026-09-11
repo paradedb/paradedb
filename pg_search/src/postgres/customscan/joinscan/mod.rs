@@ -153,7 +153,7 @@ use self::planning::{
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -161,7 +161,7 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context,
+    create_datafusion_session_context, numeric_window_field,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -200,6 +200,8 @@ use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
+
+use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -2478,8 +2480,42 @@ impl JoinScan {
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
                 }
-                privdat::OutputColumnInfo::WindowAgg { agg_index: _ } => {
-                    todo!()
+                privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                    let window_agg = state
+                        .custom_state()
+                        .join_clause
+                        .window_aggs
+                        .get(*agg_index)
+                        .expect("A window agg output column should always have a valid index");
+                    let agg_col = batch.column(i);
+                    let numeric = match numeric_window_field(
+                        window_agg.agg_type,
+                        window_agg.arg_field_type(),
+                    ) {
+                        Ok(f) => f,
+                        Err(e) => pgrx::error!(
+                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                        ),
+                    };
+                    let try_maybe_datum = datafusion_agg_to_datum(
+                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
+                        numeric,
+                        window_agg.result_type.0,
+                        agg_col.as_ref(),
+                        row_idx,
+                    );
+                    let maybe_datum = match try_maybe_datum {
+                        Ok(d) => d,
+                        Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),
+                    };
+                    // arrow_array_to_datum returns Ok(None) for nulls, so we need to handle both
+                    // cases
+                    if let Some(datum) = maybe_datum {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
                 }
                 privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::Expression => {

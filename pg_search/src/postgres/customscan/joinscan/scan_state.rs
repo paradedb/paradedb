@@ -103,6 +103,7 @@ fn resolve_var_to_df_col(
     })
 }
 
+<<<<<<< HEAD
 /// If a column cannot be resolved to an output DataFusion column, but its relation
 /// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
 /// from output), all its values in the join result are identically NULL.
@@ -152,6 +153,10 @@ fn resolve_var_to_df_col_and_field(
 /// For output projections, emitting NULL for columns of pruned relations (e.g.
 /// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
 /// they use `CombinedMapper` where pruned columns are rejected.
+=======
+/// Adapter that lets `PredicateTranslator` resolve Vars against a
+/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+>>>>>>> b4b023e43 (build output tuple)
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }
@@ -1040,29 +1045,27 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     use crate::customscan::datafusion::numeric_agg;
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
-    let col_and_field = match &info.col_info {
+    let col_expr = match &info.col_info {
         Some(ci) => {
-            let Some(cf) = resolve_var_to_df_col_and_field(join_clause, ci.rti, ci.attno) else {
+            let Some(ce) = resolve_var_to_df_col(join_clause, ci.rti, ci.attno) else {
                 return Err(internal_datafusion_err!(
                     "Failed to map column to fast field and column expr. rti: {}, attno: {}",
                     ci.rti,
                     ci.attno
                 ));
             };
-            Some(cf)
+            Some(ce)
         }
         None => None,
     };
-    let (col_expr, ff) = col_and_field
-        .map(|(expr, ff)| (Some(expr), Some(ff)))
-        .unwrap_or((None, None));
-    let numeric_field = numeric_window_field(info.agg_type, ff)?;
+    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
 
     // Match only basic aggregate functions. Missing and filters are not supported in global window
     // functions
     //
     // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives plan
+    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
+    // plant
     // serialization for parallel and MPP execution; decimal-bytes values are self-describing.
     match info.agg_type {
         SupportedWindowAggType::Sum => {
@@ -1124,11 +1127,11 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
 /// - `Err(_)` if the field is an unsupported numeric
 pub fn numeric_window_field(
     agg_type: SupportedWindowAggType,
-    field: Option<&WhichFastField>,
+    field_type: Option<&SearchFieldType>,
 ) -> Result<Option<&SearchFieldType>> {
-    match (agg_type, field) {
+    match (agg_type, field_type) {
         (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
-        (_, Some(WhichFastField::Named(_, ft)) | Some(WhichFastField::Deferred(_, ft))) => {
+        (_, Some(ft)) => {
             let field_type = if ft.is_numeric() {
                 ft
             } else {
@@ -1142,7 +1145,7 @@ pub fn numeric_window_field(
                 ));
             }
 
-            Ok(Some(field_type))
+            Ok(Some(ft))
         }
         _ => Ok(None),
     }

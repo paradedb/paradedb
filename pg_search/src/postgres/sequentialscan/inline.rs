@@ -72,6 +72,10 @@ impl MaybeInlineRow {
         {
             (*whole_row).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
         }
+        #[cfg(feature = "pg18")]
+        {
+            (*whole_row).varreturningtype = (*base_var).varreturningtype;
+        }
 
         let row = if ctid.is_none() {
             let (heap_oid, _, targetlist) = find_var_relation(base_var, root);
@@ -210,7 +214,11 @@ impl MaybeInlineRow {
                 std::ptr::null_mut(),
                 (*base_var).varnullingrels,
             )
-            .cast();
+            .cast::<pg_sys::List>();
+            #[cfg(feature = "pg18")]
+            for var in find_vars(predicate.cast()) {
+                (*var).varreturningtype = (*base_var).varreturningtype;
+            }
             requirements.push(pg_sys::make_ands_explicit(predicate));
         }
 

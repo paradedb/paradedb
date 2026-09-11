@@ -38,3 +38,31 @@ RETURNING id, body = 'alpha' AS native, body === 'alpha' AS paradedb;
 ROLLBACK;
 
 DROP TABLE returning_current;
+
+CREATE TABLE returning_old_new (id int PRIMARY KEY, body text NOT NULL, covered boolean NOT NULL);
+INSERT INTO returning_old_new
+SELECT id, CASE WHEN id % 2 = 1 THEN 'alpha' ELSE 'beta' END, id IN (3, 4, 7, 8)
+FROM generate_series(1, 8) AS id;
+CREATE INDEX returning_old_new_idx ON returning_old_new USING paradedb (id, body) WHERE covered;
+
+DO $$
+DECLARE
+    matches boolean;
+BEGIN
+    IF current_setting('server_version_num')::int >= 180000 THEN
+        WITH updated AS (
+            UPDATE returning_old_new
+            SET body = CASE body WHEN 'alpha' THEN 'beta' ELSE 'alpha' END, covered = id > 4
+            RETURNING old.body = 'alpha' AS native_old, old.body === 'alpha' AS paradedb_old,
+                      new.body = 'alpha' AS native_new, new.body === 'alpha' AS paradedb_new
+        )
+        SELECT count(*) = 8 AND bool_and(
+            native_old IS NOT DISTINCT FROM paradedb_old
+            AND native_new IS NOT DISTINCT FROM paradedb_new
+        ) INTO matches FROM updated;
+        ASSERT matches, 'RETURNING OLD/NEW must match before and after changing index coverage';
+    END IF;
+END;
+$$;
+
+DROP TABLE returning_old_new;

@@ -196,18 +196,28 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq gettext-base lld
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: >-
+            sudo wget git ca-certificates curl gnupg gpg lsb-release
+            pkg-config libssl-dev jq gettext-base lld
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
       # Used to upload the release to GitHub Releases
-      - name: Install GitHub CLI
+      - name: Configure GitHub CLI Repository
         run: |
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y gh
-          gh --version
+
+      - name: Install GitHub CLI
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: gh
+
+      - name: Verify GitHub CLI
+        run: gh --version
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

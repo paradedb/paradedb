@@ -1769,6 +1769,7 @@ impl CustomScan for JoinScan {
                             schema.index_of(&col_alias).ok()
                         }
                         privdat::OutputColumnInfo::Var { .. }
+                        | privdat::OutputColumnInfo::WindowAgg { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
                     .collect();
@@ -2360,6 +2361,7 @@ impl JoinScan {
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Pruned
                 | privdat::OutputColumnInfo::Unnested { .. }
+                | privdat::OutputColumnInfo::WindowAgg { .. }
                 | privdat::OutputColumnInfo::Expression => {
                     continue;
                 }
@@ -2465,6 +2467,9 @@ impl JoinScan {
                     *datums.add(i) =
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
+                }
+                privdat::OutputColumnInfo::WindowAgg { agg_index: _ } => {
+                    todo!()
                 }
                 privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::Expression => {

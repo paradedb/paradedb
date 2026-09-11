@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789150421356,
+  "lastUpdate": 1789150430115,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -353772,6 +353772,96 @@ window.BENCHMARK_DATA = {
             "value": 45.02734375,
             "unit": "median mem",
             "extra": "avg mem: 44.822495171774236, max mem: 51.0, count: 58769"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789150427031,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.0859375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 60.969108834887045, max partition_index_size:MB: 80.7578125, count: 58784"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.31630653173757, max cpu: 37.51832, count: 58784"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.69930048461316, max mem: 52.28125, count: 58784"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.989231693144866, max cpu: 46.8979, count: 58784"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.730597465403, max mem: 67.8515625, count: 58784"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.43489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.195868724470884, max cpu: 32.925037, count: 58784"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 51.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.8371435839259, max mem: 65.92578125, count: 58784"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.921739231298744, max cpu: 51.58769, count: 58784"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.822265625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.9043207973258, max mem: 60.44140625, count: 58784"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.24312580243814, max cpu: 37.51832, count: 58784"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.6865473598258, max mem: 50.79296875, count: 58784"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789142191128,
+  "lastUpdate": 1789142198765,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -352290,6 +352290,96 @@ window.BENCHMARK_DATA = {
             "value": 44.96875,
             "unit": "median mem",
             "extra": "avg mem: 44.72787375059521, max mem: 51.1171875, count: 58803"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee28005bac85e07cdc4eae0641196c865c01817e",
+          "message": "fix: kept null-extended rows NULL in a deferred string column. (#6247)\n\n## Ticket(s) Closed\n\n- Closes #6245\n\n## What\n\nThis PR changes the encoding of a deferred string column from a dense\n`UnionArray` to a packed `UInt64` with a validity bitmap.\n\nIt also rebuilds every scan's projection when a relation's columns turn\ndeferred, not just the first scan the rule reaches.\n\n## Why\n\nA dense union has no validity bitmap. When an outer join null-extends a\nside, DataFusion builds those rows with arrow's `take`, which for a NULL\nindex copies row 0 instead of writing a NULL. Every null-extended row\nthen carries the first build row's doc address.\n\n#6236 guards against that by reading the relation's ctid in\n`TantivyFetchExec` and `TantivyDecodeExec`, so the decoded value comes\nout NULL. `SegmentedTopKExec` sits below both and still ranks on the\nborrowed ordinal, so the wrong rows survive the Top-K. On 350dbfbcf:\n\n```sql\nSELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k\nWHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;\n```\n\nreturns `oj_dim` row 1, then twenty null-extended rows, then rows 2 to\n5. Postgres returns rows 1 to 20 and then five null-extended ones.\nKeeping the nulls in the column fixes it for every reader at once, so\nthe ctid guard goes away with it.\n\nThe rule that flips a relation to the deferred schema sets a flag on the\nshared provider, and a plan can read one relation through more than one\nscan. A `pdb.agg` with a nested level on an array field is planned as\none scan per level group, so the scans the flag skips keep claiming the\ncolumn is a string. The rule then anchors a decode over columns that\nwere never deferred, and with the placement rule of #6231 on top the\narray level's buckets belong to no parent and drop out of the result.\n\n## How\n\nA row is one `u64`: a packed doc address (segment ordinal in the high 32\nbits, doc id in the low 32) or a packed term ordinal (top bit set,\nsegment ordinal above bit 40, ordinal below), and a NULL is an Arrow\nNULL. The field's `ARROW:extension:name` metadata is what tells a\ndeferred column apart from any other `UInt64`. `DeferredColumn` is the\none reader for the fetch, the decode and the Top-K, and\n`with_term_ordinals` writes fetched rows in place. `SegmentedTopKExec`\ntreats a NULL row as having no segment, which covers a NULL value and a\nnull-extended row alike. The logical rule tells a deferred column apart\nby its scan's index and its name, since a plain `UInt64` column such as\nan `oid` can share the name.\n\nOne word per row is also cheaper to carry than a union with a struct\nchild: a join's `take` copies one buffer, and the fetch changes a row's\nstate without changing the column's type.\n\n## Tests\n\n- `join_outer_deferred_sort`\n- An array-level case in `aggregate_late_materialization`\n- Unit tests in `deferred_encode.rs`",
+          "timestamp": "2026-09-11T16:59:17+02:00",
+          "tree_id": "747cbc5ca2e5effca568f9d221f4fd1f1e5162db",
+          "url": "https://github.com/paradedb/paradedb/commit/ee28005bac85e07cdc4eae0641196c865c01817e"
+        },
+        "date": 1789142195734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 64.1640625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 62.88479869276319, max partition_index_size:MB: 88.96875, count: 58769"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.32550358075926, max cpu: 33.31681, count: 58769"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.76825506697834, max mem: 52.13671875, count: 58769"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.978132500084026, max cpu: 33.3996, count: 58769"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.83471588709609, max mem: 68.3203125, count: 58769"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.481482,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.422659216617038, max cpu: 28.642467, count: 58769"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.43065041997056, max mem: 61.18359375, count: 58769"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.931009895375496, max cpu: 33.333336, count: 58769"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 51.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.88595197670115, max mem: 60.28125, count: 58769"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.22366661698392, max cpu: 33.283802, count: 58769"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.822495171774236, max mem: 51.0, count: 58769"
           }
         ]
       }

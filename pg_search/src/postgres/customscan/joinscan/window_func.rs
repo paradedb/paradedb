@@ -24,11 +24,11 @@ use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, unwrap_to_var,
 };
-use crate::postgres::customscan::joinscan::planning::is_fast_field;
+use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
 
 use super::build::JoinSource;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SupportedWindowAggType {
     Count,
     CountStar,
@@ -196,9 +196,9 @@ pub fn extract_window_agg(
                 assert!(!var.is_null());
                 let var = unsafe { *var };
 
-                if !is_fast_field(sources, &var) {
+                if !resolve_fast_field_from_join_sources(sources, &var).is_some() {
                     return Err("arguments to window aggregate must be fast fields".to_string());
-                }
+                };
 
                 Some(ColumnInfo::new(var.varno as pg_sys::Index, var.varattno))
             }

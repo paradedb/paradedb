@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+A join with `ORDER BY` and `LIMIT` now reads only the leading rows of the side the sort keys belong to, when every sort key belongs to one side of an inner join. Before, it built its hash table from every matching row and probed the whole other side before keeping the page of rows asked for. The smaller key set also stays under `paradedb.hash_join_inlist_pushdown_max_distinct_values`, so the other side is read through the index rather than scanned. A join that drops too many rows to fill the `LIMIT` runs again unbounded, so results do not change. Set `paradedb.enable_join_bounded_topn` to `off` to disable it, and `paradedb.join_bounded_topn_multiplier` (default 16) to change how many rows it reads.

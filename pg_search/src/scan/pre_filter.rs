@@ -215,7 +215,7 @@ impl PreFilter {
             if !is_string_like_type(schema_type) && array.data_type() != schema_type {
                 array = cast(&array, schema_type).map_err(|e| {
                     format!(
-                        "Failed to cast Tantivy fast field from {:?} to DataFusion schema type {:?}: {}",
+                        "Failed to cast columnar field from {:?} to DataFusion schema type {:?}: {}",
                         array.data_type(), schema_type, e
                     )
                 })?;

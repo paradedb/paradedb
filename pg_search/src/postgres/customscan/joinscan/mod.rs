@@ -2307,7 +2307,7 @@ impl JoinScan {
         )
         .map_err(|_| {
             warn(JoinDeclineReason::new(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are columnar)",
             ))
         })?;
         join_clause = join_clause_updated;

@@ -298,7 +298,7 @@ fn index_info(
             name!(termdict_bytes, Option<AnyNumeric>),
             name!(postings_bytes, Option<AnyNumeric>),
             name!(positions_bytes, Option<AnyNumeric>),
-            name!(fast_fields_bytes, Option<AnyNumeric>),
+            name!(columnar_bytes, Option<AnyNumeric>),
             name!(fieldnorms_bytes, Option<AnyNumeric>),
             name!(store_bytes, Option<AnyNumeric>),
             name!(deletes_bytes, Option<AnyNumeric>),
@@ -1415,7 +1415,7 @@ pub mod pdb {
                 let fast_fields = segment_reader.fast_fields();
                 if fast_fields.u64("ctid").is_err() {
                     segment_issues.push(format!(
-                        "Segment {} ({}): ctid fast field not accessible",
+                        "Segment {} ({}): ctid columnar field not accessible",
                         idx, segment_id
                     ));
                 }

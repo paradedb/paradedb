@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087777197,
+  "lastUpdate": 1789087786898,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345118,6 +345118,60 @@ window.BENCHMARK_DATA = {
             "value": 37.232459780685694,
             "unit": "median tps",
             "extra": "avg tps: 58.49180515087324, max tps: 559.5186377231871, count: 58771"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087770117,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.31496607568425,
+            "unit": "median tps",
+            "extra": "avg tps: 54.79914056725107, max tps: 535.3289026762352, count: 58785"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.404019397912016,
+            "unit": "median tps",
+            "extra": "avg tps: 29.383207206552214, max tps: 348.3758557432443, count: 58785"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 83.25958269975143,
+            "unit": "median tps",
+            "extra": "avg tps: 145.29889113626598, max tps: 1184.7641777971517, count: 58785"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.2110387000073,
+            "unit": "median tps",
+            "extra": "avg tps: 29.575674870220137, max tps: 276.78068768970667, count: 58785"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.11719821981658,
+            "unit": "median tps",
+            "extra": "avg tps: 58.14460566726784, max tps: 541.3252494834138, count: 58785"
           }
         ]
       }

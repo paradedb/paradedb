@@ -242,17 +242,11 @@ drizzle_pass_count=0
 drizzle_fail_count=0
 if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
-<<<<<<< HEAD
-  npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
-    "@paradedb/drizzle-paradedb@0.2.0" \
-    "drizzle-orm" \
-=======
-  # Keep the Drizzle version aligned with the integration's peer dependency.
+  # Keep the Drizzle version aligned with the integration's dependency.
   # Skip peer resolution for Drizzle's unused optional integrations (e.g. effect).
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --legacy-peer-deps \
-    "@paradedb/drizzle-paradedb@0.5.0" \
-    "drizzle-orm@1.0.0-rc.4" \
->>>>>>> 41c117f1 (fix: resolve Drizzle dependencies in docs smoke tests (#6294))
+    "@paradedb/drizzle-paradedb@0.2.0" \
+    "drizzle-orm@1.0.0-rc.2" \
     "postgres" \
     "tsx"
 

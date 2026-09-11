@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087848911,
+  "lastUpdate": 1789087856876,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -142132,6 +142132,108 @@ window.BENCHMARK_DATA = {
             "value": 52.65234375,
             "unit": "median mem",
             "extra": "avg mem: 52.53500775835968, max mem: 52.65234375, count: 59452"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087853156,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08419741448963103, max background_merging: 2.0, count: 59408"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7799339098157745, max cpu: 9.711684, count: 59408"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.309906638731317, max mem: 19.421875, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.997933354222686, max cpu: 27.81265, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 52.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.50420739841436, max mem: 52.55078125, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52488,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52309.08672232696, max block_count: 52488.0, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 69,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 67.71249663345004, max segment_count: 105.0, count: 59408"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.564064,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.08474989401582, max cpu: 33.75188, count: 59408"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.09017744611415, max mem: 83.859375, count: 59408"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.031059010737835, max cpu: 28.374382, count: 59408"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 39.156651355878, max mem: 51.02734375, count: 59408"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.824227576098601, max cpu: 19.104477, count: 59408"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 45.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.54760130685261, max mem: 46.80859375, count: 59408"
           }
         ]
       }

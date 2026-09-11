@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086689615,
+  "lastUpdate": 1789087769034,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -350846,6 +350846,60 @@ window.BENCHMARK_DATA = {
             "value": 23.267056467373745,
             "unit": "median tps",
             "extra": "avg tps: 39.90290451684589, max tps: 585.20519529439, count: 59221"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789087765051,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3838.080726679663,
+            "unit": "median tps",
+            "extra": "avg tps: 3832.120466012127, max tps: 4761.052784038145, count: 59242"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4437.1078857861685,
+            "unit": "median tps",
+            "extra": "avg tps: 4486.510135474432, max tps: 7297.137803622723, count: 59242"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.44232482593004,
+            "unit": "median tps",
+            "extra": "avg tps: 188.41841396501533, max tps: 3159.891960235919, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.264554148230886,
+            "unit": "median tps",
+            "extra": "avg tps: 39.88088393322522, max tps: 587.7969429358459, count: 59242"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.319618055262612,
+            "unit": "median tps",
+            "extra": "avg tps: 40.001443240342944, max tps: 595.7750380922403, count: 59242"
           }
         ]
       }

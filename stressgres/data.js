@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789087856876,
+  "lastUpdate": 1789134439591,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -304746,6 +304746,54 @@ window.BENCHMARK_DATA = {
             "value": 24.525559224566642,
             "unit": "median tps",
             "extra": "avg tps: 38.63713008521065, max tps: 436.57613441073187, count: 59260"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789134435688,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 24.084575271391838,
+            "unit": "median tps",
+            "extra": "avg tps: 34.82731737503002, max tps: 194.22019709627935, count: 59252"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 24.567117082261582,
+            "unit": "median tps",
+            "extra": "avg tps: 39.159314620775746, max tps: 441.01421256502834, count: 59252"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 27.378685017139556,
+            "unit": "median tps",
+            "extra": "avg tps: 45.72294626871525, max tps: 592.8943109530891, count: 59252"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 24.59584533885184,
+            "unit": "median tps",
+            "extra": "avg tps: 39.14942983962705, max tps: 438.73231681562567, count: 59252"
           }
         ]
       }

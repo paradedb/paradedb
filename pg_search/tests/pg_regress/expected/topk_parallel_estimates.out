@@ -1,0 +1,217 @@
+-- A top-K scan picks serial or parallel from its estimated drive cost, so an under-counted
+-- estimate quietly costs the scan its workers. Two shapes under-counted enough to flip that
+-- decision: a phrase, whose cost came from an intersection estimate that assumes the terms are
+-- independent, and a regex ANDed with a clause carrying no heuristic, which folded the
+-- unknown-selectivity sentinel into the product.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers = 8;
+SET enable_indexscan = OFF;
+-- Small but non-zero. At zero every scan parallelizes and the decision under test never runs.
+SET parallel_setup_cost = 60;
+SET parallel_tuple_cost = 0;
+DROP TABLE IF EXISTS logs CASCADE;
+CREATE TABLE logs (
+    id      BIGINT,
+    at      TIMESTAMP,
+    body    TEXT
+);
+CREATE INDEX logs_idx ON logs
+    USING bm25 (id, at, (body::pdb.simple))
+    WITH (key_field = 'id');
+-- Two batches so the index holds more than one segment and parallel is structurally possible.
+-- `failed to place order` lands on a fifth of the rows and its four words only ever appear
+-- together, which is the correlation an independence estimate misses. `crashed while writing the
+-- audit ledger` is the rare counterpart, on one row in a hundred.
+INSERT INTO logs
+SELECT g,
+       TIMESTAMP '2025-09-23 00:00:00' + ((g % 3600) || ' seconds')::interval,
+       CASE
+           WHEN g % 50 < 10 THEN 'failed to place order ' || g
+           WHEN g % 100 = 1 THEN 'crashed while writing the audit ledger ' || g
+           WHEN g % 5 = 1   THEN 'charged card ending ' || g
+           WHEN g % 5 = 2   THEN 'charging retry ' || g
+           ELSE 'request served in ' || g || ' ms'
+       END
+FROM generate_series(1, 100000) g;
+INSERT INTO logs
+SELECT g,
+       TIMESTAMP '2025-09-23 00:00:00' + ((g % 3600) || ' seconds')::interval,
+       CASE
+           WHEN g % 50 < 10 THEN 'failed to place order ' || g
+           WHEN g % 100 = 1 THEN 'crashed while writing the audit ledger ' || g
+           WHEN g % 5 = 1   THEN 'charged card ending ' || g
+           WHEN g % 5 = 2   THEN 'charging retry ' || g
+           ELSE 'request served in ' || g || ' ms'
+       END
+FROM generate_series(100001, 200000) g;
+ANALYZE logs;
+SELECT count(*) AS common_phrase FROM logs WHERE body @@@ '"failed to place order"';
+ common_phrase 
+---------------
+         40000
+(1 row)
+
+SELECT count(*) AS rare_phrase FROM logs WHERE body @@@ '"crashed while writing the audit ledger"';
+ rare_phrase 
+-------------
+           0
+(1 row)
+
+SELECT count(*) AS regex_matches FROM logs WHERE id @@@ paradedb.regex('body', 'charg.*');
+ regex_matches 
+---------------
+         64000
+(1 row)
+
+-- ============================================================================
+-- Common phrase, top-K by score. The scan walks a fifth of the index, so it takes workers.
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, body FROM logs
+WHERE body @@@ '"failed to place order"'
+ORDER BY pdb.score(id) DESC, id LIMIT 5;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, body, (pdb.score(id))
+   ->  Gather Merge
+         Output: id, body, (pdb.score(id))
+         Workers Planned: 2
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.logs
+               Output: id, body, pdb.score(id)
+               Table: logs
+               Index: logs_idx
+               Worker Selection: Cost model (LIMIT)
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc, id asc
+                  TopK Limit: 5
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"\"failed to place order\"","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT id, body FROM logs
+WHERE body @@@ '"failed to place order"'
+ORDER BY pdb.score(id) DESC, id LIMIT 5;
+ id |          body           
+----+-------------------------
+  1 | failed to place order 1
+  2 | failed to place order 2
+  3 | failed to place order 3
+  4 | failed to place order 4
+  5 | failed to place order 5
+(5 rows)
+
+-- ============================================================================
+-- The same phrase under a time window, top-K by the window column.
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, at FROM logs
+WHERE body @@@ '"failed to place order"'
+  AND at BETWEEN TIMESTAMP '2025-09-23 00:00:00' AND TIMESTAMP '2025-09-23 00:30:00'
+ORDER BY at DESC, id LIMIT 5;
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, at
+   ->  Gather Merge
+         Output: id, at
+         Workers Planned: 2
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.logs
+               Output: id, at
+               Table: logs
+               Index: logs_idx
+               Worker Selection: Cost model (LIMIT)
+               Exec Method: TopKScanExecState
+               Scores: false
+                  TopK Order By: at desc, id asc
+                  TopK Limit: 5
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"\"failed to place order\"","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"at","lower_bound":{"included":{"$__pdb_date__":"2025-09-23T00:00:00Z"}},"upper_bound":null}},{"range":{"field":"at","lower_bound":null,"upper_bound":{"included":{"$__pdb_date__":"2025-09-23T00:30:00Z"}}}}]}}
+(15 rows)
+
+SELECT id, at FROM logs
+WHERE body @@@ '"failed to place order"'
+  AND at BETWEEN TIMESTAMP '2025-09-23 00:00:00' AND TIMESTAMP '2025-09-23 00:30:00'
+ORDER BY at DESC, id LIMIT 5;
+  id   |            at            
+-------+--------------------------
+  1800 | Tue Sep 23 00:30:00 2025
+  5400 | Tue Sep 23 00:30:00 2025
+  9000 | Tue Sep 23 00:30:00 2025
+ 12600 | Tue Sep 23 00:30:00 2025
+ 16200 | Tue Sep 23 00:30:00 2025
+(5 rows)
+
+-- ============================================================================
+-- Regex under a time window. The window carries no heuristic of its own, so it has to leave the
+-- regex estimate alone rather than scale it away.
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, at FROM logs
+WHERE id @@@ paradedb.regex('body', 'charg.*')
+  AND at BETWEEN TIMESTAMP '2025-09-23 00:00:00' AND TIMESTAMP '2025-09-23 00:30:00'
+ORDER BY at DESC, id LIMIT 5;
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, at
+   ->  Gather Merge
+         Output: id, at
+         Workers Planned: 2
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.logs
+               Output: id, at
+               Table: logs
+               Index: logs_idx
+               Worker Selection: Cost model (LIMIT)
+               Exec Method: TopKScanExecState
+               Scores: false
+                  TopK Order By: at desc, id asc
+                  TopK Limit: 5
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"regex":{"field":"body","pattern":"charg.*"}}}},{"range":{"field":"at","lower_bound":{"included":{"$__pdb_date__":"2025-09-23T00:00:00Z"}},"upper_bound":null}},{"range":{"field":"at","lower_bound":null,"upper_bound":{"included":{"$__pdb_date__":"2025-09-23T00:30:00Z"}}}}]}}
+(15 rows)
+
+SELECT id, at FROM logs
+WHERE id @@@ paradedb.regex('body', 'charg.*')
+  AND at BETWEEN TIMESTAMP '2025-09-23 00:00:00' AND TIMESTAMP '2025-09-23 00:30:00'
+ORDER BY at DESC, id LIMIT 5;
+  id   |            at            
+-------+--------------------------
+  1797 | Tue Sep 23 00:29:57 2025
+  5397 | Tue Sep 23 00:29:57 2025
+  8997 | Tue Sep 23 00:29:57 2025
+ 12597 | Tue Sep 23 00:29:57 2025
+ 16197 | Tue Sep 23 00:29:57 2025
+(5 rows)
+
+-- ============================================================================
+-- The rare phrase stays serial. Its posting lists are short, so workers would only add startup.
+-- The floor keeps the estimate honest, it does not push every phrase to parallel.
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, body FROM logs
+WHERE body @@@ '"crashed while writing the audit ledger"'
+ORDER BY pdb.score(id) DESC, id LIMIT 5;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, body, (pdb.score(id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.logs
+         Output: id, body, pdb.score(id)
+         Table: logs
+         Index: logs_idx
+         Worker Selection: Cost model
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"\"crashed while writing the audit ledger\"","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT id, body FROM logs
+WHERE body @@@ '"crashed while writing the audit ledger"'
+ORDER BY pdb.score(id) DESC, id LIMIT 5;
+ id | body 
+----+------
+(0 rows)
+
+DROP TABLE logs CASCADE;

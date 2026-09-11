@@ -20,6 +20,7 @@ use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, unwrap_to_var,
 };
@@ -124,6 +125,16 @@ impl WindowAggList {
     pub fn get(&self, index: WindowAggIndex) -> Option<&WindowAgg> {
         self.0.get(index.0)
     }
+
+    pub fn find_index_by_resno(&self, resno: pg_sys::AttrNumber) -> Option<WindowAggIndex> {
+        self.0.iter().enumerate().find_map(|(i, wa)| {
+            if wa.resno == resno {
+                Some(WindowAggIndex(i))
+            } else {
+                None
+            }
+        })
+    }
 }
 
 pub fn extract_window_agg(
@@ -203,4 +214,15 @@ pub fn extract_window_agg(
         result_type: ResultType(wf.wintype),
         resno,
     })
+}
+
+pub fn is_supported_window_agg_node(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if let Some(wf) = unsafe { nodecast!(WindowFunc, T_WindowFunc, node) } {
+        let wf = unsafe { &*wf };
+        return SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar).is_some();
+    }
+    false
 }

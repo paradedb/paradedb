@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789149333051,
+  "lastUpdate": 1789149342016,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -312590,6 +312590,162 @@ window.BENCHMARK_DATA = {
             "value": 17.58203125,
             "unit": "median mem",
             "extra": "avg mem: 17.518186494861453, max mem: 17.70703125, count: 59258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149337738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.848072668028138, max cpu: 50.818092, count: 59234"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.959974225634774, max mem: 63.87109375, count: 59234"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.536482447443713, max cpu: 4.7220855, count: 59234"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.238717944930276, max mem: 17.28515625, count: 59234"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.70818143715531, max cpu: 9.425626, count: 59234"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.417355319579972, max mem: 21.4375, count: 59234"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 10085,
+            "unit": "median pages",
+            "extra": "avg pages: 8102.926427389675, max pages: 11783.0, count: 59234"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 78.7890625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 63.3041131096583, max relation_size:MB: 92.0546875, count: 59234"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 64.5321605834487, max segment_count: 97.0, count: 59234"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8410736103718253, max cpu: 4.7313952, count: 59234"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.30742360278725, max mem: 17.3203125, count: 59234"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.357664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.047187071084142, max cpu: 46.28737, count: 59234"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.73907181158625, max mem: 62.19140625, count: 59234"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.70582202931133, max cpu: 46.198265, count: 59234"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.574089231902285, max mem: 57.19921875, count: 59234"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 108.0435791015625,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 202.2210040864147, max replication_lag:MB: 881.1559829711914, count: 59234"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.357664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.042475091801418, max cpu: 50.818092, count: 59234"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 49.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.319834324986495, max mem: 62.640625, count: 59234"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.847659573527931, max cpu: 33.07087, count: 59234"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.654506385690652, max mem: 17.84765625, count: 59234"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.324915,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.024111046543041, max cpu: 32.796486, count: 59234"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.63791659456562, max mem: 17.8359375, count: 59234"
           }
         ]
       }

@@ -6,7 +6,6 @@
 name: Lint Rust
 
 on:
-  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -98,14 +97,3 @@ jobs:
       # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
       - name: Check Cargo.toml Formatting
         run: taplo format --check
-
-  merge-gate:
-    name: Lint Rust Gate
-    if: ${{ always() }}
-    needs: [lint-rust]
-    permissions:
-      actions: read
-      checks: read
-    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
-    with:
-      job_results: ${{ toJSON(needs) }}

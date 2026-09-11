@@ -6,7 +6,6 @@
 name: Test pg_search (Schema)
 
 on:
-  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -88,7 +87,7 @@ jobs:
       - name: Switch to Base git rev and Generate Schema Again
         env:
           BASE_REPO: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.ref_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
         run: |
           # Switch to the base git rev
           git checkout .
@@ -168,7 +167,7 @@ jobs:
             if [ -n "$PR_NUMBER" ]; then
               MATCHING_FILES=(pg_search/sql/unreleased/"${PR_NUMBER}".*.sql)
             else
-              # Fallback for non-PR events (workflow_dispatch, merge_group)
+              # Fallback for manual runs (workflow_dispatch)
               MATCHING_FILES=(pg_search/sql/unreleased/*.sql)
             fi
 
@@ -212,14 +211,3 @@ jobs:
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
-
-  merge-gate:
-    name: Test pg_search (Schema) Gate
-    if: ${{ always() }}
-    needs: [test-pg_search-schema]
-    permissions:
-      actions: read
-      checks: read
-    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
-    with:
-      job_results: ${{ toJSON(needs) }}

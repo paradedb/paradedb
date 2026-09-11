@@ -9,7 +9,6 @@
 name: Test pg_search (Docker)
 
 on:
-  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -572,14 +571,3 @@ jobs:
             ghcr.io/cloudnative-pg/postgresql:${{ env.PG_VERSION }}-minimal-trixie \
             bash /load-test.sh
           echo "Extension payload loads in the Postgres runtime image."
-
-  merge-gate:
-    name: Test pg_search (Docker) Gate
-    if: ${{ always() }}
-    needs: [test-paradedb, test-extension-image]
-    permissions:
-      actions: read
-      checks: read
-    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
-    with:
-      job_results: ${{ toJSON(needs) }}

@@ -6,7 +6,6 @@
 name: Test pg_search (Upgrade)
 
 on:
-  merge_group:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -134,14 +133,3 @@ jobs:
           prior_pg_search_version: ${{ matrix.prior.pg_search_version }}
           prior_pgrx_version: ${{ matrix.prior.pgrx_version }}
           pg_version: ${{ matrix.pg_version }}
-
-  merge-gate:
-    name: Test pg_search (Upgrade) Gate
-    if: ${{ always() }}
-    needs: [discover-upgrade-starting-points, test-pg_search-upgrade]
-    permissions:
-      actions: read
-      checks: read
-    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
-    with:
-      job_results: ${{ toJSON(needs) }}

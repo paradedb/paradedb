@@ -6,7 +6,6 @@
 name: Test pg_search
 
 on:
-  merge_group:
   # We run nightly to update the code coverage baseline without excessive post-PR runs
   schedule:
     - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
@@ -386,14 +385,3 @@ jobs:
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  merge-gate:
-    name: Test pg_search Gate
-    if: ${{ always() }}
-    needs: [test-pg_search, upload-coverage]
-    permissions:
-      actions: read
-      checks: read
-    uses: runs-on/spot-retry-gate/.github/workflows/merge-queue.yml@v1
-    with:
-      job_results: ${{ toJSON(needs) }}

@@ -8,8 +8,13 @@ CREATE TABLE inline_matcher_lifetime (id int PRIMARY KEY, body text, active bool
 INSERT INTO inline_matcher_lifetime
 SELECT id, CASE WHEN id % 2 = 0 THEN 'ALLOWED' ELSE 'DENIED' END, false
 FROM generate_series(1, 128) AS id;
+INSERT INTO inline_matcher_lifetime VALUES (129, NULL, false);
 CREATE INDEX inline_matcher_lifetime_idx ON inline_matcher_lifetime
-USING paradedb (id, ((lower(body) || '_suffix')::pdb.literal('alias=normalized_body')))
+USING paradedb (
+    id,
+    ((lower(body) || '_suffix')::pdb.literal('alias=normalized_body')),
+    (body::pdb.simple('alias=stemmed_body', 'stemmer=english'))
+)
 WHERE active;
 SET paradedb.enable_custom_scan = off;
 SET enable_indexonlyscan = off;
@@ -61,6 +66,43 @@ WARNING:  Aggregate Scan not used: query does not imply the partial index predic
 (1 row)
 
 DEALLOCATE inline_lifetime_lookup;
+-- Keep both cached tokenizers alive across fetches and a subtransaction abort.
+BEGIN;
+DECLARE inline_lifetime_cursor CURSOR FOR
+SELECT id,
+       ((lower(body) || '_suffix') === 'allowed_suffix')
+           IS DISTINCT FROM (body = 'ALLOWED') AS literal_mismatch,
+       ((body::pdb.simple('alias=stemmed_body', 'stemmer=english')) ||| 'allow')
+           IS DISTINCT FROM coalesce(body = 'ALLOWED', false) AS stemmer_mismatch
+FROM inline_matcher_lifetime;
+FETCH FORWARD 2 FROM inline_lifetime_cursor;
+ id | literal_mismatch | stemmer_mismatch 
+----+------------------+------------------
+  1 | f                | f
+  2 | f                | f
+(2 rows)
+
+SAVEPOINT inline_lifetime_error;
+SELECT 1 / 0;
+ERROR:  division by zero
+ROLLBACK TO SAVEPOINT inline_lifetime_error;
+FETCH FORWARD 3 FROM inline_lifetime_cursor;
+ id | literal_mismatch | stemmer_mismatch 
+----+------------------+------------------
+  3 | f                | f
+  4 | f                | f
+  5 | f                | f
+(3 rows)
+
+MOVE FORWARD 123 FROM inline_lifetime_cursor;
+FETCH FORWARD 1 FROM inline_lifetime_cursor;
+ id  | literal_mismatch | stemmer_mismatch 
+-----+------------------+------------------
+ 129 | f                | f
+(1 row)
+
+CLOSE inline_lifetime_cursor;
+COMMIT;
 RESET plan_cache_mode;
 RESET enable_bitmapscan;
 RESET enable_indexonlyscan;

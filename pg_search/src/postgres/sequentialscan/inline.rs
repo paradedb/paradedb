@@ -20,7 +20,6 @@ use crate::api::version::Version;
 use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SerialIndexWriter;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::ExpressionState;
 use crate::postgres::rel::PgSearchRelation;
@@ -31,10 +30,12 @@ use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
-use tantivy::TantivyDocument;
-use tantivy::directory::RamDirectory;
-use tantivy::index::{SegmentId, SegmentReader};
+use tantivy::directory::{ManagedDirectory, RamDirectory};
+use tantivy::index::SegmentReader;
+use tantivy::indexer::{AddOperation, SegmentWriter};
 use tantivy::query::Weight;
+use tantivy::schema::Field;
+use tantivy::{Index, TantivyDocument};
 
 /// An expression that materializes a row if the index scan fast path cannot be taken.
 ///
@@ -286,7 +287,8 @@ impl MaybeInlineRow {
 
 /// Evaluates a row as a one-document search corpus.
 pub(super) struct RowMatcher {
-    index_relation: PgSearchRelation,
+    empty_index: Index,
+    ctid_field: Field,
     slot: *mut pg_sys::TupleTableSlot,
     expression_state: ExpressionState,
     required_expressions: HashSet<usize>,
@@ -294,6 +296,7 @@ pub(super) struct RowMatcher {
     created_by_version: Option<Version>,
     weight: Box<dyn Weight>,
     field_exists_weight: Option<Box<dyn Weight>>,
+    _index_relation_guard: PgSearchRelation,
 }
 
 impl RowMatcher {
@@ -382,7 +385,11 @@ impl RowMatcher {
             created_by_version: index_relation.created_by_version(),
             weight,
             field_exists_weight,
-            index_relation,
+            empty_index: index_relation
+                .create_in_memory_index(RamDirectory::create())
+                .expect("row matcher should create an in-memory index"),
+            ctid_field: schema.ctid_field(),
+            _index_relation_guard: index_relation,
             slot,
         }
     }
@@ -449,23 +456,26 @@ impl RowMatcher {
             pg_sys::pfree(header.cast());
         }
 
-        // Tantivy queries execute against segment readers, so expose the row as a temporary segment.
-        let mut writer = SerialIndexWriter::in_memory(
-            &self.index_relation,
-            SegmentId::generate_random(),
-            RamDirectory::create(),
-            0,
-        )
-        .expect("row matcher should create an in-memory index");
+        // Share schema/tokenizers, but keep segment files local to this call, including on error.
+        let mut index = self.empty_index.clone();
+        *index.directory_mut() = ManagedDirectory::wrap(Box::new(RamDirectory::create()))
+            .expect("row matcher should create a segment directory");
+        let segment = index.new_segment();
+        let mut writer = SegmentWriter::for_segment(usize::MAX, segment.clone(), true)
+            .expect("row matcher should create a segment writer");
+        document.add_u64(self.ctid_field, 1);
         writer
-            .insert(document, 1, || {})
+            .add_document(AddOperation {
+                opstamp: 1,
+                document,
+            })
             .expect("row matcher should index one row");
-        let segment_meta = writer
-            .finalize_nocommit()
-            .expect("row matcher should finalize its in-memory index")
-            .expect("row matcher always indexes one row");
-        let segment_reader = SegmentReader::open(&writer.index.segment(segment_meta))
-            .expect("row matcher should open its in-memory segment");
+        let segment = segment.with_max_doc(writer.max_doc());
+        writer
+            .finalize()
+            .expect("row matcher should finalize its in-memory segment");
+        let segment_reader =
+            SegmentReader::open(&segment).expect("row matcher should open its in-memory segment");
 
         if self
             .weight

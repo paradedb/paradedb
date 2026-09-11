@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789151831821,
+  "lastUpdate": 1789151839621,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -142732,6 +142732,108 @@ window.BENCHMARK_DATA = {
             "value": 44.6171875,
             "unit": "median mem",
             "extra": "avg mem: 43.58621730697199, max mem: 48.609375, count: 59402"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789151836347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08316365166175851, max background_merging: 2.0, count: 59425"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.761482541506875, max cpu: 9.590409, count: 59425"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 19.42117085612116, max mem: 19.43359375, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.000797845025037, max cpu: 23.904383, count: 59425"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 47.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.90329406815314, max mem: 52.0, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53780,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53618.06392932268, max block_count: 53780.0, count: 59425"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 74,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 71.25144299537232, max segment_count: 105.0, count: 59425"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.622047,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.076242185658256, max cpu: 33.566433, count: 59425"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 79.96499244057635, max mem: 83.77734375, count: 59425"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6050710056173205, max cpu: 7.7232504, count: 59425"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 33.375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.305038191522925, max mem: 33.4375, count: 59425"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.828950988875959, max cpu: 28.290766, count: 59425"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.97476901030711, max mem: 52.19921875, count: 59425"
           }
         ]
       }

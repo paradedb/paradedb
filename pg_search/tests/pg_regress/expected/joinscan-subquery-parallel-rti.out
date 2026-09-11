@@ -116,7 +116,7 @@ LIMIT 10;
            :   ┌───── Stage 4 ── tasks=4, partitions=4
            :   │ SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[true]
            :   │   VisibilityFilterExec: tables=[i]
-           :   │     TantivyLookupExec: decode=[], fetch=[ctid_0]
+           :   │     TantivyFetchExec: fetch=[ctid_0]
            :   │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, company_id@0)]
            :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=1
            :   │         [Stage 3] => NetworkShuffleExec: output_partitions=4, input_tasks=4

@@ -113,26 +113,43 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, c.job_title
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Backend: DataFusion
-         Indexes: asa_cccf_idx (c), asa_contact_list_idx (cl), asa_contact_list_idx (cl)
-         Group By: job_title
-         Aggregates: COUNT(*)
-         DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)]
-           :       CooperativeExec
-           :         PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
-           :       CooperativeExec
-           :         PgSearchScan: table=cl, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=cl, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   ->  GroupAggregate
+         Group Key: c.job_title
+         ->  Sort
+               Sort Key: c.job_title
+               ->  Hash Right Semi Join
+                     Hash Cond: (cl.ldf_id = c.contact_id)
+                     ->  Custom Scan (ParadeDB Base Scan) on asa_contact_list cl
+                           Table: asa_contact_list
+                           Index: asa_contact_list_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: ldf_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+                     ->  Hash
+                           ->  Hash Right Anti Join
+                                 Hash Cond: (cl_1.ldf_id = c.contact_id)
+                                 ->  Custom Scan (ParadeDB Base Scan) on asa_contact_list cl_1
+                                       Table: asa_contact_list
+                                       Index: asa_contact_list_idx
+                                       Exec Method: ColumnarExecState
+                                       Fast Fields: ldf_id
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+                                 ->  Hash
+                                       ->  Custom Scan (ParadeDB Base Scan) on asa_cccf c
+                                             Table: asa_cccf
+                                             Index: asa_cccf_idx
+                                             Exec Method: ColumnarExecState
+                                             Fast Fields: contact_id, job_title
+                                             Scores: false
+                                             Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+(33 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf c
@@ -141,6 +158,7 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
+WARNING:  Aggregate Scan (DataFusion) not used: search operators in join ON clause are not supported (table: join)
      job_title     | doc_count 
 -------------------+-----------
  Senior Programmer |         7
@@ -639,12 +657,12 @@ WHERE a.id NOT IN (
     )
   AND a.body @@@ 'outermatch'
   AND b.val > a.threshold;
-                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: asa_rti_outer_a_idx (a), asa_rti_inner_y_idx (y), asa_rti_inner_x_idx (x), asa_rti_outer_b_idx (b)
-   Multi-Table Filter: {OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 3 :location -1} {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1}
+   Multi-Table Filter: (b.val > a.threshold)
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]

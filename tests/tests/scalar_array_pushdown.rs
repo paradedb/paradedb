@@ -25,7 +25,7 @@ use std::fmt::Debug;
 use tests::fixtures::*;
 
 use tests::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator, ScalarArrayOperator};
-use tests::fixtures::querygen::{PgGucs, compare};
+use tests::fixtures::querygen::{PgGucs, SetupScript, compare};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -157,7 +157,7 @@ impl ScalarArrayExpr {
     }
 }
 
-fn scalar_array_setup(conn: &mut PgConnection, tokenizer: TokenizerType) -> String {
+fn scalar_array_setup(conn: &mut PgConnection, tokenizer: TokenizerType) -> SetupScript {
     "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
@@ -210,7 +210,7 @@ ANALYZE scalar_array_test;
     );
 
     setup_sql.clone().execute(conn);
-    setup_sql
+    SetupScript::new(setup_sql, vec!["scalar_array_test".to_string()])
 }
 
 #[rstest]

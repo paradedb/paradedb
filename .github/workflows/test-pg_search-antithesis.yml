@@ -127,7 +127,9 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo git ca-certificates curl gnupg lsb-release binutils
+        uses: paradedb/actions/apt-install@v11
+        with:
+          packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
       - name: Checkout Git Repository
         uses: actions/checkout@v7

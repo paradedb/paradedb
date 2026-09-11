@@ -77,7 +77,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
            :           CooperativeExec
            :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}}
@@ -124,7 +124,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
            :           CooperativeExec
            :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}}
@@ -172,7 +172,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
@@ -220,7 +220,7 @@ LIMIT 4;
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=4), expr=[price@2 DESC], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, price@5]
            :           CooperativeExec
            :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}}
@@ -327,7 +327,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
@@ -381,7 +381,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@6]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], projection=[ctid_0@0, id@2, __w_0_tag_0@3, ctid_1@4, org_id@6, __r_1_tag_0@7]
            :             CooperativeExec
@@ -436,7 +436,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}}
@@ -525,7 +525,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[r, w]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}}
@@ -572,7 +572,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1, ctid_2]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
            :           CooperativeExec
            :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}}
@@ -623,7 +623,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[r, w]
-           :       TantivyLookupExec: decode=[], fetch=[ctid_0, ctid_1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
            :           CooperativeExec
            :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}

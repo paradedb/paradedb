@@ -446,3 +446,42 @@ unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMut
 
     true
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::{Spi, pg_test};
+
+    /// A statement that fails part way through leaves index state behind for the rows it did
+    /// insert. When a subtransaction swallows that failure, the state must go with the rollback
+    /// and not ride along to the next cleanup, which would commit rows the heap never kept.
+    #[pg_test]
+    fn a_subtransaction_abort_drops_its_insert_state() {
+        Spi::run(
+            r#"
+            SET paradedb.global_mutable_segment_rows = 0;
+            CREATE TABLE subxact_frame (id BIGINT PRIMARY KEY, body TEXT);
+            CREATE INDEX subxact_frame_idx ON subxact_frame USING bm25 (id, body)
+                WITH (key_field = 'id');
+            INSERT INTO subxact_frame VALUES (1, 'seed');
+            DO $$
+            BEGIN
+                BEGIN
+                    -- Two rows reach the index before the primary key rejects the third.
+                    INSERT INTO subxact_frame VALUES (100, 'a'), (101, 'b'), (1, 'dup');
+                EXCEPTION WHEN unique_violation THEN
+                    NULL;
+                END;
+                INSERT INTO subxact_frame VALUES (200, 'kept');
+            END $$;
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM subxact_frame WHERE id @@@ pdb.all();")
+                .unwrap()
+                .unwrap(),
+            2
+        );
+    }
+}

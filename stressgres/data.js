@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789139549121,
+  "lastUpdate": 1789139556700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -311906,6 +311906,162 @@ window.BENCHMARK_DATA = {
             "value": 17.60546875,
             "unit": "median mem",
             "extra": "avg mem: 17.55861708781982, max mem: 17.7421875, count: 59252"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a175c6771e3f8b30264e9b9e06923822194edc21",
+          "message": "perf: pushed down join InList filters on `uuid` keys. (#6278)\n\n## Ticket(s) Closed\n\n- Partially closes #6276\n\n## What\n\nThis PR makes the hash-join `InList` dynamic filter reach tantivy when\nthe join key is a `uuid` or a tokenizer-cast text column.\n\n## Why\n\n`PdbOwnedValue::from_scalar` mapped the Utf8 family onto\n`SearchFieldType::Text` only. `Uuid` and `Tokenized` store as `Utf8View`\ntoo, so the join-derived `InList` produced no term and\n`try_convert_in_list_to_query` gave up. The predicate showed up only as\na post-search pre-filter, which drops rows after the scan has already\nread and materialized them. So the probe side read every document in the\nindex.\n\n`Inet`, `Json`, `Range` and `Ltree` are `Utf8View`-backed as well but\nare not checked here. `Inet` stores as a tantivy IP field and the other\nthree carry path, bound or facet encoding. The pushdown rewrites the\nDataFusion filter to `lit(true)`, so nothing rechecks the term. A term\nbuilt the wrong way would silently drop rows that should match.\n\nThe `paradedb.hash_join_inlist_pushdown_max_distinct_values` cap still\napplies, so a build side above it keeps the old behaviour.\n\n## How\n\nWiden the string arm in `from_scalar` to accept `Text`, `Tokenized` and\n`Uuid`.\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/join_dynamic_filter_string_keys.sql`\n\nOn a 5,000 row probe with 20 build keys, `rows_scanned` drops from 5,000\nto 20.\n\nStep 1, build the fixture from #6276 and pick the group below the cap.\n\n```sql\nSET max_parallel_workers_per_gather = 0;\n\nEXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)\nSELECT parent.* FROM parent\nJOIN child ON child.parent_id = parent.id\nWHERE parent.id @@@ paradedb.all()\n  AND parent.deleted_at IS NULL\n  AND parent.group_id = md5('g2')::uuid\n  AND parent.active = true\n  AND child.amount >= 0\nORDER BY parent.created_at DESC, parent.id DESC\nLIMIT 25;\n```\n\nStep 2, read `rows_scanned` on the `child` scan. It goes from `1.00 M`\nto `10.18 K`.\n\nIssue #6276 stays open. The join still materializes every matching row\nbefore the Top-K, so it does work proportional to the build side rather\nthan to the 25 rows asked for. That part needs an ordered outer scan\nwith early exit, which is not in here.",
+          "timestamp": "2026-09-11T16:53:06+02:00",
+          "tree_id": "ce58b96090ce19c704141ca93fc1db1cbe0857cc",
+          "url": "https://github.com/paradedb/paradedb/commit/a175c6771e3f8b30264e9b9e06923822194edc21"
+        },
+        "date": 1789139553662,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.645452842647174, max cpu: 32.98969, count: 59258"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 50.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.53309066655557, max mem: 64.359375, count: 59258"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6100265736611594, max cpu: 4.6647234, count: 59258"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.13194071633788, max mem: 17.15234375, count: 59258"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.699219343359158, max cpu: 9.402546, count: 59258"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.428966671694116, max mem: 21.4453125, count: 59258"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 12008,
+            "unit": "median pages",
+            "extra": "avg pages: 10873.813054777414, max pages: 25270.0, count: 59258"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 93.8125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 84.95166449044855, max relation_size:MB: 197.421875, count: 59258"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 69,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 63.49297985082183, max segment_count: 120.0, count: 59258"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3373619857202463, max cpu: 4.68979, count: 59258"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.16805569764842, max mem: 17.1796875, count: 59258"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.222061,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.840001312132657, max cpu: 32.90891, count: 59258"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.44240005041513, max mem: 64.55078125, count: 59258"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.583984243671523, max cpu: 32.925037, count: 59258"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.20596671810135, max mem: 60.3828125, count: 59258"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 100.11113739013672,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 196.25661399715392, max replication_lag:MB: 887.5711517333984, count: 59258"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.881726664640844, max cpu: 34.204273, count: 59258"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 48.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.577720584667894, max mem: 62.69140625, count: 59258"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.844089565593421, max cpu: 32.71665, count: 59258"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.524395308439367, max mem: 17.71875, count: 59258"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.288824,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.028616014672142, max cpu: 32.71665, count: 59258"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.518186494861453, max mem: 17.70703125, count: 59258"
           }
         ]
       }

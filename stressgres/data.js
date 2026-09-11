@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789139556700,
+  "lastUpdate": 1789139565153,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -334008,6 +334008,90 @@ window.BENCHMARK_DATA = {
             "value": 611.3105606121279,
             "unit": "median tps",
             "extra": "avg tps: 609.573514997735, max tps: 669.7411271676427, count: 55297"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a175c6771e3f8b30264e9b9e06923822194edc21",
+          "message": "perf: pushed down join InList filters on `uuid` keys. (#6278)\n\n## Ticket(s) Closed\n\n- Partially closes #6276\n\n## What\n\nThis PR makes the hash-join `InList` dynamic filter reach tantivy when\nthe join key is a `uuid` or a tokenizer-cast text column.\n\n## Why\n\n`PdbOwnedValue::from_scalar` mapped the Utf8 family onto\n`SearchFieldType::Text` only. `Uuid` and `Tokenized` store as `Utf8View`\ntoo, so the join-derived `InList` produced no term and\n`try_convert_in_list_to_query` gave up. The predicate showed up only as\na post-search pre-filter, which drops rows after the scan has already\nread and materialized them. So the probe side read every document in the\nindex.\n\n`Inet`, `Json`, `Range` and `Ltree` are `Utf8View`-backed as well but\nare not checked here. `Inet` stores as a tantivy IP field and the other\nthree carry path, bound or facet encoding. The pushdown rewrites the\nDataFusion filter to `lit(true)`, so nothing rechecks the term. A term\nbuilt the wrong way would silently drop rows that should match.\n\nThe `paradedb.hash_join_inlist_pushdown_max_distinct_values` cap still\napplies, so a build side above it keeps the old behaviour.\n\n## How\n\nWiden the string arm in `from_scalar` to accept `Text`, `Tokenized` and\n`Uuid`.\n\n## Tests\n\n`pg_search/tests/pg_regress/sql/join_dynamic_filter_string_keys.sql`\n\nOn a 5,000 row probe with 20 build keys, `rows_scanned` drops from 5,000\nto 20.\n\nStep 1, build the fixture from #6276 and pick the group below the cap.\n\n```sql\nSET max_parallel_workers_per_gather = 0;\n\nEXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)\nSELECT parent.* FROM parent\nJOIN child ON child.parent_id = parent.id\nWHERE parent.id @@@ paradedb.all()\n  AND parent.deleted_at IS NULL\n  AND parent.group_id = md5('g2')::uuid\n  AND parent.active = true\n  AND child.amount >= 0\nORDER BY parent.created_at DESC, parent.id DESC\nLIMIT 25;\n```\n\nStep 2, read `rows_scanned` on the `child` scan. It goes from `1.00 M`\nto `10.18 K`.\n\nIssue #6276 stays open. The join still materializes every matching row\nbefore the Top-K, so it does work proportional to the build side rather\nthan to the 25 rows asked for. That part needs an ordered outer scan\nwith early exit, which is not in here.",
+          "timestamp": "2026-09-11T16:53:06+02:00",
+          "tree_id": "ce58b96090ce19c704141ca93fc1db1cbe0857cc",
+          "url": "https://github.com/paradedb/paradedb/commit/a175c6771e3f8b30264e9b9e06923822194edc21"
+        },
+        "date": 1789139517601,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 197.33753521552995,
+            "unit": "median tps",
+            "extra": "avg tps: 197.96052878543716, max tps: 215.50437479657953, count: 55414"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 200.83898535865262,
+            "unit": "median tps",
+            "extra": "avg tps: 201.4802082432486, max tps: 237.16197212354135, count: 55414"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 172.69351906728804,
+            "unit": "median tps",
+            "extra": "avg tps: 172.9539273306682, max tps: 197.55809050082055, count: 55414"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 471.6606156253806,
+            "unit": "median tps",
+            "extra": "avg tps: 475.051787135715, max tps: 656.8705373857866, count: 55414"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 339.7673286981063,
+            "unit": "median tps",
+            "extra": "avg tps: 341.7971013615723, max tps: 441.08922996358643, count: 55414"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.850809548252702,
+            "unit": "median tps",
+            "extra": "avg tps: 14.855038793671053, max tps: 16.05015035482778, count: 55414"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 645.6688895471939,
+            "unit": "median tps",
+            "extra": "avg tps: 645.5620014830126, max tps: 802.3063128732849, count: 55414"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 650.3279129421073,
+            "unit": "median tps",
+            "extra": "avg tps: 651.1909109547283, max tps: 794.1358443582932, count: 55414"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 269.0689831088365,
+            "unit": "median tps",
+            "extra": "avg tps: 269.9391672654874, max tps: 328.5315094899283, count: 55414"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 564.1568181465002,
+            "unit": "median tps",
+            "extra": "avg tps: 564.4782710847279, max tps: 648.884211154709, count: 55414"
           }
         ]
       }

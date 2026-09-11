@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::HashSet;
 use crate::api::operator::search_with_query_input_exec_procoids;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
@@ -200,6 +201,7 @@ pub(super) struct RowMatcher {
     index_relation: PgSearchRelation,
     slot: *mut pg_sys::TupleTableSlot,
     expression_state: ExpressionState,
+    required_expressions: HashSet<usize>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     created_by_version: Option<Version>,
     weight: Box<dyn Weight>,
@@ -216,6 +218,27 @@ impl RowMatcher {
             .schema()
             .expect("a ParadeDB index must have a schema");
         let null_guard = schema.null_guard(&query);
+        let mut required_fields = HashSet::default();
+        let fields_known = query.extract_field_names(&schema, &mut required_fields)
+            && null_guard
+                .as_ref()
+                .is_none_or(|guard| guard.extract_field_names(&schema, &mut required_fields));
+        let categorized_fields: Vec<_> = schema
+            .categorized_fields()
+            .iter()
+            .filter(|(field, _)| {
+                !fields_known || required_fields.contains(&field.field_name().root())
+            })
+            .cloned()
+            .collect();
+        let required_expressions = categorized_fields
+            .iter()
+            .filter_map(|(_, categorized)| match categorized.source {
+                FieldSource::Heap { .. } => None,
+                FieldSource::Expression { att_idx } => Some(att_idx),
+                FieldSource::CompositeField { expression_idx, .. } => Some(expression_idx),
+            })
+            .collect();
         let reader =
             SearchIndexReader::open(&index_relation, query, false, MvccSatisfies::Snapshot)
                 .expect("row matcher should open the ParadeDB index");
@@ -232,7 +255,8 @@ impl RowMatcher {
                 &index_relation,
                 &mut pgrx::PgMemoryContexts::CurrentMemoryContext,
             ),
-            categorized_fields: schema.categorized_fields().clone(),
+            required_expressions,
+            categorized_fields,
             created_by_version: index_relation.created_by_version(),
             weight,
             field_exists_weight,
@@ -262,7 +286,9 @@ impl RowMatcher {
         let natts = (*self.slot).tts_nvalid as usize;
         let values = std::slice::from_raw_parts((*self.slot).tts_values, natts);
         let isnull = std::slice::from_raw_parts((*self.slot).tts_isnull, natts);
-        let expr_results = self.expression_state.evaluate(self.slot);
+        let expr_results = self.expression_state.evaluate_selected(self.slot, |index| {
+            self.required_expressions.contains(&index)
+        });
         let unpacked_composites =
             CompositeSlotValues::from_composites(self.categorized_fields.iter().filter_map(
                 |(_, categorized)| {

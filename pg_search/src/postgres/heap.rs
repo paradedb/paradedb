@@ -586,12 +586,24 @@ impl ExpressionState {
 
     /// Evaluate expressions for the tuple in the given slot.
     pub fn evaluate(&self, slot: *mut pg_sys::TupleTableSlot) -> Vec<(pg_sys::Datum, bool)> {
+        self.evaluate_selected(slot, |_| true)
+    }
+
+    pub fn evaluate_selected(
+        &self,
+        slot: *mut pg_sys::TupleTableSlot,
+        mut required: impl FnMut(usize) -> bool,
+    ) -> Vec<(pg_sys::Datum, bool)> {
         let mut expr_results = Vec::new();
         if !self.econtext.is_null() {
             unsafe {
                 (*self.econtext).ecxt_scantuple = slot;
             }
-            for expr_state in &self.expr_states {
+            for (index, expr_state) in self.expr_states.iter().enumerate() {
+                if !required(index) {
+                    expr_results.push((pg_sys::Datum::from(0), true));
+                    continue;
+                }
                 let mut is_null = false;
                 let datum =
                     unsafe { pg_sys::ExecEvalExpr(*expr_state, self.econtext, &mut is_null) };

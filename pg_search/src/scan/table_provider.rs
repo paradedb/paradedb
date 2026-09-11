@@ -102,13 +102,13 @@ pub struct PgSearchTableProvider {
     /// - **Phase 1 (false) - SQL Planning:** During initial plan construction (`joinscan`),
     ///   this provider must expose a standard relational schema (i.e. `Utf8View` for strings)
     ///   so that DataFusion's SQL expression builder and `TypeCoercion` pass don't panic
-    ///   when trying to apply normal string functions/sorts to a `Union` type.
+    ///   when trying to apply normal string functions/sorts to a packed integer column.
     ///
     /// - **Phase 2 (true) - Logical Optimization:** Once the plan is structurally validated,
     ///   our `LateMaterializationRule` flips this to `true` (via interior mutability).
-    ///   The provider immediately begins returning the physical `Union` schema. The rule
-    ///   then updates the `TableScan.projected_schema` to match, allowing the `Union`
-    ///   types to legally bubble up to our `LateMaterializeNode` anchor.
+    ///   The provider immediately begins returning the physical deferred schema. The rule
+    ///   then updates the `TableScan.projected_schema` to match, allowing the deferred
+    ///   columns to legally bubble up to our `LateMaterializeNode` anchor.
     ///
     /// SAFETY: Relaxed ordering is sufficient because the store (in LateMaterializationRule)
     /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
@@ -252,7 +252,7 @@ impl PgSearchTableProvider {
         self.range_split_points.as_ref()
     }
 
-    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
+    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (deferred columns)
     pub fn enable_late_materialization_schema(&self) {
         self.late_materialization_active
             .store(true, Ordering::Relaxed);
@@ -391,17 +391,6 @@ impl PgSearchTableProvider {
 
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
-        let ctid_col_name = self
-            .configured_deferred_ctid_plan_position()
-            .map(|pos| {
-                crate::postgres::customscan::joinscan::build::CtidColumn::new(pos).to_string()
-            })
-            .or_else(|| {
-                self.fields.iter().find_map(|wff| match wff {
-                    WhichFastField::DeferredCtid(name) => Some(name.clone()),
-                    _ => None,
-                })
-            });
         for (ff_index, wff) in self.fields.iter().enumerate() {
             if let WhichFastField::Deferred(name, field_type) = wff {
                 let is_bytes = matches!(
@@ -424,7 +413,6 @@ impl PgSearchTableProvider {
                         source_idx: self.source_idx,
                     }),
                     fetch_at_scan: self.deferred_fetch_at_scan,
-                    ctid_col_name: ctid_col_name.clone(),
                 });
             }
         }

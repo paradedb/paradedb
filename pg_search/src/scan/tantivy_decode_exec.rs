@@ -32,7 +32,7 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, ords_to_bytes_array, ords_to_string_array,
 };
-use crate::scan::deferred_encode::{DeferredUnion, DeferredValue};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
     rebuild_missing_ffhelpers,
@@ -139,7 +139,7 @@ impl TantivyDecodeExec {
     }
 }
 
-/// The input schema with each deferred union column replaced by its decoded type.
+/// The input schema with each deferred column replaced by its decoded type.
 fn build_output_schema(
     input_schema: SchemaRef,
     deferred: &[PhysicalDeferredField],
@@ -156,9 +156,9 @@ fn build_output_schema(
                 d.col_idx, d.display_name
             ))
         })?;
-        if !matches!(field.data_type(), DataType::Union(_, _)) {
+        if field.data_type() != &DataType::UInt64 {
             return Err(DataFusionError::Plan(format!(
-                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred union",
+                "TantivyDecodeExec: column {} ('{}') is {:?}, expected a deferred UInt64 column",
                 d.col_idx,
                 d.display_name,
                 field.data_type()
@@ -285,29 +285,7 @@ fn decode_batch(
     let mut columns = batch.columns().to_vec();
     for field in deferred_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        let ctid_col = match field.ctid_col_name.as_deref() {
-            Some(name) => {
-                let idx = batch.schema().index_of(name).map_err(|e| {
-                    DataFusionError::Internal(format!(
-                        "CTID column '{name}' for deferred field '{}' not found in batch: {e}",
-                        field.display_name
-                    ))
-                })?;
-                let col = batch
-                    .column(idx)
-                    .as_any()
-                    .downcast_ref::<UInt64Array>()
-                    .ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "CTID column '{name}' at index {idx} is not a UInt64Array"
-                        ))
-                    })?;
-                Some(col)
-            }
-            None => None,
-        };
-        columns[field.col_idx] =
-            decode_term_ordinals(ffhelper, field, &columns[field.col_idx], ctid_col)?;
+        columns[field.col_idx] = decode_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
     }
     RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
@@ -321,25 +299,17 @@ fn decode_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
     column: &ArrayRef,
-    ctid_col: Option<&UInt64Array>,
 ) -> Result<ArrayRef> {
-    let union = DeferredUnion::try_new(column.as_ref())?;
+    let deferred = DeferredColumn::try_new(column.as_ref())?;
     let num_rows = column.len();
     let num_segments = ffhelper.num_segments();
     let mut by_segment: Vec<Vec<(usize, TermOrdinal)>> = vec![Vec::new(); num_segments];
     let mut null_rows: Vec<usize> = Vec::new();
-    for (row, value) in union.values().enumerate() {
-        // If the relation was null-extended by an outer join, its ctid is NULL.
-        // Arrow's `take` kernel on dense `UnionArray` corrupts null indices by replacing
-        // them with 0 (offset 0 into child 0), so we must check the relation's ctid nullness.
-        if ctid_col.is_some_and(|c| c.is_null(row)) {
-            null_rows.push(row);
-            continue;
-        }
+    for (row, value) in deferred.values().enumerate() {
         match value {
             DeferredValue::TermOrdinal {
                 segment_ord,
-                term_ord: Some(term_ord),
+                term_ord,
             } => {
                 let entry = by_segment.get_mut(segment_ord as usize).ok_or_else(|| {
                     DataFusionError::Execution(format!(
@@ -349,9 +319,7 @@ fn decode_term_ordinals(
                 })?;
                 entry.push((row, term_ord));
             }
-            DeferredValue::TermOrdinal { term_ord: None, .. } | DeferredValue::Null => {
-                null_rows.push(row)
-            }
+            DeferredValue::Null => null_rows.push(row),
             DeferredValue::DocAddress(_) => {
                 return Err(DataFusionError::Internal(format!(
                     "TantivyDecodeExec: column '{}' row {row} still carries a doc address; a TantivyFetchExec must resolve it first",

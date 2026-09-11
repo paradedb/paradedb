@@ -565,6 +565,103 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
+-- A single-table aggregate reads every row the scan emits. `title` has one row per
+-- term, so its ordinals are not grouped and a deferred decode would repeat the
+-- scan's own work; the scan decodes it instead. `author` repeats across rows, so
+-- the decode runs once per group and stays where it is. The bucket limit is what
+-- routes a single-table group-by to DataFusion.
+-- =============================================================================
+SET paradedb.max_term_agg_buckets TO 1;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: title, (count(*))
+   Sort Key: p.title
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: title, (count(*))
+         Backend: DataFusion
+         Indexes: lmp_posts_idx (p)
+         Group By: title
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=p, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+  title   | count 
+----------+-------
+ Post 003 |     1
+ Post 006 |     1
+ Post 009 |     1
+ Post 012 |     1
+ Post 015 |     1
+ Post 018 |     1
+ Post 021 |     1
+ Post 024 |     1
+ Post 027 |     1
+ Post 030 |     1
+(10 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: author, (count(*))
+   Sort Key: c.author
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: author, (count(*))
+         Backend: DataFusion
+         Indexes: lmp_comments_idx (c)
+         Group By: author
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[author@0 as author], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[author]
+           :     AggregateExec: mode=Partial, gby=[author@0 as author], aggr=[count(1) as agg_0]
+           :       TantivyFetchExec: fetch=[author]
+           :         CooperativeExec
+           :           PgSearchScan: table=c, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"comment","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+  author   | count 
+-----------+-------
+ author 00 |    13
+ author 01 |    13
+ author 02 |    14
+ author 03 |    14
+ author 04 |    13
+ author 05 |    14
+ author 06 |    14
+ author 07 |    14
+ author 08 |    13
+ author 09 |    14
+ author 10 |    14
+(11 rows)
+
+RESET paradedb.max_term_agg_buckets;
+-- =============================================================================
 -- Settings override the rule
 -- =============================================================================
 SET paradedb.defer_string_decode = on;

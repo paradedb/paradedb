@@ -254,6 +254,44 @@ ORDER BY c1.author, c2.author
 LIMIT 5;
 
 -- =============================================================================
+-- A single-table aggregate reads every row the scan emits. `title` has one row per
+-- term, so its ordinals are not grouped and a deferred decode would repeat the
+-- scan's own work; the scan decodes it instead. `author` repeats across rows, so
+-- the decode runs once per group and stays where it is. The bucket limit is what
+-- routes a single-table group-by to DataFusion.
+-- =============================================================================
+
+SET paradedb.max_term_agg_buckets TO 1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+RESET paradedb.max_term_agg_buckets;
+
+-- =============================================================================
 -- Settings override the rule
 -- =============================================================================
 

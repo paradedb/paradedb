@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086642238,
+  "lastUpdate": 1789086650824,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -331608,6 +331608,90 @@ window.BENCHMARK_DATA = {
             "value": 581.7634382734799,
             "unit": "median tps",
             "extra": "avg tps: 582.7116937362301, max tps: 677.4494779263249, count: 55405"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086638591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 195.96771055291265,
+            "unit": "median tps",
+            "extra": "avg tps: 198.9264410266748, max tps: 220.850937655396, count: 55400"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 199.64610104483586,
+            "unit": "median tps",
+            "extra": "avg tps: 202.37099859362056, max tps: 222.33446283501863, count: 55400"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 176.52202820443978,
+            "unit": "median tps",
+            "extra": "avg tps: 177.77861962968674, max tps: 200.5965593868173, count: 55400"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 464.35107085664595,
+            "unit": "median tps",
+            "extra": "avg tps: 481.5417233892306, max tps: 689.5820058337597, count: 55400"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 337.78351004259775,
+            "unit": "median tps",
+            "extra": "avg tps: 345.9768460187989, max tps: 449.28705800113454, count: 55400"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.911476388210865,
+            "unit": "median tps",
+            "extra": "avg tps: 14.928477447057944, max tps: 16.4093728062036, count: 55400"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 664.3629408164431,
+            "unit": "median tps",
+            "extra": "avg tps: 673.3130514795487, max tps: 804.999673747302, count: 55400"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 675.0210954896106,
+            "unit": "median tps",
+            "extra": "avg tps: 683.3023565420365, max tps: 811.1186305379124, count: 55400"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 264.0597758619865,
+            "unit": "median tps",
+            "extra": "avg tps: 268.68733848608707, max tps: 323.00111156884753, count: 55400"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 580.6600251294169,
+            "unit": "median tps",
+            "extra": "avg tps: 587.433803424914, max tps: 736.1638271600914, count: 55400"
           }
         ]
       }

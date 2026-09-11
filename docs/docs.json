@@ -55,7 +55,8 @@
                     "pages": [
                       "reference/indexing/create-index",
                       "reference/indexing/indexing-partial",
-                      "reference/indexing/columnar"
+                      "reference/indexing/columnar",
+                      "reference/indexing/partition-by"
                     ]
                   },
                   {

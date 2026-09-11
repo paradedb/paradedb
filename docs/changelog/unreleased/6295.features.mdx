@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added `paradedb.enable_ordered_scan`, which lets a columnar scan retrieve in a requested sort order and skip the sort above it. A `LIMIT` can then stop the read early. It covers numeric, date, timestamp and boolean columns, and applies only when the scan sits directly below the sort.

@@ -29,51 +29,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(MockItem.category),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    category: {}
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, description, category);
+SQL
 ```
 
 ```cs EF Core
@@ -97,10 +73,10 @@ modelBuilder.Entity<MockItem>()
 </Note>
 
 <Note>
-  Some ORM client versions still require a `key_field` argument, so the ORM
-  examples retain it for compatibility. See the [getting started
-  guide](/documentation/getting-started/environment) for client versions and
-  setup instructions.
+  Some ORM client versions still require a `key_field` argument. The Django,
+  SQLAlchemy, and Rails examples use raw SQL to create indexes without it. See
+  the [getting started guide](/documentation/getting-started/environment) for
+  client versions and setup instructions.
 </Note>
 
 <Note>
@@ -170,55 +146,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
-from paradedb.search import Tokenizer
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {"tokenizer": Tokenizer.icu()},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (description::pdb.icu), category);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing, tokenizer
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(
-        MockItem.description,
-        tokenizer=tokenizer.icu(),
-    ),
-    indexing.ParadeDBField(MockItem.category),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (description::pdb.icu), category);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: { tokenizer: ParadeDB::Tokenizer.icu() },
-    category: {}
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, (description::pdb.icu), category);
+SQL
 ```
 
 ```cs EF Core
@@ -258,66 +206,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-                "rating": {},
-                "in_stock": {},
-                "created_at": {},
-                "metadata": {},
-                "weight_range": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(MockItem.category),
-    indexing.ParadeDBField(MockItem.rating),
-    indexing.ParadeDBField(MockItem.in_stock),
-    indexing.ParadeDBField(MockItem.created_at),
-    indexing.ParadeDBField(MockItem.metadata_),
-    indexing.ParadeDBField(MockItem.weight_range),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    category: {},
-    rating: {},
-    in_stock: {},
-    created_at: {},
-    metadata: {},
-    weight_range: {}
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
+SQL
 ```
 
 ```cs EF Core
@@ -376,61 +285,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
-from paradedb.search import Tokenizer
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {
-                    "tokenizer": Tokenizer.simple(
-                        options={"stemmer": "english"}
-                    ),
-                },
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (description::pdb.simple('stemmer=english')), category);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing, tokenizer
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(
-        MockItem.description,
-        tokenizer=tokenizer.simple(options={"stemmer": "english"}),
-    ),
-    indexing.ParadeDBField(MockItem.category),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, (description::pdb.simple('stemmer=english')), category);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {
-      tokenizer: ParadeDB::Tokenizer.simple(options: { stemmer: "english" })
-    },
-    category: {}
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, (description::pdb.simple('stemmer=english')), category);
+SQL
 ```
 
 ```cs EF Core

@@ -32,69 +32,28 @@ indexing
 ```
 
 ```python Django
-from django.db import connection, models
-from django.db.models import F, Func, Value
-from paradedb.indexes import ParadeDBIndex, IndexExpression
-from paradedb.search import Tokenizer
+from django.db import connection
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={"id": {}},
-            expressions=[
-                IndexExpression(
-                    Func(
-                        F("description"),
-                        Value(" "),
-                        F("category"),
-                        template="(%(expressions)s)",
-                        arg_joiner=" || ",
-                        output_field=models.TextField(),
-                    ),
-                    alias="description_concat",
-                    tokenizer=Tokenizer.simple(
-                        options={"alias": "description_concat"}
-                    ),
-                ),
-            ],
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')));
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing, tokenizer
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(
-        MockItem.description + " " + MockItem.category,
-        tokenizer=tokenizer.simple(options={"alias": "description_concat"}),
-    ),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')));
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    "(description || ' ' || category)" => {
-      tokenizer: ParadeDB::Tokenizer.simple(options: { alias: "description_concat" })
-    }
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')));
+SQL
 ```
 
 ```cs EF Core
@@ -155,56 +114,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from django.db.models import F
-from paradedb.indexes import ParadeDBIndex, IndexExpression
 
-with connection.schema_editor() as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={"id": {}, "description": {}},
-            expressions=[
-                IndexExpression(
-                    F("rating") + 1,
-                    alias="rating",
-                ),
-            ],
-            key_field="id",
-            name="search_idx",
-        ),
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')));
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing, pdb
-
-idx = Index(
-    "search_idx",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(
-        pdb.alias(MockItem.rating + 1, "rating"),
-    ),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-)
-
 with engine.begin() as conn:
-    idx.create(conn)
+    conn.exec_driver_sql("""
+        CREATE INDEX search_idx ON mock_items
+        USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')));
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    "(rating + 1)" => { alias: "rating" }
-  },
-  key_field: :id,
-  name: :search_idx
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX search_idx ON mock_items
+  USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')));
+SQL
 ```
 
 ```cs EF Core

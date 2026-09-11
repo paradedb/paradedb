@@ -33,55 +33,27 @@ indexing
 
 ```python Django
 from django.db import connection
-from paradedb.indexes import ParadeDBIndex
 
-with connection.schema_editor(atomic=False) as schema_editor:
-    schema_editor.add_index(
-        MockItem,
-        ParadeDBIndex(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx_v2",
-        ),
-        concurrently=True,
-    )
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CREATE INDEX CONCURRENTLY search_idx_v2
+        ON mock_items USING paradedb (id, description, category);
+    """)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
-
-idx = Index(
-    "search_idx_v2",
-    indexing.ParadeDBField(MockItem.id),
-    indexing.ParadeDBField(MockItem.description),
-    indexing.ParadeDBField(MockItem.category),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
-    postgresql_concurrently=True,
-)
-
-with engine.connect() as conn:
-    conn = conn.execution_options(isolation_level="AUTOCOMMIT")
-    idx.create(conn)
+with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    conn.exec_driver_sql("""
+        CREATE INDEX CONCURRENTLY search_idx_v2
+        ON mock_items USING paradedb (id, description, category);
+    """)
 ```
 
 ```ruby Rails
-ActiveRecord::Base.connection.add_paradedb_index(
-  :mock_items,
-  fields: {
-    id: {},
-    description: {},
-    category: {}
-  },
-  key_field: :id,
-  name: :search_idx_v2,
-  concurrently: true
-)
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX CONCURRENTLY search_idx_v2
+  ON mock_items USING paradedb (id, description, category);
+SQL
 ```
 
 ```cs EF Core

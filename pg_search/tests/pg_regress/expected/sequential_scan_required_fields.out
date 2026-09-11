@@ -99,6 +99,20 @@ SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ paradedb.all(
  {1,2,3,4}
 (1 row)
 
+SELECT array_agg(id ORDER BY id) FROM required_fields
+WHERE id @@@ pdb.more_like_this(document => '{"body":"alpha"}', min_doc_frequency => 1, min_term_frequency => 1);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM required_fields
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['body'], min_doc_frequency => 1, min_term_frequency => 1);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE required_fields_parse(text) AS
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ $1;

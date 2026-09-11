@@ -48,6 +48,11 @@ SELECT id, lower(body) @@@ pdb.empty() AS empty_match,
 FROM required_fields ORDER BY id;
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ paradedb.all();
 
+SELECT array_agg(id ORDER BY id) FROM required_fields
+WHERE id @@@ pdb.more_like_this(document => '{"body":"alpha"}', min_doc_frequency => 1, min_term_frequency => 1);
+SELECT array_agg(id ORDER BY id) FROM required_fields
+WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['body'], min_doc_frequency => 1, min_term_frequency => 1);
+
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE required_fields_parse(text) AS
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ $1;

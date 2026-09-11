@@ -786,6 +786,16 @@ impl SearchQueryInput {
                                 Some(format!("{field}:({query_string})"))
                             }
                         }
+                        pdb::Query::MoreLikeThis { fields, .. } => {
+                            if let Some(fields) = fields {
+                                field_names.extend(
+                                    fields.iter().map(|field| FieldName::from(field).root()),
+                                );
+                            } else {
+                                complete = false;
+                            }
+                            None
+                        }
                         pdb::Query::All | pdb::Query::Empty => None,
                         _ => {
                             field_names.insert(field.root());
@@ -798,10 +808,7 @@ impl SearchQueryInput {
                     field_names.extend(terms.iter().map(|term| term.field.root()));
                     None
                 }
-                Self::MoreLikeThis {
-                    document: Some(document),
-                    ..
-                } => {
+                Self::MoreLikeThis { document, .. } => {
                     field_names.extend(
                         document
                             .iter()
@@ -809,14 +816,7 @@ impl SearchQueryInput {
                     );
                     None
                 }
-                Self::MoreLikeThis {
-                    fields: Some(fields),
-                    ..
-                } => {
-                    field_names.extend(fields.iter().map(|field| FieldName::from(field).root()));
-                    None
-                }
-                Self::MoreLikeThis { .. } | Self::PostgresExpression { .. } => {
+                Self::PostgresExpression { .. } => {
                     complete = false;
                     None
                 }

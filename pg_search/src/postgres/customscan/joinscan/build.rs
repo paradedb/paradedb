@@ -354,6 +354,8 @@ pub enum ChildProjection {
         source_rti: SourceRti,
         field_name: String,
     },
+    /// A window function output column,
+    WindowAgg { agg_index: WindowAggIndex },
 }
 
 use crate::index::mvcc::MvccSatisfies;
@@ -364,7 +366,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::scan::info::{FieldInfo, RowEstimate};
 
-use super::window_func::WindowAgg;
+use super::window_func::{WindowAgg, WindowAggIndex, WindowAggList};
 
 /// Source information collected during planning.
 ///
@@ -1889,7 +1891,7 @@ pub struct JoinCSClause {
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
     /// List of window aggregates taken by the scan
-    pub window_aggs: Vec<WindowAgg>,
+    pub window_aggs: WindowAggList,
 }
 
 impl JoinCSClause {
@@ -1900,7 +1902,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
-            window_aggs: Vec::new(),
+            window_aggs: WindowAggList::new(Vec::new()),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1944,7 +1946,7 @@ impl JoinCSClause {
     }
 
     pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
-        self.window_aggs = window_aggs;
+        self.window_aggs = WindowAggList::new(window_aggs);
         self
     }
 

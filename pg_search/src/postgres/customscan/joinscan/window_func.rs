@@ -1,6 +1,24 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, unwrap_to_var,
@@ -36,15 +54,15 @@ impl SupportedWindowAggType {
 pub struct ColumnInfo {
     pub rti: pg_sys::Index,
     pub attno: pg_sys::AttrNumber,
-    pub resno: pg_sys::AttrNumber,
 }
 impl ColumnInfo {
-    pub fn new(rti: pg_sys::Index, attno: pg_sys::AttrNumber, resno: pg_sys::AttrNumber) -> Self {
-        Self { rti, attno, resno }
+    pub fn new(rti: pg_sys::Index, attno: pg_sys::AttrNumber) -> Self {
+        Self { rti, attno }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ResultType(pub pg_sys::Oid);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +70,60 @@ pub struct WindowAgg {
     pub agg_type: SupportedWindowAggType,
     pub col_info: Option<ColumnInfo>,
     pub result_type: ResultType,
+    pub resno: pg_sys::AttrNumber,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct WindowAggIndex(usize);
+impl WindowAggIndex {
+    pub fn as_col_name(&self) -> String {
+        WindowAggColumn::new(*self).to_string()
+    }
+}
+
+pub struct WindowAggColumn(WindowAggIndex);
+impl WindowAggColumn {
+    const PREFIX: &'static str = "window_agg_";
+
+    pub fn new(index: WindowAggIndex) -> Self {
+        WindowAggColumn(index)
+    }
+
+    #[allow(dead_code)]
+    pub fn index(&self) -> WindowAggIndex {
+        self.0
+    }
+}
+impl fmt::Display for WindowAggColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.0.0)
+    }
+}
+impl TryFrom<&str> for WindowAggColumn {
+    type Error = ();
+
+    fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        let index = col_name
+            .strip_prefix(Self::PREFIX)
+            .ok_or(())?
+            .parse::<usize>()
+            .map_err(|_| ())?;
+        Ok(Self::new(WindowAggIndex(index)))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(transparent)]
+pub struct WindowAggList(Vec<WindowAgg>);
+impl WindowAggList {
+    pub fn new(aggs: Vec<WindowAgg>) -> Self {
+        Self(aggs)
+    }
+
+    pub fn get(&self, index: WindowAggIndex) -> Option<&WindowAgg> {
+        self.0.get(index.0)
+    }
 }
 
 pub fn extract_window_agg(
@@ -117,11 +189,7 @@ pub fn extract_window_agg(
                     return Err("arguments to window aggregate must be fast fields".to_string());
                 }
 
-                Some(ColumnInfo::new(
-                    var.varno as pg_sys::Index,
-                    var.varattno,
-                    resno,
-                ))
+                Some(ColumnInfo::new(var.varno as pg_sys::Index, var.varattno))
             }
             _ => {
                 return Err("multi-argument window aggregates are not supported".to_string());
@@ -133,5 +201,6 @@ pub fn extract_window_agg(
         agg_type,
         col_info,
         result_type: ResultType(wf.wintype),
+        resno,
     })
 }

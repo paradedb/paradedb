@@ -778,6 +778,10 @@ fn apply_distinct_group_by(
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }
+            build::ChildProjection::WindowAgg { .. } => {
+                let e = build_projection_expr(proj, join_clause);
+                (e, None)
+            }
             build::ChildProjection::Score { rti } => {
                 let e = build_projection_expr(proj, join_clause);
                 (e, Some(DistinctColEntry::Var(*rti, 0)))
@@ -1041,7 +1045,8 @@ fn apply_output_projection(
             let col_alias = format!("col_{}", i + 1);
             let expr = if !distinct_col_map.is_empty() {
                 match proj {
-                    build::ChildProjection::Expression { .. } => col(&col_alias),
+                    build::ChildProjection::Expression { .. }
+                    | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
@@ -1108,6 +1113,7 @@ fn build_projection_expr(
                 }
             }
         }
+        ChildProjection::WindowAgg { agg_index } => return col(agg_index.as_col_name()),
         ChildProjection::Column { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
                 return expr;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789139596807,
+  "lastUpdate": 1789149390799,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3075,6 +3075,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.065,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149387030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6250769608914215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.878,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.144,
             "unit": "ms"
           }
         ]

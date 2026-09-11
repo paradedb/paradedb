@@ -283,11 +283,10 @@ pub fn extract_window_agg(
             1 => {
                 let arg = args.get_ptr(0).unwrap();
 
-                let var = unsafe {
-                    unwrap_to_var(arg).ok_or_else(|| {
-                        "window aggregate argument must be a direct column reference".to_string()
-                    })?
-                };
+                let var = unwrap_to_var(arg).ok_or_else(|| {
+                    "window aggregate argument must be a direct column reference".to_string()
+                })?;
+
                 assert!(!var.is_null());
                 let var = unsafe { *var };
 

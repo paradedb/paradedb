@@ -104,20 +104,20 @@ mod identity_ops {
 /// If nothing can be safely stripped, returns `expr` unchanged.
 ///
 /// Safe to call with a null pointer; returns null in that case.
-pub(crate) unsafe fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub(crate) fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if expr.is_null() {
             return expr;
         }
-        match (*expr).type_ {
+        match unsafe { (*expr).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::RelabelType)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_CoerceToDomain => {
-                expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::CoerceToDomain)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_OpExpr => {
-                match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                match unsafe { try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) } {
                     Some(inner) => expr = inner,
                     None => return expr,
                 }
@@ -160,31 +160,34 @@ unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_
 ///
 /// `const_on_right` indicates whether the constant is the right operand.
 /// For non-commutative operators like `-` and `/`, the constant must be on the right.
-unsafe fn is_identity_operation(
+fn is_identity_operation(
     opno: pg_sys::Oid,
     konst: *mut pg_sys::Const,
     const_on_right: bool,
 ) -> bool {
-    if konst.is_null() || (*konst).constisnull {
+    if konst.is_null() || unsafe { (*konst).constisnull } {
         return false;
     }
+    let konst = unsafe { &*konst };
 
-    let Some(&op) = identity_ops::lookup().get(&opno) else {
+    let Some(&op) = unsafe { identity_ops::lookup() }.get(&opno) else {
         return false;
     };
 
     let const_is = |expected: i64| -> bool {
-        let datum = (*konst).constvalue;
-        let typoid = (*konst).consttype;
-        match typoid {
-            pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
-            pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
-            pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
-            pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
-            pg_sys::NUMERICOID => {
-                AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+        let datum = konst.constvalue;
+        let typoid = konst.consttype;
+        unsafe {
+            match typoid {
+                pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
+                pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
+                pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
+                pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+                pg_sys::NUMERICOID => {
+                    AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+                }
+                _ => false,
             }
-            _ => false,
         }
     };
 

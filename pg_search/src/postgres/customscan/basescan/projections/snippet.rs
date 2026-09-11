@@ -45,7 +45,7 @@ pub struct FragmentPositionsConfig {
 impl FragmentPositionsConfig {
     /// Resolve the LIMIT against the executor state. Returns `None` if there is
     /// no LIMIT or the parameter resolves to NULL.
-    pub unsafe fn resolve_limit(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+    pub fn resolve_limit(&self, estate: *mut pg_sys::EState) -> Option<usize> {
         self.limit.as_ref().and_then(|v| {
             v.resolve(estate).map(|raw| {
                 assert!(raw >= 0, "limit must not be negative");
@@ -56,7 +56,7 @@ impl FragmentPositionsConfig {
 
     /// Resolve the OFFSET against the executor state. Returns `None` if there is
     /// no OFFSET or the parameter resolves to NULL.
-    pub unsafe fn resolve_offset(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+    pub fn resolve_offset(&self, estate: *mut pg_sys::EState) -> Option<usize> {
         self.offset.as_ref().and_then(|v| {
             v.resolve(estate).map(|raw| {
                 assert!(raw >= 0, "offset must not be negative");
@@ -76,7 +76,7 @@ pub struct SnippetPositionsConfig {
 
 impl SnippetPositionsConfig {
     /// Resolve the LIMIT, falling back to `DEFAULT_SNIPPET_LIMIT` when absent or NULL.
-    pub unsafe fn resolve_limit_or_default(&self, estate: *mut pg_sys::EState) -> usize {
+    pub fn resolve_limit_or_default(&self, estate: *mut pg_sys::EState) -> usize {
         let limit = self
             .limit
             .as_ref()
@@ -87,7 +87,7 @@ impl SnippetPositionsConfig {
     }
 
     /// Resolve the OFFSET, falling back to `DEFAULT_SNIPPET_OFFSET` when absent or NULL.
-    pub unsafe fn resolve_offset_or_default(&self, estate: *mut pg_sys::EState) -> usize {
+    pub fn resolve_offset_or_default(&self, estate: *mut pg_sys::EState) -> usize {
         let offset = self
             .offset
             .as_ref()
@@ -106,15 +106,15 @@ pub struct SnippetConfig {
 }
 
 impl SnippetConfig {
-    pub unsafe fn resolve_start_tag(&self, estate: *mut pg_sys::EState) -> String {
+    pub fn resolve_start_tag(&self, estate: *mut pg_sys::EState) -> String {
         resolve_tag_or_default(&self.start_tag, estate, DEFAULT_SNIPPET_PREFIX)
     }
 
-    pub unsafe fn resolve_end_tag(&self, estate: *mut pg_sys::EState) -> String {
+    pub fn resolve_end_tag(&self, estate: *mut pg_sys::EState) -> String {
         resolve_tag_or_default(&self.end_tag, estate, DEFAULT_SNIPPET_POSTFIX)
     }
 
-    pub unsafe fn resolve_max_num_chars(&self, estate: *mut pg_sys::EState) -> usize {
+    pub fn resolve_max_num_chars(&self, estate: *mut pg_sys::EState) -> usize {
         let v = self
             .max_num_chars
             .resolve(estate)
@@ -124,7 +124,7 @@ impl SnippetConfig {
     }
 }
 
-unsafe fn resolve_tag_or_default(
+fn resolve_tag_or_default(
     tag: &ParameterizedValue<String>,
     estate: *mut pg_sys::EState,
     default: &str,
@@ -183,7 +183,7 @@ impl SnippetType {
         }
     }
 
-    pub unsafe fn configure_generator(
+    pub fn configure_generator(
         &self,
         generator: &mut SnippetGenerator,
         estate: *mut pg_sys::EState,
@@ -529,7 +529,7 @@ fn resolve_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
     }
 }
 
-pub unsafe fn uses_snippets(
+pub fn uses_snippets(
     planning_rti: pg_sys::Index,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     node: *mut pg_sys::Node,
@@ -538,28 +538,30 @@ pub unsafe fn uses_snippets(
     snippet_positions_funcoids: [pg_sys::Oid; 2],
 ) -> Vec<SnippetType> {
     let mut snippet_types = Vec::new();
-    node.visit(|node| {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            if let Some(snippet_type) =
-                extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
-            {
-                snippet_types.push(snippet_type);
+    unsafe {
+        node.visit(|node| {
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+                if let Some(snippet_type) =
+                    extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
+                {
+                    snippet_types.push(snippet_type);
+                }
+                if let Some(snippet_type) =
+                    extract_snippets(funcexpr, planning_rti, snippets_funcoids, attname_lookup)
+                {
+                    snippet_types.push(snippet_type);
+                }
+                if let Some(snippet_type) = extract_snippet_positions(
+                    funcexpr,
+                    planning_rti,
+                    snippet_positions_funcoids,
+                    attname_lookup,
+                ) {
+                    snippet_types.push(snippet_type);
+                }
             }
-            if let Some(snippet_type) =
-                extract_snippets(funcexpr, planning_rti, snippets_funcoids, attname_lookup)
-            {
-                snippet_types.push(snippet_type);
-            }
-            if let Some(snippet_type) = extract_snippet_positions(
-                funcexpr,
-                planning_rti,
-                snippet_positions_funcoids,
-                attname_lookup,
-            ) {
-                snippet_types.push(snippet_type);
-            }
-        }
-    });
+        })
+    };
     snippet_types
 }
 

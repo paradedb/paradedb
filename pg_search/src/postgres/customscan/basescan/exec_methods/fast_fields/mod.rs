@@ -78,16 +78,17 @@ pub unsafe fn collect_fast_fields(
     .unwrap_or_default()
 }
 
-unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
+fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
     if node.is_null() {
         return;
     }
-    for var in node.collect_nodes::<pg_sys::Var>() {
-        if (*var).varno as i32 == old_varno {
-            (*var).varno = new_varno as _;
+    for var in unsafe { node.collect_nodes::<pg_sys::Var>() } {
+        let var = unsafe { &mut *var };
+        if var.varno as i32 == old_varno {
+            var.varno = new_varno as _;
         }
-        if (*var).varnosyn as i32 == old_varno {
-            (*var).varnosyn = new_varno as _;
+        if var.varnosyn as i32 == old_varno {
+            var.varnosyn = new_varno as _;
         }
     }
 }

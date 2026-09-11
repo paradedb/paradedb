@@ -303,7 +303,8 @@ impl ExecMethod for TopKScanExecState {
                 ..
             } = state.exec_method_type
             {
-                self.limit = unsafe { limit_offset.resolve_mut(estate) }
+                self.limit = limit_offset
+                    .resolve_mut(estate)
                     .expect("LIMIT must be resolvable from EState (param missing or NULL)")
                     .static_fetch();
             }

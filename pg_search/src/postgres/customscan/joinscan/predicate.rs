@@ -95,7 +95,7 @@ pub unsafe fn transform_to_search_expr(
     /// Check if an expression consists purely of search predicates
     /// connected by boolean operations (AND, OR, NOT). Expressions containing
     /// non-search predicates (such as `NullTest`, comparisons, etc.) return false.
-    unsafe fn is_pure_search_expr(mut node: *mut pg_sys::Node) -> bool {
+    fn is_pure_search_expr(mut node: *mut pg_sys::Node) -> bool {
         if node.is_null() {
             return false;
         }
@@ -103,14 +103,14 @@ pub unsafe fn transform_to_search_expr(
         if node.is_null() {
             return false;
         }
-        if SearchPredicate::from_node(node).is_some() {
+        if unsafe { SearchPredicate::from_node(node) }.is_some() {
             return true;
         }
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_BoolExpr => {
-                let boolexpr = node as *mut pg_sys::BoolExpr;
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                !args.is_empty() && args.iter_ptr().all(|arg| is_pure_search_expr(arg))
+                let boolexpr = unsafe { &*(node as *mut pg_sys::BoolExpr) };
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(boolexpr.args) };
+                !args.is_empty() && args.iter_ptr().all(is_pure_search_expr)
             }
             _ => false,
         }

@@ -39,7 +39,7 @@ use pgrx::pg_sys;
 /// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
 /// - Expressions with PARAM_EXTERN: deparse as "$N"
 /// - Multi-table expressions: fall back to nodeToString
-pub unsafe fn deparse_expr(
+pub fn deparse_expr(
     planner_context: Option<&PlannerContext>,
     rel: &PgSearchRelation,
     expr: *mut pg_sys::Node,
@@ -52,8 +52,8 @@ pub unsafe fn deparse_expr(
     // clone and replace them with placeholder constants, then deparse
     // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
     // deparsed as "$N" by PostgreSQL's deparse_expression
-    let expr_to_deparse = if expr.contains_exec_param() {
-        let cloned = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
+    let expr_to_deparse = if unsafe { expr.contains_exec_param() } {
+        let cloned = unsafe { pg_sys::copyObjectImpl(expr.cast()) }.cast::<pg_sys::Node>();
         replace_exec_params_with_placeholders(cloned);
         cloned
     } else {
@@ -70,39 +70,39 @@ pub unsafe fn deparse_expr(
     };
 
     // Collect all vars, extract varnos and remove duplicate varnos
-    let mut varnos = expr_to_deparse
-        .collect_nodes::<pg_sys::Var>()
+    let mut varnos = unsafe { expr_to_deparse.collect_nodes::<pg_sys::Var>() }
         .into_iter()
-        .map(|var| (*var).varno as pg_sys::Index)
+        .map(|var| unsafe { (*var).varno } as pg_sys::Index)
         .collect::<Vec<pg_sys::Index>>();
     varnos.sort();
     varnos.dedup();
 
     // If expression has no var references (constant expression), use heap relation context
     if varnos.is_empty() {
-        return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
+        return unsafe { deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid) };
     }
 
     // Get the PlannerInfo to access the rtable
     let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
         // No PlannerInfo available - try simple deparse for varno 1
         if varnos.len() == 1 && varnos[0] == 1 {
-            return deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid);
+            return unsafe { deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid) };
         }
-        return node_to_string_without_context(expr_to_deparse);
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
     };
 
-    let parse = (*root).parse;
+    let parse = unsafe { (*root).parse };
     if parse.is_null() {
-        return node_to_string_without_context(expr_to_deparse);
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
     }
+    let parse = unsafe { &*parse };
 
-    let rtable = (*parse).rtable;
+    let rtable = parse.rtable;
     if rtable.is_null() {
-        return node_to_string_without_context(expr_to_deparse);
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
     }
 
-    let rtable_list = pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+    let rtable_list = unsafe { pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable) };
 
     if varnos.len() == 1 {
         // Single varno - get RTE and deparse
@@ -110,27 +110,29 @@ pub unsafe fn deparse_expr(
         let rte_idx = (varno - 1) as usize; // varno is 1-based
 
         let Some(rte) = rtable_list.get_ptr(rte_idx) else {
-            return node_to_string_without_context(expr_to_deparse);
+            return unsafe { node_to_string_without_context(expr_to_deparse) };
         };
+        let rte = unsafe { &*rte };
 
         // Only handle RTE_RELATION
-        if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
-            return node_to_string_without_context(expr_to_deparse);
+        if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
+            return unsafe { node_to_string_without_context(expr_to_deparse) };
         }
 
-        let relid = (*rte).relid;
+        let relid = rte.relid;
         let relname = rel.name();
 
         if varno == 1 {
             // Already at varno 1, deparse directly
-            return deparse_with_single_relation(expr_to_deparse, relname, relid);
+            return unsafe { deparse_with_single_relation(expr_to_deparse, relname, relid) };
         }
 
         // Need to remap varno to 1 for deparsing
         // Clone the expression and remap varnos (note: may already be cloned for PARAM replacement)
-        let expr_copy = pg_sys::copyObjectImpl(expr_to_deparse.cast()).cast::<pg_sys::Node>();
+        let expr_copy =
+            unsafe { pg_sys::copyObjectImpl(expr_to_deparse.cast()) }.cast::<pg_sys::Node>();
         remap_varnos(expr_copy, varno, 1);
-        return deparse_with_single_relation(expr_copy, relname, relid);
+        return unsafe { deparse_with_single_relation(expr_copy, relname, relid) };
     }
 
     // Multi-relation expressions: deparse using PlannerInfo context
@@ -138,47 +140,53 @@ pub unsafe fn deparse_expr(
         return deparsed;
     }
 
-    node_to_string_without_context(expr)
+    unsafe { node_to_string_without_context(expr) }
 }
 
 /// Deparse a PostgreSQL expression tree during query planning using `PlannerInfo`.
 ///
 /// Constructs a multi-relation deparsing context from the query's range table,
 /// assigning unique aliases via `select_rtable_names_for_explain`.
-pub unsafe fn deparse_planner_expr(
+pub fn deparse_planner_expr(
     root: *mut pg_sys::PlannerInfo,
     expr: *mut pg_sys::Node,
 ) -> Option<String> {
     use std::panic::AssertUnwindSafe;
-    if root.is_null() || expr.is_null() || (*root).parse.is_null() || expr.contains_exec_param() {
+    if root.is_null()
+        || expr.is_null()
+        || unsafe { (*root).parse.is_null() }
+        || unsafe { expr.contains_exec_param() }
+    {
         return None;
     }
+    let root = unsafe { &*root };
 
-    let rtable = (*(*root).parse).rtable;
+    let rtable = unsafe { (*root.parse).rtable };
     if rtable.is_null() {
         return None;
     }
 
     pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
-        let rtable_names = pg_sys::select_rtable_names_for_explain(rtable, std::ptr::null_mut());
+        let rtable_names =
+            unsafe { pg_sys::select_rtable_names_for_explain(rtable, std::ptr::null_mut()) };
 
-        let mut pstmt: pg_sys::PlannedStmt = std::mem::zeroed();
+        let mut pstmt: pg_sys::PlannedStmt = unsafe { std::mem::zeroed() };
         pstmt.type_ = pg_sys::NodeTag::T_PlannedStmt;
         pstmt.rtable = rtable;
-        pstmt.subplans = if !(*root).glob.is_null() {
-            (*(*root).glob).subplans
+        pstmt.subplans = if !root.glob.is_null() {
+            unsafe { (*root.glob).subplans }
         } else {
             std::ptr::null_mut()
         };
-        pstmt.appendRelations = (*root).append_rel_list;
+        pstmt.appendRelations = root.append_rel_list;
 
-        let dpcontext = pg_sys::deparse_context_for_plan_tree(&mut pstmt, rtable_names);
-        let raw_str = pg_sys::deparse_expression(expr.cast(), dpcontext, true, false);
+        let dpcontext = unsafe { pg_sys::deparse_context_for_plan_tree(&mut pstmt, rtable_names) };
+        let raw_str = unsafe { pg_sys::deparse_expression(expr.cast(), dpcontext, true, false) };
         if raw_str.is_null() {
             None
         } else {
             Some(
-                std::ffi::CStr::from_ptr(raw_str)
+                unsafe { std::ffi::CStr::from_ptr(raw_str) }
                     .to_string_lossy()
                     .into_owned(),
             )
@@ -213,34 +221,34 @@ unsafe fn deparse_with_single_relation(
 /// Replace PARAM_EXEC nodes with PARAM_EXTERN in an expression tree.
 /// This allows deparse_expression to render them as `$N` instead of crashing.
 /// The expression should be cloned before calling this function.
-unsafe fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
-    node.visit(|node| {
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
-        {
-            (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
-            // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
-            (*param).paramid += 1;
-        }
-    });
+fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
+    unsafe {
+        node.visit(|node| {
+            if let Some(param) = nodecast!(Param, T_Param, node)
+                && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+            {
+                (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+                // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
+                (*param).paramid += 1;
+            }
+        })
+    };
 }
 
 /// Remap varnos in an expression tree from old_varno to new_varno
-unsafe fn remap_varnos(
-    node: *mut pg_sys::Node,
-    old_varno: pg_sys::Index,
-    new_varno: pg_sys::Index,
-) {
-    node.visit(|node| {
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            if (*var).varno as pg_sys::Index == old_varno {
-                (*var).varno = new_varno as _;
+fn remap_varnos(node: *mut pg_sys::Node, old_varno: pg_sys::Index, new_varno: pg_sys::Index) {
+    unsafe {
+        node.visit(|node| {
+            if let Some(var) = nodecast!(Var, T_Var, node) {
+                if (*var).varno as pg_sys::Index == old_varno {
+                    (*var).varno = new_varno as _;
+                }
+                if (*var).varnosyn as pg_sys::Index == old_varno {
+                    (*var).varnosyn = new_varno as _;
+                }
             }
-            if (*var).varnosyn as pg_sys::Index == old_varno {
-                (*var).varnosyn = new_varno as _;
-            }
-        }
-    });
+        })
+    };
 }
 
 /// Convert a PostgreSQL node to its raw AST string representation using `nodeToString`.

@@ -906,7 +906,7 @@ unsafe fn extract_non_equi_filter_from_quals(
 ///
 /// Looks for `OpExpr` nodes where the operator is `=` and the arguments are `Var`
 /// nodes referencing different tables that have ParadeDB indexes.
-unsafe fn extract_equi_keys_from_expr(
+fn extract_equi_keys_from_expr(
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
 ) -> Result<Vec<JoinKeyPair>, String> {
@@ -916,17 +916,18 @@ unsafe fn extract_equi_keys_from_expr(
         return Ok(keys);
     }
 
-    let tag = (*node).type_;
+    let tag = unsafe { (*node).type_ };
 
     if tag == pg_sys::NodeTag::T_OpExpr {
-        if let Some(key) = try_extract_one_equi_key(node as *mut pg_sys::OpExpr, sources) {
+        if let Some(key) = unsafe { try_extract_one_equi_key(node as *mut pg_sys::OpExpr, sources) }
+        {
             keys.push(key);
         }
     } else if tag == pg_sys::NodeTag::T_BoolExpr {
-        let bool_expr = node as *mut pg_sys::BoolExpr;
+        let bool_expr = unsafe { &*(node as *mut pg_sys::BoolExpr) };
         // Only recurse into AND expressions - OR'd equi-keys aren't usable
-        if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
-            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+        if bool_expr.boolop == pg_sys::BoolExprType::AND_EXPR {
+            let args = unsafe { PgList::<pg_sys::Node>::from_pg(bool_expr.args) };
             for arg in args.iter_ptr() {
                 keys.extend(extract_equi_keys_from_expr(arg, sources)?);
             }
@@ -934,7 +935,7 @@ unsafe fn extract_equi_keys_from_expr(
     } else if tag == pg_sys::NodeTag::T_List {
         // Postgres may wrap ON clause quals in a List node.
         // On PG18 this is the common path even for single-condition ON clauses.
-        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        let list = unsafe { PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List) };
         for item in list.iter_ptr() {
             keys.extend(extract_equi_keys_from_expr(item, sources)?);
         }
@@ -977,7 +978,7 @@ unsafe fn try_extract_one_equi_key(
 ///
 /// So adding `return Err on unhandled` *here* would false-positive on
 /// legitimate queries (e.g. `WHERE a.id = b.id AND a.col > 5`).
-unsafe fn extract_equi_keys_from_quals(
+fn extract_equi_keys_from_quals(
     root: *mut pg_sys::PlannerInfo,
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -988,7 +989,7 @@ unsafe fn extract_equi_keys_from_quals(
         return Ok(());
     }
 
-    prune_redundant_const_equi_keys(root, &mut keys);
+    unsafe { prune_redundant_const_equi_keys(root, &mut keys) }
 
     plan.inject_equi_keys(keys);
 
@@ -1155,7 +1156,7 @@ impl PathPredicateDeclineReason {
 /// For LEFT/RIGHT JOINs, ON-clause predicates (`is_pushed_down=false`)
 /// affect matching and NULL-extension semantics - they cannot be
 /// correctly applied as post-join filters, so the DataFusion path declines.
-unsafe fn analyze_join_path_restrictinfo(
+fn analyze_join_path_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -1168,8 +1169,10 @@ unsafe fn analyze_join_path_restrictinfo(
         coverage: PathPredicateCoverage::Complete,
     };
     let mut on_clauses = Vec::new();
-    if !root.is_null() && !(*root).parse.is_null() && !(*(*root).parse).jointree.is_null() {
-        collect_on_clause_nodes((*(*root).parse).jointree.cast(), &mut on_clauses);
+    if !root.is_null()
+        && unsafe { !(*root).parse.is_null() && !(*(*root).parse).jointree.is_null() }
+    {
+        collect_on_clause_nodes(unsafe { (*(*root).parse).jointree.cast() }, &mut on_clauses);
     }
     let path = input_rel.cheapest_total_path;
     if !path.is_null() {
@@ -1309,7 +1312,7 @@ unsafe fn classify_path_restrictinfo(
     }
 }
 
-unsafe fn walk_path_restrictinfo(
+fn walk_path_restrictinfo(
     cx: &PathWalkContext<'_>,
     path: *mut pg_sys::Path,
     behind_transparent_wrapper: bool,
@@ -1322,7 +1325,7 @@ unsafe fn walk_path_restrictinfo(
     // Parameterized nested-loop clauses can be removed from the parent
     // JoinPath.joinrestrictinfo once the inner path enforces them. Inventory
     // ppi_clauses at every path node before following wrappers or children.
-    let param_info = (*path).param_info;
+    let param_info = unsafe { (*path).param_info };
     if !param_info.is_null() {
         // PostgreSQL marks WHERE and INNER JOIN clauses is_pushed_down=true, so
         // the conservative `false` still accepts inner-join residuals; it
@@ -1332,25 +1335,27 @@ unsafe fn walk_path_restrictinfo(
         // Equality keys come from the retained query tree, so ppi equalities are
         // coverage-only - recording them would add transitively redundant keys
         // to a multi-table join. Residual ppi clauses are still retained.
-        classify_path_restrictinfo(
-            cx,
-            (*param_info).ppi_clauses,
-            EquiKeySource::Ignore,
-            RestrictInfoOrigin::ParamPathInfo,
-            info,
-        );
+        unsafe {
+            classify_path_restrictinfo(
+                cx,
+                (*param_info).ppi_clauses,
+                EquiKeySource::Ignore,
+                RestrictInfoOrigin::ParamPathInfo,
+                info,
+            );
+        }
     }
 
     if let Some(subpath) = transparent_path_subpath(path) {
         if subpath.is_null() || subpath == path {
-            info.mark_incomplete((*path).type_);
+            info.mark_incomplete(unsafe { (*path).type_ });
             return;
         }
         walk_path_restrictinfo(cx, subpath, true, info);
         return;
     }
 
-    let tag = (*path).type_;
+    let tag = unsafe { (*path).type_ };
     let is_join_path = matches!(
         tag,
         pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
@@ -1359,37 +1364,39 @@ unsafe fn walk_path_restrictinfo(
         // Base-relation paths are leaves for this inventory; their predicates
         // are covered separately by baserestrictinfo. A non-transparent path
         // over a join relation is opaque and cannot be reconstructed safely.
-        let parent = (*path).parent;
-        if !parent.is_null() && pg_sys::bms_num_members((*parent).relids) > 1 {
+        let parent = unsafe { (*path).parent };
+        if !parent.is_null() && unsafe { pg_sys::bms_num_members((*parent).relids) } > 1 {
             info.mark_incomplete(tag);
         }
         return;
     }
 
-    let join_path = path as *mut pg_sys::JoinPath;
+    let join_path = unsafe { &*(path as *mut pg_sys::JoinPath) };
     let source_type = if behind_transparent_wrapper {
         EquiKeySource::BehindWrapper
     } else {
         EquiKeySource::Direct
     };
 
-    classify_path_restrictinfo(
-        cx,
-        (*join_path).joinrestrictinfo,
-        source_type,
-        RestrictInfoOrigin::JoinRestrictInfo,
-        info,
-    );
+    unsafe {
+        classify_path_restrictinfo(
+            cx,
+            join_path.joinrestrictinfo,
+            source_type,
+            RestrictInfoOrigin::JoinRestrictInfo,
+            info,
+        );
+    }
 
     walk_path_restrictinfo(
         cx,
-        (*join_path).outerjoinpath,
+        join_path.outerjoinpath,
         behind_transparent_wrapper,
         info,
     );
     walk_path_restrictinfo(
         cx,
-        (*join_path).innerjoinpath,
+        join_path.innerjoinpath,
         behind_transparent_wrapper,
         info,
     );
@@ -1397,7 +1404,7 @@ unsafe fn walk_path_restrictinfo(
 
 /// Validate that the selected lower path has complete, supported
 /// join-predicate coverage.
-pub unsafe fn check_join_path_predicates(
+pub fn check_join_path_predicates(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -1451,22 +1458,19 @@ impl FilterExpr {
     /// Translate a Postgres expression node tree into a serializable [`FilterExpr`].
     /// HAVING resolves `T_Aggref` -> `AggRef` and `T_Var` -> `GroupRef`;
     /// FILTER resolves `T_Var` -> `ColumnRef`. Interior nodes are context-agnostic.
-    pub unsafe fn from_pg_node(
-        node: *mut pg_sys::Node,
-        ctx: &FilterExprBuildContext<'_>,
-    ) -> Option<Self> {
+    pub fn from_pg_node(node: *mut pg_sys::Node, ctx: &FilterExprBuildContext<'_>) -> Option<Self> {
         if node.is_null() {
             return None;
         }
 
-        let tag = (*node).type_;
+        let tag = unsafe { (*node).type_ };
 
         match tag {
             pg_sys::NodeTag::T_List => {
                 // Postgres sometimes wraps quals in an implicit-AND List.
                 // Translate each element and combine with AND (collapsing
                 // single-element lists to avoid a redundant And wrapper).
-                let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+                let list = unsafe { PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List) };
                 let mut children = Vec::new();
                 for item in list.iter_ptr() {
                     children.push(Self::from_pg_node(item, ctx)?);
@@ -1491,13 +1495,13 @@ impl FilterExpr {
                 let FilterExprBuildContext::Having { targetlist, .. } = ctx else {
                     return None;
                 };
-                let aggref = node as *mut pg_sys::Aggref;
+                let aggref = unsafe { &*(node as *mut pg_sys::Aggref) };
                 for (idx, agg) in targetlist.aggregates.iter().enumerate() {
-                    if (*aggref).aggfnoid.to_u32() == agg.func_oid
-                        && ((*aggref).aggstar
+                    if aggref.aggfnoid.to_u32() == agg.func_oid
+                        && (aggref.aggstar
                             == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
                     {
-                        if (*aggref).aggstar {
+                        if aggref.aggstar {
                             return Some(Self::AggRef(idx));
                         }
                         // Non-star: confirm the argument column matches.
@@ -1506,13 +1510,15 @@ impl FilterExpr {
                         // PlannerInfos. `plan_position` is the canonical
                         // identity; targetlist refs don't carry rti.
                         if !agg.field_refs.is_empty() {
-                            let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                            let args =
+                                unsafe { PgList::<pg_sys::TargetEntry>::from_pg(aggref.args) };
                             if let Some(first_arg) = args.get_ptr(0)
                                 && let Some(var) =
-                                    (*first_arg).expr.find_single_node::<pg_sys::Var>()
+                                    unsafe { (*first_arg).expr.find_single_node::<pg_sys::Var>() }
                             {
-                                let rti = (*var).varno as pg_sys::Index;
-                                let attno = (*var).varattno;
+                                let var = unsafe { &*var };
+                                let rti = var.varno as pg_sys::Index;
+                                let attno = var.varattno;
                                 if let Some(r) = agg.field_refs.first() {
                                     let var_pp = ctx.resolve_var(rti, attno);
                                     if var_pp == Some(r.plan_position) && attno == r.attno {
@@ -1533,14 +1539,15 @@ impl FilterExpr {
                 // reference any column on the source tables, which we resolve
                 // by field name via the fast-field metadata.
                 let var = node as *mut pg_sys::Var;
-                let rti = (*var).varno as pg_sys::Index;
-                let attno = (*var).varattno;
+                let rti = unsafe { (*var).varno } as pg_sys::Index;
+                let attno = unsafe { (*var).varattno };
                 let pp = ctx.resolve_var(rti, attno)?;
 
                 match ctx {
                     FilterExprBuildContext::Filter { sources, .. } => {
                         let source = sources.iter().find(|s| s.rti == rti)?;
-                        let field_name = fieldname_from_var(source.relid, var, attno)?.into_inner();
+                        let field_name =
+                            unsafe { fieldname_from_var(source.relid, var, attno) }?.into_inner();
                         Some(Self::ColumnRef {
                             plan_position: pp,
                             rti,
@@ -1556,60 +1563,63 @@ impl FilterExpr {
                 }
             }
             pg_sys::NodeTag::T_Const => {
-                let c = node as *mut pg_sys::Const;
-                if (*c).constisnull {
+                let c = unsafe { &*(node as *mut pg_sys::Const) };
+                if c.constisnull {
                     // NULL literals in HAVING/FILTER are unusual; don't try
                     // to synthesize a typed NULL - bail and fall back to PG.
                     return None;
                 }
-                let typoid = (*c).consttype;
-                let datum = (*c).constvalue;
+                let typoid = c.consttype;
+                let datum = c.constvalue;
                 match typoid {
                     pg_sys::INT2OID => {
-                        let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                        let i: Option<i16> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitInt(i? as i64))
                     }
                     pg_sys::INT4OID => {
-                        let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                        let i: Option<i32> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitInt(i? as i64))
                     }
                     pg_sys::INT8OID => {
-                        let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                        let i: Option<i64> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitInt(i?))
                     }
                     pg_sys::FLOAT4OID => {
-                        let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                        let f: Option<f32> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitFloat(f? as f64))
                     }
                     pg_sys::FLOAT8OID | pg_sys::NUMERICOID => {
-                        let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                        let f: Option<f64> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitFloat(f?))
                     }
                     pg_sys::BOOLOID => {
-                        let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                        let b: Option<bool> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitBool(b?))
                     }
                     pg_sys::TEXTOID | pg_sys::VARCHAROID => {
-                        let s: Option<String> = pgrx::FromDatum::from_datum(datum, false);
+                        let s: Option<String> =
+                            unsafe { pgrx::FromDatum::from_datum(datum, false) };
                         Some(Self::LitString(s?))
                     }
                     _ => None,
                 }
             }
             pg_sys::NodeTag::T_OpExpr => {
-                let op = node as *mut pg_sys::OpExpr;
-                let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+                let op = unsafe { &*(node as *mut pg_sys::OpExpr) };
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(op.args) };
                 if args.len() != 2 {
                     return None;
                 }
                 let left = Self::from_pg_node(args.get_ptr(0)?, ctx)?;
                 let right = Self::from_pg_node(args.get_ptr(1)?, ctx)?;
 
-                let opname_ptr = pg_sys::get_opname((*op).opno);
+                let opname_ptr = unsafe { pg_sys::get_opname(op.opno) };
                 if opname_ptr.is_null() {
                     return None;
                 }
-                let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+                let opname = unsafe { std::ffi::CStr::from_ptr(opname_ptr) }
+                    .to_str()
+                    .ok()?;
                 let having_op = match opname {
                     "=" => CompareOp::Eq,
                     "<>" | "!=" => CompareOp::NotEq,
@@ -1627,22 +1637,22 @@ impl FilterExpr {
                 })
             }
             pg_sys::NodeTag::T_NullTest => {
-                let nt = node as *mut pg_sys::NullTest;
-                let arg = Self::from_pg_node((*nt).arg as *mut pg_sys::Node, ctx)?;
-                if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                let nt = unsafe { &*(node as *mut pg_sys::NullTest) };
+                let arg = Self::from_pg_node(nt.arg as *mut pg_sys::Node, ctx)?;
+                if nt.nulltesttype == pg_sys::NullTestType::IS_NULL {
                     Some(Self::IsNull(Box::new(arg)))
                 } else {
                     Some(Self::IsNotNull(Box::new(arg)))
                 }
             }
             pg_sys::NodeTag::T_BoolExpr => {
-                let bexpr = node as *mut pg_sys::BoolExpr;
-                let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+                let bexpr = unsafe { &*(node as *mut pg_sys::BoolExpr) };
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(bexpr.args) };
                 let mut children = Vec::new();
                 for arg in args.iter_ptr() {
                     children.push(Self::from_pg_node(arg, ctx)?);
                 }
-                match (*bexpr).boolop {
+                match bexpr.boolop {
                     pg_sys::BoolExprType::AND_EXPR => Some(Self::And(children)),
                     pg_sys::BoolExprType::OR_EXPR => Some(Self::Or(children)),
                     pg_sys::BoolExprType::NOT_EXPR => {
@@ -1656,8 +1666,8 @@ impl FilterExpr {
                 }
             }
             pg_sys::NodeTag::T_RelabelType => {
-                let relabel = node as *mut pg_sys::RelabelType;
-                Self::from_pg_node((*relabel).arg as *mut pg_sys::Node, ctx)
+                let relabel = unsafe { &*(node as *mut pg_sys::RelabelType) };
+                Self::from_pg_node(relabel.arg as *mut pg_sys::Node, ctx)
             }
             _ => None,
         }
@@ -2006,17 +2016,14 @@ unsafe fn build_search_filter(
 /// Walk a parse-tree expression (typically `FromExpr.quals`) and collect
 /// cross-table clause pointers. Flattens top-level AND conjuncts and
 /// selects those that reference >1 relation (either @@@ or non-@@@ with fast fields).
-unsafe fn collect_cross_table_search_quals(
-    node: *mut pg_sys::Node,
-    clauses: &mut Vec<*mut pg_sys::Node>,
-) {
+fn collect_cross_table_search_quals(node: *mut pg_sys::Node, clauses: &mut Vec<*mut pg_sys::Node>) {
     let mut conjuncts = Vec::new();
     collect_implicit_and_conjuncts(node, &mut conjuncts);
 
     for conjunct in conjuncts {
         // Keep cross-table conjuncts (both @@@ and non-@@@). Single-table
         // conjuncts are already owned by the corresponding baserestrictinfo.
-        let rtis = conjunct.collect_rtis();
+        let rtis = unsafe { conjunct.collect_rtis() };
         if rtis.len() > 1 {
             clauses.push(conjunct);
         }
@@ -2029,28 +2036,25 @@ unsafe fn collect_cross_table_search_quals(
 /// making them indistinguishable from WHERE-clause conjuncts by `is_pushed_down` alone.
 /// Collecting explicit ON-clause conjuncts from the parse tree allows `classify_path_restrictinfo`
 /// to recognize them as join-level filters rather than query-level WHERE residuals.
-pub(crate) unsafe fn collect_on_clause_nodes(
-    node: *mut pg_sys::Node,
-    acc: &mut Vec<*mut pg_sys::Node>,
-) {
+pub(crate) fn collect_on_clause_nodes(node: *mut pg_sys::Node, acc: &mut Vec<*mut pg_sys::Node>) {
     if node.is_null() {
         return;
     }
-    match (*node).type_ {
+    match unsafe { (*node).type_ } {
         pg_sys::NodeTag::T_FromExpr => {
-            let from = node as *mut pg_sys::FromExpr;
-            let list = PgList::<pg_sys::Node>::from_pg((*from).fromlist);
+            let from = unsafe { &*(node as *mut pg_sys::FromExpr) };
+            let list = unsafe { PgList::<pg_sys::Node>::from_pg(from.fromlist) };
             for item in list.iter_ptr() {
                 collect_on_clause_nodes(item, acc);
             }
         }
         pg_sys::NodeTag::T_JoinExpr => {
-            let join = node as *mut pg_sys::JoinExpr;
-            if !(*join).quals.is_null() {
-                collect_implicit_and_conjuncts((*join).quals, acc);
+            let join = unsafe { &*(node as *mut pg_sys::JoinExpr) };
+            if !join.quals.is_null() {
+                collect_implicit_and_conjuncts(join.quals, acc);
             }
-            collect_on_clause_nodes((*join).larg, acc);
-            collect_on_clause_nodes((*join).rarg, acc);
+            collect_on_clause_nodes(join.larg, acc);
+            collect_on_clause_nodes(join.rarg, acc);
         }
         _ => {}
     }

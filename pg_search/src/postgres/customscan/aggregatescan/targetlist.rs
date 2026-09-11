@@ -134,7 +134,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
         for expr in target_list.iter_ptr() {
             let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-            let (actual_expr, _) = unsafe { strip_unnest_and_relabel(expr as *mut pg_sys::Node) };
+            let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
 
             let maybe_field_name = if let Some((_, field_name)) =
                 unsafe { find_one_var_and_fieldname(var_context, actual_expr) }
@@ -169,9 +169,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 if !found {
                     return Err(format!("Field '{}' is not a grouping column", field_name).into());
                 }
-            } else if let Some(aggref) =
-                unsafe { expr.find_single_node::<pg_sys::Aggref>() }
-            {
+            } else if let Some(aggref) = unsafe { expr.find_single_node::<pg_sys::Aggref>() } {
                 // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                 // TODO: Support DISTINCT
                 if unsafe { !(*aggref).aggdistinct.is_null() } {

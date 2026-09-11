@@ -1,0 +1,177 @@
+-- Hash-join InList dynamic filters on string-backed join keys.
+--
+-- `uuid` and tokenizer-cast text columns both store as Utf8View, the same
+-- as a plain `text` field, but only `text` used to convert the join-derived
+-- InList into a TermSetQuery. The others fell back to a post-search pre-filter,
+-- so the probe side read every document in the index.
+--
+-- The `dynamic_filter_pushdown_*` token plus a small `rows_scanned` on the probe
+-- scan is what proves the term set reached tantivy. A `uuid` foreign key is the
+-- common shape here, so it gets the widest coverage.
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan = on;
+DROP TABLE IF EXISTS strkey_probe CASCADE;
+DROP TABLE IF EXISTS strkey_build CASCADE;
+-- The build side keeps 20 of the 5,000 keys, so an index-driven term set reads
+-- ~20 documents while the pre-filter fallback reads all 5,000.
+CREATE TABLE strkey_build (
+    id       uuid PRIMARY KEY,
+    id_txt   text NOT NULL,
+    keep     boolean NOT NULL,
+    ordinal  bigint NOT NULL
+);
+INSERT INTO strkey_build (id, id_txt, keep, ordinal)
+SELECT md5('k' || i)::uuid,
+       md5('k' || i),
+       i <= 20,
+       i
+FROM generate_series(1, 5000) i;
+CREATE TABLE strkey_probe (
+    id        bigserial PRIMARY KEY,
+    fk_uuid   uuid NOT NULL,
+    fk_txt    text NOT NULL,
+    amount    bigint NOT NULL
+);
+INSERT INTO strkey_probe (fk_uuid, fk_txt, amount)
+SELECT md5('k' || i)::uuid,
+       md5('k' || i),
+       i
+FROM generate_series(1, 5000) i;
+CREATE INDEX strkey_build_idx ON strkey_build
+USING bm25 (id, (id_txt::pdb.literal), keep, ordinal)
+WITH (key_field = 'id');
+CREATE INDEX strkey_probe_idx ON strkey_probe
+USING bm25 (id, fk_uuid, (fk_txt::pdb.literal), amount)
+WITH (key_field = 'id');
+ANALYZE strkey_build;
+ANALYZE strkey_probe;
+-- =============================================================================
+-- TEST 1: uuid join key
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_uuid = b.id
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+         Relation Tree: p INNER b
+         Join Cond: b.id = p.fk_uuid
+         Limit: 10
+         Order By: b.ordinal asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[ordinal@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
+           :   SortExec: TopK(fetch=10), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
+           :     VisibilityFilterExec: tables=[p, b], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], projection=[ctid_0@3, ctid_1@0, ordinal@2], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+           :           CooperativeExec
+           :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+(16 rows)
+
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_uuid = b.id
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+ ordinal 
+---------
+       1
+       2
+       3
+       4
+       5
+       6
+       7
+       8
+       9
+      10
+(10 rows)
+
+-- =============================================================================
+-- TEST 2: tokenizer-cast text join key
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_txt = b.id_txt
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+         Relation Tree: p INNER b
+         Join Cond: b.id_txt = p.fk_txt
+         Limit: 10
+         Order By: b.ordinal asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[ordinal@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
+           :   SortExec: TopK(fetch=10), expr=[ordinal@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
+           :     VisibilityFilterExec: tables=[p, b], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], projection=[ctid_0@3, ctid_1@0, ordinal@2], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+           :           CooperativeExec
+           :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+(16 rows)
+
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_txt = b.id_txt
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+ ordinal 
+---------
+       1
+       2
+       3
+       4
+       5
+       6
+       7
+       8
+       9
+      10
+(10 rows)
+
+-- =============================================================================
+-- TEST 3: pushdown disabled, so the pre-filter fallback still gives the same rows
+-- =============================================================================
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_uuid = b.id
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+ ordinal 
+---------
+       1
+       2
+       3
+       4
+       5
+       6
+       7
+       8
+       9
+      10
+(10 rows)
+
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+DROP TABLE strkey_probe;
+DROP TABLE strkey_build;

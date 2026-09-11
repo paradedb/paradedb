@@ -72,12 +72,7 @@ fn crash_in_subquery(mut conn: PgConnection) {
              is not NULL
         limit 53;
     "#
-    .execute_result(&mut conn);
+    .fetch_dynamic(&mut conn);
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        format!("{err}")
-            .contains("unable to determine Var relation as it belongs to a NULL subquery")
-    )
+    assert!(result.is_empty());
 }

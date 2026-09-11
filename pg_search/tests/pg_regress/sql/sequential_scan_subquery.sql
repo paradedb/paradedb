@@ -14,6 +14,9 @@ INSERT INTO products VALUES (1, 'bob', 4, 'blue'), (2, 'alice', 4, 'red');
 INSERT INTO orders (id, name, rating, color) VALUES (1, 'alice', 4, 'red'), (2, 'bob', 4, 'blue');
 ANALYZE products;
 ANALYZE orders;
+-- Commit fixtures so the initial cases exercise CTID membership.
+COMMIT;
+BEGIN;
 SET paradedb.enable_custom_scan = off;
 SET paradedb.enable_custom_scan_without_operator = off;
 SET paradedb.enable_aggregate_custom_scan = off;
@@ -191,3 +194,4 @@ WHERE EXISTS (SELECT 1 FROM orders
               WHERE orders.name = products.name AND lower(orders.name) === 'bob')
       OR products.id = -1;
 ROLLBACK;
+DROP SCHEMA sequential_scan_subquery CASCADE;

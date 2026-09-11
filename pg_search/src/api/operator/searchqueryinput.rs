@@ -193,7 +193,7 @@ pub fn search_with_query_input(
             };
         }
 
-        // Reaching here means the planner could not use the BM25 index to satisfy this query, so we
+        // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
         // materialize the match set and apply it as a per-row filter (the slow path).
         let index_oid = search_query_input.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")

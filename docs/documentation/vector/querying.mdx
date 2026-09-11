@@ -13,7 +13,7 @@ canonical: https://www.paradedb.com/docs/documentation/vector/querying
 
 Vector search returns the rows whose embeddings are closest to a query vector. In ParadeDB, this is an `ORDER BY <distance> ... LIMIT k` query over a vector column in the ParadeDB index.
 
-When one of ParadeDB's [search operators](/documentation/filtering) is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query.
+When one of ParadeDB's [search operators](/documentation/filtering/indexed) is present at the same level as the `ORDER BY ... LIMIT`, ParadeDB can accelerate the vector search query.
 
 ## Unfiltered Nearest Neighbors
 
@@ -101,9 +101,9 @@ await dbContext
 
 The `<=>` operator computes cosine distance, so this returns the five rows whose embeddings are nearest the query vector `[1, 2, 3, 4, 5, 6, 7, 8]`.
 
-This operator must match the operator class the column was indexed with. Otherwise, ParadeDB cannot use the index to order results and falls back to a slower brute force sort.
+This operator must match the distance metric used by the index. Otherwise, ParadeDB cannot use the index to order results and falls back to a slower brute force sort.
 
-| Operator | Distance      | Operator class      |
+| Operator | Distance      | Index setting       |
 | -------- | ------------- | ------------------- |
 | `<->`    | L2            | `vector_l2_ops`     |
 | `<=>`    | Cosine        | `vector_cosine_ops` |
@@ -111,7 +111,7 @@ This operator must match the operator class the column was indexed with. Otherwi
 
 ## Filtered Nearest Neighbors
 
-To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the [search operators](/documentation/filtering#non-text-fields).
+To search within a subset of rows, replace `pdb.all()` with a real predicate using any of the [search operators](/documentation/filtering/indexed#non-text-columns).
 For instance, the following query finds the nearest neighbors among results whose `category` contains the term `footwear`.
 Note the lowercase `footwear` — the default tokenizer lowercases terms, so `Footwear` would not match.
 
@@ -192,10 +192,11 @@ await dbContext
 </CodeGroup>
 
 <Note>
-  Every field you filter on (e.g. `category` above) must also be part of the
-  ParadeDB index. Filters on unindexed fields cannot be evaluated by the
+  Every column you filter on (e.g. `category` above) must also be part of the
+  ParadeDB index. Filters on unindexed columns cannot be evaluated by the
   ParadeDB index, forcing Postgres to recheck them afterward and eliminating the
-  benefit of combining vector search with [filtering](/documentation/filtering).
+  benefit of combining vector search with
+  [filtering](/documentation/filtering/overview).
 </Note>
 
 ## Deterministic Results
@@ -315,4 +316,4 @@ LIMIT 5;
 
 Notice that the `category === 'footwear'` filter was pushed down into the same index scan that performs the vector search. Without pushdown, the filter would run as a separate step after the nearest neighbors were fetched.
 
-If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match the index operator class, the query is missing a `LIMIT`, or an `ORDER BY` or filter field is not indexed.
+If you do not see a `TopKScanExecState`, the query fell back to a less efficient sort. This usually means the distance operator does not match how the vector column was indexed, the query is missing a `LIMIT`, or an `ORDER BY` or filter column is not indexed.

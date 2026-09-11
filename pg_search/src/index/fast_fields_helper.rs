@@ -39,7 +39,7 @@ use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId};
+use tantivy::{DocAddress, DocId, Searcher};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -54,17 +54,30 @@ pub struct CanonicalColumn {
     pub ff_index: FFIndex,
 }
 
-/// A cache of fast field columns for a single segment, indexed by FFIndex.
-type ColumnCache = Vec<(String, Option<SearchFieldType>, OnceLock<FFType>)>;
+struct SegmentCache {
+    columns: Vec<OnceLock<FFType>>,
+    ctid: OnceLock<FFType>,
+}
 
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
-pub struct FFHelper {
-    // A cache of columns and a ctid column for each segment.
-    segment_caches: Vec<(FastFieldReaders, ColumnCache, OnceLock<FFType>)>,
+pub struct FFHelper(
+    // `None` only for the `empty()`/`Default` placeholders, which are never used for column
+    // access; `with_fields` always builds the full inner state.
+    Option<FFInner>,
+);
+
+struct FFInner {
+    // A segment's fast-field file opens on first column access: the tantivy fork's
+    // `SegmentReader::fast_fields()` is a lazy open, and for a mutable segment it materializes
+    // the segment from the heap. The Searcher also keeps the reader's `MVCCDirectory` and its
+    // segment pins alive. Initialize on the backend thread only.
+    searcher: Searcher,
+    columns: Vec<WhichFastField>,
+    segment_caches: Vec<SegmentCache>,
 }
 
 impl FFHelper {
@@ -73,61 +86,76 @@ impl FFHelper {
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
-        let segment_caches = reader
-            .segment_readers()
-            .iter()
-            .map(|reader| {
-                let fast_fields_reader = reader.fast_fields().clone();
-                let mut lookup = Vec::new();
-                for field in fields {
-                    match field {
-                        WhichFastField::Named(name, search_field_type)
-                        | WhichFastField::Deferred(name, search_field_type) => lookup.push((
-                            name.to_string(),
-                            Some(*search_field_type),
-                            OnceLock::default(),
-                        )),
-                        WhichFastField::Ctid
-                        | WhichFastField::TableOid
-                        | WhichFastField::Score
-                        | WhichFastField::Junk(_)
-                        | WhichFastField::DeferredCtid(_)
-                        | WhichFastField::MatchTag(_) => {
-                            lookup.push((String::from("junk"), None, OnceLock::from(FFType::Junk)))
-                        }
-                    }
-                }
-                (fast_fields_reader, lookup, OnceLock::default())
+        Self(Some(FFInner {
+            searcher: reader.searcher().clone(),
+            segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
+            columns: fields.to_vec(),
+        }))
+    }
+
+    fn segment_caches(segment_count: usize, width: usize) -> Vec<SegmentCache> {
+        (0..segment_count)
+            .map(|_| SegmentCache {
+                columns: (0..width).map(|_| OnceLock::new()).collect(),
+                ctid: OnceLock::new(),
             })
-            .collect();
-        Self { segment_caches }
+            .collect()
+    }
+
+    fn inner(&self) -> &FFInner {
+        self.0
+            .as_ref()
+            .expect("FFHelper::empty() must not be used for column access")
+    }
+
+    fn searcher(&self) -> &Searcher {
+        &self.inner().searcher
+    }
+
+    fn caches(&self) -> &[SegmentCache] {
+        &self.inner().segment_caches
+    }
+
+    fn fast_fields(&self, segment_ord: SegmentOrdinal) -> &FastFieldReaders {
+        self.searcher().segment_reader(segment_ord).fast_fields()
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
-        let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
-        ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+        self.caches()[segment_ord as usize]
+            .ctid
+            .get_or_init(|| FFType::new_ctid(self.fast_fields(segment_ord)))
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
-        let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
-        let column = &columns[field];
-        column.2.get_or_init(|| FFType::new(ff_readers, &column.0))
+        self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
+            match &self.inner().columns[field] {
+                WhichFastField::Named(name, _)
+                | WhichFastField::Array(name, _)
+                | WhichFastField::Deferred(name, _) => {
+                    FFType::new(self.fast_fields(segment_ord), name)
+                }
+                WhichFastField::Ctid
+                | WhichFastField::TableOid
+                | WhichFastField::Score
+                | WhichFastField::Junk(_)
+                | WhichFastField::DeferredCtid(_)
+                | WhichFastField::MatchTag(_) => FFType::Junk,
+            }
+        })
     }
 
     #[track_caller]
     pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
-        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
-        let column = &columns[field];
-        Some(
-            column
-                .2
-                .get_or_init(|| FFType::new(ff_readers, &column.0))
-                .value(doc_address.doc_id, column.1),
-        )
+        Some(self.column(doc_address.segment_ord, field).value(
+            doc_address.doc_id,
+            self.inner().columns[field].field_type().copied(),
+        ))
     }
 
     pub fn num_segments(&self) -> usize {
-        self.segment_caches.len()
+        self.0
+            .as_ref()
+            .map_or(0, |inner| inner.segment_caches.len())
     }
 }
 
@@ -332,6 +360,100 @@ impl FFType {
             ),
         }
     }
+
+    /// Fetches the batch of multi-valued (array) fast field values
+    /// (or term ordinals for Text/Bytes) as an Arrow ListArray.
+    pub fn fetch_array_values_or_ords_to_arrow(
+        &self,
+        ids: &[u32],
+        search_field_type: SearchFieldType,
+    ) -> ArrayRef {
+        fn fetch_list_array<B, I, V>(
+            ids: &[u32],
+            mut builder: arrow_array::builder::ListBuilder<B>,
+            mut iter_fn: impl FnMut(u32) -> I,
+            mut append_fn: impl FnMut(&mut B, V),
+        ) -> ArrayRef
+        where
+            B: arrow_array::builder::ArrayBuilder,
+            I: IntoIterator<Item = V>,
+        {
+            for &doc in ids {
+                let mut count = 0;
+                for val in iter_fn(doc) {
+                    append_fn(builder.values(), val);
+                    count += 1;
+                }
+                builder.append(count > 0);
+            }
+            Arc::new(builder.finish()) as ArrayRef
+        }
+
+        match self {
+            FFType::Text(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.term_ords(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Bytes(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.term_ords(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::I64(col) if matches!(search_field_type, SearchFieldType::I64(oid) if crate::postgres::types::is_datetime_type(oid)) => {
+                fetch_list_array(
+                    ids,
+                    arrow_array::builder::ListBuilder::new(
+                        arrow_array::builder::TimestampMicrosecondBuilder::new(),
+                    ),
+                    |doc| col.values_for_doc(doc),
+                    |b, v| b.append_value(v),
+                )
+            }
+            FFType::I64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::Int64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::U64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::UInt64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::F64(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::Float64Builder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Bool(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(arrow_array::builder::BooleanBuilder::new()),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(v),
+            ),
+            FFType::Date(col) => fetch_list_array(
+                ids,
+                arrow_array::builder::ListBuilder::new(
+                    arrow_array::builder::TimestampMicrosecondBuilder::new(),
+                ),
+                |doc| col.values_for_doc(doc),
+                |b, v| b.append_value(datetime_to_pg_micros(v)),
+            ),
+            FFType::Junk => Arc::new(arrow_array::new_null_array(
+                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
+                    "item",
+                    arrow_schema::DataType::Null,
+                    true,
+                ))),
+                ids.len(),
+            )),
+        }
+    }
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -351,6 +473,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
+    Array(String, SearchFieldType),
     Deferred(String, SearchFieldType),
     /// Packed DocAddress ctid for deferred visibility (joinscan path only).
     /// The String is the ctid column alias (e.g. "ctid_0").
@@ -387,16 +510,18 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
+            WhichFastField::Array(s, _) => s.clone(),
             WhichFastField::Deferred(s, _) => s.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
         }
     }
 
-    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
+    /// Returns the SearchFieldType if this is a Named or Array fast field, None otherwise.
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
+            WhichFastField::Array(_, field_type) => Some(field_type),
             WhichFastField::Deferred(_, field_type) => Some(field_type),
             WhichFastField::DeferredCtid(_) | WhichFastField::MatchTag(_) => None,
             _ => None,
@@ -411,6 +536,9 @@ impl WhichFastField {
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
+            WhichFastField::Array(_, field_type) => DataType::List(Arc::new(
+                arrow_schema::Field::new("item", field_type.arrow_data_type(), true),
+            )),
             WhichFastField::Junk(_) => DataType::Null,
             WhichFastField::Deferred(_, _field_type) => {
                 crate::scan::deferred_encode::deferred_union_data_type()
@@ -454,10 +582,15 @@ where
         let (seg_ord, doc_id) = unpack_doc_address(packed);
         by_seg[seg_ord as usize].push((row_idx, doc_id));
     }
-    for (seg_ord, rows) in by_seg.into_iter().enumerate() {
+    for (seg_ord, mut rows) in by_seg.into_iter().enumerate() {
         if rows.is_empty() {
             continue;
         }
+
+        // A fast-field column reads fastest in DocId order. Rows reach here in whatever
+        // order the plan produced them, which a join above the scan no longer keeps, so
+        // sort before the fetch. Callers map results back by their row index.
+        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
 
         process(seg_ord as SegmentOrdinal, rows)?;
     }
@@ -730,4 +863,74 @@ pub(crate) fn ords_to_bytes_array(
     }
 
     Ok(Arc::new(builder.finish()) as ArrayRef)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use pgrx::prelude::*;
+
+    /// The helper opens a segment's fast fields only when a value is actually read from that
+    /// segment, and stays valid after its source reader is dropped. The fixture includes a
+    /// mutable segment, where an open also materializes the segment from the heap; it must
+    /// stay cold when only an immutable segment is read.
+    #[pg_test]
+    fn ffhelper_opens_only_the_segment_it_reads() {
+        let (index_rel, _heap) = crate::index::reader::index::test_support::segmented_index_fixture(
+            "ffhelper_lazy_test",
+            2,
+            /* with_mutable */ true,
+        );
+        let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        assert_eq!(
+            reader.segment_readers().len(),
+            3,
+            "two frozen batches plus one mutable segment"
+        );
+        // Segment ordering is not contractual: pick an immutable segment by its size (the
+        // frozen batches hold 10 docs, the mutable segment 5).
+        let immutable_ord = reader
+            .segment_readers()
+            .iter()
+            .position(|r| r.num_docs() == 10)
+            .expect("an immutable batch segment") as SegmentOrdinal;
+
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::Named(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::INT8OID),
+            )],
+        );
+        assert!(
+            helper
+                .caches()
+                .iter()
+                .all(|cache| cache.columns[0].get().is_none() && cache.ctid.get().is_none())
+        );
+
+        // Worker setup drops its source reader before the helper is used.
+        drop(reader);
+        let value = helper.value(0, DocAddress::new(immutable_ord, 0)).unwrap();
+        assert!(i64::try_from(value).is_ok());
+
+        let initialized: Vec<usize> = helper
+            .caches()
+            .iter()
+            .enumerate()
+            .filter(|(_, cache)| cache.columns[0].get().is_some() || cache.ctid.get().is_some())
+            .map(|(ord, _)| ord)
+            .collect();
+        assert_eq!(
+            initialized,
+            vec![immutable_ord as usize],
+            "only the segment actually read may open; the mutable segment must stay cold"
+        );
+
+        let first = helper.column(immutable_ord, 0) as *const FFType;
+        let second = helper.column(immutable_ord, 0) as *const FFType;
+        assert_eq!(first, second);
+    }
 }

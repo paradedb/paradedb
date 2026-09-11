@@ -1,0 +1,30 @@
+name: Set Up PostgreSQL
+description: Configure the PostgreSQL APT repository (PGDG) and install PostgreSQL packages
+
+inputs:
+  pg_version:
+    description: "PostgreSQL major version to install (e.g. 17, 18)"
+    required: true
+  extra_packages:
+    description: "Additional apt packages to install alongside PostgreSQL"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Configure PGDG APT repository and install PostgreSQL
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo install -d -m 0755 /usr/share/keyrings
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+          | sudo tee /usr/share/keyrings/postgresql.asc >/dev/null
+        echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" \
+          | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          "postgresql-${{ inputs.pg_version }}" \
+          "postgresql-server-dev-${{ inputs.pg_version }}" \
+          ${{ inputs.extra_packages }}
+        echo "/usr/lib/postgresql/${{ inputs.pg_version }}/bin" >> "$GITHUB_PATH"

@@ -20584,7 +20584,7 @@ metadata:
     app.kubernetes.io/version: "1.30.0"
     app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudnative-pg

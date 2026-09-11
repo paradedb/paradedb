@@ -389,6 +389,29 @@ pub(crate) fn estimate_selectivity(
     estimate_selectivity_and_cost(indexrel, search_query_input).0
 }
 
+/// The estimated number of heap rows matching `search_query_input`, scaled from the
+/// largest segment up to the whole relation. Unlike `estimate_selectivity` this is an
+/// absolute row count, which is what `visibility => 'threshold'` compares against
+/// `paradedb.visibility_threshold`.
+///
+/// `None` when there is nothing to estimate from: an index that can't be opened, or an
+/// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
+pub(crate) fn estimate_matching_rows(
+    indexrel: &PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> Option<u64> {
+    if estimate_heuristically(&search_query_input) {
+        let selectivity = search_query_input.selectivity_heuristic();
+        return indexrel
+            .heap_relation()
+            .and_then(|heap| heap.reltuples())
+            .map(|reltuples| (selectivity * reltuples as f64) as u64);
+    }
+
+    open_and_estimate_docs(indexrel, search_query_input)
+        .map(|estimate| estimate.matching_docs as u64)
+}
+
 /// Estimate the query's Tantivy `DocSet::cost()` -- a synthetic measure of how much work
 /// driving the docset takes -- for the score-DESC TopK worker decision
 /// (`decide_nonprunable_topk_workers`). `None` (caller falls back to the general worker

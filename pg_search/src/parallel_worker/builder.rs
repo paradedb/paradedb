@@ -130,7 +130,10 @@ impl ParallelProcessBuilder {
             Some(ParallelProcessLauncher {
                 pcxt,
                 mq_handles: mq_receivers,
-                state_manager: ParallelStateManager::new((*pcxt.as_ptr()).toc),
+                state_manager: ParallelStateManager::new(
+                    (*pcxt.as_ptr()).toc,
+                    (*pcxt.as_ptr()).seg,
+                ),
             })
         }
     }
@@ -148,6 +151,12 @@ impl ParallelProcessLauncher {
     /// shared region in place here, before workers spawn and attach to it.
     pub fn state_manager(&self) -> &ParallelStateManager {
         &self.state_manager
+    }
+
+    /// The DSM segment backing the mapped state, for shared regions whose initialization
+    /// registers a detach callback on it (a `SharedFileSet`, for one).
+    pub fn dsm_segment(&self) -> *mut pg_sys::dsm_segment {
+        unsafe { (*self.pcxt.as_ptr()).seg }
     }
 
     pub fn launch(self) -> Option<ParallelProcessAttach> {

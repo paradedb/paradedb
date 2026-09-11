@@ -12,9 +12,9 @@ During every `INSERT`/`UPDATE`/`COPY`/`VACUUM`, the ParadeDB index runs a compac
 together. The goal is to consolidate smaller segments into larger ones, reducing the total number of segments and improving query performance.
 
 Segments become candidates for merging if their combined size meets or exceeds one of several **configurable layer thresholds**. These thresholds define target
-segment sizes — such as `10KB`, `100KB`, `1MB`, etc. For each layer, the compactor checks if there are enough smaller segments whose total size adds up to the threshold.
+segment sizes. For each layer, the compactor checks if there are enough smaller segments whose total size adds up to the threshold.
 
-The default layer sizes are `100KB`, `1MB`, `100MB`, `1GB`, and `10GB` but can be configured.
+The default background layer sizes are `100KB`, `1MB`, `10MB`, `100MB`, `1GB`, and `10GB` but can be configured.
 
 ```sql
 ALTER INDEX search_idx SET (background_layer_sizes = '100MB, 1GB');

@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added support for pushing down `SELECT DISTINCT` into the ParadeDB index via `AggregateScan` when distinct clauses reference columnar fields with deterministic collations, avoiding HashAggregate execution over all matching rows.

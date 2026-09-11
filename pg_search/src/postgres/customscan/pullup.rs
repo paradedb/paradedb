@@ -20,16 +20,21 @@
 //! This module provides shared logic for determining if and how a PostgreSQL
 //! column can be resolved using Tantivy fast fields.
 
+use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
 use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
+use tantivy::columnar::ColumnType;
 
 /// Resolves a PostgreSQL attribute number to a Tantivy fast field, if available.
 ///
 /// This checks if the column corresponding to `attno` in the heap relation is available
-/// as a fast field in the BM25 index. It handles:
+/// as a fast field in the ParadeDB index. It handles:
 ///
 /// - System columns (ctid, tableoid)
 /// - Regular columns (mapped via name)
@@ -139,13 +144,109 @@ pub fn resolve_fast_field_by_name(
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field_name)?;
     if search_field.is_fast() {
-        Some(WhichFastField::Named(
-            field_name.to_string(),
-            search_field.field_type(),
-        ))
+        let is_array = schema
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, data)| data.is_array)
+            .unwrap_or(false);
+        if is_array {
+            Some(WhichFastField::Array(
+                field_name.to_string(),
+                search_field.field_type(),
+            ))
+        } else {
+            Some(WhichFastField::Named(
+                field_name.to_string(),
+                search_field.field_type(),
+            ))
+        }
     } else {
         None
     }
+}
+
+/// Resolved index field metadata returned by [`resolve_index_field_by_name`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedIndexField {
+    pub attno: pg_sys::AttrNumber,
+    pub field_type: SearchFieldType,
+    pub is_array: bool,
+}
+
+/// Resolve an index field name, dotted for a JSON sub-field, to the heap column it
+/// is read from and the type a columnar scan hands out. `Ok(None)` when the index
+/// has no such fast field, `Err` when it has one the scan cannot read, so the
+/// caller can say why rather than that the field does not exist. Resolution goes
+/// through the index schema because a field name can be an alias of a column.
+/// The gates match [`resolve_fast_field`]: an expression-indexed column
+/// is turned down, and a JSON column is only reachable through a sub-field.
+pub fn resolve_index_field_by_name(
+    index: &PgSearchRelation,
+    field: &str,
+) -> Result<Option<ResolvedIndexField>, String> {
+    let Some(schema) = index.schema().ok() else {
+        return Ok(None);
+    };
+    let root = FieldName::from(field).root();
+    let categorized = schema.categorized_fields();
+    let Some((search_field, data)) = categorized
+        .iter()
+        .find(|(sf, _)| sf.field_name().as_ref() == root && sf.is_fast())
+    else {
+        return Ok(None);
+    };
+    let FieldSource::Heap { attno } = data.source else {
+        return Err(format!(
+            "Field '{field}' is an expression index, which cannot be read back as a column"
+        ));
+    };
+    let field_type = if field == root {
+        match field_type_for_pullup(search_field.field_type(), false) {
+            Some(field_type) => field_type,
+            None if data.is_json => {
+                return Err(format!(
+                    "Field '{field}' is a JSON column; name a sub-field, as in '{field}.key'"
+                ));
+            }
+            None => return Ok(None),
+        }
+    } else {
+        check_json_sub_field_is_text(index, field)?;
+        search_field.field_type()
+    };
+    Ok(Some(ResolvedIndexField {
+        attno: attno as pg_sys::AttrNumber + 1,
+        field_type,
+        is_array: data.is_array,
+    }))
+}
+
+/// A columnar scan reads every JSON sub-field as text, while the index stores
+/// each sub-field in the type of its values. A numeric sub-field would come back
+/// as numbers and fail the scan's schema at execution, so it is turned down
+/// here. Only the column metadata is read; no values are loaded.
+fn check_json_sub_field_is_text(index: &PgSearchRelation, field: &str) -> Result<(), String> {
+    let reader =
+        SearchIndexReader::open(index, SearchQueryInput::All, false, MvccSatisfies::Snapshot)
+            .map_err(|e| format!("could not open index to inspect field '{field}': {e}"))?;
+    for segment in reader.segment_readers() {
+        let handles = segment
+            .fast_fields()
+            .dynamic_column_handles(field)
+            .map_err(|e| format!("could not inspect field '{field}': {e}"))?;
+        if let Some(handle) = handles
+            .iter()
+            .find(|handle| handle.column_type() != ColumnType::Str)
+        {
+            return Err(format!(
+                "Field '{field}' is a JSON sub-field holding {} values; only a text sub-field \
+                 can be read as a column",
+                handle.column_type()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Look up a 1-based attribute number by column name in a tuple descriptor.
@@ -176,7 +277,8 @@ pub fn field_type_for_pullup(
         // JSON/JSONB are excluded because fast fields do not contain the
         // full content of the JSON in a way that we can easily render:
         // rather, the individual fields are exploded out into dynamic columns.
-        SearchFieldType::Json(_) => None,
+        SearchFieldType::Json(_)
+        | SearchFieldType::Tokenized(_, _, pg_sys::JSONOID | pg_sys::JSONBOID) => None,
         // Range types are not yet supported for pullup
         SearchFieldType::Range(_) => None,
         // All other types can be pulled up directly

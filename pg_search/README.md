@@ -89,6 +89,8 @@ After making changes to the extension code:
    CREATE EXTENSION pg_search CASCADE;
    ```
 
+3. **Schema Migrations:** If your changes introduce or modify extension SQL objects (functions, types, opclasses, etc.), you must provide an unreleased migration fragment in `pg_search/sql/unreleased/<PR_NUMBER>.<desc>.sql`. See [`CONTRIBUTING.md`](../CONTRIBUTING.md#pull-request-workflow) for details.
+
 ## Testing
 
 Unit tests live in `pg_search/src` and run with:

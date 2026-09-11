@@ -28,6 +28,7 @@ use std::sync::OnceLock;
 
 pub mod aggregatescan;
 pub mod basescan;
+pub(crate) mod bitmap_intersection;
 mod builders;
 pub mod collation_semantics;
 pub mod datafusion;
@@ -56,6 +57,7 @@ pub mod solve_expr;
 
 use crate::api::HashMap;
 
+use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -65,8 +67,8 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
-    register_join_pathlist, register_rel_pathlist, register_subplan_join_pathlist,
-    register_upper_path, register_window_aggregate_hook,
+    register_join_pathlist, register_planner_hook, register_rel_pathlist,
+    register_subplan_join_pathlist, register_upper_path,
 };
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
@@ -473,6 +475,40 @@ impl CreateUpperPathsHookArgs {
             }
         }
 
+        false
+    }
+
+    /// Returns true when a `GROUP BY` expression is `date(timestamp)` or
+    /// `date(timestamptz)`.
+    ///
+    /// This only picks the backend; the extractor decides which shapes it accepts
+    /// and names the reason for the rest.
+    pub unsafe fn has_date_group(&self) -> bool {
+        let parse = self.root().parse;
+
+        if parse.is_null() || (*parse).groupClause.is_null() || (*parse).targetList.is_null() {
+            return false;
+        }
+
+        let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+
+        for gc in group_clauses.iter_ptr() {
+            let expr = pg_sys::get_sortgroupclause_expr(gc, (*parse).targetList);
+            if expr.is_null() {
+                continue;
+            }
+
+            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, expr) else {
+                continue;
+            };
+
+            if matches!(
+                (*func_expr).funcid.to_u32(),
+                pg_sys::F_DATE_TIMESTAMP | pg_sys::F_DATE_TIMESTAMPTZ
+            ) {
+                return true;
+            }
+        }
         false
     }
 }

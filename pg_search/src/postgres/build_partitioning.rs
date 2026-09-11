@@ -27,15 +27,19 @@
 //! only describe marginals, while a recursive split needs the joint distribution of the
 //! `partition_by` fields.
 
+use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
 
 use pgrx::itemptr::item_pointer_set_all;
 use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
+use tantivy::schema::{Field, FieldType, Schema};
 
 use crate::api::FieldName;
+use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
+use crate::index::stats;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -91,6 +95,51 @@ pub(super) fn plan_partition_boundaries(
         sample,
         target_partitions,
     )))
+}
+
+/// Whether `dim` has a columnar field at all, whatever order that column is in.
+fn dim_fast(schema: &Schema, field: Field) -> bool {
+    match schema.get_field_entry(field).field_type() {
+        FieldType::Str(options) => options.get_fast_field_tokenizer_name().is_some(),
+        FieldType::U64(options) | FieldType::I64(options) | FieldType::F64(options) => {
+            options.is_fast()
+        }
+        FieldType::Bool(options) => options.is_fast(),
+        FieldType::Date(options) => options.is_fast(),
+        FieldType::Bytes(options) => options.is_fast(),
+        _ => false,
+    }
+}
+
+/// Refuses a dimension with no columnar field. `sort_by` has no column to order a segment
+/// by without one, and `partition_by` has none to run its range query against.
+pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &str) -> Result<()> {
+    for dim in dims {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            bail!("{reloption} field '{dim}' does not exist in the index schema");
+        };
+        if !dim_fast(schema, field) {
+            bail!(
+                "{reloption} field '{dim}' must be a columnar field. Add it to the index with 'fast: true'"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The `dims` whose columnar field orders by a normalized value, so a segment's logical bounds
+/// cannot hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
+/// caller: `partition_by` cuts on the raw value and cannot prune without it, while `sort_by`
+/// still lays the segment out and only gives up its bounds.
+pub(crate) fn normalized_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldName> {
+    dims.iter()
+        .filter(|dim| {
+            schema
+                .get_field(dim.as_ref())
+                .is_ok_and(|field| !stats::logical_bounds_hold(schema, field))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to
@@ -172,6 +221,7 @@ unsafe fn sample_partition_fields(
         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &raw const pg_sys::TTSOpsBufferHeapTuple)
     };
     let natts = unsafe { (*heaprel.rd_att).natts as usize };
+    let created_by_version = indexrel.created_by_version();
 
     let mut sample: Vec<Point> = Vec::new();
     let mut seen_rows = 0usize;
@@ -247,7 +297,8 @@ unsafe fn sample_partition_fields(
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
 
-                    let point = project_row(&fields, values, isnull, &expr_results);
+                    let point =
+                        project_row(&fields, values, isnull, &expr_results, created_by_version);
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
@@ -282,6 +333,7 @@ unsafe fn project_row(
     values: &[pg_sys::Datum],
     isnull: &[bool],
     expr_results: &[(pg_sys::Datum, bool)],
+    created_by_version: Option<Version>,
 ) -> anyhow::Result<Point> {
     let unpacked_composites = unsafe {
         CompositeSlotValues::from_composites(fields.iter().filter_map(|f| {
@@ -314,7 +366,12 @@ unsafe fn project_row(
             }
             let datum = unsafe { unwrap_alias_datum(datum, f.categorized.pg_type) };
             let value = unsafe {
-                scalar_datum_to_tantivy_value(datum, f.field.field_type(), f.categorized.base_oid)
+                scalar_datum_to_tantivy_value(
+                    datum,
+                    f.field.field_type(),
+                    f.categorized.base_oid,
+                    created_by_version,
+                )
             }
             .map_err(|e| {
                 anyhow::anyhow!(

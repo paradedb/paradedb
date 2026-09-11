@@ -58,7 +58,7 @@ unsafe fn is_ltree_descendant_operator(
     CStr::from_ptr(op_name).to_bytes() == b"<@"
 }
 
-/// Pushdown PostgreSQL ltree descendant operator `<@` to the BM25 index.
+/// Pushdown PostgreSQL ltree descendant operator `<@` to the ParadeDB index.
 ///
 /// Converts:
 ///
@@ -352,7 +352,7 @@ pub unsafe fn try_build_pushdown_qual(
     }
 }
 
-/// Pushdown JSONB `?` (exists) operator to BM25 index.
+/// Pushdown JSONB `?` (exists) operator to ParadeDB index.
 ///
 /// Converts `data ? 'key'` to equivalent of `id @@@ paradedb.exists('data.key')`.
 /// For nested paths like `data->'nested' ? 'key'`, produces `data.nested.key`.

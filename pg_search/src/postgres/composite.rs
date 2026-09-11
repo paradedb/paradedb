@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Composite type handling for BM25 indexes
+//! Composite type handling for ParadeDB indexes
 //!
 //! This module provides functionality to:
 //! - Detect composite types in index definitions
@@ -52,12 +52,12 @@ pub struct CompositeFieldInfo {
 #[derive(Debug, thiserror::Error)]
 pub enum CompositeError {
     #[error(
-        "Anonymous ROW expressions are not supported for BM25 indexes. Create a named composite type: CREATE TYPE my_type AS (...); then use ROW(...)::my_type"
+        "Anonymous ROW expressions are not supported for ParadeDB indexes. Create a named composite type: CREATE TYPE my_type AS (...); then use ROW(...)::my_type"
     )]
     AnonymousRowNotSupported,
 
     #[error(
-        "Domain over composite type is not supported for BM25 indexes. Use the base composite type directly instead of the domain."
+        "Domain over composite type is not supported for ParadeDB indexes. Use the base composite type directly instead of the domain."
     )]
     DomainOverCompositeNotSupported,
 
@@ -67,7 +67,7 @@ pub enum CompositeError {
     #[error("Failed to lookup tuple descriptor for type OID {0}")]
     TupleDescLookupFailed(pg_sys::Oid),
 
-    #[error("Nested composite types are not supported for BM25 indexes.")]
+    #[error("Nested composite types are not supported for ParadeDB indexes.")]
     NestedCompositeNotSupported,
 }
 
@@ -189,7 +189,7 @@ pub unsafe fn has_nested_composite(type_oid: pg_sys::Oid) -> bool {
         .any(|f| is_composite_type(f.type_oid))
 }
 
-/// Get validated composite fields for use in BM25 index.
+/// Get validated composite fields for use in ParadeDB index.
 ///
 /// This is the main entry point called during index creation.
 /// Returns field info after validating for unsupported configurations.

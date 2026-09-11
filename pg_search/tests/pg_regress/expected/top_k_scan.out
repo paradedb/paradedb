@@ -427,7 +427,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: records)
                                  QUERY PLAN                                  
 -----------------------------------------------------------------------------
  Limit

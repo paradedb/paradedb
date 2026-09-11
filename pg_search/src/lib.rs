@@ -166,8 +166,11 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // that PostgreSQL does not flatten into joins, so `set_join_pathlist_hook` never fires.
     customscan::register_subplan_join_pathlist();
 
-    // Register global planner hook for window function support
-    customscan::register_window_aggregate_hook();
+    // Register hook for tracking explain statements (so planner warnings don't error under EXPLAIN)
+    postgres::planner_warnings::register_explain_hook();
+
+    // Register global planner hook for window function support and planner warning lifecycle
+    customscan::register_planner_hook();
 
     // Initialize the filter query builder
     customscan::aggregatescan::filterquery::init_filter_query_builder();

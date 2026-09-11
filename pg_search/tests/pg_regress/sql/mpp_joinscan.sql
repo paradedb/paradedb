@@ -38,23 +38,6 @@ CREATE TABLE mpp_join_pages (
     size_bytes INTEGER
 );
 
-CREATE INDEX mpp_join_files_idx ON mpp_join_files
-USING paradedb (id, title, content)
-WITH (
-    key_field='id',
-    partition_by='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
-
-CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    partition_by='file_id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
-
 SET paradedb.global_mutable_segment_rows = 0;
 
 INSERT INTO mpp_join_files (title, content)
@@ -81,6 +64,27 @@ RESET paradedb.global_mutable_segment_rows;
 
 ANALYZE mpp_join_files;
 ANALYZE mpp_join_pages;
+
+-- A serial build keeps the worker-count warning deterministic.
+SET max_parallel_maintenance_workers TO 0;
+
+CREATE INDEX mpp_join_files_idx ON mpp_join_files
+USING paradedb (id, title, content)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
+USING paradedb (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    target_segment_count=3,
+    partition_by='file_id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
 
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
@@ -255,6 +259,25 @@ WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
+-- With the fetch in the scan, only the decode sits above the shuffle. Its worker
+-- has no scan of `f` in its stage, so it rebuilds the dictionary reader itself.
+SET paradedb.defer_column_fetch TO off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+RESET paradedb.defer_column_fetch;
+
 SET max_parallel_workers_per_gather TO 0;
 
 SELECT f.title, p.size_bytes
@@ -285,7 +308,6 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
-
 
 -- =====================================================================
 -- Pass 8: MPP with a parameterized search predicate (issue #5445)

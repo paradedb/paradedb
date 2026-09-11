@@ -67,20 +67,17 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::FieldName;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{
-    MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
-};
+use crate::api::{is_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
-    AggregateType, create_aggregate_from_oid, parse_coalesce_expression,
+    AggregateType, ParsedAggregateField,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::var::{VarContext, fieldname_from_var};
+use crate::postgres::var::VarContext;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -320,42 +317,14 @@ unsafe fn convert_window_func_to_aggregate_type(
         None
     };
 
-    // Handle custom agg function pdb.agg() (both overloads)
-    let custom_agg_oid = agg_funcoid().to_u32();
-    let custom_agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-    if aggfnoid == custom_agg_oid || aggfnoid == custom_agg_with_mvcc_oid {
+    // Handle custom agg function pdb.agg() (any overload)
+    if is_agg_funcoid(aggfnoid) {
         if args.is_empty() {
             return None;
         }
 
-        // Extract the jsonb argument (first arg)
-        let first_arg = args.get_ptr(0)?;
-        let const_node = nodecast!(Const, T_Const, first_arg)?;
-        let json_value = {
-            if (*const_node).constisnull {
-                return None;
-            }
-            let jsonb_datum = (*const_node).constvalue;
-            let jsonb = <pgrx::JsonB as pgrx::FromDatum>::from_datum(jsonb_datum, false)?;
-            jsonb.0
-        };
-
-        // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-        let solve_mvcc = if aggfnoid == custom_agg_with_mvcc_oid {
-            args.get_ptr(1)
-                .and_then(|mvcc_arg| nodecast!(Const, T_Const, mvcc_arg))
-                .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                .unwrap_or(true)
-        } else {
-            true // Single-arg overload: default to solve_mvcc = true
-        };
-
-        let mvcc_visibility = if solve_mvcc {
-            MvccVisibility::Enabled
-        } else {
-            MvccVisibility::Disabled
-        };
+        let (json_value, mvcc_visibility) =
+            pdb_agg_spec(aggfnoid, args.get_ptr(0)?, args.get_ptr(1))?;
 
         // Validate that the JSON is a valid Tantivy aggregation
         // It should be a single aggregation definition (e.g., {"terms": {...}}, {"avg": {...}})
@@ -399,44 +368,18 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     let first_arg = args.get_ptr(0)?;
 
-    // Extract field name and missing value using the same logic as aggregatescan
-    let (field, missing) = extract_field_name_from_aggregate_arg(parse, first_arg)?;
+    let aggregate_field =
+        ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
+    let missing = aggregate_field.missing().ok()?;
 
-    let agg_type = create_aggregate_from_oid(
+    let agg_type = AggregateType::from_oid(
         aggfnoid,
-        field.into_inner(),
+        aggregate_field.field_name().clone(),
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
     )?;
     Some(agg_type)
-}
-
-/// Extract the field name and missing value from an aggregate function's argument node
-/// Handles Var nodes (column references) and COALESCE expressions (for missing values)
-/// Returns: (field_name, optional_missing_value)
-unsafe fn extract_field_name_from_aggregate_arg(
-    parse: *mut pg_sys::Query,
-    arg_node: *mut pg_sys::Node,
-) -> Option<(FieldName, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            parse_coalesce_expression(coalesce_node).ok()?
-        } else {
-            let var = nodecast!(Var, T_Var, arg_node)?;
-            (var, None)
-        };
-
-    // Get heaprelid from the rtable using VarContext
-    let var_context = VarContext::from_query(parse);
-    let (heaprelid, varattno) = var_context.var_relation(var);
-
-    if heaprelid == pg_sys::InvalidOid {
-        return None;
-    }
-
-    let field = fieldname_from_var(heaprelid, var, varattno)?;
-    Some((field, missing))
 }
 
 /// Convert a FILTER clause expression to SearchQueryInput by serializing it for later conversion

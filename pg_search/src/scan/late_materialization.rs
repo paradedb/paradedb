@@ -21,9 +21,11 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::table_provider::PgSearchTableProvider;
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::table_provider::pg_search_provider_from_scan;
+use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
 use async_trait::async_trait;
 use datafusion::catalog::Session;
@@ -55,27 +57,13 @@ use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 #[derive(Debug)]
 pub struct LateMaterializationRule;
 
-fn pgsearch_table_provider(
-    source: &dyn datafusion::logical_expr::TableSource,
-) -> Option<&PgSearchTableProvider> {
-    if let Some(default_source) =
-        source.downcast_ref::<datafusion::catalog::default_table_source::DefaultTableSource>()
-    {
-        default_source
-            .table_provider
-            .downcast_ref::<PgSearchTableProvider>()
-    } else {
-        (source as &dyn std::any::Any).downcast_ref::<PgSearchTableProvider>()
-    }
-}
-
 /// Traverses down from the given node to find the underlying `PgSearchTableProvider`
 /// to extract the list of deferred fields that must be materialized.
 fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
     let mut fields = Vec::new();
     let _ = plan.apply(|node| {
         if let LogicalPlan::TableScan(scan) = node
-            && let Some(p) = pgsearch_table_provider(scan.source.as_ref())
+            && let Some(p) = pg_search_provider_from_scan(scan)
         {
             fields.extend(p.deferred_fields());
         }
@@ -114,7 +102,7 @@ fn trace_column_origin(plan: &LogicalPlan, col: &Column) -> Option<(Column, Opti
                     .projected_schema
                     .qualified_field_from_column(col)
                     .ok()?;
-                let plan_position = pgsearch_table_provider(scan.source.as_ref())
+                let plan_position = pg_search_provider_from_scan(scan)
                     .and_then(|p| p.deferred_ctid_plan_position());
                 Some((Column::from_name(field.name()), plan_position))
             } else {
@@ -398,6 +386,78 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
     }
 }
 
+/// True if `node` can drop rows (filter, join, distinct, limit, or top-N sort),
+/// so materializing a scan's output above it may touch fewer rows than below.
+pub(crate) fn is_reduction_node(node: &LogicalPlan) -> bool {
+    match node {
+        LogicalPlan::Filter(_)
+        | LogicalPlan::Join(_)
+        | LogicalPlan::Limit(_)
+        | LogicalPlan::Distinct(_) => true,
+        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
+        _ => false,
+    }
+}
+
+/// Walks the ancestor chain from nearest to farthest and reports whether a
+/// reduction node appears before the first ancestor that `is_stop` (a barrier
+/// for deferred visibility, an anchor for a deferred field), or before the root
+/// when nothing stops it. That intervening reduction is what makes deferring the
+/// scan's output past it worthwhile.
+pub(crate) fn has_reduction_before_stop(
+    ancestors: &[&LogicalPlan],
+    is_stop: impl Fn(&LogicalPlan) -> bool,
+) -> bool {
+    let mut has_reduction = false;
+    for ancestor in ancestors.iter().rev() {
+        if is_stop(ancestor) {
+            break;
+        }
+        if is_reduction_node(ancestor) {
+            has_reduction = true;
+        }
+    }
+    has_reduction
+}
+
+/// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
+/// For each deferred field of a `TableScan`, checks if there is any intermediate reduction
+/// node (`Filter`, `Join`, `Limit`, etc.) on the path between the scan and the first ancestor
+/// that anchors the field (or the root).
+fn collect_beneficial_deferred_fields_inner<'a>(
+    node: &'a LogicalPlan,
+    ancestors: &mut Vec<&'a LogicalPlan>,
+    beneficial: &mut HashSet<CanonicalColumn>,
+) {
+    if let LogicalPlan::TableScan(scan) = node {
+        if let Some(provider) = pg_search_provider_from_scan(scan) {
+            for df in provider.deferred_fields() {
+                if has_reduction_before_stop(ancestors, |ancestor| {
+                    should_anchor(ancestor, std::slice::from_ref(&df))
+                }) {
+                    beneficial.insert(df.canonical);
+                }
+            }
+        }
+        return;
+    }
+
+    ancestors.push(node);
+    for child in node.inputs() {
+        collect_beneficial_deferred_fields_inner(child, ancestors, beneficial);
+    }
+    ancestors.pop();
+}
+
+/// Collects the set of `CanonicalColumn`s for deferred fields that actually benefit from
+/// late materialization (i.e. have at least one reduction/filter/join between the scan and the consumer).
+fn collect_beneficial_deferred_fields(plan: &LogicalPlan) -> HashSet<CanonicalColumn> {
+    let mut beneficial = HashSet::new();
+    let mut ancestors = Vec::new();
+    collect_beneficial_deferred_fields_inner(plan, &mut ancestors, &mut beneficial);
+    beneficial
+}
+
 impl OptimizerRule for LateMaterializationRule {
     fn name(&self) -> &str {
         "LateMaterialization"
@@ -408,13 +468,20 @@ impl OptimizerRule for LateMaterializationRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
+        let beneficial_fields = collect_beneficial_deferred_fields(&plan);
+        if beneficial_fields.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+
         let transformed_plan = plan.transform_up(|node| {
             if let LogicalPlan::TableScan(scan) = &node {
-                let provider = pgsearch_table_provider(scan.source.as_ref());
+                if let Some(provider) = pg_search_provider_from_scan(scan) {
+                    let has_beneficial_deferred = provider
+                        .deferred_fields()
+                        .iter()
+                        .any(|df| beneficial_fields.contains(&df.canonical));
 
-                if let Some(provider) = provider {
-                    let deferred_fields = provider.deferred_fields();
-                    if !deferred_fields.is_empty() {
+                    if has_beneficial_deferred {
                         let is_already_union =
                             scan.projected_schema.fields().iter().any(|f| {
                                 matches!(f.data_type(), arrow_schema::DataType::Union(_, _))
@@ -446,6 +513,7 @@ impl OptimizerRule for LateMaterializationRule {
                             new_qualified_fields.push((qualifier.cloned(), field.clone()));
                         }
 
+                        new_scan.projection = Some(projected_indices);
                         new_scan.projected_schema =
                             Arc::new(datafusion::common::DFSchema::new_with_metadata(
                                 new_qualified_fields,
@@ -713,6 +781,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
 
             let child_logical_schema = mat_node.input.schema();
             let mut physical_deferred_fields = Vec::with_capacity(mat_node.deferred_fields.len());
+            let mut fetch_fields = Vec::new();
 
             for deferred in &mat_node.deferred_fields {
                 // Scan the child schema for the Union-typed field from the same JoinScan
@@ -726,11 +795,10 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         continue;
                     }
                     // Only consider Union columns that haven't been claimed yet.
-                    if physical_deferred_fields.iter().any(
-                        |p: &crate::scan::tantivy_lookup_exec::PhysicalDeferredField| {
-                            p.col_idx == i
-                        },
-                    ) {
+                    if physical_deferred_fields
+                        .iter()
+                        .any(|p: &PhysicalDeferredField| p.col_idx == i)
+                    {
                         continue;
                     }
                     let (q, _) = child_logical_schema.qualified_field(i);
@@ -762,19 +830,33 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     ))
                 })?;
 
-                physical_deferred_fields.push(
-                    crate::scan::tantivy_lookup_exec::PhysicalDeferredField {
-                        col_idx,
-                        display_name: deferred.name.clone(),
-                        is_bytes: deferred.is_bytes,
-                        canonical: deferred.canonical.clone(),
-                        plan_position: deferred.plan_position,
-                        rebuild: deferred.rebuild.clone(),
-                    },
-                );
+                physical_deferred_fields.push(PhysicalDeferredField {
+                    col_idx,
+                    display_name: deferred.name.clone(),
+                    is_bytes: deferred.is_bytes,
+                    canonical: deferred.canonical.clone(),
+                    plan_position: deferred.plan_position,
+                    rebuild: deferred.rebuild.clone(),
+                    ctid_col_name: deferred.ctid_col_name.clone(),
+                });
+                if !deferred.fetch_at_scan {
+                    fetch_fields.push(physical_deferred_fields.last().unwrap().clone());
+                }
             }
 
-            let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helpers)?;
+            // The planner places the fetch directly under the decode; a cost model may
+            // separate them. A scan that already resolved its ordinals needs no fetch node.
+            let decode_input: Arc<dyn ExecutionPlan> = if fetch_fields.is_empty() {
+                input_exec
+            } else {
+                Arc::new(TantivyFetchExec::new(
+                    input_exec,
+                    fetch_fields,
+                    ff_helpers.clone(),
+                    Vec::new(),
+                )?)
+            };
+            let exec = TantivyDecodeExec::new(decode_input, physical_deferred_fields, ff_helpers)?;
 
             Ok(Some(Arc::new(exec)))
         } else {
@@ -814,6 +896,14 @@ pub struct DeferredField {
     /// behavior of collecting the helper from the plan subtree.
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
+    /// When true, the scan resolves the column's term ordinals itself, in doc order, and
+    /// emits State 1; only the dictionary decode is deferred. When false, the scan emits
+    /// doc addresses and a `TantivyFetchExec` resolves them at the decode point.
+    pub fetch_at_scan: bool,
+    // TODO: Clean up our column tracking story, possibly by renaming the `ctid` columns
+    // to include the plan position (e.g. `ctid_<plan_pos>`) similarly to tag names.
+    #[serde(default)]
+    pub ctid_col_name: Option<String>,
 }
 
 /// Key for the per-scan `FFHelper` map used by deferred lookup and top-k.

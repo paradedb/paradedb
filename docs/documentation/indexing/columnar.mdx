@@ -4,9 +4,9 @@ description: Column-oriented indexing for fast filtering, sorting, and aggregate
 canonical: https://www.paradedb.com/docs/documentation/indexing/columnar
 ---
 
-By default, all non-text and non-JSON fields are indexed using ParadeDB's columnar format.
-This enables fast [filtering pushdown](/documentation/filtering#filter-pushdown), [Top K ordering](/documentation/sorting/topk), and
-[aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
+By default, all non-text and non-JSON columns are indexed using ParadeDB's columnar format.
+This enables fast [filtering pushdown](/documentation/filtering/indexed#filter-pushdown), [Top K ordering](/documentation/sorting/topk), and
+[aggregates](/documentation/aggregates/overview) over these columns. For example, in the following index definition, `rating` and `id` are columnar indexed
 because they are integers, whereas `description` is not because it is text.
 
 <CodeGroup>
@@ -82,7 +82,7 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
+To enable columnar indexing for text and JSON columns, cast the column to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
 
 <CodeGroup>
 ```sql SQL
@@ -183,18 +183,15 @@ Columnar defaults to `false` for all tokenizers besides [literal](/documentation
 [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized), which default to
 `true` and do not require an explicit setting.
 
-The reason is that tokenized fields can represent large documents and would be expensive to store column-wise,
-whereas literal and literal normalized fields are typically single-value and much more compact.
+The reason is that tokenized columns can represent large documents and would be expensive to store column-wise,
+whereas literal and literal normalized columns are typically single-value and much more compact.
 
 <Note>
-The columnar field stores the raw text value regardless of the tokenizer. For example, if `Hello world` is
+The columnar value stores the raw text value regardless of the tokenizer. For example, if `Hello world` is
 split into tokens `hello` and `world`, the columnar value remains `Hello world`.
 
-This is important because operations like filtering and sorting require the original field value, not the tokens.
+This is important because operations like filtering and sorting require the original column value, not the tokens.
 
 </Note>
 
-<Note>
-  Internally, Tantivy refers to columnar fields as fast fields. Our [legacy
-  docs](/legacy/indexing/create-index) also refer to these fields as fast.
-</Note>
+<Note>Internally, Tantivy refers to columnar fields as fast fields.</Note>

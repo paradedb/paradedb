@@ -20,6 +20,7 @@ use std::ptr::NonNull;
 use crate::postgres::heap::HeapFetchState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
+use crate::query::tid_bitmap_stream::{BitmapCell, BitmapCursor};
 
 use pgrx::FromDatum;
 use pgrx::{PgMemoryContexts, pg_sys};
@@ -285,12 +286,23 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
         pg_sys::expression_tree_mutator_impl(node, Some(param_resolver_mutator), context)
     }
 }
+pub enum TidProbe {
+    /// Not in the bitmap: the row cannot match, skip it with zero heap access.
+    Reject,
+    /// In the bitmap with exact, non-recheck membership.
+    Candidate,
+    /// Membership is lossy or flagged: recheck filters must also be evaluated.
+    NeedsRecheck,
+}
 
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
 pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
-    field_filters: Vec<HeapFieldFilter>,
+    always_filters: Vec<HeapFieldFilter>,
+    recheck_filters: Vec<HeapFieldFilter>,
+    bitmap_consumer_id: Option<u32>,
+    bitmap_cell: Option<BitmapCell>,
     rel_oid: pg_sys::Oid,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -301,16 +313,23 @@ unsafe impl Send for HeapFilterQuery {}
 unsafe impl Sync for HeapFilterQuery {}
 
 impl HeapFilterQuery {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         indexed_query: Box<dyn Query>,
-        field_filters: Vec<HeapFieldFilter>,
+        always_filters: Vec<HeapFieldFilter>,
+        recheck_filters: Vec<HeapFieldFilter>,
+        bitmap_consumer_id: Option<u32>,
+        bitmap_cell: Option<BitmapCell>,
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         Self {
             indexed_query,
-            field_filters,
+            always_filters,
+            recheck_filters,
+            bitmap_consumer_id,
+            bitmap_cell,
             rel_oid,
             expr_context,
             planstate,
@@ -322,7 +341,10 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
     fn box_clone(&self) -> Box<dyn Query> {
         Box::new(Self {
             indexed_query: self.indexed_query.box_clone(),
-            field_filters: self.field_filters.clone(),
+            always_filters: self.always_filters.clone(),
+            recheck_filters: self.recheck_filters.clone(),
+            bitmap_consumer_id: self.bitmap_consumer_id,
+            bitmap_cell: self.bitmap_cell.clone(),
             rel_oid: self.rel_oid,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -335,7 +357,10 @@ impl Query for HeapFilterQuery {
         let indexed_weight = self.indexed_query.weight(enable_scoring)?;
         Ok(Box::new(HeapFilterWeight {
             indexed_weight,
-            field_filters: self.field_filters.clone(),
+            always_filters: self.always_filters.clone(),
+            recheck_filters: self.recheck_filters.clone(),
+            bitmap_consumer_id: self.bitmap_consumer_id,
+            bitmap_cell: self.bitmap_cell.clone(),
             rel_oid: self.rel_oid,
             expr_context: self.expr_context,
             planstate: self.planstate,
@@ -354,7 +379,10 @@ impl Query for HeapFilterQuery {
 
 struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
-    field_filters: Vec<HeapFieldFilter>,
+    always_filters: Vec<HeapFieldFilter>,
+    recheck_filters: Vec<HeapFieldFilter>,
+    bitmap_consumer_id: Option<u32>,
+    bitmap_cell: Option<BitmapCell>,
     rel_oid: pg_sys::Oid,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
@@ -372,9 +400,24 @@ impl Weight for HeapFilterWeight {
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
 
+        // Claim this (consumer, segment) stream's cursor. No cell installed means
+        // no bitmap was planned (or this is an estimation clone): evaluate filters
+        // directly. An installed-but-unfilled cell is an invariant violation.
+        let cursor = match (self.bitmap_consumer_id, &self.bitmap_cell) {
+            (Some(consumer_id), Some(cell)) => {
+                let source = cell
+                    .get()
+                    .unwrap_or_else(|| panic!("bitmap cursor source was never initialized"));
+                Some(unsafe { source.claim(consumer_id, reader.segment_id()) })
+            }
+            _ => None,
+        };
+
         let scorer = HeapFilterScorer::new(
             indexed_scorer,
-            self.field_filters.clone(),
+            self.always_filters.clone(),
+            self.recheck_filters.clone(),
+            cursor,
             ctid_ff,
             self.rel_oid,
             self.expr_context,
@@ -392,7 +435,12 @@ impl Weight for HeapFilterWeight {
 
 struct HeapFilterScorer {
     indexed_scorer: Box<dyn Scorer>,
-    field_filters: Vec<HeapFieldFilter>,
+    /// Evaluated on every doc that survives the bitmap probe (or every doc when no
+    /// bitmap set is attached). See `SearchQueryInput::HeapFilter`.
+    always_filters: Vec<HeapFieldFilter>,
+    /// Evaluated only for lossy/recheck probes, or when no bitmap cursor is attached.
+    recheck_filters: Vec<HeapFieldFilter>,
+    bitmap_cursor: Option<BitmapCursor>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
@@ -405,9 +453,12 @@ unsafe impl Send for HeapFilterScorer {}
 unsafe impl Sync for HeapFilterScorer {}
 
 impl HeapFilterScorer {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         indexed_scorer: Box<dyn Scorer>,
-        field_filters: Vec<HeapFieldFilter>,
+        always_filters: Vec<HeapFieldFilter>,
+        recheck_filters: Vec<HeapFieldFilter>,
+        bitmap_cursor: Option<BitmapCursor>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
@@ -415,7 +466,9 @@ impl HeapFilterScorer {
     ) -> Self {
         let mut scorer = Self {
             indexed_scorer,
-            field_filters,
+            always_filters,
+            recheck_filters,
+            bitmap_cursor,
             ctid_ff,
             heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
@@ -447,12 +500,40 @@ impl HeapFilterScorer {
         let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) else {
             panic!("Could not get ctid for doc_id: {doc_id}");
         };
+
+        // Probe the external index's bitmap first: a miss rejects the doc with zero
+        // heap access, and exact non-recheck membership skips the recheck filters.
+        // With no cursor attached, both filter lists must run: the bitmap proof
+        // the recheck split relies on doesn't exist.
+        let needs_recheck_filters = match &mut self.bitmap_cursor {
+            Some(cursor) => match unsafe { cursor.probe(ctid_value) } {
+                TidProbe::Reject => return false,
+                TidProbe::Candidate => false,
+                TidProbe::NeedsRecheck => true,
+            },
+            None => true,
+        };
+
+        let run_recheck = needs_recheck_filters && !self.recheck_filters.is_empty();
+        if self.always_filters.is_empty() && !run_recheck {
+            return true;
+        }
+
         // Convert u64 ctid back to ItemPointer
         let mut item_pointer = pg_sys::ItemPointerData::default();
         crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
 
-        // Evaluate all heap filters
-        for filter in self.field_filters.iter_mut() {
+        let mut no_filters = Vec::new();
+        let recheck_filters = if run_recheck {
+            &mut self.recheck_filters
+        } else {
+            &mut no_filters
+        };
+        for filter in self
+            .always_filters
+            .iter_mut()
+            .chain(recheck_filters.iter_mut())
+        {
             unsafe {
                 let filter_result = filter.evaluate(
                     &mut item_pointer as *mut pg_sys::ItemPointerData,

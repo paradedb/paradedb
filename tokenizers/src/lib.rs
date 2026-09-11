@@ -34,7 +34,16 @@ pub use manager::{SearchNormalizer, SearchTokenizer};
 
 pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
+    register_tokenizers_into(&tokenizer_manager, search_tokenizers);
+    tokenizer_manager
+}
 
+/// Register `search_tokenizers` into an existing manager. `TokenizerManager` registration
+/// mutates its shared registry, so readers already holding the manager see the entries too.
+pub fn register_tokenizers_into(
+    tokenizer_manager: &TokenizerManager,
+    search_tokenizers: Vec<SearchTokenizer>,
+) {
     for search_tokenizer in search_tokenizers {
         let tokenizer_option = search_tokenizer.to_tantivy_tokenizer();
 
@@ -46,17 +55,21 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<SearchTokenizer>) -> Toke
             tokenizer_manager.register(&search_tokenizer.name(), text_analyzer);
         }
     }
-
-    tokenizer_manager
 }
 
 pub fn create_normalizer_manager() -> TokenizerManager {
+    let tokenizer_manager = TokenizerManager::new();
+    register_normalizers_into(&tokenizer_manager);
+    tokenizer_manager
+}
+
+/// Register the fast-field normalizers into an existing manager; see
+/// [`register_tokenizers_into`] for why registration rather than replacement.
+pub fn register_normalizers_into(tokenizer_manager: &TokenizerManager) {
     let raw_tokenizer = TextAnalyzer::builder(RawTokenizer::default()).build();
     let lower_case_tokenizer = TextAnalyzer::builder(RawTokenizer::default())
         .filter(LowerCaser)
         .build();
-    let tokenizer_manager = TokenizerManager::new();
     tokenizer_manager.register("raw", raw_tokenizer);
     tokenizer_manager.register("lowercase", lower_case_tokenizer);
-    tokenizer_manager
 }

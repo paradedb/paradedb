@@ -15,6 +15,9 @@ on:
       - ".github/actions/benchmark-queries/**"
       - ".github/actions/benchmarks-from-main/**"
       - ".github/actions/setup-benchmark-cluster/**"
+      - ".github/actions/setup-pg-search-build-environment/**"
+      - ".github/actions/setup-pg-search-toolchain/**"
+      - ".github/actions/setup-postgres/**"
       - ".github/workflows/benchmark-pg_search-queries.yml"
       - "benchmarks/**"
       - "**/*.rs"
@@ -156,6 +159,9 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
           fetch-depth: 0
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -259,7 +265,7 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Set up benchmark cluster
+      - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}

@@ -38,7 +38,7 @@ pub trait ExplainFormat {
 /// Removes variabilities like:
 /// - `oid` fields from `with_index` objects
 /// - `postgres_expression` fields (contain pointers)
-/// - `expr_node` fields from `field_filters` (internal node representation)
+/// - `expr_node` fields from `always_filters` (internal node representation)
 /// - Any other non-deterministic data
 pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
     match json_value {
@@ -422,12 +422,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_heap_filter_field_filters() {
+    fn test_cleanup_heap_filter_always_filters() {
         // Test that expr_node is removed and heap_filter is kept
         let mut value = json!({
             "heap_filter": {
                 "indexed_query": "all",
-                "field_filters": [
+                "always_filters": [
                     {
                         "expr_node": "{OPEXPR :opno 98 :opfuncid 67 ...}",
                         "heap_filter": "(category = 'Electronics'::text)"
@@ -447,7 +447,7 @@ mod tests {
             json!({
                 "heap_filter": {
                     "indexed_query": "all",
-                    "field_filters": [
+                    "always_filters": [
                         {
                             "heap_filter": "(category = 'Electronics'::text)"
                         },

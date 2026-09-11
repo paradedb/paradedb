@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Generator for cross-relation predicates (HeapConditions).
+//! Generator for cross-relation predicates.
 //!
-//! These are predicates that compare columns from different tables,
-//! such as `a.price > b.price`, which cannot be pushed down to Tantivy
-//! and must be evaluated at join time.
+//! These are predicates that compare columns from different tables
+//! (e.g., `a.age > b.age`), which cannot be pushed down to individual Tantivy
+//! scan nodes and must be evaluated as post-join filters.
 
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
@@ -66,38 +66,51 @@ impl CrossRelExpr {
     }
 }
 
-/// Generate arbitrary cross-relation predicate expressions.
+/// Generate arbitrary cross-relation predicate expressions comparing columns between two tables
+/// chosen from the given set of tables.
 ///
 /// Creates predicates comparing numeric columns between two tables,
-/// such as `left_table.col > right_table.col`.
+/// such as `table_a.col > table_b.col`.
 ///
 /// # Arguments
-/// * `left_table` - Name of the left table in the comparison
-/// * `right_table` - Name of the right table in the comparison
+/// * `tables` - List of table names to select pairs from (requires at least 2 tables)
 /// * `numeric_columns` - List of numeric column names that can be compared
-pub fn arb_cross_rel_expr(
-    left_table: impl AsRef<str>,
-    right_table: impl AsRef<str>,
-    numeric_columns: Vec<impl AsRef<str>>,
-) -> impl Strategy<Value = CrossRelExpr> {
-    let left_table = left_table.as_ref().to_string();
-    let right_table = right_table.as_ref().to_string();
+pub fn arb_cross_rel_expr<S: AsRef<str>, C: AsRef<str>>(
+    tables: Vec<S>,
+    numeric_columns: Vec<C>,
+) -> impl Strategy<Value = CrossRelExpr> + use<S, C> {
+    let tables: Vec<String> = tables.into_iter().map(|t| t.as_ref().to_string()).collect();
     let columns: Vec<String> = numeric_columns
         .into_iter()
         .map(|c| c.as_ref().to_string())
         .collect();
 
+    assert!(
+        tables.len() >= 2,
+        "arb_cross_rel_expr requires at least 2 tables, got {}",
+        tables.len()
+    );
+
     (
         any::<CrossRelOp>(),
+        proptest::sample::subsequence(tables, 2),
+        proptest::bool::ANY,
         proptest::sample::select(columns.clone()),
         proptest::sample::select(columns),
     )
-        .prop_map(move |(op, left_col, right_col)| CrossRelExpr {
-            left_table: left_table.clone(),
-            left_col,
-            op,
-            right_table: right_table.clone(),
-            right_col,
+        .prop_map(move |(op, pair, swap, left_col, right_col)| {
+            let (left_table, right_table) = if swap {
+                (pair[1].clone(), pair[0].clone())
+            } else {
+                (pair[0].clone(), pair[1].clone())
+            };
+            CrossRelExpr {
+                left_table,
+                left_col,
+                op,
+                right_table,
+                right_col,
+            }
         })
 }
 

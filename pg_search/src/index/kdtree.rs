@@ -121,10 +121,7 @@ impl KdTree {
         }
     }
 
-    // `dims`, `route`, and `to_range_partitioning` are the routing API the partitioned scan and
-    // merge paths will call. They stay unused here until those land.
     /// The `partition_by` fields, in the order [`Point`]s must be laid out.
-    #[allow(dead_code)]
     pub fn dims(&self) -> &[FieldName] {
         &self.dims
     }
@@ -134,7 +131,6 @@ impl KdTree {
     }
 
     /// The partition a row belongs to. `values` must be laid out like [`Self::dims`].
-    #[allow(dead_code)]
     pub fn route(&self, values: &[PdbOwnedValue]) -> usize {
         debug_assert_eq!(values.len(), self.dims.len());
         let mut node = &self.root;

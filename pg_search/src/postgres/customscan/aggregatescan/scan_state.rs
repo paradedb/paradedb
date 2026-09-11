@@ -17,16 +17,18 @@
 
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggPlan;
 use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
-use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
-};
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::query::tid_bitmap_stream::BitmapCell;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -46,16 +48,12 @@ pub enum ExecutionState {
 pub struct DataFusionAggState {
     /// The join tree.
     pub plan: RelNode,
+    /// Original plan preserved for rescans.
+    pub base_plan: Option<RelNode>,
     /// GROUP BY columns and aggregate functions.
     pub targetlist: JoinAggregateTargetList,
     /// Optional TopK sort+limit pushed down from Postgres.
     pub topk: Option<DataFusionTopK>,
-    /// Cross-table search predicates for join-level filtering.
-    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    /// Original predicates preserved for rescans.
-    pub base_join_level_predicates: Option<Vec<JoinLevelSearchPredicate>>,
-    /// Non-@@@ cross-table predicates (descriptions for EXPLAIN).
-    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// Raw PG Expr pointers from custom_exprs (after setrefs transforms
     /// Var nodes to INDEX_VAR references). Used to translate non-@@@
     /// cross-table predicates at execution time.
@@ -81,12 +79,22 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
+    /// The `pdb.agg()` grouping-set layout, set when the query has any such call.
+    pub pdb_plan: Option<PdbAggPlan>,
+    /// `HAVING` of a scalar `pdb.agg()` query, judged on the assembled root row.
+    pub pdb_root_having: Option<datafusion::logical_expr::Expr>,
+    /// Assembled `pdb.agg()` documents for each row of `current_batch`, which then
+    /// holds the SQL-level rows only.
+    pub pdb_agg_json: Option<Vec<Vec<serde_json::Value>>>,
     /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
     /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
     /// workers spawn only after it exists). Stays `Inactive` on the serial path.
     /// Applies only when parallel execution is enabled and the query qualifies (binary join +
     /// supported aggregate).
     pub mpp: MppLifecycle,
+    /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
+    /// scan may still use DataFusion, but it must never launch MPP producer workers.
+    pub parallel_mode_ok: bool,
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
     pub launch_timing: Option<MppLaunchTiming>,
@@ -122,6 +130,11 @@ pub struct AggregateScanState {
     pub aggregate_clause: AggregateCSClause,
     pub base_aggregate_clause: Option<AggregateCSClause>,
 
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_exec: Option<BitmapExec>,
+    pub bitmap_cell: Option<BitmapCell>,
+
     /// DataFusion backend state. When `Some`, the DataFusion path is active
     /// and the Tantivy-specific fields above are unused.
     pub datafusion_state: Option<DataFusionAggState>,
@@ -142,7 +155,7 @@ pub struct AggregateScanState {
     /// 2. Keeps Tantivy buffer pins alive through `exec_custom_scan` so
     ///    background merges don't recycle the canonical segments before
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
-    pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
+    pub source_manifests: Vec<SearchIndexManifest>,
 
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.
@@ -188,13 +201,16 @@ impl SolvePostgresExpressions for AggregateScanState {
         // Check both the Tantivy-path search queries and DataFusion-path
         // join-level predicates for unresolved PostgresExpression nodes
         // (prepared statement parameters like $1).
-        if let Some(ref mut df) = self.datafusion_state
-            && df
-                .join_level_predicates
-                .iter_mut()
-                .any(|p| p.query.has_postgres_expressions())
-        {
-            return true;
+        if let Some(ref mut df) = self.datafusion_state {
+            let mut has = false;
+            df.plan.visit_queries(&mut |q| {
+                if q.has_postgres_expressions() {
+                    has = true;
+                }
+            });
+            if has {
+                return true;
+            }
         }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
@@ -204,13 +220,16 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_parameters(&mut self) -> bool {
-        if let Some(ref mut df) = self.datafusion_state
-            && df
-                .join_level_predicates
-                .iter_mut()
-                .any(|p| p.query.has_parameters())
-        {
-            return true;
+        if let Some(ref mut df) = self.datafusion_state {
+            let mut has = false;
+            df.plan.visit_queries(&mut |q| {
+                if q.has_parameters() {
+                    has = true;
+                }
+            });
+            if has {
+                return true;
+            }
         }
         self.aggregate_clause.query_mut().has_parameters()
             || self
@@ -224,17 +243,35 @@ impl SolvePostgresExpressions for AggregateScanState {
             self.aggregate_clause = base.clone();
         }
         if let Some(ref mut df) = self.datafusion_state
-            && let Some(base) = &df.base_join_level_predicates
+            && let Some(base) = &df.base_plan
         {
-            df.join_level_predicates = base.clone();
+            df.plan = base.clone();
         }
+    }
+
+    /// The aggregate's leader builds and streams privately; its MPP workers do
+    /// not receive a cell yet and evaluate filters directly (correct, unpruned).
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        self.bitmap_exec.as_ref()?;
+        // The cell is filled in `execute_aggregate`, which knows whether the
+        // build must be private (count fast path) or shared (worker pool) —
+        // building privately here would be thrown away by the shared rebuild.
+        Some(
+            self.bitmap_cell
+                .get_or_insert_with(BitmapCell::default)
+                .clone(),
+        )
+    }
+
+    fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
+        self.aggregate_clause.query_mut().attach_bitmap_cell(cell);
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
         if let Some(ref mut df) = self.datafusion_state {
-            for pred in &mut df.join_level_predicates {
-                pred.query.init_postgres_expressions(planstate);
-            }
+            df.plan.visit_queries_mut(&mut |q| {
+                q.init_postgres_expressions(planstate);
+            });
         }
         self.aggregate_clause
             .query_mut()
@@ -246,9 +283,9 @@ impl SolvePostgresExpressions for AggregateScanState {
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         if let Some(ref mut df) = self.datafusion_state {
-            for pred in &mut df.join_level_predicates {
-                pred.query.solve_postgres_expressions(expr_context);
-            }
+            df.plan.visit_queries_mut(&mut |q| {
+                q.solve_postgres_expressions(expr_context);
+            });
         }
         if !self.is_datafusion_backend() {
             self.aggregate_clause

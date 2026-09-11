@@ -163,7 +163,7 @@ data:
         JOIN pg_am am ON am.oid = c.relam
         JOIN LATERAL paradedb.index_info(c.oid) AS info ON true
         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-          AND am.amname = 'bm25'
+          AND am.amname = 'paradedb'
         GROUP BY n.nspname, c.relname, c.oid;
       target_databases: ["*"]
       predicate_query: "SELECT 1 FROM pg_extension WHERE extname = 'pg_search' AND extversion = '0.25.3';"

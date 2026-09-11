@@ -33,9 +33,9 @@ SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, false) FROM card_mvcc
 -- so the index still contains all 12 values
 DELETE FROM card_mvcc WHERE val = md5('cardtest' || 12)::uuid;
 DELETE FROM card_mvcc WHERE id % 10 = 0;
-SET paradedb.check_aggregate_scan = false; -- DISTINCT can't use the aggregate scan
+SET paradedb.planner_warnings = 'off'; -- DISTINCT can't use the aggregate scan
 SELECT count(DISTINCT val) AS true_cardinality FROM card_mvcc;
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 -- MVCC-correct: the fully-deleted value is not counted. A value whose first
 -- occurrences are dead but which still has live rows must be counted.
@@ -109,9 +109,9 @@ SELECT count(*) >= 2 AS multiple_segments FROM paradedb.index_info('idx_card_mvc
 -- v0: dead in the first batch's segment, live in the second's. v1: dead everywhere.
 DELETE FROM card_mvcc_seg WHERE batch = 1 AND val = 'v0';
 DELETE FROM card_mvcc_seg WHERE val = 'v1';
-SET paradedb.check_aggregate_scan = false; -- DISTINCT can't use the aggregate scan
+SET paradedb.planner_warnings = 'off'; -- DISTINCT can't use the aggregate scan
 SELECT count(DISTINCT val) AS true_cardinality FROM card_mvcc_seg;
-RESET paradedb.check_aggregate_scan;
+RESET paradedb.planner_warnings;
 
 SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb) FROM card_mvcc_seg WHERE card_mvcc_seg @@@ pdb.all();
 SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, false) FROM card_mvcc_seg WHERE card_mvcc_seg @@@ pdb.all();

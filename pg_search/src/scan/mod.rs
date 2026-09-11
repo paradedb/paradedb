@@ -18,6 +18,7 @@
 pub mod batch_scanner;
 pub mod codec;
 pub mod deferred_encode;
+pub mod deferred_lookup;
 pub mod execution_plan;
 pub mod filter_passthrough_exec;
 pub mod filter_pushdown;
@@ -25,11 +26,13 @@ pub mod info;
 pub mod late_materialization;
 pub mod physical_codec;
 pub mod pre_filter;
+pub mod propagate_empty_unnest_rule;
 pub mod range_partitioning;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
 pub mod table_provider;
-pub mod tantivy_lookup_exec;
+pub mod tantivy_decode_exec;
+pub mod tantivy_fetch_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 mod udf_codec;

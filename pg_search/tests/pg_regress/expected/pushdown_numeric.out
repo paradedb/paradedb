@@ -101,8 +101,8 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -112,7 +112,7 @@ ORDER BY id LIMIT 10;
             TopK Order By: id asc
             TopK Limit: 10
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)
 
 SELECT * FROM numeric_pushdown
@@ -378,8 +378,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -388,7 +388,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value
@@ -775,8 +775,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
-                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -785,7 +785,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value

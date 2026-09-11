@@ -22,6 +22,9 @@ IGNORED_CODEGROUPS = {
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
     # Non-executable fragments showing the distance metric spelling per ORM
     "documentation__indexing__indexing-vectors__group-002",
+    # Uses page-local mock_items_geo setup that is not part of the shared
+    # snippet harness fixtures.
+    "documentation__filtering__external-indexes__group-001",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
@@ -100,9 +103,7 @@ def main() -> int:
     """Extract all supported verification snippets from the docs tree."""
     output_dirs = build_output_dirs()
 
-    docs = sorted(
-        path for path in DOCS_ROOT.rglob("*.mdx") if "legacy" not in path.parts
-    )
+    docs = sorted(DOCS_ROOT.rglob("*.mdx"))
     if not docs:
         print(f"No .mdx files found under {DOCS_ROOT}", file=sys.stderr)
         return 1

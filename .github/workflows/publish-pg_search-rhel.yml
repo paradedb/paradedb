@@ -298,7 +298,7 @@ jobs:
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx environment
+      - name: Initialize pgrx Environment
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"

@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+`GROUP BY DATE(timestamp_column)` and `GROUP BY timestamp_column::date` are now pushed down to the aggregate custom scan when the column is a columnar `timestamp without time zone`. Results match Postgres for the full timestamp range, including `infinity`, `-infinity` and `NULL`. `DATE(timestamptz_column)` still falls back to Postgres because the result depends on the session `TimeZone`.

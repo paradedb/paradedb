@@ -21,7 +21,7 @@ whereas writes can be improved by increasing [per-statement memory](/documentati
 
 ### Correctness vs. Performance
 
-By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For `pdb.agg`, MVCC visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can disable it with `solve_mvcc => false` to improve performance.
+By default, ParadeDB favors correctness, even when it comes at the cost of slower query execution. For `pdb.agg`, transaction visibility filtering is enabled by default. If your workload can tolerate potentially stale aggregate results, you can skip it with `visibility => 'raw'` to improve performance, or let the query's size decide with `visibility => 'threshold'`.
 
 ### Replication Safety
 

@@ -7,7 +7,7 @@
 set -Eeuo pipefail
 
 SUITE_DIR=/home/app/stressgres/suites
-STRESSGRES=/home/app/target/x86_64-unknown-linux-gnu/dst/stressgres
+STRESSGRES=/symbols/stressgres
 PARADEDB_ADMIN_CONN="postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb?connect_timeout=5"
 
 # The paired singleton_driver runs this symlink; each first_ repoints it at its own suite.

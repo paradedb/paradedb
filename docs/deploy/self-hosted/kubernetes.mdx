@@ -118,6 +118,8 @@ depend on `extension_control_path`.
 Add the `pg_search` extension image to the `postgresql.extensions` section of
 your CloudNativePG `Cluster` resource:
 
+import { version } from "/snippets/version.mdx";
+
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -136,7 +138,7 @@ spec:
     extensions:
       - name: pg_search
         image:
-          reference: docker.io/paradedb/paradedb-extension:0.25.4-18-trixie
+          reference: docker.io/paradedb/paradedb-extension:{version}-18-trixie
         extension_control_path:
           - /share
         dynamic_library_path:
@@ -157,11 +159,11 @@ spec:
     name: paradedb
   extensions:
     - name: pg_search
-      version: "0.25.4"
+      version: "{version}"
 ```
 
 The extension image tag format is `<paradedb-version>-<postgres-major>-trixie`.
-For example, use `0.25.4-18-trixie` for ParadeDB `0.25.4` on Postgres 18.
+For example, use `{version}-18-trixie` for ParadeDB `{version}` on Postgres 18.
 
 ## Connect to the Cluster
 

@@ -193,7 +193,7 @@ pub unsafe fn combined_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     sizes.into_iter().collect()
 }
 
-/// Returns the wall-clock time the given bm25 index was built, or NULL for indices created
+/// Returns the wall-clock time the given ParadeDB index was built, or NULL for indices created
 /// before build-time stamping was added.
 #[pg_extern]
 pub fn index_created_at(index: PgRelation) -> Option<pgrx::datum::TimestampWithTimeZone> {
@@ -203,7 +203,7 @@ pub fn index_created_at(index: PgRelation) -> Option<pgrx::datum::TimestampWithT
         .and_then(|ts| pgrx::datum::TimestampWithTimeZone::try_from(ts).ok())
 }
 
-/// Returns the pg_search version that created the given bm25 index, or NULL for indices
+/// Returns the pg_search version that created the given ParadeDB index, or NULL for indices
 /// created before version stamping was added.
 #[pg_extern]
 pub fn index_created_by(index: PgRelation) -> Option<String> {
@@ -1105,7 +1105,7 @@ GRANT SELECT ON pdb.index_layer_info TO PUBLIC;
 pub mod pdb {
     use super::*;
 
-    /// Verify the integrity of a BM25 index, similar to PostgreSQL's amcheck extension.
+    /// Verify the integrity of a ParadeDB index, similar to PostgreSQL's amcheck extension.
     ///
     /// This function performs various verification checks on the index:
     /// - Schema validation: Ensures the index schema can be loaded
@@ -1115,7 +1115,7 @@ pub mod pdb {
     /// - Heap reference validation (optional): Verifies all indexed ctids exist in the heap table
     ///
     /// # Arguments
-    /// * `index` - The BM25 index to verify (name or OID)
+    /// * `index` - The ParadeDB index to verify (name or OID)
     /// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table.
     ///   This is expensive but thorough. Default: false
     /// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0).
@@ -1589,7 +1589,7 @@ pub mod pdb {
         Ok(TableIterator::new(results))
     }
 
-    /// List all segments in a BM25 index.
+    /// List all segments in a ParadeDB index.
     ///
     /// Returns information about each Tantivy segment in the index. This is useful for:
     /// - Understanding index structure and segment distribution
@@ -1598,7 +1598,7 @@ pub mod pdb {
     /// - Monitoring segment merging and index health
     ///
     /// # Arguments
-    /// * `index` - The BM25 index to inspect (name or OID)
+    /// * `index` - The ParadeDB index to inspect (name or OID)
     ///
     /// # Returns
     /// A table with columns:
@@ -1687,9 +1687,9 @@ pub mod pdb {
         Ok(TableIterator::new(results))
     }
 
-    /// List all BM25 indexes in the current database.
+    /// List all ParadeDB indexes in the current database.
     ///
-    /// Similar to pg_amcheck's index discovery, this function finds all BM25 indexes
+    /// Similar to pg_amcheck's index discovery, this function finds all ParadeDB indexes
     /// so they can be verified or inspected. Useful for automation and monitoring.
     ///
     /// # Returns
@@ -1703,7 +1703,7 @@ pub mod pdb {
     ///
     /// # Example
     /// ```sql
-    /// -- List all BM25 indexes
+    /// -- List all ParadeDB indexes
     /// SELECT * FROM pdb.indexes();
     ///
     /// -- Find large indexes (by document count)
@@ -1712,7 +1712,7 @@ pub mod pdb {
     /// -- Find indexes with many segments (may benefit from optimization)
     /// SELECT * FROM pdb.indexes() WHERE num_segments > 10;
     ///
-    /// -- Verify all BM25 indexes in a specific schema
+    /// -- Verify all ParadeDB indexes in a specific schema
     /// SELECT v.* FROM pdb.indexes() i
     /// CROSS JOIN LATERAL pdb.verify_index(i.indexrelid) v
     /// WHERE i.schemaname = 'public';
@@ -1734,7 +1734,7 @@ pub mod pdb {
     > {
         let mut results = Vec::new();
 
-        // Query pg_index joined with pg_class to find all BM25 indexes
+        // Query pg_index joined with pg_class to find all ParadeDB indexes
         let query = r#"
         SELECT
             n.nspname::text AS schemaname,
@@ -1799,10 +1799,10 @@ pub mod pdb {
         Ok(TableIterator::new(results))
     }
 
-    /// Verify all BM25 indexes in the current database.
+    /// Verify all ParadeDB indexes in the current database.
     ///
     /// Similar to pg_amcheck's `--all` option, this function discovers and verifies
-    /// all BM25 indexes in the database. Useful for scheduled health checks and
+    /// all ParadeDB indexes in the database. Useful for scheduled health checks and
     /// post-upgrade validation.
     ///
     /// # Arguments
@@ -1826,7 +1826,7 @@ pub mod pdb {
     ///
     /// # Example
     /// ```sql
-    /// -- Verify all BM25 indexes
+    /// -- Verify all ParadeDB indexes
     /// SELECT * FROM pdb.verify_all_indexes();
     ///
     /// -- Verify only indexes in 'public' schema with full heap check
@@ -1951,7 +1951,7 @@ pub mod pdb {
         let total_indexes = indexes.len();
         if report_progress {
             pgrx::notice!(
-                "verify_all_indexes: Found {} BM25 indexes to verify",
+                "verify_all_indexes: Found {} ParadeDB indexes to verify",
                 total_indexes
             );
         }

@@ -432,7 +432,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -454,7 +454,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
  count |        sum         
 -------+--------------------
      2 | 2799.9700000000003
@@ -466,7 +466,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -484,7 +484,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.planner_warnings = 'off' (table: products)
          avg         
 ---------------------
  24.5000000000000000

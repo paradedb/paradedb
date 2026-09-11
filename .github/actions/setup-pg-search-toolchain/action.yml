@@ -1,0 +1,76 @@
+name: Set Up pg_search Toolchain
+description: Install pinned Rust and cargo-pgrx with a configurable shared Rust cache
+
+inputs:
+  pg_version:
+    description: "PostgreSQL major version used to partition the Rust cache."
+    required: true
+  rust_components:
+    description: "Optional comma-separated rustup components."
+    required: false
+    default: ""
+  cache_prefix_key:
+    description: "rust-cache prefix separating compatible build profiles."
+    required: false
+    default: "v3-rust-cache"
+  cache_save:
+    description: "Whether this run may save a new Rust cache entry."
+    required: false
+    default: "false"
+  cache_on_failure:
+    description: "Whether to save the Rust cache when a later step fails."
+    required: false
+    default: "false"
+  install_cargo_pgrx:
+    description: "Whether to install the repository-pinned cargo-pgrx."
+    required: false
+    default: "true"
+
+outputs:
+  pgrx_version:
+    description: "The pgrx version pinned in Cargo.toml."
+    value: ${{ steps.versions.outputs.pgrx }}
+
+runs:
+  using: composite
+  steps:
+    - name: Extract Pinned Toolchain Versions
+      id: versions
+      shell: bash
+      run: |
+        set -euo pipefail
+        rust=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+        pgrx=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+        echo "rust=$rust" >> "$GITHUB_OUTPUT"
+        echo "pgrx=$pgrx" >> "$GITHUB_OUTPUT"
+        echo "Resolved rust=$rust cargo-pgrx=$pgrx"
+
+    - name: Install Rust ${{ steps.versions.outputs.rust }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ steps.versions.outputs.rust }}
+        components: ${{ inputs.rust_components }}
+        cache: false
+        rustflags: "" # Respect .cargo/config.toml target-cpu flags.
+
+    - name: Install Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: ${{ inputs.cache_prefix_key }}
+        shared-key: pg${{ inputs.pg_version }}
+        cache-targets: true
+        cache-all-crates: true
+        save-if: ${{ inputs.cache_save == 'true' }}
+        cache-on-failure: ${{ inputs.cache_on_failure == 'true' }}
+
+    - name: Install cargo-pgrx ${{ steps.versions.outputs.pgrx }}
+      if: inputs.install_cargo_pgrx == 'true'
+      shell: bash
+      run: |
+        version="${{ steps.versions.outputs.pgrx }}"
+        installed="$(cargo pgrx --version 2>/dev/null || true)"
+        if [ "${installed}" = "cargo-pgrx ${version}" ]; then
+          echo "cargo-pgrx ${version} restored from rust-cache"
+        else
+          cargo install -j "$(nproc)" cargo-pgrx --version "${version}" --debug --locked --force
+        fi

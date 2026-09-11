@@ -86,6 +86,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@v2
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -93,7 +96,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Set up benchmark cluster
+      - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}

@@ -199,7 +199,7 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
     // The VisibilityFilterExec is absorbed into SegmentedTopKExec, which now owns MVCC
     // visibility checking, so it no longer appears as a separate node in the plan.
     assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
-    assert!(explain.contains("TantivyLookupExec"), "{explain}");
+    assert!(explain.contains("TantivyDecodeExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
 
     type Row = (String, String, i32, i32);
@@ -283,7 +283,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    assert!(explain.contains("TantivyLookupExec"), "{explain}");
+    assert!(explain.contains("TantivyDecodeExec"), "{explain}");
     // Self-join ORDER BY on both aliases is not a SegmentedTopK plan: term
     // ordinals are not comparable across the two scans (#6023). Sort after
     // lookup, with visibility still a separate node.

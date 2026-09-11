@@ -627,7 +627,7 @@ WITH matched AS (
 SELECT m.snip, d.filename
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.snip DESC, m.id;
-WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5108_chunks)
+WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5108_chunks)
                                                                                                        QUERY PLAN                                                                                                       
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Nested Loop
@@ -667,7 +667,7 @@ WITH matched AS (
 SELECT m.snip, d.filename
 FROM matched m JOIN issue_5108_docs d ON d.id = m.doc_id
 ORDER BY m.snip DESC, m.id;
-WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: issue_5108_chunks)
+WARNING:  Query has LIMIT 100 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5108_chunks)
             snip             |  filename  
 -----------------------------+------------
  <b>healthcare</b> notes 999 | doc_9.pdf

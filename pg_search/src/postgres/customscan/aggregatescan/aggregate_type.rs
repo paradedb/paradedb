@@ -15,21 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{
-    FieldName, HashSet, MvccVisibility, agg_funcoid, agg_with_solve_mvcc_funcoid,
-    extract_solve_mvcc_from_const,
-};
+use crate::api::{FieldName, HashSet, MvccVisibility, is_agg_funcoid, pdb_agg_spec};
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::PgSearchRelation;
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
+use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use anyhow::{Context, bail};
 use pgrx::PgList;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -40,7 +40,7 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
-use tantivy::aggregation::agg_req::AggregationVariants;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
@@ -119,12 +119,11 @@ impl SolvePostgresExpressions for AggregateType {
 impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
-        heaprelid: pg_sys::Oid,
         bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
-    ) -> Result<Self, String> {
+    ) -> anyhow::Result<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -146,49 +145,29 @@ impl AggregateType {
         };
         let filter_query = filter_expr.map(|qual| SearchQueryInput::from(&qual));
 
-        // Check for pdb.agg() custom aggregate (both overloads)
-        let agg_oid = agg_funcoid().to_u32();
-        let agg_with_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
-
-        if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
-            // Extract JSON argument (first arg)
+        // Check for pdb.agg() custom aggregate (any overload)
+        if is_agg_funcoid(aggfnoid) {
+            // Without the spec the scan declines, and Postgres runs the
+            // aggregate itself.
             let arg = args.get_ptr(0).expect("pdb.agg missing argument");
-            let expr = (*arg).expr;
-            let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
-                let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)
-                    .expect("invalid JSON in pdb.agg")
-                    .0
-            } else {
-                // Parameterized pdb.agg() can't be lowered into the aggregate
-                // pushdown plan because we need the JSON spec at planning time
-                // to validate fields and choose a strategy. Return Err so the
-                // AggregateScan path declines and PG falls back to standard
-                // aggregate processing — same behaviour as a query without
-                // pdb.agg() pushdown.
-                return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
-            };
+            let (mut json_value, mvcc_visibility) = pdb_agg_spec(
+                aggfnoid,
+                (*arg).expr as *mut pg_sys::Node,
+                args.get_ptr(1).map(|arg| (*arg).expr as *mut pg_sys::Node),
+            )
+            .context("pdb.agg argument must be a constant for aggregate pushdown")?;
+            let schema = bm25_index.schema().expect("could not get index schema");
 
-            // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
-            let solve_mvcc = if aggfnoid == agg_with_mvcc_oid {
-                args.get_ptr(1)
-                    .and_then(|mvcc_arg| nodecast!(Const, T_Const, (*mvcc_arg).expr))
-                    .map(|const_node| extract_solve_mvcc_from_const(const_node))
-                    .unwrap_or(true)
-            } else {
-                true // Single-arg overload: default to solve_mvcc = true
-            };
-
-            let mvcc_visibility = if solve_mvcc {
-                MvccVisibility::Enabled
-            } else {
-                MvccVisibility::Disabled
-            };
+            // A spec written for a join names its fields `alias.field`, and the
+            // planner can reduce that join to this one relation. A qualifier
+            // naming it is dropped so the spec runs the same on either path.
+            if let Some((_, Some(alias), _)) = lookup_base_rel_info(root, heap_rti) {
+                strip_relation_qualifier(&mut json_value, &alias, &schema);
+            }
 
             // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
             // Note: Non-existent fields are caught by validate_fields() with proper error
-            let schema = bm25_index.schema().expect("could not get index schema");
             let mut fields = HashSet::default();
             extract_fields_from_agg_json(&json_value, &mut fields);
             for field_name in &fields {
@@ -196,10 +175,10 @@ impl AggregateType {
                 if schema.search_field(field_name).is_some()
                     && !schema.supports_tantivy_aggregate(field_name)
                 {
-                    return Err(format!(
+                    bail!(
                         "field '{}' does not support aggregate pushdown (NUMERIC)",
                         field_name
-                    ));
+                    );
                 }
             }
 
@@ -219,11 +198,18 @@ impl AggregateType {
         }
 
         if args.is_empty() {
-            return Err("aggregate missing arguments".into());
+            bail!("aggregate missing arguments");
         }
 
-        let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
-        let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
+        let first_arg = args.get_ptr(0).context("aggregate missing argument")?;
+        let aggregate_field = ParsedAggregateField::from_index(
+            (*first_arg).expr.cast(),
+            VarContext::from_planner(root),
+            bm25_index,
+            heap_rti,
+        )?;
+        let field = aggregate_field.field_name().clone();
+        let missing = aggregate_field.missing()?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -233,25 +219,77 @@ impl AggregateType {
             .supports_tantivy_aggregate(&field)
             .unwrap_or(false)
         {
-            return Err(format!(
-                "field '{}' does not support aggregate pushdown",
-                field
-            ));
+            bail!("field '{}' does not support aggregate pushdown", field);
         }
 
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
-                .ok_or_else(|| {
-                    if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
-                        pg_sys::Oid::from(aggfnoid),
-                    ) {
-                        format!("unsupported aggregate function: {}", n)
-                    } else {
-                        format!("unsupported aggregate function OID: {}", aggfnoid)
-                    }
-                })?;
+        let agg_type = Self::from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
+            .with_context(|| {
+                if let Some(n) = crate::postgres::catalog::lookup_fully_qualified_func_name(
+                    pg_sys::Oid::from(aggfnoid),
+                ) {
+                    format!("unsupported aggregate function: {}", n)
+                } else {
+                    format!("unsupported aggregate function OID: {}", aggfnoid)
+                }
+            })?;
 
         Ok(agg_type)
+    }
+
+    pub fn from_oid(
+        aggfnoid: u32,
+        field: FieldName,
+        missing: Option<f64>,
+        filter: Option<SearchQueryInput>,
+        indexrelid: pg_sys::Oid,
+    ) -> Option<Self> {
+        let field = field.into_inner();
+
+        match aggfnoid {
+            F_COUNT_ANY => Some(Self::Count {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(Self::Avg {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(Self::Sum {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(Self::Max {
+                    field,
+                    missing,
+                    filter,
+                    indexrelid,
+                })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(Self::Min {
+                field,
+                missing,
+                filter,
+                indexrelid,
+            }),
+            _ => {
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
+        }
     }
 
     pub fn can_use_doc_count(&self) -> bool {
@@ -346,9 +384,9 @@ impl AggregateType {
         }
     }
 
-    /// Get the MVCC visibility setting for this aggregate.
-    /// Only Custom aggregates (pdb.agg) can have non-default MVCC settings.
-    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Enabled).
+    /// Get the visibility setting for this aggregate.
+    /// Only Custom aggregates (pdb.agg) can have a non-default setting.
+    /// All standard SQL aggregates (COUNT, SUM, etc.) use the default (Transaction).
     pub fn mvcc_visibility(&self) -> MvccVisibility {
         match self {
             AggregateType::Custom {
@@ -359,35 +397,17 @@ impl AggregateType {
         }
     }
 
-    /// Determines if MVCC filtering should be enabled for a group of aggregates.
-    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
-    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
-        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
-            }
-        }
-
-        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+    /// Determines the single query-level visibility setting for a group of aggregates.
+    /// Standard SQL aggregates carry no setting of their own.
+    pub fn resolve_visibility<'a>(
+        aggregates: impl Iterator<Item = &'a AggregateType>,
+    ) -> MvccVisibility {
+        MvccVisibility::resolve_shared(aggregates.filter_map(|agg_type| match agg_type {
+            AggregateType::Custom {
+                mvcc_visibility, ..
+            } => Some(*mvcc_visibility),
+            _ => None,
+        }))
     }
 
     pub fn result_type_oid(&self) -> pg_sys::Oid {
@@ -595,6 +615,34 @@ fn collect_top_hits_sort_field_names(json: &serde_json::Value, fields: &mut Hash
     }
 }
 
+/// Rewrite every `"field": "alias.name"` to `"name"` when `alias.name` is no
+/// index field itself and `name` is.
+fn strip_relation_qualifier(json: &mut serde_json::Value, alias: &str, schema: &SearchIndexSchema) {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(field)) = map.get_mut("field")
+                && schema
+                    .search_field(FieldName::from(field.as_str()).root())
+                    .is_none()
+                && let Some((prefix, rest)) = field.split_once('.')
+                && prefix == alias
+                && schema.search_field(FieldName::from(rest).root()).is_some()
+            {
+                *field = rest.to_string();
+            }
+            for value in map.values_mut() {
+                strip_relation_qualifier(value, alias, schema);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                strip_relation_qualifier(item, alias, schema);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {
     match json {
         serde_json::Value::Object(map) => {
@@ -628,6 +676,21 @@ impl std::fmt::Display for AggregateType {
             AggregateType::Min { .. } => write!(f, "MIN({})", self.field_name().unwrap()),
             AggregateType::Max { .. } => write!(f, "MAX({})", self.field_name().unwrap()),
             AggregateType::Custom { agg_json, .. } => write!(f, "CUSTOM_AGG({})", agg_json),
+        }
+    }
+}
+
+/// The request node of an aggregate. A `pdb.agg()` spec carries its own `aggs`,
+/// which only survive here and not in a bare [`AggregationVariants`].
+impl From<AggregateType> for Aggregation {
+    fn from(val: AggregateType) -> Self {
+        match val {
+            AggregateType::Custom { agg_json, .. } => serde_json::from_value(agg_json)
+                .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e)),
+            other => Aggregation {
+                agg: other.into(),
+                sub_aggregation: Default::default(),
+            },
         }
     }
 }
@@ -672,126 +735,173 @@ trait F64Lossless {
 impl F64Lossless for u64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as u64 == self { Some(f) } else { None }
+        (f as u128 == u128::from(self)).then_some(f)
     }
 }
 
 impl F64Lossless for i64 {
     fn to_f64_lossless(self) -> Option<f64> {
         let f = self as f64;
-        if f as i64 == self { Some(f) } else { None }
+        (f as i128 == i128::from(self)).then_some(f)
     }
 }
 
-/// Parse field name and missing value from aggregate argument
-unsafe fn parse_aggregate_field(
-    first_arg: *mut pg_sys::TargetEntry,
-    heaprelid: pg_sys::Oid,
-) -> Result<(String, Option<f64>), String> {
-    let (var, missing) = if let Some(coalesce_node) =
-        nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
-    {
-        parse_coalesce_expression(coalesce_node)?
-    } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-        (var, None)
-    } else {
-        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
-    };
-
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno)
-        .ok_or("could not map variable to field name (may not be in the index)")?
-        .into_inner();
-    Ok((field, missing))
+/// A supported aggregate argument together with the Tantivy field it resolves to.
+/// The resolved name may come from a direct column, a JSON subpath, or a matching indexed
+/// expression, while the original expression is retained to derive `COALESCE` semantics.
+pub(crate) struct ParsedAggregateField {
+    expression: AggregateFieldExpression,
+    field_name: FieldName,
 }
 
-/// Parse COALESCE expression to extract variable and missing value
-pub unsafe fn parse_coalesce_expression(
-    coalesce_node: *mut pg_sys::CoalesceExpr,
-) -> Result<(*mut pg_sys::Var, Option<f64>), String> {
-    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-    if args.is_empty() {
-        return Err("COALESCE expression has no arguments".into());
+impl ParsedAggregateField {
+    pub(crate) unsafe fn from_query(
+        expr: *mut pg_sys::Node,
+        context: VarContext,
+    ) -> anyhow::Result<Self> {
+        let expression = AggregateFieldExpression::from_node(expr)?;
+        let field_name = expression.field_name(context)?;
+
+        Ok(Self {
+            expression,
+            field_name,
+        })
     }
 
-    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
-    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
-    let first_arg = args
-        .get_ptr(0)
-        .ok_or("COALESCE expression missing first argument")?;
-    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
-        .ok_or("first argument of COALESCE must resolve to a variable")?;
+    pub(crate) unsafe fn from_index(
+        expr: *mut pg_sys::Node,
+        context: VarContext,
+        bm25_index: &PgSearchRelation,
+        heap_rti: pg_sys::Index,
+    ) -> anyhow::Result<Self> {
+        let expression = AggregateFieldExpression::from_node(expr)?;
+        let field_expr = expression.field_expression();
 
-    // Second argument (the default value) might also be wrapped in type coercion
-    let second_arg = args
-        .get_ptr(1)
-        .ok_or("COALESCE expression missing second argument")?;
-    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
-        .ok_or("second argument of COALESCE must resolve to a constant")?;
+        let field_name = if let Ok(schema) = bm25_index.schema()
+            && let Some(fast_field) = find_matching_fast_field(
+                field_expr,
+                &bm25_index.index_expressions(),
+                schema,
+                heap_rti,
+            ) {
+            FieldName::from(fast_field.name())
+        } else {
+            expression.field_name(context)?
+        };
 
-    let missing = match TantivyValue::try_from(const_node) {
-        Ok(TantivyValue(PdbOwnedValue::U64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(PdbOwnedValue::I64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
-        Ok(TantivyValue(PdbOwnedValue::Null)) => None,
-        // Handle string values from NUMERIC - parse to f64 for missing value
-        Ok(TantivyValue(PdbOwnedValue::Str(s))) => s.parse::<f64>().ok(),
-        _ => return Err("unsupported constant type in COALESCE default value".into()),
-    };
+        Ok(Self {
+            expression,
+            field_name,
+        })
+    }
 
-    Ok((var, missing))
+    pub(crate) fn field_name(&self) -> &FieldName {
+        &self.field_name
+    }
+
+    /// Returns the Tantivy `missing` value for `COALESCE(field, default)` aggregates.
+    /// Tantivy substitutes this value when a document has no value for the field, preserving the
+    /// SQL `COALESCE` behavior during aggregate pushdown. Direct fields and `COALESCE(..., NULL)`
+    /// do not need a substitution and return `None`.
+    pub(crate) unsafe fn missing(&self) -> anyhow::Result<Option<f64>> {
+        let AggregateFieldExpression::Coalesce { default, .. } = &self.expression else {
+            return Ok(None);
+        };
+        let const_node = ConstNode::unwrap_from_expr(*default as *mut pg_sys::Expr)
+            .context("second argument of COALESCE must resolve to a constant")?;
+
+        Ok(match TantivyValue::try_from(const_node) {
+            Ok(TantivyValue(PdbOwnedValue::U64(missing))) => Some(
+                missing
+                    .to_f64_lossless()
+                    .context("COALESCE default value cannot be represented losslessly as f64")?,
+            ),
+            Ok(TantivyValue(PdbOwnedValue::I64(missing))) => Some(
+                missing
+                    .to_f64_lossless()
+                    .context("COALESCE default value cannot be represented losslessly as f64")?,
+            ),
+            Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
+            Ok(TantivyValue(PdbOwnedValue::Null)) => None,
+            Ok(TantivyValue(PdbOwnedValue::Str(s))) => Some(
+                s.parse::<f64>()
+                    .context("unsupported constant type in COALESCE default value")?,
+            ),
+            _ => bail!("unsupported constant type in COALESCE default value"),
+        })
+    }
 }
 
-/// Create appropriate AggregateType from function OID
-pub fn create_aggregate_from_oid(
-    aggfnoid: u32,
-    field: String,
-    missing: Option<f64>,
-    filter: Option<SearchQueryInput>,
-    indexrelid: pg_sys::Oid,
-) -> Option<AggregateType> {
-    match aggfnoid {
-        F_COUNT_ANY => Some(AggregateType::Count {
-            field,
-            missing,
-            filter,
-            indexrelid,
-        }),
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some(AggregateType::Avg {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
+/// The SQL expression shapes supported as aggregate arguments.
+/// `Coalesce` keeps the field and constant default separate so they can become the Tantivy field
+/// and `missing` value independently.
+enum AggregateFieldExpression {
+    Direct(*mut pg_sys::Node),
+    Coalesce {
+        field: *mut pg_sys::Node,
+        default: *mut pg_sys::Node,
+    },
+}
+
+impl AggregateFieldExpression {
+    unsafe fn from_node(expr: *mut pg_sys::Node) -> anyhow::Result<Self> {
+        let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, expr) else {
+            return Ok(Self::Direct(expr));
+        };
+
+        let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
+        let field = args
+            .get_ptr(0)
+            .context("COALESCE expression missing first argument")?;
+        let default = args
+            .get_ptr(1)
+            .context("COALESCE expression missing second argument")?;
+
+        Ok(Self::Coalesce { field, default })
+    }
+
+    fn field_expression(&self) -> *mut pg_sys::Node {
+        match self {
+            Self::Direct(field) | Self::Coalesce { field, .. } => *field,
         }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some(AggregateType::Sum {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
+    }
+
+    unsafe fn field_name(&self, context: VarContext) -> anyhow::Result<FieldName> {
+        let expression = self.field_expression();
+        if let Some((_, field_name)) = find_one_var_and_fieldname(context, expression) {
+            return Ok(field_name);
         }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some(AggregateType::Max {
-                field,
-                missing,
-                filter,
-                indexrelid,
-            })
+
+        let Self::Coalesce { .. } = self else {
+            bail!(
+                "argument to aggregate function is neither a direct column reference nor a COALESCE expression"
+            );
+        };
+        let var = <*mut pg_sys::Var>::unwrap_from_expr(expression as *mut pg_sys::Expr)
+            .context("first argument of COALESCE must resolve to a field")?;
+        let (heaprelid, varattno) = context.var_relation(var);
+        fieldname_from_var(heaprelid, var, varattno)
+            .context("first argument of COALESCE must resolve to a field")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::F64Lossless;
+
+    #[test]
+    fn test_f64_lossless_integer_boundaries() {
+        for value in [0_u64, 1 << 53, (1 << 53) + 2, 1 << 63] {
+            assert_eq!(value.to_f64_lossless(), Some(value as f64));
         }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some(AggregateType::Min {
-            field,
-            missing,
-            filter,
-            indexrelid,
-        }),
-        _ => {
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-            None
+        for value in [(1_u64 << 53) + 1, u64::MAX] {
+            assert_eq!(value.to_f64_lossless(), None);
+        }
+        for value in [0_i64, 1 << 53, -(1 << 53), i64::MIN] {
+            assert_eq!(value.to_f64_lossless(), Some(value as f64));
+        }
+        for value in [(1_i64 << 53) + 1, -((1 << 53) + 1), i64::MAX] {
+            assert_eq!(value.to_f64_lossless(), None);
         }
     }
 }

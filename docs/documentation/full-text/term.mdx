@@ -188,18 +188,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(
-        or_(
-            search.term(MockItem.description, "shoes"),
-            search.term(MockItem.description, "running"),
-        )
-    )
+    .where(search.term(MockItem.description, ["shoes", "running"]))
 )
 
 with Session(engine) as session:

@@ -13,10 +13,10 @@ CREATE INDEX idxpr2625 ON pr2625 USING paradedb (id, k, v) WITH (key_field = 'id
 INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generate_series(1, 1000) x;
 
 SET parallel_leader_participation = true;
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>false);
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'raw');
 SET parallel_leader_participation = false;
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
 
 
 --
@@ -30,10 +30,10 @@ INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generat
 INSERT INTO pr2625(k, v) SELECT paradedb.random_words(1), x::float8 from generate_series(1, 1000) x;
 
 SET parallel_leader_participation = true;
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>false);
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'raw');
 SET parallel_leader_participation = false;
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
 
 
 --
@@ -41,7 +41,7 @@ SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=
 --
 SET parallel_leader_participation = false;
 SET max_parallel_workers = 0;
-SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', solve_mvcc=>true);
+SELECT * FROM paradedb.aggregate(index=>'idxpr2625', query=>paradedb.all(), agg=>'{"average": { "avg": { "field": "v" }}}', visibility=>'transaction');
 
 RESET parallel_leader_participation;
 RESET max_parallel_workers;

@@ -1,0 +1,45 @@
+{
+  "policies": [
+    {
+      "name": "fixable-vulnerabilities",
+      "enabled": true,
+      "config": {
+        "severities": ["CRITICAL", "HIGH"],
+        "fixable_only": true,
+        "package_types": [],
+        "grace_period_days": 0
+      }
+    },
+    {
+      "name": "high-profile-vulnerabilities",
+      "enabled": true,
+      "config": {
+        "ignored_cves": [],
+        "include_cisa_kev": true
+      }
+    },
+    {
+      "name": "copyleft-license",
+      "enabled": true,
+      "config": {
+        "ignored_packages": []
+      }
+    },
+    {
+      "name": "no-stale-base-images",
+      "enabled": true
+    },
+    {
+      "name": "supply-chain-attestations",
+      "enabled": true
+    },
+    {
+      "name": "approved-base-images",
+      "enabled": true,
+      "config": {
+        "allowed_base_images": ["*"],
+        "allowed_distros_only": true
+      }
+    }
+  ]
+}

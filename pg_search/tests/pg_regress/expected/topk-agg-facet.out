@@ -1746,7 +1746,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1783,7 +1783,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join keys must be fast fields (tables: p, pc)
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
   1 | MacBook Pro |    4.8 | Portable computing devices |           4
@@ -2383,12 +2383,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Base Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Worker Selection: Cost model
@@ -2406,10 +2406,10 @@ ORDER BY rating DESC
 LIMIT 10;
  id |    name     |                description                | category | brand  |                                                                                                      agg                                                                                                       
 ----+-------------+-------------------------------------------+----------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"buckets": [{"key": "ASUS", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
 -- Test 40: Benchmark query - Top K + pdb.agg avg
@@ -2420,12 +2420,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                                         QUERY PLAN                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Base Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Worker Selection: Cost model
@@ -2458,12 +2458,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Base Scan) on public.products
-         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Transaction"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Worker Selection: Cost model
@@ -2482,10 +2482,10 @@ ORDER BY rating DESC
 LIMIT 5;
  id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          
 ----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  1 | MacBook Pro | Apple  | {"buckets": [{"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | HP     | {"buckets": [{"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
 -- Cleanup

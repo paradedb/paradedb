@@ -70,7 +70,7 @@ pub fn aggregation_results_iter(
 
     // Use the GUC for term aggregation bucket limits (single source of truth).
     let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
-    let mvcc_enabled = aggregate_clause.mvcc_enabled();
+    let visibility = aggregate_clause.visibility();
     let grouping_fields: Vec<String> = aggregate_clause
         .grouping_columns()
         .into_iter()
@@ -87,18 +87,21 @@ pub fn aggregation_results_iter(
             .static_fetch()
             .is_some_and(|fetch| fetch as u64 <= bucket_limit as u64);
 
+    let mut bitmap_exec = state.custom_state_mut().bitmap_exec.take();
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
-        mvcc_enabled,
+        visibility,
         WorkMem::Tantivy.bytes().try_into().unwrap(),
         bucket_limit,
         expr_context,
         planstate,
+        bitmap_exec.as_mut(),
     )
     .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
     .into();
+    state.custom_state_mut().bitmap_exec = bitmap_exec;
 
     // Tantivy caps a terms aggregation at `size` and folds the dropped groups into
     // `sum_other_doc_count` rather than erroring, which would silently return an

@@ -368,6 +368,32 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
 (18 rows)
 ```
 
+## Range Co-Partitioned Joins (Beta)
+
+<Warning>
+  Range co-partitioned joins are currently a **Beta** feature under active
+  development.
+</Warning>
+
+Without range co-partitioning, parallel joins must introduce at least one stage boundary to exchange data across workers (either one stage boundary to broadcast the build side in a `CollectLeft` join, or two stage boundaries to shuffle both sides in a `Partitioned` join).
+
+When both tables participating in an equi-join have ParadeDB indexes partitioned on the join keys using [`partition_by`](/documentation/indexing/partition-by), range co-partitioning eliminates these boundaries entirely—resulting in **zero stage boundaries** for a two-table join:
+
+```sql
+SET paradedb.enable_range_partitioned_join TO on;
+```
+
+### How Co-Partitioning Works
+
+With range co-partitioning enabled:
+
+1. **Worker-Local Joins (`mode = Partitioned`)**: Rather than broadcasting the build side across workers, each parallel worker joins only its corresponding range partition of Table A with Table B (A_i JOIN B_i) locally without cross-worker coordination.
+2. **Worker-Local Cardinality Reduction**: Further cardinality-reducing operations like `TopK` sorting and partial aggregations also run worker-locally before results are gathered to the leader process.
+3. **Physical Over-Partitioning**: Because real-world tables almost never share identical key distributions or row counts, partition boundaries chosen during independent index builds will not naturally align. To allow the planner to align partitions effectively, we recommend [physically over-partitioning](/documentation/indexing/partition-by#physical-over-partitioning) both tables by setting `target_segment_count` to **2–8X** your parallel worker or CPU core count (e.g. 16 to 64 segments).
+4. **Partition Pruning**: Partitions with non-intersecting ranges between the two tables are eliminated without scanning.
+
+See the [Partitioning Guide](/documentation/indexing/partition-by) for full setup instructions, syntax, and column selection advice.
+
 ## Performance
 
 If your join query isn't as fast as you'd like, we invite you to [open a GitHub issue](https://github.com/paradedb/paradedb/issues).

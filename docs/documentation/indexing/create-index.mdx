@@ -354,6 +354,22 @@ The `key_field` must:
 2. Be the first column in the column list.
 3. Be untokenized, if it is a text field.
 
+## Index Partitioning (Beta)
+
+To accelerate filtered queries via segment pruning or enable worker-local parallel joins via range co-partitioning, you can configure the `partition_by` option:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category, tenant_id)
+WITH (
+  key_field = 'id',
+  partition_by = 'tenant_id',
+  target_segment_count = 16
+);
+```
+
+See the [Partitioning Guide](/documentation/indexing/partition-by) for column selection guidance, data type requirements, and co-partitioned join optimization.
+
 ## Token Filters
 
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.

@@ -116,3 +116,13 @@ to have less or more. Mostly this depends on the distribution of work across par
 constraints, and table size.
 
 </Note>
+
+<Note>
+  When partitioning an index with
+  [`partition_by`](/documentation/indexing/partition-by), we recommend
+  physically over-partitioning by setting `target_segment_count` to **2–8X**
+  `max_parallel_workers_per_gather` (or CPU count). This allows filtered queries
+  to eliminate a larger fraction of non-matching data and enables the planner to
+  align logical partition boundaries across tables during joins, balanced
+  against segment metadata overhead.
+</Note>

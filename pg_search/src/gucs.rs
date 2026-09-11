@@ -158,6 +158,7 @@ static DEFER_COLUMN_FETCH: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
+static ENABLE_ORDERED_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
 /// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
@@ -635,6 +636,18 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_ordered_scan",
+        c"Let a columnar scan read in a requested sort order",
+        c"When enabled, a scan asked for an ORDER BY over its own columnar fields reads \
+          through the index's Top K collector and declares that order, so the sort above it \
+          can be dropped and a LIMIT can stop the read early. Declined for deferred, text and \
+          bytes keys, for range-partitioned scans, and for distributed tasks.",
+        &ENABLE_ORDERED_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_size",
         c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
@@ -985,6 +998,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_ordered_scan() -> bool {
+    ENABLE_ORDERED_SCAN.get()
 }
 
 pub fn defer_column_fetch() -> bool {

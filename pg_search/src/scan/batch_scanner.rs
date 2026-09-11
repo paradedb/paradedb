@@ -18,7 +18,7 @@
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, WhichFastField, ords_to_bytes_array, ords_to_string_array,
 };
-use crate::index::reader::index::MultiSegmentSearchResults;
+use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
@@ -29,7 +29,7 @@ use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
 use std::sync::Arc;
 use tantivy::query::Scorer;
-use tantivy::{DocId, DocSet, Score, SegmentOrdinal};
+use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal};
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -147,12 +147,48 @@ impl Batch {
     }
 }
 
+/// Where a [`Scanner`] takes its doc ids from.
+///
+/// Both arms hand out one segment per batch. Every fast-field read below
+/// [`Scanner::next`] addresses a single segment, so a batch that spanned segments would
+/// read the wrong column.
+pub enum ScannerResults {
+    /// Doc order, one segment drained at a time.
+    Unordered(MultiSegmentSearchResults),
+    /// Sort order, which interleaves segments. A batch therefore ends at the first
+    /// segment change. The run is short, but so is the read: sort order is only asked
+    /// for when a fetch bounds it.
+    Ordered {
+        searcher: Searcher,
+        docs: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
+        /// Pulled from `docs` to see its segment, and consumed by the next batch.
+        pending: Option<(SearchIndexScore, DocAddress)>,
+    },
+}
+
+impl ScannerResults {
+    pub fn ordered(searcher: Searcher, docs: Vec<(SearchIndexScore, DocAddress)>) -> Self {
+        Self::Ordered {
+            searcher,
+            docs: docs.into_iter(),
+            pending: None,
+        }
+    }
+
+    fn searcher(&self) -> &Searcher {
+        match self {
+            Self::Unordered(results) => results.searcher(),
+            Self::Ordered { searcher, .. } => searcher,
+        }
+    }
+}
+
 /// A scanner that iterates over search results in batches, fetching fast fields.
 ///
 /// This scanner consumes [`WhichFastField`] column selectors, which represent "widened" Postgres types
 /// (e.g. storage types), and produces Arrow arrays corresponding to those widened types.
 pub struct Scanner {
-    search_results: MultiSegmentSearchResults,
+    search_results: ScannerResults,
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
@@ -269,7 +305,7 @@ impl Scanner {
     /// should be `None` to allow the default batch size to be used, which is optimized for
     /// columnar string lookups.
     pub fn new(
-        search_results: MultiSegmentSearchResults,
+        search_results: ScannerResults,
         batch_size_hint: Option<usize>,
         which_fast_fields: Vec<WhichFastField>,
         table_oid: u32,
@@ -318,6 +354,22 @@ impl Scanner {
             tagged_queries: Vec::new(),
             current_segment_ord: None,
             active_tag_scorers: Vec::new(),
+        }
+    }
+
+    /// Hand a drained ordered scanner its next chunk.
+    ///
+    /// The scanner is reused rather than rebuilt so that its row counters and column
+    /// configuration survive a refill.
+    pub fn reload_ordered(&mut self, next_docs: Vec<(SearchIndexScore, DocAddress)>) {
+        match &mut self.search_results {
+            ScannerResults::Ordered { docs, pending, .. } => {
+                *docs = next_docs.into_iter();
+                *pending = None;
+            }
+            ScannerResults::Unordered(_) => {
+                unreachable!("only an ordered scanner refills")
+            }
         }
     }
 
@@ -387,22 +439,66 @@ impl Scanner {
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        match &mut self.search_results {
+            ScannerResults::Unordered(_) => self.try_get_batch_ids_unordered(),
+            ScannerResults::Ordered { .. } => self.try_get_batch_ids_ordered(),
+        }
+    }
+
+    /// Take the next run of same-segment docs off a sort-ordered result.
+    ///
+    /// The run ends at a segment change so that the batch names one segment, which the
+    /// fast-field reads below require. Sort order is preserved because the runs are
+    /// consumed in order and each run keeps its own.
+    fn try_get_batch_ids_ordered(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        let batch_size = self.batch_size;
+        let ScannerResults::Ordered { docs, pending, .. } = &mut self.search_results else {
+            unreachable!("caller dispatched on the ordered arm")
+        };
+
+        let (first_score, first_addr) = pending.take().or_else(|| docs.next())?;
+        let segment_ord = first_addr.segment_ord;
+
+        let mut scores = vec![first_score.bm25];
+        let mut ids = vec![first_addr.doc_id];
+
+        while ids.len() < batch_size {
+            let Some((score, addr)) = docs.next() else {
+                break;
+            };
+            if addr.segment_ord != segment_ord {
+                *pending = Some((score, addr));
+                break;
+            }
+            scores.push(score.bm25);
+            ids.push(addr.doc_id);
+        }
+
+        Some((segment_ord, scores, ids))
+    }
+
+    fn try_get_batch_ids_unordered(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         let can_pushdown = self.can_pushdown_score_threshold();
+        let batch_size = self.batch_size;
+        let score_threshold = self.score_threshold;
+        let ScannerResults::Unordered(search_results) = &mut self.search_results else {
+            unreachable!("caller dispatched on the unordered arm")
+        };
         // Collect a batch of ids for a single segment.
         loop {
-            let scorer_iter = self.search_results.current_segment()?;
+            let scorer_iter = search_results.current_segment()?;
             let segment_ord = scorer_iter.segment_ord();
-            if can_pushdown && let Some(threshold) = self.score_threshold {
+            if can_pushdown && let Some(threshold) = score_threshold {
                 scorer_iter.set_threshold(threshold);
             }
 
             // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(self.batch_size);
-            let mut ids = Vec::with_capacity(self.batch_size);
-            while ids.len() < self.batch_size {
+            let mut scores = Vec::with_capacity(batch_size);
+            let mut ids = Vec::with_capacity(batch_size);
+            while ids.len() < batch_size {
                 let Some((score, id)) = scorer_iter.next() else {
                     // No more results for the current segment: remove it.
-                    self.search_results.current_segment_pop();
+                    search_results.current_segment_pop();
                     break;
                 };
                 // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.

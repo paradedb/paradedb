@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{SchemaRef, SortOptions};
+use arrow_schema::{DataType, SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -46,6 +46,7 @@ use datafusion::physical_plan::metrics::{
 };
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
+    SortOrderPushdownResult,
 };
 use datafusion_distributed::{
     DesiredTaskCountEvent, DesiredTaskCountEventResponse, ScaleUpLeafNodeEvent,
@@ -58,10 +59,11 @@ use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
 
+use crate::api::{FieldName, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader, TopKSearch};
 use crate::index::stats::segments_for_partition;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
@@ -71,6 +73,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
+use crate::scan::batch_scanner::ScannerResults;
 use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
@@ -192,6 +195,12 @@ pub struct PgSearchScanPlan {
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
     /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
+    /// A sort order the scan was asked to produce, already resolved to
+    /// `OrderByFeature::Field` so the index reader takes it as-is.
+    ordered_by: Option<Vec<OrderByInfo>>,
+    /// Row bound from the consumer. In ordered mode it sizes the first read; without it
+    /// the scan would collect a top-K over the whole match set to return the first row.
+    fetch: Option<usize>,
     range_split_points: Option<RangeSplitPoints>,
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
@@ -218,6 +227,8 @@ impl Clone for PgSearchScanPlan {
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
+            ordered_by: self.ordered_by.clone(),
+            fetch: self.fetch,
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
@@ -276,7 +287,7 @@ impl PgSearchScanPlan {
             .map(|s| s.build(partition_count));
         let partitioning =
             declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
-        let eq_properties = build_equivalence_properties(schema, sort_order);
+        let eq_properties = build_equivalence_properties(schema, sort_order, None);
 
         let properties = Arc::new(PlanProperties::new(
             eq_properties,
@@ -346,6 +357,8 @@ impl PgSearchScanPlan {
             table_alias: String::new(),
             deferred_ctid_plan_position,
             sort_order: sort_order.cloned(),
+            ordered_by: None,
+            fetch: None,
             range_split_points,
             assigned_partition: None,
             scan_mode,
@@ -454,6 +467,8 @@ impl PgSearchScanPlan {
             table_alias: self.table_alias.clone(),
             deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             sort_order: self.sort_order.clone(),
+            ordered_by: self.ordered_by.clone(),
+            fetch: self.fetch,
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
@@ -571,6 +586,8 @@ impl PgSearchScanPlan {
             dynamic_filters,
             score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
+            ordered_by: self.ordered_by.clone(),
+            fetch: self.fetch,
             indexrelid: self.indexrelid,
             table_alias: self.table_alias.clone(),
             deferred_fields: self.deferred_fields.clone(),
@@ -753,6 +770,11 @@ struct ScanDispatchDescriptor {
     dynamic_filters: Vec<Vec<u8>>,
     score_needed: bool,
     sort_order: Option<SortByField>,
+    /// Carried so a dispatched task keeps producing the order the leader's plan promised.
+    #[serde(default)]
+    ordered_by: Option<Vec<OrderByInfo>>,
+    #[serde(default)]
+    fetch: Option<usize>,
     indexrelid: u32,
     #[serde(default)]
     table_alias: String,
@@ -801,11 +823,124 @@ fn declared_partitioning(
 /// If `sort_order` is `Some`, the returned properties will declare that the
 /// data is sorted by the specified field in the specified direction.
 /// If `sort_order` is `None`, returns empty equivalence properties.
+/// Drives an ordered read of the index in growing chunks.
+///
+/// A chunk is a fresh Top K with a larger limit and a carried offset, not a continuation of
+/// the last one. The chunk therefore grows, to keep the number of re-reads down when the
+/// consumer keeps pulling.
+struct OrderedRead {
+    orderby_info: Vec<OrderByInfo>,
+    /// Fixed before the first read. A later chunk over a different segment set would make
+    /// the carried offset name different rows.
+    segment_ids: Vec<tantivy::index::SegmentId>,
+    offset: usize,
+    chunk: usize,
+    exhausted: bool,
+}
+
+impl OrderedRead {
+    fn new(
+        orderby_info: Vec<OrderByInfo>,
+        segment_ids: Vec<tantivy::index::SegmentId>,
+        fetch: Option<usize>,
+    ) -> Self {
+        // Without a fetch the first chunk is a guess. Rows drop above the scan, so guessing
+        // small and growing costs less than collecting a Top K over the whole match set.
+        let chunk = fetch
+            .unwrap_or(crate::gucs::dynamic_filter_batch_size().max(1) as usize)
+            .max(1);
+        Self {
+            orderby_info,
+            segment_ids,
+            offset: 0,
+            chunk,
+            exhausted: false,
+        }
+    }
+
+    /// Read the next chunk, or `None` once the index has no more rows to give.
+    fn next_chunk(
+        &mut self,
+        reader: &SearchIndexReader,
+    ) -> Option<
+        Vec<(
+            crate::index::reader::index::SearchIndexScore,
+            tantivy::DocAddress,
+        )>,
+    > {
+        if self.exhausted {
+            return None;
+        }
+
+        let TopKSearch { results, .. } = reader.search_top_k_in_segments(
+            self.segment_ids.iter().copied(),
+            &self.orderby_info,
+            self.chunk,
+            self.offset,
+            None,
+            None,
+        );
+
+        let returned = results.original_len();
+        // A short read means the collector ran out, so there is nothing behind this chunk.
+        self.exhausted = returned < self.chunk;
+        self.offset += self.chunk;
+        self.chunk = self
+            .chunk
+            .saturating_mul(crate::gucs::topk_retry_scale_factor().max(1) as usize)
+            .min(crate::gucs::max_topk_chunk_size().max(1) as usize);
+
+        (returned > 0).then(|| results.collect())
+    }
+}
+
+/// Translate a requested order into the sort expressions a plan declares.
+///
+/// Returns `None` when any key is missing from `schema`, because a partly declared
+/// ordering is a wrong claim rather than a weaker one.
+fn ordering_from_orderby_info(
+    schema: &SchemaRef,
+    ordered_by: &[OrderByInfo],
+) -> Option<Vec<PhysicalSortExpr>> {
+    ordered_by
+        .iter()
+        .map(|info| {
+            let OrderByFeature::Field { name, .. } = &info.feature else {
+                return None;
+            };
+            let (col_idx, _) = schema.column_with_name(name.as_ref())?;
+            Some(PhysicalSortExpr {
+                expr: Arc::new(Column::new(name.as_ref(), col_idx)),
+                options: SortOptions {
+                    descending: matches!(
+                        info.direction,
+                        SortDirection::DescNullsFirst | SortDirection::DescNullsLast
+                    ),
+                    nulls_first: matches!(
+                        info.direction,
+                        SortDirection::AscNullsFirst | SortDirection::DescNullsFirst
+                    ),
+                },
+            })
+        })
+        .collect()
+}
+
 fn build_equivalence_properties(
     schema: SchemaRef,
     sort_order: Option<&SortByField>,
+    ordered_by: Option<&Vec<OrderByInfo>>,
 ) -> EquivalenceProperties {
     let mut eq_properties = EquivalenceProperties::new(schema.clone());
+
+    // A requested order wins over the index's own: it is what the consumer asked for, and
+    // the scan reads through the top-K collector to produce it.
+    if let Some(ordered_by) = ordered_by {
+        if let Some(ordering) = ordering_from_orderby_info(&schema, ordered_by) {
+            eq_properties.add_ordering(ordering);
+        }
+        return eq_properties;
+    }
 
     if let Some(sort_field) = sort_order {
         // Find the column index for the sort field
@@ -934,6 +1069,89 @@ impl DisplayAs for PgSearchScanPlan {
             }
         }
         Ok(())
+    }
+}
+
+impl PgSearchScanPlan {
+    /// Decide whether the scan can read in `order` itself.
+    ///
+    /// Every decline is a case where the index read cannot reproduce what Postgres asked
+    /// for. An ordering the scan does not hold is a wrong answer, not a slow one.
+    fn ordered_scan_request(&self, order: &[PhysicalSortExpr]) -> Option<Vec<OrderByInfo>> {
+        if !crate::gucs::enable_ordered_scan() {
+            return None;
+        }
+        if order.is_empty() || order.len() > MAX_TOPK_FEATURES {
+            return None;
+        }
+        // Range mode declares a partitioning on its own column and reads per-partition
+        // bounds. A second ordering on an unrelated column needs a merge nothing builds.
+        if self.range_split_points.is_some() {
+            return None;
+        }
+        // A distributed task claims its own segments, so the per-worker Top Ks would need
+        // a merge above the network boundary that nothing builds either.
+        if self.global_partition_count > 1 || self.assigned_partition.is_some() {
+            return None;
+        }
+        // A tagged scan accumulates per-segment scores through a scorer that the ordered
+        // read does not drive.
+        if !matches!(self.scan_mode, crate::scan::ScanMode::Standard { .. }) {
+            return None;
+        }
+
+        // The scan's own bookkeeping columns are backed by fast fields too, so a plain
+        // type check would let `ctid` or `score` through. Only a column of the table can
+        // carry a user's ORDER BY.
+        let state = self.state.lock().ok()?;
+        let which_fast_fields = match &*state {
+            ExecutionState::Shared { scan_state, .. }
+            | ExecutionState::RangePartitioned { scan_state, .. } => {
+                scan_state.0.scanner_config.which_fast_fields.clone()
+            }
+            ExecutionState::Consumed | ExecutionState::Uninitialized => return None,
+        };
+        drop(state);
+
+        let schema = self.schema();
+        let mut ordered_by = Vec::with_capacity(order.len());
+        for sort_expr in order {
+            let col = sort_expr.expr.downcast_ref::<Column>()?;
+            let (col_idx, field) = schema.column_with_name(col.name())?;
+            match which_fast_fields.get(col_idx)? {
+                WhichFastField::Named(name, _) if name == col.name() => {}
+                _ => return None,
+            }
+
+            // Text and bytes keys are out on two counts. Late materialization emits a
+            // segment-local term ordinal, which does not compare across segments, and
+            // tantivy orders text by bytes, which is not every collation's order.
+            if !matches!(
+                field.data_type(),
+                DataType::Int64
+                    | DataType::UInt64
+                    | DataType::Float64
+                    | DataType::Boolean
+                    | DataType::Timestamp(_, _)
+            ) {
+                return None;
+            }
+
+            ordered_by.push(OrderByInfo {
+                feature: OrderByFeature::Field {
+                    name: FieldName::from(col.name().to_string()),
+                    rti: 0,
+                },
+                direction: match (sort_expr.options.descending, sort_expr.options.nulls_first) {
+                    (true, true) => SortDirection::DescNullsFirst,
+                    (true, false) => SortDirection::DescNullsLast,
+                    (false, true) => SortDirection::AscNullsFirst,
+                    (false, false) => SortDirection::AscNullsLast,
+                },
+            });
+        }
+
+        Some(ordered_by)
     }
 }
 
@@ -1089,6 +1307,8 @@ impl ExecutionPlan for PgSearchScanPlan {
             .filter(|d| d.fetch_at_scan)
             .map(|d| d.name.clone())
             .collect();
+        let ordered_by = self.ordered_by.clone();
+        let fetch = self.fetch;
 
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
@@ -1113,16 +1333,23 @@ impl ExecutionPlan for PgSearchScanPlan {
                 false
             };
 
-            let search_results = if let Some(range_boundaries) = &range_boundaries {
+            let mut ordered_read = ordered_by
+                .map(|orderby_info| OrderedRead::new(orderby_info, reader.segment_ids(), fetch));
+
+            let search_results = if let Some(ordered_read) = &mut ordered_read {
+                let searcher = reader.searcher().clone();
+                let docs = ordered_read.next_chunk(&reader).unwrap_or_default();
+                ScannerResults::ordered(searcher, docs)
+            } else if let Some(range_boundaries) = &range_boundaries {
                 // Range partitioned mode has no shared scan state: each partition searches the
                 // segments its bounds can reach, per their `.stats`. The query above still
                 // filters the rows, so a segment kept in doubt costs time, not correctness.
                 let segment_ids =
                     segments_for_partition(&reader, range_boundaries, target_partition);
-                reader.search_segments(segment_ids.into_iter())
+                ScannerResults::Unordered(reader.search_segments(segment_ids.into_iter()))
             } else {
                 // Standard mode delegates to the parallel state if present
-                match parallel_state {
+                ScannerResults::Unordered(match parallel_state {
                     Some(ps) => reader.search_lazy(ps, source_idx, planner_estimated_rows),
                     // No shared scan state even though the plan may carry per-source claim
                     // markers: the serial fallback (size gate, short launch). The plan was
@@ -1133,7 +1360,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     // MPP-dispatched fragments cannot land here: their decode always injects
                     // the state, and the worker entrypoint errors when the DSM lacks it.
                     None => reader.search(),
-                }
+                })
             };
             let need_scores = scanner_config
                 .which_fast_fields
@@ -1211,6 +1438,14 @@ impl ExecutionPlan for PgSearchScanPlan {
                         yield record_batch.record_output(&baseline_metrics);
                     }
                     None => {
+                        // The consumer's back-pressure is what ends an ordered read: it
+                        // stops polling once satisfied, so no row budget is tracked here.
+                        if let Some(ordered_read) = &mut ordered_read
+                            && let Some(docs) = ordered_read.next_chunk(&reader)
+                        {
+                            scanner.reload_ordered(docs);
+                            continue;
+                        }
                         if pushed && !pushdown_metric_recorded {
                             let tag = strategy_sink.load(Ordering::Relaxed);
                             let strategy = tantivy::query::StrategyTag::try_from(tag)
@@ -1244,6 +1479,41 @@ impl ExecutionPlan for PgSearchScanPlan {
             UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
+    }
+
+    fn fetch(&self) -> Option<usize> {
+        self.fetch
+    }
+
+    fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn ExecutionPlan>> {
+        let mut plan = self.clone();
+        plan.fetch = limit;
+        Some(Arc::new(plan))
+    }
+
+    fn try_pushdown_sort(
+        &self,
+        order: &[PhysicalSortExpr],
+    ) -> Result<SortOrderPushdownResult<Arc<dyn ExecutionPlan>>> {
+        let Some(ordered_by) = self.ordered_scan_request(order) else {
+            return Ok(SortOrderPushdownResult::Unsupported);
+        };
+
+        let mut plan = self.clone();
+        plan.properties = Arc::new(PlanProperties::new(
+            build_equivalence_properties(
+                self.schema(),
+                self.sort_order.as_ref(),
+                Some(&ordered_by),
+            ),
+            self.properties.output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        plan.ordered_by = Some(ordered_by);
+        Ok(SortOrderPushdownResult::Exact {
+            inner: Arc::new(plan),
+        })
     }
 
     fn metrics(&self) -> Option<MetricsSet> {

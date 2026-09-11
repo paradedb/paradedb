@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789150391377,
+  "lastUpdate": 1789150399574,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -360640,6 +360640,108 @@ window.BENCHMARK_DATA = {
             "value": 47.3359375,
             "unit": "median mem",
             "extra": "avg mem: 45.786853289084924, max mem: 56.578125, count: 59230"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789150396512,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.645675903418016, max cpu: 4.804805, count: 59240"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.278418364386393, max mem: 17.29296875, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.56088198752654, max cpu: 4.797601, count: 59240"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.221839194906313, max mem: 17.2265625, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.468496952676709, max cpu: 32.542374, count: 59240"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.621749781081196, max mem: 17.796875, count: 59240"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.920627954085, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.907140445644, max document_count: 10002.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.646158737191357, max cpu: 32.844578, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.852607046020424, max mem: 57.0234375, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.577648,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.529877514316844, max cpu: 32.90891, count: 59240"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.94933335267556, max mem: 56.93359375, count: 59240"
           }
         ]
       }

@@ -115,7 +115,7 @@ jobs:
           save-if: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        uses: ./.github/actions/apt-install
+        uses: paradedb/actions/apt-install@v11
         with:
           packages: >-
             --no-install-recommends

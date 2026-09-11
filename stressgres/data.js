@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135570012,
+  "lastUpdate": 1789135578644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -356722,6 +356722,108 @@ window.BENCHMARK_DATA = {
             "value": 47.375,
             "unit": "median mem",
             "extra": "avg mem: 45.86623503753671, max mem: 57.19140625, count: 59242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135574637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.442012485481412, max cpu: 4.7220855, count: 59243"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.212899559336122, max mem: 17.234375, count: 59243"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.542863887119311, max cpu: 4.754829, count: 59243"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.139011412740746, max mem: 17.16015625, count: 59243"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.539838758058641, max cpu: 28.670979, count: 59243"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.554699961915333, max mem: 17.73046875, count: 59243"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.917813074962, max document_count: 10002.0, count: 59243"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919923028881, max document_count: 10002.0, count: 59243"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.589066983131243, max cpu: 33.08715, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.77301702574566, max mem: 56.2578125, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.479307,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.387558198532158, max cpu: 33.005894, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.70601392253093, max mem: 56.4765625, count: 59243"
           }
         ]
       }

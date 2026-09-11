@@ -82,9 +82,15 @@ WHERE id @@@ pdb.parse('fixed_precision:1.23') ORDER BY id;
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('arbitrary_precision:100000000000000000000.123') ORDER BY id;
 
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('arbitrary_precision:-100') ORDER BY id;
+
 -- Conversion also applies to range bounds and each field in a compound AST.
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('fixed_precision:[1 TO 2]') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE fixed_precision @@@ pdb.parse_with_field('[1 TO 2]') ORDER BY id;
 
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('arbitrary_precision:[-100 TO 1234]') ORDER BY id;
@@ -93,10 +99,32 @@ SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('fixed_precision: IN [0.01 2.5]') ORDER BY id;
 
 SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('arbitrary_precision: IN [1234 -100]') ORDER BY id;
+
+SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('(arbitrary_precision:1234 AND fixed_precision:1) OR id:2') ORDER BY id;
 
--- Failed logical conversion leaves the phrase untouched for Tantivy's normal error path.
+-- Invalid NUMERIC literals, range bounds, and set elements report a numeric conversion error.
 SELECT id FROM mock_items
 WHERE id @@@ pdb.parse('arbitrary_precision:not-a-number') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE fixed_precision @@@ pdb.parse_with_field('not-a-number') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('fixed_precision:[1 TO not-a-number]') ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('arbitrary_precision: IN [1234 not-a-number]') ORDER BY id;
+
+-- Lenient parsing still ignores invalid phrases and converts the remaining NUMERIC values.
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('arbitrary_precision:not-a-number OR fixed_precision:1.23', lenient => true) ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('fixed_precision: IN [not-a-number 1.23]', lenient => true) ORDER BY id;
+
+SELECT id FROM mock_items
+WHERE id @@@ pdb.parse('fixed_precision:[1 TO not-a-number]', lenient => true) ORDER BY id;
 
 DROP TABLE mock_items;

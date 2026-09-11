@@ -19,7 +19,6 @@ use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
     scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
@@ -32,6 +31,9 @@ use crate::query::{
     QueryError, SearchQueryInput, check_range_bounds, coerce_bound_to_field_type, value_to_term,
 };
 use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
+use anyhow::Context;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use pgrx::PgOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::{InOutFuncs, StringInfo, pg_extern, pg_schema};
@@ -2158,13 +2160,13 @@ pub(super) fn parse_tantivy_query(
 ) -> anyhow::Result<Box<dyn Query>> {
     if lenient {
         let (mut ast, _) = query_grammar::parse_query_lenient(query_string);
-        rewrite_field_literals(&mut ast, schema, index_created_by_version);
+        rewrite_field_literals(&mut ast, schema, index_created_by_version, lenient)?;
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
         Ok(parsed_query)
     } else {
         let mut ast = query_grammar::parse_query(query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.to_string()))?;
-        rewrite_field_literals(&mut ast, schema, index_created_by_version);
+        rewrite_field_literals(&mut ast, schema, index_created_by_version, lenient)?;
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)
             .map_err(|err| QueryError::ParseError(err, query_string.to_string()))?;
@@ -2173,37 +2175,43 @@ pub(super) fn parse_tantivy_query(
 }
 
 /// Walks the parsed user query AST and rewrites logical Postgres values to their physical Tantivy
-/// representation. Best-effort: phrases that fail conversion are left untouched, which preserves
-/// the original Tantivy error path for malformed input.
-pub(super) fn rewrite_field_literals(
+/// representation. Invalid NUMERIC phrases return an error unless parsing is lenient.
+fn rewrite_field_literals(
     ast: &mut UserInputAst,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
-) {
+    lenient: bool,
+) -> anyhow::Result<()> {
     match ast {
         UserInputAst::Clause(children) => {
             for (_, child) in children {
-                rewrite_field_literals(child, schema, index_created_by_version);
+                rewrite_field_literals(child, schema, index_created_by_version, lenient)?;
             }
         }
         UserInputAst::Boost(inner, _) => {
-            rewrite_field_literals(inner, schema, index_created_by_version)
+            rewrite_field_literals(inner, schema, index_created_by_version, lenient)?;
         }
-        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema, index_created_by_version),
+        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema, index_created_by_version, lenient)?,
     }
+    Ok(())
 }
 
 fn rewrite_leaf(
     leaf: &mut UserInputLeaf,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
-) {
+    lenient: bool,
+) -> anyhow::Result<()> {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name
                 && let Some(field_type) = schema.search_field(field_name).map(|f| f.field_type())
-                && let Some(replacement) =
-                    phrase_to_tantivy_string(&lit.phrase, &field_type, index_created_by_version)
+                && let Some(replacement) = phrase_to_tantivy_string(
+                    &lit.phrase,
+                    &field_type,
+                    index_created_by_version,
+                    lenient,
+                )?
             {
                 lit.phrase = replacement;
             }
@@ -2214,8 +2222,8 @@ fn rewrite_leaf(
             upper,
         } => {
             if let Some(field_type) = schema.search_field(name).map(|f| f.field_type()) {
-                rewrite_bound(lower, &field_type, index_created_by_version);
-                rewrite_bound(upper, &field_type, index_created_by_version);
+                rewrite_bound(lower, &field_type, index_created_by_version, lenient)?;
+                rewrite_bound(upper, &field_type, index_created_by_version, lenient)?;
             }
         }
         UserInputLeaf::Set {
@@ -2224,9 +2232,12 @@ fn rewrite_leaf(
         } => {
             if let Some(field_type) = schema.search_field(name).map(|f| f.field_type()) {
                 for element in elements.iter_mut() {
-                    if let Some(replacement) =
-                        phrase_to_tantivy_string(element, &field_type, index_created_by_version)
-                    {
+                    if let Some(replacement) = phrase_to_tantivy_string(
+                        element,
+                        &field_type,
+                        index_created_by_version,
+                        lenient,
+                    )? {
                         *element = replacement;
                     }
                 }
@@ -2236,47 +2247,50 @@ fn rewrite_leaf(
         // Range/Set without an explicit field can't be resolved here; leave them alone.
         _ => (),
     }
+    Ok(())
 }
 
 fn rewrite_bound(
     bound: &mut UserInputBound,
     field_type: &SearchFieldType,
     index_created_by_version: Option<Version>,
-) {
+    lenient: bool,
+) -> anyhow::Result<()> {
     match bound {
         UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
             if let Some(replacement) =
-                phrase_to_tantivy_string(phrase, field_type, index_created_by_version)
+                phrase_to_tantivy_string(phrase, field_type, index_created_by_version, lenient)?
             {
                 *phrase = replacement;
             }
         }
         UserInputBound::Unbounded => (),
     }
+    Ok(())
 }
 
 fn phrase_to_tantivy_string(
     phrase: &str,
     field_type: &SearchFieldType,
     index_created_by_version: Option<Version>,
-) -> Option<String> {
+    lenient: bool,
+) -> anyhow::Result<Option<String>> {
     match field_type {
         SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..) => {
-            numeric_phrase_to_tantivy_string(phrase, field_type, index_created_by_version)
-        }
-        _ if index_created_by_version.stores_datetimes_in_i64() => {
-            let oid = field_type.typeoid();
-            if matches!(
-                oid,
-                PgOid::BuiltIn(BuiltinOid::JSONOID | BuiltinOid::JSONBOID)
-            ) || is_pgoid_datetime_type(oid)
-            {
-                phrase_to_pg_micros_string(phrase, oid)
+            let converted =
+                numeric_phrase_to_tantivy_string(phrase, field_type, index_created_by_version);
+            if lenient {
+                // Leave invalid phrases to Tantivy's lenient parser, as before.
+                Ok(converted.ok().flatten())
             } else {
-                None
+                converted
             }
         }
-        _ => None,
+        _ => Ok(phrase_to_pg_micros_string(
+            phrase,
+            field_type.typeoid(),
+            index_created_by_version,
+        )),
     }
 }
 
@@ -2284,33 +2298,37 @@ fn numeric_phrase_to_tantivy_string(
     phrase: &str,
     field_type: &SearchFieldType,
     index_created_by_version: Option<Version>,
-) -> Option<String> {
-    match convert_value_for_field(
+) -> anyhow::Result<Option<String>> {
+    let converted = convert_value_for_field(
         PdbOwnedValue::Str(phrase.to_string()),
         field_type,
         index_created_by_version,
     )
-    .ok()?
-    {
+    .with_context(|| format!("invalid NUMERIC value '{phrase}'"))?;
+
+    Ok(match converted {
         PdbOwnedValue::I64(value) => Some(value.to_string()),
         PdbOwnedValue::Bytes(value) => {
-            // Tantivy's QueryParser decodes Bytes terms and boundaries as standard Base64. Reuse
-            // PdbOwnedValue's OwnedValue serialization to emit that format without a second crate.
-            let serde_json::Value::String(value) =
-                serde_json::to_value(PdbOwnedValue::Bytes(value)).ok()?
-            else {
-                return None;
-            };
-            Some(value)
+            // Tantivy's QueryParser decodes Bytes terms and boundaries as standard Base64.
+            Some(STANDARD.encode(&value))
         }
         _ => None,
-    }
+    })
 }
 
 /// Parse `phrase` as a postgres date string and return the corresponding
 /// PG-epoch microseconds formatted as a decimal i64 string. Returns `None`
-/// if the phrase can't be parsed — caller leaves the phrase untouched.
-fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
+/// if the index does not store datetimes as i64, the OID is unsupported, or parsing fails.
+/// The caller leaves the phrase untouched in these cases.
+fn phrase_to_pg_micros_string(
+    phrase: &str,
+    oid: PgOid,
+    index_created_by_version: Option<Version>,
+) -> Option<String> {
+    if !index_created_by_version.stores_datetimes_in_i64() {
+        return None;
+    }
+
     match oid {
         PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
             let micros = PostgresDateTime::try_from_timestamp_str(phrase)
@@ -2356,24 +2374,24 @@ fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::numeric_phrase_to_tantivy_string;
     use super::pdb::FuzzyData;
+    use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};
+    use crate::schema::SearchFieldType;
     use pgrx::prelude::*;
 
     #[pg_test]
     fn numeric_phrase_rewrite_uses_physical_representation() {
-        use super::numeric_phrase_to_tantivy_string;
-        use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};
-        use crate::postgres::pdb_owned_value::PdbOwnedValue;
-        use crate::schema::SearchFieldType;
-
         let numeric64 = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2);
         assert_eq!(
-            numeric_phrase_to_tantivy_string("1.23", &numeric64, None),
+            numeric_phrase_to_tantivy_string("1.23", &numeric64, None).unwrap(),
             Some("123".to_string())
         );
         assert_eq!(
-            numeric_phrase_to_tantivy_string("not-a-number", &numeric64, None),
-            None
+            numeric_phrase_to_tantivy_string("not-a-number", &numeric64, None)
+                .unwrap_err()
+                .to_string(),
+            "invalid NUMERIC value 'not-a-number'"
         );
 
         let numeric_bytes = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None);
@@ -2384,16 +2402,14 @@ mod tests {
             &numeric_bytes,
             Some(NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION),
         );
-        assert_eq!(legacy, Some("AL/87w==".to_string()));
-        assert_eq!(current, Some("AL/8if8=".to_string()));
+        assert_eq!(legacy.unwrap(), Some("AL/87w==".to_string()));
+        assert_eq!(current.unwrap(), Some("AL/8if8=".to_string()));
         assert_eq!(
-            numeric_phrase_to_tantivy_string("not-a-number", &numeric_bytes, None),
-            None
+            numeric_phrase_to_tantivy_string("not-a-number", &numeric_bytes, None)
+                .unwrap_err()
+                .to_string(),
+            "invalid NUMERIC value 'not-a-number'"
         );
-
-        // Pin the cross-module serialization contract used for Tantivy Bytes query terms.
-        let serialized = serde_json::to_value(PdbOwnedValue::Bytes(vec![0, 1, 2, 3])).unwrap();
-        assert_eq!(serialized, serde_json::Value::String("AAECAw==".into()));
     }
 
     #[pg_test]

@@ -5078,6 +5078,7 @@ dependencies = [
  "arrow-select 59.2.0",
  "async-stream",
  "async-trait",
+ "base64 0.22.1",
  "bigdecimal",
  "bincode 2.0.1",
  "bitpacking",

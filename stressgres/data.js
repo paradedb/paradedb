@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789086681983,
+  "lastUpdate": 1789086689615,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -314970,6 +314970,66 @@ window.BENCHMARK_DATA = {
             "value": 169,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.83883344832807, max segment_count: 360.0, count: 59423"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffbc4ce528696a590beedc1dd74bdd88412e848e",
+          "message": "chore: Switch to using a published apt-install action (#6277)\n\n## What\n\nSwitch to using a published apt-install action to avoid needing a\nbootstrap dependency on `git`.\n\n## Why\n\nWhen an in-repo GitHub Action is used, `git` must already be installed,\nOR the `.github` directory must be included in release tarballs. We\ndon't want either of those (needing to pre-install `git` would defeat\nthe purpose of the action).\n\nInstead, move the action out of the repo, which allows it to bootstrap\nwithout installed tools.",
+          "timestamp": "2026-09-10T17:11:48-07:00",
+          "tree_id": "8da12935304b01379b898b97cfe0e454ea0537ea",
+          "url": "https://github.com/paradedb/paradedb/commit/ffbc4ce528696a590beedc1dd74bdd88412e848e"
+        },
+        "date": 1789086686572,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.403217,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.09745495515688, max cpu: 33.3996, count: 59408"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 44.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.286780676108435, max mem: 44.875, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.8902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.71515890785167, max cpu: 43.373497, count: 59408"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 101.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.12380316518819, max mem: 102.24609375, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26604,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25397.474363722056, max block_count: 29201.0, count: 59408"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 168,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 194.75821438190144, max segment_count: 361.0, count: 59408"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789149285571,
+  "lastUpdate": 1789149296867,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -335268,6 +335268,90 @@ window.BENCHMARK_DATA = {
             "value": 564.1568181465002,
             "unit": "median tps",
             "extra": "avg tps: 564.4782710847279, max tps: 648.884211154709, count: 55414"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45df7f470746c013964867758f24a56456834e44",
+          "message": "ci: handle Spot retries across all RunsOn workflows (#6298)\n\n# Ticket(s) Closed\n\n- Implements Spot-interruption retry configuration from #6255. Live\ninterruption validation remains outstanding.\n\n## What\n\nMake Spot-interruption retries explicit for all 19 RunsOn jobs across 17\nworkflows, including tests, linting, benchmarks, release publishing,\nAntithesis, and snapshot generation.\n\n## Why\n\nInterrupted Spot jobs should retry without cancelling healthy matrix\nsiblings or failing on artifacts already uploaded by the interrupted\nattempt. PRs are reviewed and merged after their checks pass; the\nrepository currently has no required status checks or GitHub merge queue\nconfigured for `main`.\n\n## How\n\n- Set `retry=when-interrupted` on every RunsOn job.\n- Disable matrix fail-fast so an interruption does not cancel healthy\nsibling rows.\n- Make artifact uploads overwrite-safe for interrupted jobs that\nuploaded before failing, preserving distinct matrix artifact names.\n- Allow the retry label in Actionlint's runner configuration.\n\nExisting workflow triggers and permissions are preserved. No aggregate\nretry gates, `merge_group` triggers, or merge-queue-specific schema\nhandling are added. The RunsOn control plane upgrade to v3.3.1 is\nrecorded in #6255.\n\n## Tests\n\n- Actionlint passed across all workflows (embedded shell/Python linting\ndisabled).\n- Prettier passed across all workflows and the Actionlint configuration.\n- YAML audit verified all 19 RunsOn jobs opt into retries, every RunsOn\nmatrix disables fail-fast, RunsOn artifact uploads are overwrite-safe,\nand no retry gates or merge-group triggers remain.\n- `git diff --check` passed.\n\nA real EC2 Spot interruption and automatic GitHub rerun have not been\nexercised end to end.",
+          "timestamp": "2026-09-11T19:35:47+02:00",
+          "tree_id": "0d95f96f19d7b0005f5c14a6cf8b239801021a9e",
+          "url": "https://github.com/paradedb/paradedb/commit/45df7f470746c013964867758f24a56456834e44"
+        },
+        "date": 1789149275923,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 204.30859697861777,
+            "unit": "median tps",
+            "extra": "avg tps: 202.75425416098034, max tps: 217.77328304073254, count: 55382"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 208.33011336176054,
+            "unit": "median tps",
+            "extra": "avg tps: 206.60582047112257, max tps: 225.3610859132152, count: 55382"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 175.5950208377187,
+            "unit": "median tps",
+            "extra": "avg tps: 174.14361920900402, max tps: 198.19259115889466, count: 55382"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 492.1286721398186,
+            "unit": "median tps",
+            "extra": "avg tps: 482.27710999457327, max tps: 633.6077003760126, count: 55382"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 348.92135828341793,
+            "unit": "median tps",
+            "extra": "avg tps: 344.25657771731363, max tps: 417.5108300743656, count: 55382"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.883968008424812,
+            "unit": "median tps",
+            "extra": "avg tps: 14.905212981742826, max tps: 17.35788666769351, count: 55382"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 652.2100485151136,
+            "unit": "median tps",
+            "extra": "avg tps: 646.8785039605574, max tps: 742.7265674091317, count: 55382"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 662.3667629986162,
+            "unit": "median tps",
+            "extra": "avg tps: 656.1273786448638, max tps: 756.3974036977024, count: 55382"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 276.5516035508208,
+            "unit": "median tps",
+            "extra": "avg tps: 273.5172568795108, max tps: 320.80533579529134, count: 55382"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 577.1727562104963,
+            "unit": "median tps",
+            "extra": "avg tps: 572.6133890719867, max tps: 638.9235539874866, count: 55382"
           }
         ]
       }

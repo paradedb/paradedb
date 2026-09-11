@@ -26,6 +26,7 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
@@ -341,6 +342,8 @@ pub enum ChildProjection {
         rti: pg_sys::Index,
         field_name: String,
     },
+    /// WindowAggregate function
+    WindowAggregate { index: WindowAggInfosIndex },
     /// Arbitrary PG expression evaluated via PgExprUdf
     Expression {
         rti: pg_sys::Index,
@@ -1918,6 +1921,8 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Extracted global window functions pushed down into the join scan
+    pub window_agg_infos: WindowAggInfos,
     /// Distinct mode for this join: absent, executed by JoinScan, or deferred to parent.
     pub distinct: DistinctMode,
 }
@@ -1929,6 +1934,7 @@ impl JoinCSClause {
             limit_offset: None,
             order_by: Vec::new(),
             output_projection: None,
+            window_agg_infos: WindowAggInfos(Vec::new()),
             distinct: DistinctMode::None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
@@ -2236,6 +2242,74 @@ pub unsafe fn lookup_base_rel_info(
     let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
 
     Some((relid, alias, bm25_index))
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Copy)]
+pub struct WindowAggInfosIndex(usize);
+impl WindowAggInfosIndex {
+    pub fn as_col_name(&self) -> String {
+        WindowAggColumn::new(*self).to_string()
+    }
+}
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct WindowAggInfos(Vec<WindowAggregateInfo>);
+impl WindowAggInfos {
+    pub fn new(infos: Vec<WindowAggregateInfo>) -> Self {
+        Self(infos)
+    }
+
+    pub fn get(&self, index: WindowAggInfosIndex) -> Option<&WindowAggregateInfo> {
+        self.0.get(index.0)
+    }
+
+    /// CORRECTNESS: This assumes the listo of WindowAggregateInfo contained in Self was derived
+    /// from the same target entry list the provided index is referencing.
+    ///
+    /// Returns the index of the WindowAggregateInfo derived from the target entry the provided
+    /// index references, if one exists.
+    pub fn index_of_entry_with_target_entry_index(
+        &self,
+        target_entry_index: usize,
+    ) -> Option<WindowAggInfosIndex> {
+        self.0.iter().enumerate().find_map(|(i, info)| {
+            if info.target_entry_index == target_entry_index {
+                Some(WindowAggInfosIndex(i))
+            } else {
+                None
+            }
+        })
+    }
+}
+
+pub struct WindowAggColumn(WindowAggInfosIndex);
+impl WindowAggColumn {
+    const PREFIX: &'static str = "window_agg_";
+
+    pub fn new(index: WindowAggInfosIndex) -> Self {
+        WindowAggColumn(index)
+    }
+
+    #[allow(dead_code)]
+    pub fn index(&self) -> WindowAggInfosIndex {
+        self.0
+    }
+}
+impl fmt::Display for WindowAggColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.0.0)
+    }
+}
+impl TryFrom<&str> for WindowAggColumn {
+    type Error = ();
+
+    fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        let index = col_name
+            .strip_prefix(Self::PREFIX)
+            .ok_or(())?
+            .parse::<usize>()
+            .map_err(|_| ())?;
+        Ok(Self::new(WindowAggInfosIndex(index)))
+    }
 }
 
 /// Inspect an RTE to determine if it represents a LATERAL unnest function call

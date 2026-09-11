@@ -1159,44 +1159,51 @@ impl CustomScan for BaseScan {
             // Similar to how uses_scores/uses_snippets work - walk the tree to find our placeholders
             // Note: This updates target_entry_index to match the processed_tlist positions
             let processed_tlist = (*builder.args().root).processed_tlist;
+            let root = builder.args().root;
+            let is_join_query = pg_sys::bms_num_members((*root).all_baserels) > 1;
 
-            let mut window_aggregates = deserialize_window_agg_placeholders(processed_tlist);
+            // In a join query, the joinscan will take ownership of the window aggregates, and will evaluate them above the join,
+            // so basescan never projects them. basescan supports a narrower set of field types that
+            // joinscan and must not veto fields joinscan would accept, so we don't validate them in
+            // join contexts.
+            if !is_join_query {
+                let mut window_aggregates = deserialize_window_agg_placeholders(processed_tlist);
 
-            if !window_aggregates.is_empty() {
-                // Convert PostgresExpression filters to SearchQueryInput now that we have root
-                // Note: root was not available in the planner hook, so we needed to delay this until now.
-                let private_data = builder.custom_private();
-                if let Some(heaprelid) = private_data.heaprelid()
-                    && let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid)
-                {
-                    let root = builder.args().root;
-                    let rti = private_data
-                        .range_table_index()
-                        .expect("range table index should be set");
+                if !window_aggregates.is_empty() {
+                    // Convert PostgresExpression filters to SearchQueryInput now that we have root
+                    // Note: root was not available in the planner hook, so we needed to delay this until now.
+                    let private_data = builder.custom_private();
+                    if let Some(heaprelid) = private_data.heaprelid()
+                        && let Some((_, bm25_index)) = rel_get_bm25_index(heaprelid)
+                    {
+                        let rti = private_data
+                            .range_table_index()
+                            .expect("range table index should be set");
 
-                    resolve_window_aggregate_filters_at_plan_time(
-                        &mut window_aggregates,
-                        &bm25_index,
-                        root,
-                        rti,
-                    );
+                        resolve_window_aggregate_filters_at_plan_time(
+                            &mut window_aggregates,
+                            &bm25_index,
+                            root,
+                            rti,
+                        );
 
-                    // Validate that all fields in window aggregates exist in the index schema
-                    // and are supported for aggregate pushdown (not NUMERIC)
-                    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
-                        for window_agg in &window_aggregates {
-                            for agg_type in window_agg.targetlist.aggregates() {
-                                if let Err(e) = agg_type.validate_fields(&schema) {
-                                    pgrx::error!("{}", e);
+                        // Validate that all fields in window aggregates exist in the index schema
+                        // and are supported for aggregate pushdown (not NUMERIC)
+                        if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
+                            for window_agg in &window_aggregates {
+                                for agg_type in window_agg.targetlist.aggregates() {
+                                    if let Err(e) = agg_type.validate_fields(&schema) {
+                                        pgrx::error!("{}", e);
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                builder
-                    .custom_private_mut()
-                    .set_window_aggregates(window_aggregates);
+                    builder
+                        .custom_private_mut()
+                        .set_window_aggregates(window_aggregates);
+                }
             }
 
             let private_data = builder.custom_private();
@@ -2592,19 +2599,24 @@ unsafe fn replace_window_agg_with_const(
     // Check if this is the window_agg FuncExpr
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if (*funcexpr).funcid == window_agg_procid {
-            // Found it! Replace with a Const node
+            // Found it! Replace with a Const node.
+            // The result_type_oid can be any aggregate result type (int8, numeric, int4,
+            // float8, ...), so take the length/by-value contract from the catalog
+            // rather than special-casing oids: node utilities like copyObject and
+            // nodeToString trust these fields and dereference the datum as a
+            // pointer when constbyval is falsely unset.
+            let mut typlen: i16 = 0;
+            let mut typbyval: bool = false;
+            pg_sys::get_typlenbyval(result_type_oid, &mut typlen, &mut typbyval);
+
             let const_node = pg_sys::makeConst(
                 result_type_oid,
                 -1,
                 pg_sys::DEFAULT_COLLATION_OID,
-                if result_type_oid == pg_sys::INT8OID {
-                    8
-                } else {
-                    -1
-                },
+                typlen as std::os::raw::c_int,
                 pg_sys::Datum::null(),
-                true,                               // constisnull
-                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                true, // constisnull
+                typbyval,
             );
 
             return (const_node.cast(), Some(const_node));

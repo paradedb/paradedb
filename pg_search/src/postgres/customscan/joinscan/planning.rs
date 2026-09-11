@@ -23,6 +23,8 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
+use std::fmt::Display;
+
 use super::JoinDeclineReason;
 use super::build::{
     self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
@@ -1609,7 +1611,8 @@ pub(super) unsafe fn collect_required_fields(
                                 .is_some();
                             if !added && let Err(e) = ensure_expression_field(source, name) {
                                 pgrx::warning!(
-                                    "JoinScan: failed to project expression field '{name}': {e}"
+                                    "JoinScan: failed to project expression field '{name}': {}",
+                                    e.into_reason()
                                 );
                             }
                             break;
@@ -1633,6 +1636,47 @@ pub(super) unsafe fn collect_required_fields(
                             var_info.rti,
                             var_info.attno,
                         );
+                    }
+                }
+                super::build::ChildProjection::WindowAggregate { index } => {
+                    let agg_info = join_clause
+                        .window_agg_infos
+                        .get(*index)
+                        .expect("Should always have a valid window_agg_infos index");
+                    if let Some(field_name) = agg_info.source_field_name() {
+                        // For each join source, try to ensure_expression_field. If 0 or 2+ sources
+                        // succeed, error.
+                        let mut matched_sources = 0;
+                        for source in plan_sources.iter_mut() {
+                            if source
+                                .scan_info
+                                .fields
+                                .iter()
+                                .any(|f| f.field.name() == field_name)
+                            {
+                                matched_sources += 1;
+                                continue;
+                            }
+                            match ensure_expression_field(source, &field_name) {
+                                Ok(()) => matched_sources += 1,
+                                Err(EnsureExpressionRejection::NotInSchema(_)) => continue,
+                                Err(EnsureExpressionRejection::Other(reason)) => {
+                                    pgrx::warning!(
+                                        "JoinScan: failed to project expression field '{field_name}': {reason}"
+                                    );
+                                }
+                            }
+                        }
+                        if matched_sources == 0 {
+                            pgrx::warning!(
+                                "JoinScan: failed to project expression field '{field_name}': field not found in join scan sources"
+                            );
+                        }
+                        if matched_sources > 1 {
+                            pgrx::warning!(
+                                "JoinScan: issue projecting expression field '{field_name}': field found in multiple join scan sources"
+                            );
+                        }
                     }
                 }
                 super::build::ChildProjection::IndexedExpression { rti, field_name } => {
@@ -1730,6 +1774,26 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
     Some(())
 }
 
+#[derive(Clone)]
+enum EnsureExpressionRejection {
+    Other(String),
+    /// contains field name
+    NotInSchema(String),
+}
+impl EnsureExpressionRejection {
+    fn into_reason(self) -> String {
+        match self {
+            Self::Other(r) => r,
+            Self::NotInSchema(field_name) => format!("{field_name} not in schema"),
+        }
+    }
+}
+impl Display for EnsureExpressionRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.clone().into_reason())
+    }
+}
+
 /// Ensures that an array fast field for a lateral unnest is projected from a `JoinSource`.
 unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, field_name: &str) {
     if side.scan_info.fields.iter().any(|f| f.attno == attno) {
@@ -1753,7 +1817,10 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
 /// corresponding `WhichFastField` directly.  Used for ORDER BY on indexed
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
-unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
+unsafe fn ensure_expression_field(
+    source: &mut JoinSource,
+    field_name: &str,
+) -> Result<(), EnsureExpressionRejection> {
     if source
         .scan_info
         .fields
@@ -1764,24 +1831,34 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     }
     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
     let schema = SearchIndexSchema::open(&index_rel).map_err(|e| {
-        format!(
+        EnsureExpressionRejection::Other(format!(
             "Failed to open schema for index {}: {e}",
             source.scan_info.indexrelid
-        )
+        ))
     })?;
     let search_field = schema
         .search_field(field_name)
-        .ok_or_else(|| format!("Field '{field_name}' is not part of the schema"))?;
+        .ok_or_else(|| EnsureExpressionRejection::NotInSchema(field_name.to_string()))?;
     if !search_field.is_fast() {
-        return Err(format!("Field '{field_name}' is not a fast field"));
+        return Err(EnsureExpressionRejection::Other(format!(
+            "Field '{field_name}' is not a fast field"
+        )));
     }
     let categorized = schema.categorized_fields();
     let (_, data) = categorized
         .iter()
         .find(|(sf, _)| sf == &search_field)
-        .ok_or_else(|| format!("Field '{field_name}' not found in categorized fields"))?;
-    let field_type = field_type_for_pullup(search_field.field_type(), data.is_array)
-        .ok_or_else(|| format!("Field '{field_name}' has unsupported type for pullup"))?;
+        .ok_or_else(|| {
+            EnsureExpressionRejection::Other(format!(
+                "Field '{field_name}' not found in categorized fields"
+            ))
+        })?;
+    let field_type =
+        field_type_for_pullup(search_field.field_type(), data.is_array).ok_or_else(|| {
+            EnsureExpressionRejection::Other(format!(
+                "Field '{field_name}' has unsupported type for pullup"
+            ))
+        })?;
 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(

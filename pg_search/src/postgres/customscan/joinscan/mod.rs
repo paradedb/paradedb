@@ -147,7 +147,7 @@ pub mod scan_state;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;
-use self::build::{DistinctMode, JoinCSClause, RelNode, RelationAlias};
+use self::build::{DistinctMode, JoinCSClause, RelNode, RelationAlias, WindowAggInfos};
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
@@ -156,6 +156,8 @@ use self::planning::{
 };
 use self::predicate::{extract_join_level_conditions, resolve_join_conditions};
 use self::privdat::PrivateData;
+use crate::api::window_aggregate::window_agg_oid;
+use crate::postgres::customscan::basescan::projections::window_agg::deserialize_window_agg_placeholders;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -163,7 +165,7 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context,
+    create_datafusion_session_context, numeric_window_field,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -187,7 +189,6 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -195,12 +196,16 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
+
+use super::aggregatescan::AggregateType;
+use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -1121,14 +1126,25 @@ impl CustomScan for JoinScan {
                 pg_sys::copyObjectImpl(node.scan.plan.targetlist.cast()).cast(),
             );
 
-            // If the parent plan (`processed_tlist` or `pathkeys`) needs `pdb.score(...)` but the
-            // planner didn't push it down into the target list, we must add it. Otherwise,
-            // the parent node will attempt to evaluate `pdb.score(...)` natively, which fails.
+            // If the parent plan (`processed_tlist` or `pathkeys`) needs a pdb operator, (for
+            // instance`pdb.score(...)`but the planner didn't push it down into the target list,
+            // we must add it. Otherwise, the parent node will attempt to evaluate the operator
+            // natively, which fails.
+            //
+            // This list covers `pdb.score(...)` and the `pdb.window_agg(...)` placeholder
+            let mut supported_funcoids: Vec<_> =
+                crate::postgres::customscan::score_funcoids().to_vec();
+            let window_agg_funcoid = window_agg_oid();
+            if window_agg_funcoid != pg_sys::InvalidOid {
+                // window_agg_funcoid() will return InvalidOid during extension creation/update.
+                supported_funcoids.push(window_agg_funcoid);
+            }
+
             crate::postgres::utils::add_missing_search_operators_to_tlist(
                 root,
                 best_path as *mut pg_sys::Path,
                 &mut tlist,
-                &crate::postgres::customscan::score_funcoids(),
+                &supported_funcoids,
             );
 
             // Update node.scan.plan.targetlist so parent nodes can reference the outputs.
@@ -1179,11 +1195,15 @@ impl CustomScan for JoinScan {
             // custom_exprs Vars) so INDEX_VAR references can be resolved.
             let mut private_data = PrivateData::from(node.custom_private);
 
+            let window_agg_infos = deserialize_window_agg_placeholders(node.custom_scan_tlist);
+            private_data.join_clause.window_agg_infos = WindowAggInfos::new(window_agg_infos);
+
             private_data.output_columns =
                 compute_output_columns(&private_data.join_clause, node.custom_scan_tlist, root);
 
             let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
             build_output_projection(&mut private_data, &updated_entries, root);
+
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
@@ -1792,6 +1812,7 @@ impl CustomScan for JoinScan {
                             }
                         }
                         privdat::OutputColumnInfo::Var { .. }
+                        | privdat::OutputColumnInfo::WindowAggregate { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
                     .collect();
@@ -1892,6 +1913,8 @@ impl CustomScan for JoinScan {
 /// join clause, a `paradedb.score()` call becomes a `Score` sentinel, and any
 /// expression that cannot be located emits `Pruned` so the parent plan slot
 /// stays NULL.
+///
+/// Requires join_class.window_agg_infos to be filled, if they exist, before calling
 unsafe fn compute_output_columns(
     join_clause: &JoinCSClause,
     original_tlist: *mut pg_sys::List,
@@ -1899,8 +1922,9 @@ unsafe fn compute_output_columns(
 ) -> Vec<privdat::OutputColumnInfo> {
     let mut output_columns = Vec::new();
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+    let window_agg_funcoid = window_agg_oid();
 
-    for te in original_entries.iter_ptr() {
+    for (te_index, te) in original_entries.iter_ptr().enumerate() {
         let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
@@ -1937,6 +1961,18 @@ unsafe fn compute_output_columns(
                     plan_position: source.plan_position,
                     rti,
                 });
+            } else {
+                output_columns.push(privdat::OutputColumnInfo::Pruned);
+            }
+        } else if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, check_expr) {
+            if (*funcexpr).funcid == window_agg_funcoid
+                && let Some(index) = join_clause
+                    .window_agg_infos
+                    .index_of_entry_with_target_entry_index(te_index)
+            {
+                // This entry is a window_agg placeholder function and we have a deserialized
+                // WindowAggregateInfo for this index, so this is a Window Aggregate
+                output_columns.push(privdat::OutputColumnInfo::WindowAggregate { index });
             } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
@@ -2559,7 +2595,9 @@ impl JoinScan {
             let plan_position = match col_info {
                 privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
-                privdat::OutputColumnInfo::Pruned | privdat::OutputColumnInfo::Unnested { .. } => {
+                privdat::OutputColumnInfo::Pruned
+                | privdat::OutputColumnInfo::Unnested { .. }
+                | privdat::OutputColumnInfo::WindowAggregate { .. } => {
                     continue;
                 }
             };
@@ -2634,6 +2672,48 @@ impl JoinScan {
                     };
                     use pgrx::IntoDatum;
                     if let Some(datum) = score.into_datum() {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
+                }
+                privdat::OutputColumnInfo::WindowAggregate { index } => {
+                    let agg_info = &state
+                        .custom_state()
+                        .join_clause
+                        .window_agg_infos
+                        .get(*index)
+                        .expect("A window agg output column should always have a valid index");
+                    let agg_col = batch.column(i);
+                    let Some(agg_type) = agg_info.agg_type() else {
+                        pgrx::error!(
+                            "BUG: A non-Aggregate somehow reached the handling of a WindowAggregate"
+                        );
+                    };
+                    let numeric = match numeric_window_field(
+                        &state.custom_state().join_clause,
+                        agg_type,
+                    ) {
+                        Ok(f) => f,
+                        Err(e) => pgrx::error!(
+                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                        ),
+                    };
+                    let try_maybe_datum = datafusion_agg_to_datum(
+                        matches!(agg_type, AggregateType::Avg { .. }),
+                        numeric,
+                        agg_info.result_type_oid(),
+                        agg_col.as_ref(),
+                        row_idx,
+                    );
+                    let maybe_datum = match try_maybe_datum {
+                        Ok(d) => d,
+                        Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),
+                    };
+                    // arrow_array_to_datum returns Ok(None) for nulls, so we need to handle both
+                    // cases
+                    if let Some(datum) = maybe_datum {
                         *datums.add(i) = datum;
                         *nulls.add(i) = false;
                     } else {

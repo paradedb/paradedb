@@ -770,7 +770,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::WindowAggregate { .. } | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false, None)

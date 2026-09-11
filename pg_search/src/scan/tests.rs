@@ -58,6 +58,132 @@ mod tests {
         (heap_oid, index_oid)
     }
 
+    /// The scan reads in a requested order, and declines an order it cannot reproduce.
+    #[pg_test]
+    fn test_ordered_scan_pushdown() {
+        use datafusion::physical_expr::PhysicalSortExpr;
+        use datafusion::physical_plan::SortOrderPushdownResult;
+        use datafusion::physical_plan::expressions::Column;
+
+        let (heap_oid, index_oid) = get_relation_oids();
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+        ];
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
+
+        push_active_snapshot();
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+
+        let schema = build_arrow_schema(&fields);
+        let partition = crate::scan::execution_plan::ScanState {
+            source_idx: None,
+            planner_estimated_rows: 0,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
+            },
+            ffhelper: ffhelper.into(),
+            visibility: Box::new(visibility),
+            reader: reader.clone(),
+        };
+
+        let plan = PgSearchScanPlan::new(
+            Some(partition),
+            schema.clone(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            0,
+            None,
+            1,
+            None,
+            None,
+        );
+
+        let id_idx = schema.index_of("id").unwrap();
+        let descending = |idx: usize, name: &str| PhysicalSortExpr {
+            expr: Arc::new(Column::new(name, idx)),
+            options: arrow_schema::SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        };
+
+        // A ctid key is not a sortable columnar value, so the scan declines rather than
+        // promise an order it would not hold.
+        let ctid_idx = schema.index_of(&WhichFastField::Ctid.name()).unwrap();
+        assert!(matches!(
+            plan.try_pushdown_sort(&[descending(ctid_idx, &WhichFastField::Ctid.name())])
+                .unwrap(),
+            SortOrderPushdownResult::Unsupported
+        ));
+
+        // More keys than the index reader can compose.
+        let too_many: Vec<_> = (0..6).map(|_| descending(id_idx, "id")).collect();
+        assert!(matches!(
+            plan.try_pushdown_sort(&too_many).unwrap(),
+            SortOrderPushdownResult::Unsupported
+        ));
+
+        let SortOrderPushdownResult::Exact { inner } =
+            plan.try_pushdown_sort(&[descending(id_idx, "id")]).unwrap()
+        else {
+            panic!("expected an exact ordering on a columnar bigint key");
+        };
+
+        let declared = inner
+            .properties()
+            .output_ordering()
+            .expect("ordered mode declares its ordering");
+        let key = declared.iter().next().unwrap();
+        assert_eq!(key.expr.to_string(), format!("id@{id_idx}"));
+        assert!(key.options.descending);
+
+        let inner = inner.with_fetch(Some(10)).expect("the scan takes a fetch");
+        let mut stream = inner.execute(0, Arc::new(TaskContext::default())).unwrap();
+
+        let mut ids = Vec::new();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            while let Some(batch) = stream.next().await {
+                let batch = batch.unwrap();
+                let col = batch
+                    .column(id_idx)
+                    .as_any()
+                    .downcast_ref::<arrow_array::Int64Array>()
+                    .expect("id is a bigint column");
+                ids.extend(col.iter().flatten());
+            }
+        });
+
+        // The whole table comes back, because nothing above the scan stops the pull. What
+        // matters is that it arrives in the order the scan promised.
+        assert_eq!(ids.len(), 100);
+        assert_eq!(ids.first(), Some(&100));
+        let mut sorted = ids.clone();
+        sorted.sort_by(|a, b| b.cmp(a));
+        assert_eq!(ids, sorted, "rows did not arrive in the declared order");
+    }
+
     #[pg_test]
     fn test_datafusion_scan() {
         let (heap_oid, index_oid) = get_relation_oids();

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789134504104,
+  "lastUpdate": 1789135570012,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -352382,6 +352382,60 @@ window.BENCHMARK_DATA = {
             "value": 23.319618055262612,
             "unit": "median tps",
             "extra": "avg tps: 40.001443240342944, max tps: 595.7750380922403, count: 59242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135566018,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3862.736958305247,
+            "unit": "median tps",
+            "extra": "avg tps: 3854.5583159597954, max tps: 5603.792927242805, count: 59243"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4641.998694049175,
+            "unit": "median tps",
+            "extra": "avg tps: 4673.0661605682535, max tps: 7204.821931663891, count: 59243"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.43021407990206,
+            "unit": "median tps",
+            "extra": "avg tps: 190.12530012194654, max tps: 3285.820719049927, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.508867376082147,
+            "unit": "median tps",
+            "extra": "avg tps: 40.23512037143596, max tps: 584.8259222523894, count: 59243"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.52758125537635,
+            "unit": "median tps",
+            "extra": "avg tps: 40.443650941711056, max tps: 595.170333966719, count: 59243"
           }
         ]
       }

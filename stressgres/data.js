@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789135655469,
+  "lastUpdate": 1789135665132,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -142282,6 +142282,108 @@ window.BENCHMARK_DATA = {
             "value": 45.11328125,
             "unit": "median mem",
             "extra": "avg mem: 42.54760130685261, max mem: 46.80859375, count: 59408"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b49bb0fb13f521fe4fdf72201d756384b63fb560",
+          "message": "chore: Cleanup columnar user facing terminology (#6284)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nI randomly came across these leftover references to fast fields. We've\nstandardized on \"columnar\" for user-facing content, so error/warning\nmessages should be updated accordingly. Let's get this in v0.26.0\ninstead of a cherry-pick.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-09-11T06:28:33-07:00",
+          "tree_id": "6b3c358cee5635e81ff5661d9ca9c55f2dc3d6b9",
+          "url": "https://github.com/paradedb/paradedb/commit/b49bb0fb13f521fe4fdf72201d756384b63fb560"
+        },
+        "date": 1789135660532,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08394068438504654, max background_merging: 2.0, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7081904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.756938944240437, max cpu: 9.57606, count: 59411"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 19.361986508706302, max mem: 19.390625, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.029548865397759, max cpu: 14.552803, count: 59411"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.848423482183435, max mem: 33.9921875, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 52206,
+            "unit": "median block_count",
+            "extra": "avg block_count: 52034.08495059837, max block_count: 52206.0, count: 59411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.14741377859319, max segment_count: 105.0, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.101920128671882, max cpu: 33.61681, count: 59411"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 80.05213168121223, max mem: 83.81640625, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.888134485280069, max cpu: 28.318584, count: 59411"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 49.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.258025331483225, max mem: 51.4140625, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.886783152043011, max cpu: 28.263002, count: 59411"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 51.875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.11031456190773, max mem: 51.875, count: 59411"
           }
         ]
       }

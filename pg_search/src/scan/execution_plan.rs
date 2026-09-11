@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{DataType, SchemaRef, SortOptions};
+use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -70,6 +70,11 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+<<<<<<< HEAD
+=======
+use crate::scan::Scanner;
+use crate::scan::deferred_encode::is_deferred_field;
+>>>>>>> ee28005b (fix: kept null-extended rows NULL in a deferred string column. (#6247))
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
@@ -899,7 +904,7 @@ impl DisplayAs for PgSearchScanPlan {
                 d.fetch_at_scan
                     && schema
                         .column_with_name(&d.name)
-                        .is_some_and(|(_, f)| matches!(f.data_type(), DataType::Union(_, _)))
+                        .is_some_and(|(_, f)| is_deferred_field(f))
             })
             .map(|d| d.name.as_str())
             .collect();

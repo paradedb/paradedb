@@ -48,7 +48,11 @@ When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`Distri
 
 ### 4. Deferred Columns
 
+<<<<<<< HEAD
 String columns are emitted as a [2-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
+=======
+String columns are emitted as a [packed `UInt64`](../../../scan/deferred_encode.rs) (doc_address | term_ordinal) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
+>>>>>>> ee28005b (fix: kept null-extended rows NULL in a deferred string column. (#6247))
 
 The lookup has two halves with different access patterns, so they are separate nodes. [`TantivyFetchExec`][fetch-exec] reads the fast-field column (doc_address → term_ordinal, and packed ctid → real ctid); it wants doc order, which a join above the scan no longer keeps. [`TantivyDecodeExec`][decode-exec] reads the segment dictionary (term_ordinal → string); it is random access either way, and ordinals are much narrower than strings, so it can move above joins and shuffles at the same cost per row. The planner places the two next to each other; a cost model may separate them. `paradedb.defer_column_fetch` chooses between fetching in the scan (State 1 out of the scan, in doc order) and fetching at the decode point.
 
@@ -89,6 +93,7 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 
 Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 
+<<<<<<< HEAD
 | File                                                  | Purpose                                                                                                                             |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | [`segmented_topk_exec.rs`][topk-exec]                 | [`SegmentedTopKExec`][topk-exec] — per-segment heaps, [global heap][global-heap], [`build_global_filter_expression`][global-filter] |
@@ -100,6 +105,19 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | [`execution_plan.rs`](../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
 | [`pre_filter.rs`](../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
 | [`deferred_encode.rs`](../../scan/deferred_encode.rs) | 2-way UnionArray construction and unpacking                                                                                         |
+=======
+| File                                                     | Purpose                                                                                                                             |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [`segmented_topk_exec.rs`][topk-exec]                    | [`SegmentedTopKExec`][topk-exec] — per-segment heaps, [global heap][global-heap], [`build_global_filter_expression`][global-filter] |
+| [`segmented_topk_rule.rs`][topk-rule]                    | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                                              |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                    | Fast-field fetch: doc address → term ordinal, packed ctid → ctid                                                                    |
+| [`tantivy_decode_exec.rs`][decode-exec]                  | Dictionary decode: term ordinal → string/bytes                                                                                      |
+| [`filter_passthrough_exec.rs`][filter-passthrough]       | Transparent wrapper enabling filter pushdown through blocking nodes                                                                 |
+| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
+| [`execution_plan.rs`](../../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
+| [`pre_filter.rs`](../../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
+| [`deferred_encode.rs`](../../../scan/deferred_encode.rs) | Packed deferred column construction and unpacking                                                                                   |
+>>>>>>> ee28005b (fix: kept null-extended rows NULL in a deferred string column. (#6247))
 
 ## GUCs
 

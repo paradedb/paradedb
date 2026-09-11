@@ -388,7 +388,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   merge-gate:
-    name: test-pg_search gate
+    name: Test pg_search Gate
     if: ${{ always() }}
     needs: [test-pg_search, upload-coverage]
     permissions:

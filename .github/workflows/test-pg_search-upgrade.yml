@@ -136,7 +136,7 @@ jobs:
           pg_version: ${{ matrix.pg_version }}
 
   merge-gate:
-    name: test-pg_search-upgrade gate
+    name: Test pg_search (Upgrade) Gate
     if: ${{ always() }}
     needs: [discover-upgrade-starting-points, test-pg_search-upgrade]
     permissions:

@@ -78,7 +78,7 @@ jobs:
           fi
 
   merge-gate:
-    name: test-stressgres-docker gate
+    name: Test Stressgres (Docker) Gate
     if: ${{ always() }}
     needs: [test-stressgres-docker]
     permissions:

@@ -21,17 +21,17 @@ validation jobs in `needs`, `always()`, and only `actions: read` / `checks: read
 The gate runs on GitHub-hosted runners. Each workflow has a distinct gate name
 so one workflow's success cannot satisfy another workflow's required check.
 
-| Workflow                 | Normal check name                    |
-| ------------------------ | ------------------------------------ |
-| Lint Rust                | `lint-rust gate / pass`              |
-| Test ParadeDB (Docs)     | `test-paradedb-docs gate / pass`     |
-| Test pg_search           | `test-pg_search gate / pass`         |
-| Test pg_search (Docker)  | `test-pg_search-docker gate / pass`  |
-| Test pg_search (Schema)  | `test-pg_search-schema gate / pass`  |
-| Test pg_search (Upgrade) | `test-pg_search-upgrade gate / pass` |
-| Test Stressgres (Docker) | `test-stressgres-docker gate / pass` |
+| Workflow                 | Normal check name                      |
+| ------------------------ | -------------------------------------- |
+| Lint Rust                | `Lint Rust Gate / pass`                |
+| Test ParadeDB (Docs)     | `Test ParadeDB (Docs) Gate / pass`     |
+| Test pg_search           | `Test pg_search Gate / pass`           |
+| Test pg_search (Docker)  | `Test pg_search (Docker) Gate / pass`  |
+| Test pg_search (Schema)  | `Test pg_search (Schema) Gate / pass`  |
+| Test pg_search (Upgrade) | `Test pg_search (Upgrade) Gate / pass` |
+| Test Stressgres (Docker) | `Test Stressgres (Docker) Gate / pass` |
 
-On a retryable annotated interruption, the gate publishes `<workflow> gate /
+On a retryable annotated interruption, the gate publishes `<workflow> Gate /
 interrupted` successfully instead of `pass`. A required `pass` check stays
 pending until a retry completes. Ordinary failures, cancellation without an
 interruption annotation, annotation API errors, and exhausted retries fail the

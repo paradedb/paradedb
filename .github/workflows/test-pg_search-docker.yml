@@ -574,7 +574,7 @@ jobs:
           echo "Extension payload loads in the Postgres runtime image."
 
   merge-gate:
-    name: test-pg_search-docker gate
+    name: Test pg_search (Docker) Gate
     if: ${{ always() }}
     needs: [test-paradedb, test-extension-image]
     permissions:

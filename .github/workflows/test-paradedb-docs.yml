@@ -190,7 +190,7 @@ jobs:
         run: ./.github/scripts/smoke_test_code_snippets.sh
 
   merge-gate:
-    name: test-paradedb-docs gate
+    name: Test ParadeDB (Docs) Gate
     if: ${{ always() }}
     needs: [test-paradedb-docs]
     permissions:

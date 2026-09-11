@@ -100,7 +100,7 @@ jobs:
         run: taplo format --check
 
   merge-gate:
-    name: lint-rust gate
+    name: Lint Rust Gate
     if: ${{ always() }}
     needs: [lint-rust]
     permissions:

@@ -214,7 +214,7 @@ jobs:
           fi
 
   merge-gate:
-    name: test-pg_search-schema gate
+    name: Test pg_search (Schema) Gate
     if: ${{ always() }}
     needs: [test-pg_search-schema]
     permissions:

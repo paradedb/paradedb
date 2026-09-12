@@ -622,7 +622,12 @@ impl<'a> PredicateTranslator<'a> {
 
     pub(crate) unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Expr> {
         if (*c).constisnull {
-            return Some(lit(ScalarValue::Null));
+            // A boolean NULL must stay boolean: DataFusion's `Filter` only accepts a
+            // boolean predicate, and a folded clause can be nothing but this constant.
+            return Some(match (*c).consttype {
+                pg_sys::BOOLOID => lit(ScalarValue::Boolean(None)),
+                _ => lit(ScalarValue::Null),
+            });
         }
 
         let type_oid = (*c).consttype;

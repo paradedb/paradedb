@@ -598,6 +598,29 @@ impl SearchIndexSchema {
         lookup
     }
 
+    /// The indexed fields that draw their data from the heap column `column`: any field that
+    /// named it with the 'column' key, plus a field of that same name if one is indexed
+    /// directly. Drains `alias_lookup` so a caller walking every column visits each aliased
+    /// field once.
+    fn take_fields_sourced_from(
+        &self,
+        alias_lookup: &mut HashMap<String, Vec<SearchField>>,
+        column: impl AsRef<str>,
+    ) -> Vec<SearchField> {
+        let column = column.as_ref();
+        let mut fields = alias_lookup.remove(column).unwrap_or_default();
+        if let Some(direct) = self.search_field(column) {
+            fields.push(direct);
+        }
+        fields
+    }
+
+    /// The indexed fields that draw their data from the heap column `column`.
+    pub fn fields_sourced_from(&self, column: impl AsRef<str>) -> Vec<SearchField> {
+        let mut alias_lookup = self.alias_lookup();
+        self.take_fields_sourced_from(&mut alias_lookup, column)
+    }
+
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
@@ -616,13 +639,7 @@ impl SearchIndexSchema {
                 },
             ) in self.bm25_options.attributes().iter()
             {
-                // List any indexed fields that use this column as source data.
-                let mut search_fields = alias_lookup.remove(attname.as_ref()).unwrap_or_default();
-
-                // If there's an indexed field with the same name as a this column, add it to the list.
-                if let Some(index_field) = self.search_field(attname) {
-                    search_fields.push(index_field)
-                };
+                let search_fields = self.take_fields_sourced_from(&mut alias_lookup, attname);
 
                 for search_field in search_fields {
                     let (base_oid, is_array) = resolve_base_type(PgOid::from_untagged(

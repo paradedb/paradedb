@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Format
-        uses: paradedb/actions/lint-format@b7703a0b117808acb8a659ca94be8ba274344289
+        uses: paradedb/actions/lint-format@v12
         with:
           exclude: |
             *.nix

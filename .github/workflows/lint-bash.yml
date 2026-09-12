@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Bash
-        uses: paradedb/actions/lint-bash@b7703a0b117808acb8a659ca94be8ba274344289
+        uses: paradedb/actions/lint-bash@v12
         with:
           allow-sh: "true"
           strict-mode-exclude: docker/bootstrap_official.sh

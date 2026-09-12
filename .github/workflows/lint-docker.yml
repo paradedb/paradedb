@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Docker
-        uses: paradedb/actions/lint-docker@b7703a0b117808acb8a659ca94be8ba274344289
+        uses: paradedb/actions/lint-docker@v12
 
       - name: Verify Generated Dockerfiles Are In Sync With Template
         run: |

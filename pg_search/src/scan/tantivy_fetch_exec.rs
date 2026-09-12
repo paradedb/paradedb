@@ -19,10 +19,10 @@
 //!
 //! `TantivyFetchExec` reads fast-field columns for rows that still carry a packed doc
 //! address: a deferred string/bytes column moves from State 0 to State 1 (its term ordinal
-//! in the segment dictionary), and a `ctid_<plan_position>` column moves from a packed
-//! address to a real ctid. The schema does not change; a State 1 row passes through
-//! untouched, so a scan or a `SegmentedTopKExec` that resolved ordinals already costs
-//! nothing here.
+//! in the segment dictionary, packed into the same word), and a `ctid_<plan_position>`
+//! column moves from a packed address to a real ctid. The schema does not change; a State 1
+//! row passes through untouched, so a scan that resolved ordinals already costs nothing
+//! here.
 //!
 //! Fast-field reads are cheapest in doc order, which a join above the scan no longer keeps,
 //! so this node is the part of the lookup that is sensitive to where it sits in the plan.
@@ -35,9 +35,7 @@ use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::visibility_filter::{
     DeferredCtidMaterializationState, materialize_deferred_ctid,
 };
-use crate::scan::deferred_encode::{
-    DeferredUnion, DeferredValue, build_state_term_ordinals_per_row, unpack_doc_address,
-};
+use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, open_rebuilt_ffhelper,
     preserved_ordering, rebuild_missing_ffhelpers,
@@ -45,7 +43,7 @@ use crate::scan::deferred_lookup::{
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::FFHelperKey;
 
-use arrow_array::{Array, ArrayRef, RecordBatch, UInt32Array, UInt64Array};
+use arrow_array::{ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::DataType;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -59,8 +57,8 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use tantivy::DocId;
 use tantivy::termdict::TermOrdinal;
+use tantivy::{DocAddress, DocId, SegmentOrdinal};
 
 /// A `ctid_<plan_position>` column (packed doc-addresses) that a `TantivyFetchExec` resolves
 /// to real ctids, so a `VisibilityFilterExec` above it consumes real ctids directly.
@@ -125,16 +123,16 @@ impl TantivyFetchExec {
                     field.col_idx, field.display_name
                 ))
             })?;
-            if !matches!(input_field.data_type(), DataType::Union(_, _)) {
+            if input_field.data_type() != &DataType::UInt64 {
                 return Err(DataFusionError::Plan(format!(
-                    "TantivyFetchExec: column {} ('{}') is {:?}, expected a deferred union",
+                    "TantivyFetchExec: column {} ('{}') is {:?}, expected a deferred UInt64 column",
                     field.col_idx,
                     field.display_name,
                     input_field.data_type()
                 )));
             }
         }
-        // Rows keep their order and their types; only the union state changes. Only the
+        // Rows keep their order and their types; only a row's state changes. Only the
         // ordering is carried up, not the input's equivalence classes: above a hash join
         // those would let DataFusion rewrite a Top-K sort key onto the other join side and
         // move its dynamic filter off the probe scan.
@@ -170,6 +168,33 @@ impl TantivyFetchExec {
 
     pub(crate) fn ffhelpers(&self) -> &HashMap<FFHelperKey, Arc<FFHelper>> {
         &self.ffhelpers
+    }
+
+    /// Rebuilds this node over `input` with `fetch_fields`, keeping the ctid columns and the
+    /// resolvers already wired for them.
+    pub(crate) fn with_input_and_fields(
+        &self,
+        input: Arc<dyn ExecutionPlan>,
+        fetch_fields: Vec<PhysicalDeferredField>,
+    ) -> Result<Self> {
+        let exec = TantivyFetchExec::new(
+            input,
+            fetch_fields,
+            self.ffhelpers.clone(),
+            self.ctid_columns.clone(),
+        )?;
+        for (plan_pos, resolver) in self
+            .ctid_resolvers
+            .lock()
+            .expect("ctid_resolvers lock poisoned")
+            .iter()
+            .enumerate()
+        {
+            if let Some((indexrelid, ffhelper)) = resolver {
+                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
+            }
+        }
+        Ok(exec)
     }
 
     /// Wire the FFHelper that resolves the given source's ctid column. Mirrors
@@ -296,24 +321,10 @@ impl ExecutionPlan for TantivyFetchExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let exec = TantivyFetchExec::new(
+        Ok(Arc::new(self.with_input_and_fields(
             children.remove(0),
             self.fetch_fields.clone(),
-            self.ffhelpers.clone(),
-            self.ctid_columns.clone(),
-        )?;
-        for (plan_pos, resolver) in self
-            .ctid_resolvers
-            .lock()
-            .expect("ctid_resolvers lock poisoned")
-            .iter()
-            .enumerate()
-        {
-            if let Some((indexrelid, ffhelper)) = resolver {
-                exec.set_ctid_resolver(plan_pos, *indexrelid, ffhelper.clone());
-            }
-        }
-        Ok(Arc::new(exec))
+        )?))
     }
 
     fn execute(
@@ -394,83 +405,43 @@ fn fetch_batch(
     let mut columns = batch.columns().to_vec();
     for field in fetch_fields {
         let ffhelper = ffhelper_for(ffhelpers, field)?;
-        let ctid_col = match field.ctid_col_name.as_deref() {
-            Some(name) => {
-                let idx = batch.schema().index_of(name).map_err(|e| {
-                    DataFusionError::Internal(format!(
-                        "CTID column '{name}' for deferred field '{}' not found in batch: {e}",
-                        field.display_name
-                    ))
-                })?;
-                let col = batch
-                    .column(idx)
-                    .as_any()
-                    .downcast_ref::<UInt64Array>()
-                    .ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "CTID column '{name}' at index {idx} is not a UInt64Array"
-                        ))
-                    })?;
-                Some(col)
-            }
-            None => None,
-        };
-        columns[field.col_idx] =
-            fetch_term_ordinals(ffhelper, field, &columns[field.col_idx], ctid_col)?;
+        columns[field.col_idx] = fetch_term_ordinals(ffhelper, field, &columns[field.col_idx])?;
     }
     RecordBatch::try_new(schema, columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
-/// Resolves a deferred column's doc addresses to term ordinals, returning a State 1 array.
-/// A column with no State 0 rows is returned as is.
+/// Resolves a deferred column's doc addresses to term ordinals. A column with no State 0
+/// rows is returned as is.
 fn fetch_term_ordinals(
     ffhelper: &FFHelper,
     field: &PhysicalDeferredField,
     column: &ArrayRef,
-    ctid_col: Option<&UInt64Array>,
 ) -> Result<ArrayRef> {
-    let union = DeferredUnion::try_new(column.as_ref())?;
-    let num_rows = column.len();
-    let mut segment_ords = vec![0u32; num_rows];
-    let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
+    let deferred = DeferredColumn::try_new(column.as_ref())?;
     let num_segments = ffhelper.num_segments();
-    let mut packed_rows: Vec<(usize, u64)> = Vec::new();
-    for (row, value) in union.values().enumerate() {
-        // If the relation was null-extended by an outer join, its ctid is NULL.
-        // Arrow's `take` kernel on dense `UnionArray` corrupts null indices by replacing
-        // them with 0 (offset 0 into child 0), so we must skip fetching for this row.
-        if ctid_col.is_some_and(|c| c.is_null(row)) {
-            continue;
-        }
-        match value {
-            DeferredValue::DocAddress(packed) => {
-                let (segment_ord, _) = unpack_doc_address(packed);
-                if segment_ord as usize >= num_segments {
-                    return Err(DataFusionError::Execution(format!(
-                        "TantivyFetchExec: column '{}' row {row} names segment {segment_ord}, but its index has {num_segments} segments",
-                        field.display_name
-                    )));
-                }
-                packed_rows.push((row, packed));
+    let mut doc_addresses: Vec<(usize, DocAddress)> = Vec::new();
+    for (row, value) in deferred.values().enumerate() {
+        if let DeferredValue::DocAddress(doc_address) = value {
+            let segment_ord = doc_address.segment_ord;
+            if segment_ord as usize >= num_segments {
+                return Err(DataFusionError::Execution(format!(
+                    "TantivyFetchExec: column '{}' row {row} names segment {segment_ord}, but its index has {num_segments} segments",
+                    field.display_name
+                )));
             }
-            DeferredValue::TermOrdinal {
-                segment_ord,
-                term_ord,
-            } => {
-                segment_ords[row] = segment_ord;
-                term_ords[row] = term_ord;
-            }
-            DeferredValue::Null => {}
+            doc_addresses.push((row, doc_address));
         }
     }
-    if packed_rows.is_empty() {
+    if doc_addresses.is_empty() {
         return Ok(Arc::clone(column));
     }
 
+    let mut resolved: Vec<(usize, SegmentOrdinal, Option<TermOrdinal>)> =
+        Vec::with_capacity(doc_addresses.len());
     for_each_segment(
         num_segments,
-        packed_rows.into_iter(),
+        doc_addresses.into_iter(),
         |segment_ord, rows| {
             let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
@@ -489,18 +460,16 @@ fn fetch_term_ordinals(
                     )));
                 }
             }
-            for ((row, _), ord) in rows.into_iter().zip(ords) {
-                segment_ords[row] = segment_ord;
-                term_ords[row] = ord;
-            }
+            resolved.extend(
+                rows.into_iter()
+                    .zip(ords)
+                    .map(|((row, _), ord)| (row, segment_ord, ord)),
+            );
             Ok(())
         },
     )?;
 
-    Ok(build_state_term_ordinals_per_row(
-        UInt32Array::from(segment_ords),
-        Arc::new(UInt64Array::from(term_ords)),
-    ))
+    Ok(deferred.with_term_ordinals(resolved))
 }
 
 /// Replaces each configured ctid column's packed doc-addresses with real ctids, using the

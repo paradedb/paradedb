@@ -305,16 +305,22 @@ impl PdbOwnedValue {
                 Some(PdbOwnedValue::Bool(*v))
             }
 
-            // String/Text types
-            (ScalarValue::Utf8(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
-            (ScalarValue::LargeUtf8(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
-            (ScalarValue::Utf8View(Some(v)), SearchFieldType::Text(_)) => {
-                Some(PdbOwnedValue::Str(v.clone()))
-            }
+            // String/Text types. `Uuid` indexes the whole value as one text term and
+            // `Tokenized` is a text column carrying an explicit tokenizer, so both take
+            // the same `Str` representation as `Text`.
+            //
+            // The other Utf8View-backed types are deliberately absent. `Inet` stores as a
+            // tantivy IP field, and `Json`, `Range` and `Ltree` carry path, bound or facet
+            // encoding. A bare string cannot reproduce any of those, and a term built the
+            // wrong way silently drops the rows it should match.
+            (
+                ScalarValue::Utf8(Some(v))
+                | ScalarValue::LargeUtf8(Some(v))
+                | ScalarValue::Utf8View(Some(v)),
+                SearchFieldType::Text(_)
+                | SearchFieldType::Tokenized(..)
+                | SearchFieldType::Uuid(_),
+            ) => Some(PdbOwnedValue::Str(v.clone())),
 
             // Numeric64 (scaled integers)
             (ScalarValue::Int64(Some(v)), SearchFieldType::Numeric64(_, scale)) => {

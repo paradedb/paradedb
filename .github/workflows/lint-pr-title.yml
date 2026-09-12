@@ -23,6 +23,6 @@ jobs:
 
     steps:
       - name: Validate PR Title Format
-        uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: paradedb/actions/lint-pr-title@a024855293e56a720daa69e6648d023dd0cb9f77
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

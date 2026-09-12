@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Global window aggregates — `COUNT(*)`, `COUNT(col)`, `SUM`, `AVG`, `MIN`, and `MAX` with an empty `OVER ()` — are now pushed down over joins via the ParadeDB Join Scan. The aggregates are computed over the full set of matching join rows inside the scan, so Top-K `ORDER BY ... LIMIT` execution stays active instead of falling back to a native `WindowAgg` over all rows. Window aggregates may also appear inside target-list expressions, such as casts (`AVG(price) OVER ()::float8`), arithmetic (`score + COUNT(*) OVER ()`), and function calls (`round(AVG(price) OVER (), 2)`). Aggregate arguments must be columnar fields; `NUMERIC` columns are supported when declared with a precision and scale, and `AVG` over integer columns renders at the value's natural scale rather than Postgres' fixed 16-digit display scale.

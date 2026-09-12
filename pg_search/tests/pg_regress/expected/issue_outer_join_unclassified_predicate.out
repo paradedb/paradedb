@@ -36,8 +36,8 @@ SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
 WHERE o.super_organisation_name IS NULL;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -48,12 +48,14 @@ WHERE o.super_organisation_name IS NULL;
      :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
      :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :       FilterExec: super_organisation_name@1 IS NULL, projection=[country@0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@3, super_organisation_name@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=o, segments=1, visibility=eager, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, visibility=eager, query="all"
-(15 rows)
+     :         TantivyDecodeExec: decode=[country]
+     :           TantivyFetchExec: fetch=[country]
+     :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@3, super_organisation_name@1]
+     :               CooperativeExec
+     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, query="all"
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+(17 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
@@ -82,8 +84,8 @@ SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
 WHERE o.super_organisation_name IS NULL;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -92,12 +94,14 @@ WHERE o.super_organisation_name IS NULL;
      : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
      :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
      :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@2]
-     :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, visibility=eager, query={"boolean":{"must":["all"],"must_not":[{"exists":{"field":"super_organisation_name"}}]}}
-     :         CooperativeExec
-     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(13 rows)
+     :       TantivyDecodeExec: decode=[country]
+     :         TantivyFetchExec: fetch=[country]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, visibility=eager, query={"boolean":{"must":["all"],"must_not":[{"exists":{"field":"super_organisation_name"}}]}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
@@ -114,8 +118,8 @@ SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
 WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -126,12 +130,14 @@ WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NU
      :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
      :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :       FilterExec: __o_1_tag_0@2 OR super_organisation_name@1 IS NULL, projection=[country@0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@4, super_organisation_name@1, __o_1_tag_0@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=o, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"super_organisation_name","query_string":"OrgA","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, visibility=eager, query="all"
-(15 rows)
+     :         TantivyDecodeExec: decode=[country]
+     :           TantivyFetchExec: fetch=[country]
+     :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@4, super_organisation_name@1, __o_1_tag_0@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"super_organisation_name","query_string":"OrgA","lenient":null,"conjunction_mode":null}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+(17 rows)
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r

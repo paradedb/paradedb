@@ -24,9 +24,14 @@
 //! - The fetch (doc address to term ordinal) reads a columnar field, which is cheapest in
 //!   doc order. It stays deferred while the rows reach the decode point in that order and no
 //!   join multiplies them. Otherwise the scan resolves the ordinals itself, in doc order.
-//! - The decode (term ordinal to string) costs the same per row wherever it runs, so it stays
-//!   deferred unless a join multiplies the rows on the way and nothing above bounds them. In
-//!   that case the scan decodes the column and no union is carried at all.
+//! - The decode (term ordinal to string) is worth deferring only while fewer rows reach the
+//!   decode point than the scan emits. A limit bounds them, and so does an aggregate that
+//!   groups on the column, since it reduces them to one per group before the decode (see
+//!   `DeferredAggregateRule`). Two shapes take the decode back into the scan, where the
+//!   column leaves as a string and no ordinal is carried at all: a join that multiplies the
+//!   rows with nothing above to bound them, and an aggregate that declines the ordinal
+//!   grouping with nothing on the way that drops a row, which would otherwise decode the
+//!   scan's own rows over again one node later.
 //!
 //! Row multiplication is read from the join keys, not from cardinality estimates: a source's
 //! rows fan out through an equi-join when the other side's key is not that side's unique key
@@ -79,6 +84,7 @@ use crate::gucs::{self, DeferredPlacement};
 use crate::index::fast_fields_helper::FFIndex;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
+use crate::scan::deferred_aggregate_rule::ordinal_group_keys;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -144,6 +150,9 @@ impl Expansion {
 struct PathSummary {
     out_of_order: bool,
     expansion: Expansion,
+    /// A node on the path can drop rows, so the decode point may see fewer of them than the
+    /// scan emits even when nothing multiplies them.
+    reduces: bool,
     /// Every node on the path is one the rewrite knows how to rebuild with a changed column
     /// type; an eager decode changes the scan's output type and needs that.
     eager_safe: bool,
@@ -159,6 +168,10 @@ enum Bound {
     /// A Top-K sort, which consumes every row itself. It bounds a decode only when the
     /// `SegmentedTopKRule` will take the sort over and prune before the decode.
     TopK(LexOrdering),
+    /// An aggregate. It bounds the decode of a column it groups on, since
+    /// `DeferredAggregateRule` then groups the ordinals first and decodes one row per
+    /// group.
+    Aggregate(Arc<dyn ExecutionPlan>),
 }
 
 /// One deferred column of one scan. The index is not enough on its own: a self-join reads
@@ -176,6 +189,17 @@ impl DeferredSource {
             ff_index: field.canonical.ff_index,
         }
     }
+}
+
+/// What the consumer above a decode point does with one source's rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Consumer {
+    /// Fewer rows reach the decode than the scan emits.
+    Bounds,
+    /// Every scanned row is decoded, and the consumer needs the string itself.
+    DecodesAll,
+    /// Nothing above says either way.
+    Open,
 }
 
 /// Where a source's deferred columns end up. Both flags false keeps them at the decode point.
@@ -231,10 +255,24 @@ impl Context {
 /// whatever the path did to the row count.
 fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Context) {
     if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-        let bounded = match &bound {
-            Bound::None => false,
-            Bound::Limit => true,
-            Bound::TopK(order) => segmented_topk_takes(order, decode),
+        let grouped = match &bound {
+            Bound::Aggregate(agg) => grouped_columns(agg, node, decode),
+            _ => HashSet::default(),
+        };
+        // A limit and a Top-K bound every column below them, so only an aggregate reads one
+        // column differently from the next at one decode point.
+        let consumer_for = |column: usize| match &bound {
+            Bound::None => Consumer::Open,
+            Bound::Limit => Consumer::Bounds,
+            Bound::TopK(order) => {
+                if segmented_topk_takes(order, decode) {
+                    Consumer::Bounds
+                } else {
+                    Consumer::Open
+                }
+            }
+            Bound::Aggregate(_) if grouped.contains(&column) => Consumer::Bounds,
+            Bound::Aggregate(_) => Consumer::DecodesAll,
         };
         let wanted: Vec<u32> = decode
             .deferred_fields()
@@ -245,12 +283,14 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         collect_scans(node, &wanted, &mut scans);
         for ((heap_rti, alias), path) in scans {
             let summary = summarize_path(&path, ctx);
-            let decision = decide(&summary, bounded, ctx);
-            for field in decode
+            for (column, field) in decode
                 .deferred_fields()
                 .iter()
-                .filter(|f| f.heap_rti == heap_rti)
+                .enumerate()
+                .filter(|(_, f)| f.heap_rti == heap_rti)
             {
+                let consumer = consumer_for(column);
+                let decision = decide(&summary, consumer, ctx);
                 let source = DeferredSource::of(field);
                 let merged = match ctx.decisions.get(&source) {
                     Some(existing) => existing.merge(decision),
@@ -258,13 +298,13 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
                 };
                 ctx.decisions.insert(source, merged);
                 pgrx::debug1!(
-                    "DeferredPlacement: {}.{} out_of_order={} expansion={:?} eager_safe={} bounded={} -> fetch_at_scan={} eager={}",
+                    "DeferredPlacement: {}.{} out_of_order={} expansion={:?} eager_safe={} consumer={:?} -> fetch_at_scan={} eager={}",
                     alias,
                     field.display_name,
                     summary.out_of_order,
                     summary.expansion,
                     summary.eager_safe,
-                    bounded,
+                    consumer,
                     merged.fetch_at_scan,
                     merged.eager
                 );
@@ -278,6 +318,8 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         && sort.fetch().is_some()
     {
         Bound::TopK(sort.expr().clone())
+    } else if node.is::<AggregateExec>() {
+        Bound::Aggregate(Arc::clone(node))
     } else if is_transparent(node) {
         bound
     } else {
@@ -286,6 +328,23 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
     for child in node.children() {
         collect_decisions(child, below.clone(), ctx);
     }
+}
+
+/// The columns at this decode point whose ordinals `agg` groups on, so the aggregate cuts
+/// them to one row per group before any of them is decoded. The aggregate must sit directly
+/// on the decode, or its column indexes mean something else.
+fn grouped_columns(
+    agg: &Arc<dyn ExecutionPlan>,
+    decode_node: &Arc<dyn ExecutionPlan>,
+    decode: &TantivyDecodeExec,
+) -> HashSet<usize> {
+    let Some(agg) = agg.downcast_ref::<AggregateExec>() else {
+        return HashSet::default();
+    };
+    if !Arc::ptr_eq(agg.input(), decode_node) {
+        return HashSet::default();
+    }
+    ordinal_group_keys(agg, decode).into_iter().collect()
 }
 
 /// Whether `SegmentedTopKRule` will take a Top-K sort with this order over from `decode`:
@@ -330,11 +389,15 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
     let mut summary = PathSummary {
         out_of_order: false,
         expansion: Expansion::No,
+        reduces: false,
         eager_safe: true,
     };
     for (node, child_idx) in path {
         if !rebuilds_with_new_types(node) {
             summary.eager_safe = false;
+        }
+        if drops_rows(node) {
+            summary.reduces = true;
         }
         if let Some(join) = node.downcast_ref::<HashJoinExec>() {
             let on_left = *child_idx == 0;
@@ -386,6 +449,14 @@ fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
         }
     }
     summary
+}
+
+/// Nodes that can let fewer rows through than they read.
+fn drops_rows(node: &Arc<dyn ExecutionPlan>) -> bool {
+    node.is::<FilterExec>()
+        || node.is::<FilterPassthroughExec>()
+        || node.is::<VisibilityFilterExec>()
+        || node.children().len() > 1
 }
 
 /// Nodes whose rebuild recomputes their schema from a child whose column type changed.
@@ -518,9 +589,15 @@ fn same_columns(a: &Arc<dyn ExecutionPlan>, b: &Arc<dyn ExecutionPlan>) -> bool 
             .all(|(fa, fb)| fa.name() == fb.name())
 }
 
-fn decide(summary: &PathSummary, bounded: bool, ctx: &Context) -> Decision {
-    let eager =
-        ctx.decode_auto && summary.expansion == Expansion::Yes && !bounded && summary.eager_safe;
+/// The scan decodes the column when the deferred decode would read at least as many rows:
+/// a fan-out gives it more of them, and a consumer that decodes every row of a path that
+/// drops none gives it the same ones a second time.
+fn decide(summary: &PathSummary, consumer: Consumer, ctx: &Context) -> Decision {
+    let straight_through = consumer == Consumer::DecodesAll && !summary.reduces;
+    let eager = ctx.decode_auto
+        && consumer != Consumer::Bounds
+        && summary.eager_safe
+        && (summary.expansion == Expansion::Yes || straight_through);
     let fetch_at_scan =
         ctx.fetch_auto && !eager && (summary.out_of_order || summary.expansion == Expansion::Yes);
     Decision {
@@ -665,6 +742,7 @@ mod tests {
         PathSummary {
             out_of_order,
             expansion,
+            reduces: false,
             eager_safe: true,
         }
     }
@@ -681,39 +759,103 @@ mod tests {
     fn a_path_the_rewrite_cannot_retype_keeps_the_decode_deferred() {
         let mut path = summary(false, Expansion::Yes);
         path.eager_safe = false;
-        let d = decide(&path, false, &ctx(true, true));
+        let d = decide(&path, Consumer::Open, &ctx(true, true));
         assert!(d.fetch_at_scan && !d.eager);
+        let d = decide(&path, Consumer::DecodesAll, &ctx(true, true));
+        assert!(!d.eager);
     }
 
     #[test]
     fn in_order_rows_that_do_not_fan_out_stay_deferred() {
-        let d = decide(&summary(false, Expansion::No), false, &ctx(true, true));
+        let d = decide(
+            &summary(false, Expansion::No),
+            Consumer::Open,
+            &ctx(true, true),
+        );
         assert!(!d.fetch_at_scan && !d.eager);
-        let d = decide(&summary(false, Expansion::Unknown), false, &ctx(true, true));
+        let d = decide(
+            &summary(false, Expansion::Unknown),
+            Consumer::Open,
+            &ctx(true, true),
+        );
         assert!(!d.fetch_at_scan && !d.eager);
     }
 
     #[test]
     fn a_build_side_fetches_in_the_scan_but_still_decodes_late() {
-        let d = decide(&summary(true, Expansion::No), false, &ctx(true, true));
+        let d = decide(
+            &summary(true, Expansion::No),
+            Consumer::Open,
+            &ctx(true, true),
+        );
         assert!(d.fetch_at_scan && !d.eager);
     }
 
     #[test]
     fn a_fan_out_decodes_in_the_scan_unless_something_above_bounds_it() {
-        let d = decide(&summary(false, Expansion::Yes), false, &ctx(true, true));
+        let d = decide(
+            &summary(false, Expansion::Yes),
+            Consumer::Open,
+            &ctx(true, true),
+        );
         assert!(d.eager && !d.fetch_at_scan);
-        let d = decide(&summary(false, Expansion::Yes), true, &ctx(true, true));
+        let d = decide(
+            &summary(false, Expansion::Yes),
+            Consumer::Bounds,
+            &ctx(true, true),
+        );
         assert!(d.fetch_at_scan && !d.eager);
+    }
+
+    /// An aggregate that will not group on the ordinals decodes every scanned row, so a
+    /// deferred decode is a second pass over the rows the scan already had.
+    #[test]
+    fn a_consumer_that_decodes_every_row_decodes_in_the_scan() {
+        for expansion in [Expansion::No, Expansion::Unknown, Expansion::Yes] {
+            let d = decide(
+                &summary(false, expansion),
+                Consumer::DecodesAll,
+                &ctx(true, true),
+            );
+            assert!(d.eager && !d.fetch_at_scan, "{expansion:?}");
+        }
+        let d = decide(
+            &summary(true, Expansion::No),
+            Consumer::DecodesAll,
+            &ctx(true, true),
+        );
+        assert!(d.eager && !d.fetch_at_scan);
+    }
+
+    /// A join or a filter between the scan and the decode point can drop rows, so the
+    /// deferred decode reads fewer of them than the scan would and stays where it is.
+    #[test]
+    fn a_path_that_drops_rows_keeps_the_decode_deferred() {
+        let mut path = summary(false, Expansion::No);
+        path.reduces = true;
+        let d = decide(&path, Consumer::DecodesAll, &ctx(true, true));
+        assert!(!d.eager && !d.fetch_at_scan);
     }
 
     #[test]
     fn a_pinned_half_is_left_alone() {
-        let d = decide(&summary(true, Expansion::Yes), false, &ctx(false, true));
+        let d = decide(
+            &summary(true, Expansion::Yes),
+            Consumer::Open,
+            &ctx(false, true),
+        );
         assert!(d.eager && !d.fetch_at_scan);
-        let d = decide(&summary(true, Expansion::Yes), false, &ctx(true, false));
+        let d = decide(
+            &summary(true, Expansion::Yes),
+            Consumer::Open,
+            &ctx(true, false),
+        );
         assert!(d.fetch_at_scan && !d.eager);
-        let d = decide(&summary(true, Expansion::Yes), false, &ctx(false, false));
+        let d = decide(
+            &summary(true, Expansion::Yes),
+            Consumer::Open,
+            &ctx(false, false),
+        );
         assert!(!d.moves());
     }
 

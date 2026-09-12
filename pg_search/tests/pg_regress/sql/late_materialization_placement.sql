@@ -198,10 +198,10 @@ ORDER BY c.author ASC, c.id ASC, c2.id ASC
 LIMIT 5;
 
 -- =============================================================================
--- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
+-- Aggregates: the key's own table decides. A title with one row per term is not
+-- grouped on ordinals, so nothing bounds the fan-out and the scan decodes it. An
+-- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
-
-SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
@@ -254,6 +254,44 @@ ORDER BY c1.author, c2.author
 LIMIT 5;
 
 -- =============================================================================
+-- A single-table aggregate reads every row the scan emits. `title` has one row per
+-- term, so its ordinals are not grouped and a deferred decode would repeat the
+-- scan's own work; the scan decodes it instead. `author` repeats across rows, so
+-- the decode runs once per group and stays where it is. The bucket limit is what
+-- routes a single-table group-by to DataFusion.
+-- =============================================================================
+
+SET paradedb.max_term_agg_buckets TO 1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+RESET paradedb.max_term_agg_buckets;
+
+-- =============================================================================
 -- Settings override the rule
 -- =============================================================================
 
@@ -295,7 +333,6 @@ ORDER BY p.title
 LIMIT 5;
 
 RESET paradedb.defer_column_fetch;
-RESET paradedb.enable_aggregate_late_materialization;
 
 SET paradedb.defer_column_fetch = on;
 
@@ -355,8 +392,6 @@ WHERE p.body @@@ 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
-SET paradedb.enable_aggregate_late_materialization = on;
-
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
@@ -371,8 +406,6 @@ WHERE p.body @@@ 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
-
-RESET paradedb.enable_aggregate_late_materialization;
 
 DROP TABLE lmp_comments;
 DROP TABLE lmp_posts;

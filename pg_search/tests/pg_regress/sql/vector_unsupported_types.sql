@@ -6,6 +6,8 @@
 -- index over halfvec / sparsevec / bit is rejected at CREATE INDEX.
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 CREATE TABLE unsupported_vec_types (
     id int PRIMARY KEY,

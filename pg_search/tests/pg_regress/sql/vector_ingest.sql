@@ -8,11 +8,17 @@
 -- vectors still ingest and are searchable.
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 CREATE TABLE nonfinite_vec (
     id  int PRIMARY KEY,
     vec vector(3)
 );
+-- Centroids are trained at CREATE INDEX over the existing rows, so the
+-- (finite) control corpus is loaded BEFORE the index exists — an index on
+-- an empty table is an error under the index-level centroid format.
+INSERT INTO nonfinite_vec VALUES (3, '[1, 0, 0]'), (4, '[0.5, 0.5, 0]');
 CREATE INDEX nonfinite_vec_idx ON nonfinite_vec
     USING paradedb (id, vec vector_cosine_ops)
     WITH (key_field = id);
@@ -24,10 +30,9 @@ INSERT INTO nonfinite_vec VALUES (1, '[NaN, 0, 0]');
 -- expression-index shape over float arrays cannot smuggle one in either.
 INSERT INTO nonfinite_vec VALUES (2, ARRAY['Infinity'::float4, 0, 0]::vector);
 
--- Control: finite vectors ingest into the cosine index and are searchable,
--- proving the rejections above happened before pg_search rather than inside a
--- broken index.
-INSERT INTO nonfinite_vec VALUES (3, '[1, 0, 0]'), (4, '[0.5, 0.5, 0]');
+-- Control: the pre-loaded finite vectors are searchable, proving the
+-- rejections above happened before pg_search rather than inside a broken
+-- index.
 SELECT id FROM nonfinite_vec WHERE id @@@ pdb.all() ORDER BY vec <=> '[1, 0, 0]' LIMIT 2;
 
 DROP TABLE nonfinite_vec;

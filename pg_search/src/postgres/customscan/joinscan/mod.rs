@@ -1919,14 +1919,6 @@ unsafe fn compute_output_columns(
                     source_rti: unnest_info.source_rti,
                     field_name: unnest_info.field_name.clone(),
                 });
-            } else if is_supported_window_agg_node(check_expr) {
-                let agg_index = join_clause
-                    .window_aggs
-                    .find_index(window_func::WindowAggId::bare((*te).resno))
-                    .expect(
-                    "At this point, any window agg found should have successfully been extracted and be findable",
-                );
-                output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
             } else {
                 // Var references a relation pruned by an internal Semi/Anti
                 // join (e.g., the inner side of a flattened EXISTS).
@@ -1949,6 +1941,14 @@ unsafe fn compute_output_columns(
             } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else if is_supported_window_agg_node(check_expr) {
+            let agg_index = join_clause
+                .window_aggs
+                .find_index(window_func::WindowAggId::bare((*te).resno))
+                .expect(
+                    "At this point, any window agg found should have successfully been extracted and be findable",
+                );
+            output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
         } else {
             output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
@@ -2030,6 +2030,17 @@ unsafe fn build_output_projection(
     let all_sources = private_data.join_clause.plan.sources();
     for (scan_idx, te) in scan_target_entries.iter().copied().enumerate() {
         if resolved_entries[scan_idx].is_some() {
+            continue;
+        }
+        // Bare window aggregates are emitted by the direct window-output
+        // path (ChildProjection::WindowAgg); re-resolving them here would
+        // divert integer-typed ones onto the expression/UDF path, and
+        // NUMERIC-wintype ones don't resolve at all (leaving them Pruned,
+        // which projects NULL).
+        if matches!(
+            private_data.output_columns[scan_idx],
+            privdat::OutputColumnInfo::WindowAgg { .. }
+        ) {
             continue;
         }
         let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());

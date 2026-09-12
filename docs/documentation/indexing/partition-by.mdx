@@ -5,14 +5,14 @@ canonical: https://www.paradedb.com/docs/documentation/indexing/partition-by
 ---
 
 <Warning>
-  `partition_by` and range co-partitioned joins are currently **Beta** features
+  `partition_by` and range co-partitioned joins are currently Beta features
   under active development. Query pruning and join planning optimizations are
   actively evolving. Syntax and internal planner behaviors may change in future
   releases.
 </Warning>
 
-By default, a ParadeDB index distributes rows across segments based on ingestion order or heap order (`ctid`).
-Using the `partition_by` option in `CREATE INDEX`, you can explicitly partition the index space along one or more columns:
+By default, a ParadeDB index does not partition rows across segments by column values.
+Using the `partition_by` option in `CREATE INDEX`, you can partition the index space along one or more columns:
 
 ```sql
 CREATE INDEX items_idx ON items
@@ -24,66 +24,87 @@ WITH (
 );
 ```
 
-There are two primary reasons to use `partition_by`:
+Partitioning an index provides two key benefits:
 
-1. **Segment Pruning**: Accelerate search and filter queries by skipping non-matching segments before opening them, and simplifying per-segment filter evaluation.
-2. **Range Co-Partitioned Joins**: Accelerate parallel joins across large tables by aligning partition boundaries on the join keys. Joins can execute entirely within a worker without coordinating with other workers or broadcasting data, allowing cardinality-reducing operations (such as Top-K or aggregations) to also run worker-locally before the first gather.
+1. Segment Pruning: Accelerate search and filter queries by skipping non-matching segments before scanning them.
+2. Range Co-Partitioned Joins: Accelerate parallel joins by aligning segment boundaries on join keys. Workers can join matching slices locally without exchanging data across processes, allowing operations like Top-K sorting and aggregations to run worker-locally before gathering results.
 
 ---
 
 ## How It Works
 
-During index creation (`CREATE INDEX` or `REINDEX`), ParadeDB samples table data and constructs a spatial k-d tree across the columns specified in `partition_by`:
+When an index is built or reindexed with `partition_by`, ParadeDB divides rows across segments based on the values in the partitioned columns:
 
-1. **Quantile Slicing**: The leader process computes quantile cuts along each dimension, dividing the space into bounding boxes that balance row counts across partitions.
-2. **Per-Segment Bounding Boxes**: As index workers build segments, each segment records its logical bounding box (lower and upper bounds) and empirical min/max values in its segment metadata.
-3. **Multi-Dimensional Partitioning**: When multiple columns are specified (e.g. `partition_by = 'tenant_id, created_at'`), the k-d tree recursively alternates cuts across dimensions based on rank spread, creating multi-dimensional bounding boxes.
-
-{/* TODO: Add issue link for incremental partition maintenance across writes once ticket is created */}
+- Each segment records the min and max values (bounding range) of the partition columns in its metadata.
+- When a query filters on a partition column, ParadeDB checks the filter against each segment's range and skips segments that cannot contain matching rows before opening them.
+- If a segment's range falls entirely within a query filter (for example, the segment's `created_at` range is in 2024 and the query filters `created_at >= '2024-01-01'`), ParadeDB omits that filter evaluation when scanning that segment.
 
 <Note>
-  Partition boundaries are not yet maintained over time as new data is inserted:
-  query performance (though not correctness) will slowly degrade over time as
-  writes accumulate. You can run `REINDEX` to restore optimal partition
-  boundaries. Incremental maintenance across ongoing writes is planned for
-  future releases.
+  Partition boundaries are established during `CREATE INDEX` or `REINDEX` and
+  are not yet rebalanced as new data is inserted. Query performance will
+  gradually decline as writes accumulate. Running `REINDEX` restores optimal
+  partition boundaries. Incremental maintenance across ongoing writes is planned
+  for future releases.
 </Note>
+
+---
+
+## Partitioning on Multiple Columns
+
+You can partition an index along multiple columns by specifying a comma-separated list:
+
+```sql
+CREATE INDEX events_idx ON events
+USING paradedb (id, organization_id, created_at, message)
+WITH (
+  key_field = 'id',
+  partition_by = 'organization_id, created_at',
+  target_segment_count = 32
+);
+```
+
+### Comparison to Sorted Indexes
+
+In a standard Postgres B-tree index over multiple columns (such as `(organization_id, created_at)`), rows are sorted lexicographically by the first column, then the second. Because of this:
+
+- Queries must filter on the leading column (`organization_id`) to use the index efficiently.
+- A filter on `created_at` alone cannot skip non-matching index pages.
+
+In contrast, `partition_by` does not define a sorted prefix key. Instead, ParadeDB partitions rows multi-dimensionally across the specified columns:
+
+- No column order dependency: Queries do not need to include the leading column or all columns to benefit from pruning. Filtering on `organization_id` alone, `created_at` alone, or both columns simultaneously allows ParadeDB to prune non-matching segments.
+- Pruning trade-offs per column: Because `target_segment_count` controls the total number of segments, that segment budget is divided across all partition columns. For example, with `target_segment_count = 16`, partitioning on `organization_id` alone creates ~16 slices along organization ID. Partitioning on `organization_id, created_at` divides those 16 segments across both dimensions (e.g. roughly 4 slices per column).
+
+As a result, the more columns you include in `partition_by`, the less effective pruning will be for each individual column. For most workloads, partitioning on 1 or 2 high-selectivity columns that frequently appear in queries or join conditions gives the best results.
 
 ---
 
 ## Column Selection Guidance
 
-Choosing the right column(s) for `partition_by` depends heavily on your query patterns and performance bottlenecks.
+Choosing the right column(s) for `partition_by` depends on your query patterns and join requirements.
 
 ### Decision Matrix
 
-| Workload / Primary Bottleneck                            | Recommended `partition_by` Column                                                | Expected Impact                                                                                                                                                              |
-| :------------------------------------------------------- | :------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Multi-Tenant SaaS** (Queries filter by tenant)         | Tenant ID (e.g. `tenant_id`, `org_id`, `account_id`)                             | **Pruning**: Queries filter on `tenant_id = ?`. Bypasses non-matching segments entirely, providing up to an Nx reduction in I/O and cache churn.                             |
-| **Time-Series / Event Logs** (Queries filter by recency) | Timestamp / Date (e.g. `created_at`, `event_time`)                               | **Pruning**: Range filters (`created_at >= ...`) skip historical segments. Ingestion order naturally maintains compact bounds in new segments.                               |
-| **Large-Scale Joins** (e.g. `orders` JOIN `items`)       | Equi-join key on both tables (e.g. `orders.item_id` and `items.id`)              | **Co-Partitioned Joins**: Joins and downstream operations (aggregates, Top-K) execute worker-locally (`mode = Partitioned`) without cross-worker coordination or broadcasts. |
-| **Multi-Tenant with Joins**                              | Shared tenant key on both tables (e.g. `orders.tenant_id` and `items.tenant_id`) | **Dual Benefit**: Enables segment pruning for single-tenant searches _and_ co-partitioned joins when joining tables within a tenant.                                         |
-| **Multi-Dimensional Filters**                            | Multiple columns (e.g. `tenant_id, created_at`)                                  | **Multi-Dimensional Pruning**: Enables pruning on tenant equality filters, timestamp ranges, or both simultaneously.                                                         |
+| Workload / Primary Pattern                           | Recommended `partition_by` Column                                                | Expected Impact                                                                                                                               |
+| :--------------------------------------------------- | :------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-Tenant SaaS (queries filter by tenant)         | Tenant ID (e.g. `tenant_id`, `org_id`)                                           | Pruning: Queries filter on `tenant_id = ?`, bypassing non-matching segments entirely to reduce I/O and cache churn.                           |
+| Time-Series / Event Logs (queries filter by recency) | Timestamp / Date (e.g. `created_at`, `event_time`)                               | Pruning: Range filters (`created_at >= ...`) skip older or non-matching segments.                                                             |
+| Large-Scale Joins (e.g. `orders` JOIN `items`)       | Equi-join key on both tables (e.g. `orders.item_id` and `items.id`)              | Co-Partitioned Joins: Joins and downstream operations (aggregates, Top-K) execute worker-locally without inter-worker data exchange.          |
+| Multi-Tenant with Joins                              | Shared tenant key on both tables (e.g. `orders.tenant_id` and `items.tenant_id`) | Dual Benefit: Segment pruning for single-tenant searches and worker-local joins within a tenant.                                              |
+| Multiple Query Filters                               | Multiple columns (e.g. `tenant_id, created_at`)                                  | Multi-Dimensional Pruning: Enables pruning on tenant equality, timestamp ranges, or both, with segment granularity divided among the columns. |
 
 ### Physical Over-Partitioning
 
-By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the machine. However, when using `partition_by`, we recommend **physically over-partitioning** by configuring `target_segment_count` to **2–8X** the CPU core count (or parallel worker count).
+By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the system. When using `partition_by`, we recommend physically over-partitioning by setting `target_segment_count` to 2–8X the CPU core count (or parallel worker count).
 
-Over-partitioning provides two major benefits:
+Over-partitioning provides two key advantages:
 
-1. **Better Filter Elimination**: Smaller, finer-grained physical segments have narrower bounding boxes. When a query filters on a range or specific values, a higher segment count allows ParadeDB to prune away a larger fraction of the table, eliminating more irrelevant data from the scan.
-2. **Aligned Joins Across Asymmetric Distributions**: When joining two tables (e.g. `users` and `posts`), their underlying key distributions and row counts almost **never** match. Because each table's k-d tree cuts are computed independently from its own data, coarse partitions will not align between the tables. Finer-grained physical segments give the join planner the flexibility to group segments into aligned logical partition ranges for parallel workers with minimal partition spillover.
+1. Better filter elimination: Smaller segments have narrower value ranges. A higher segment count allows queries to prune away a larger fraction of non-matching data.
+2. Aligned joins across tables: Two tables being joined (e.g. `users` and `posts`) almost never share identical row counts or key distributions. Creating finer-grained physical segments gives the join planner the flexibility to align matching partition ranges across workers with minimal overlap.
 
-#### The Trade-Off: Metadata Overhead
+#### Trade-Off: Segment Metadata Overhead
 
-The upper limit on physical over-partitioning is segment metadata size. Every index segment carries its own schema information, dictionary, posting lists, and `.stats` metadata. Having thousands of tiny segments introduces file descriptor overhead and memory pressure. Sizing `target_segment_count` to 2–8X your core count strikes a practical balance between pruning granularity and segment management overhead.
-
-<Note>
-  Because `partition_by` and range co-partitioned joins are actively being
-  optimized in beta, 2–8X the CPU core count is a general starting guideline. As
-  the feature matures and exits beta, we will provide more granular,
-  benchmark-backed sizing recommendations.
-</Note>
+The ceiling on physical over-partitioning is segment metadata overhead. Each segment maintains its own dictionary, posting lists, and metadata structures. Creating hundreds or thousands of tiny segments increases file descriptor usage and memory pressure. Sizing `target_segment_count` to 2–8X CPU cores strikes a practical balance between pruning efficiency and segment overhead.
 
 ```sql
 -- Example: On an 8-core machine, over-partition by 4X (target_segment_count = 32)
@@ -98,22 +119,20 @@ WITH (key_field = 'id', partition_by = 'owner_user_id', target_segment_count = 3
 
 Columns specified in `partition_by` must meet the following constraints:
 
-1. **Single-Valued Only**: Multi-valued types (arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used in `partition_by`.
-2. **Columnar Indexed Required**: The column must be columnar indexed. All non-text and non-JSON columns (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
-3. **Raw Ordering for Text Columns**: If a text column is used in `partition_by`, it must be columnar indexed using the [`literal`](/documentation/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`). This ensures index sorting reflects raw column order rather than normalized or stemmed tokens.
-4. **Avoid Low-Cardinality Standalone Columns**: Do not use low-cardinality flags (such as boolean `is_active` or a 2-state `status` column) as the sole partition column. A column with only 2 distinct values cannot split into more than 2 partitions, capping effective segment counts and causing extreme segment skew.
+1. Single-valued only: Multi-valued types (such as arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used.
+2. Columnar indexed: The column must be columnar indexed. Scalar types (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
+3. Raw ordering for text columns: If a text column is used in `partition_by`, it must use the [`literal`](/documentation/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`).
+4. Avoid low-cardinality standalone columns: Avoid using columns with very few distinct values (such as a boolean `is_active` flag) as the sole partition column, as a column with only 2 distinct values cannot produce more than 2 partitions.
 
 ---
 
 ## Segment Pruning
 
-{/* TODO: Update segment pruning details and EXPLAIN output once https://github.com/paradedb/paradedb/issues/6078 lands */}
+When queries include equality filters, `IN` lists, or range conditions on `partition_by` columns, ParadeDB compares those filters against the per-segment bounding ranges:
 
-When queries include equality filters, `IN` lists, or range conditions over `partition_by` columns, ParadeDB evaluates those conditions against the per-segment bounding boxes stored in metadata:
-
-1. **Segment Skipping**: Segments whose bounding boxes do not overlap with the query predicate are excluded before opening index readers or posting lists. For example, if a table has 16 segments and a query filters on a single `tenant_id`, 15 segments may be completely skipped.
-2. **Clause Elimination**: If a segment's bounding box is entirely contained within a filter condition (e.g. segment range is `[100, 200)` and the query filters `id >= 50`), that filter is statically guaranteed to match all rows in that segment. ParadeDB can drop or simplify that filter clause for that segment.
-3. **Planner Parallelism**: During query planning, the planner sizes worker allocations based on surviving segments rather than total segments, avoiding parallel coordination overhead for small, localized queries.
+- Segments with non-overlapping ranges are excluded before opening index readers or posting lists.
+- Segments whose ranges are completely contained within a filter can skip evaluating that filter clause.
+- The planner sizes worker allocations based on surviving segments rather than total segments.
 
 ### Example: Multi-Tenant Pruning
 
@@ -144,17 +163,18 @@ WHERE tenant_id = 42 AND body ||| 'database'
 LIMIT 10;
 ```
 
-In the resulting plan, `PgSearchScan` scans only the single segment responsible for `tenant_id = 42`, leaving the remaining 7 segments untouched.
+ParadeDB scans only the segment containing `tenant_id = 42`, leaving the other 7 segments untouched.
 
 ---
 
 ## Range Co-Partitioned Joins
 
-{/* TODO: Update co-partitioned join implementation details, optimizations, and benchmarks once https://github.com/paradedb/paradedb/issues/5738 lands */}
+Without range co-partitioning, parallel joins must exchange rows between worker processes to match join keys:
 
-Without co-partitioning, at least one stage boundary is created to exchange data across workers (either one stage boundary to broadcast the build side in a `CollectLeft` join, or two stage boundaries to shuffle both sides in a `Partitioned` join).
+- The build side may be broadcast to all workers, or
+- Both sides are repartitioned by hash and shuffled across workers.
 
-When both tables are range-partitioned along their equi-join keys using `partition_by`, ParadeDB coordinates partition split points between the two scans. Co-partitioning results in **zero stage boundaries** for a two-table join: the join executes directly over the scans in the same worker stage without any cross-worker data movement:
+When both tables are partitioned on their equi-join keys using `partition_by`, ParadeDB coordinates matching partition ranges across the two scans. Parallel workers can then join their local slices directly without exchanging data between processes:
 
 ```sql
 SET paradedb.enable_join_custom_scan TO on;
@@ -163,9 +183,15 @@ SET paradedb.enable_range_partitioned_join TO on;
 
 ### Execution Strategy
 
-1. **Zero Stage Boundaries**: In parallel execution, each worker joins only its local slice of Table A with the matching slice of Table B (A_i JOIN B_i) directly over the index scans in a single stage, with no intermediate data exchange.
-2. **Worker-Local Cardinality Reduction**: Downstream cardinality-reducing operations—such as `TopK` limit sorts or partial aggregations—also run worker-locally before results are gathered to the leader.
-3. **Partition-Level Elimination**: Partitions with non-overlapping ranges between the two tables are eliminated without scanning.
+1. Worker-local joins: In parallel execution, each worker joins only its corresponding range partition of Table A with Table B directly over the index scans, eliminating cross-worker data shuffle.
+2. Worker-local cardinality reduction: Operations like Top-K limit sorts or partial aggregations execute worker-locally before results are gathered to the leader process.
+3. Partition elimination: Partitions with non-overlapping ranges between the two tables are skipped entirely without scanning.
+
+<Note>
+  The `Network*` nodes in execution plans (such as `NetworkShuffleExec` and
+  `NetworkCoalesceExec`) represent shared-memory IPC communication between
+  Postgres worker processes, rather than physical network socket calls.
+</Note>
 
 ### Query Plan Comparison
 
@@ -179,63 +205,53 @@ ORDER BY f.title, p.size_bytes
 LIMIT 10;
 ```
 
-#### Without `partition_by` (Two Stage Boundaries)
+#### Without `partition_by` (Data Shuffled Across Workers)
 
-Without co-partitioning, a partitioned hash join creates two stage boundaries (one for each side of the join) to repartition data by hash and shuffle it across workers:
+Without co-partitioning, rows from each table must be repartitioned by hash and shuffled across worker processes (via shared-memory IPC) before the join can execute:
 
 ```txt
 ┌───── DistributedExec
-│ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-│   SortPreservingMergeExec: [title@3 ASC, size_bytes@1 ASC], fetch=10
-│     [Stage 3] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
+│ SortPreservingMergeExec: [title ASC, size_bytes ASC], fetch=10
+│   [Stage 3] => NetworkCoalesceExec
 └──────────────────────────────────────────────────
-  ┌───── Stage 3 ── tasks=3, partitions=4
-  │ SortExec: TopK(fetch=10), expr=[title@3 ASC, size_bytes@1 ASC]
-  │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)]
-  │     [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
-  │     [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
+  ┌───── Stage 3
+  │ SortExec: TopK(fetch=10), expr=[title ASC, size_bytes ASC]
+  │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id, file_id)]
+  │     [Stage 1] => NetworkShuffleExec
+  │     [Stage 2] => NetworkShuffleExec
   └──────────────────────────────────────────────────
-    ┌───── Stage 1 ── tasks=3, partitions=12
-    │ RepartitionExec: partitioning=Hash([id@1], 12)
-    │   DistributedLeafExec:
-    │     t0..t2: PgSearchScan: table=f ...
+    ┌───── Stage 1
+    │ RepartitionExec: partitioning=Hash([id])
+    │   PgSearchScan: table=files
     └──────────────────────────────────────────────────
-    ┌───── Stage 2 ── tasks=3, partitions=12
-    │ RepartitionExec: partitioning=Hash([file_id@1], 12)
-    │   DistributedLeafExec:
-    │     t0..t2: PgSearchScan: table=p ...
+    ┌───── Stage 2
+    │ RepartitionExec: partitioning=Hash([file_id])
+    │   PgSearchScan: table=pages
     └──────────────────────────────────────────────────
 ```
 
-#### With `partition_by` (Zero Stage Boundaries)
+#### With `partition_by` (Worker-Local Join)
 
-When both indexes are built with `partition_by` on the join keys (`files.id` and `pages.file_id`) and `paradedb.enable_range_partitioned_join = on`, the join executes with **zero stage boundaries**:
+When both indexes are partitioned on the join keys (`files.id` and `pages.file_id`) and `paradedb.enable_range_partitioned_join = on`, the join executes worker-locally in a single stage:
 
 ```txt
 ┌───── DistributedExec
-│ ProjectionExec: expr=[title@3 as col_1, size_bytes@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-│   SortPreservingMergeExec: [title@3 ASC, size_bytes@1 ASC], fetch=10
-│     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+│ SortPreservingMergeExec: [title ASC, size_bytes ASC], fetch=10
+│   [Stage 1] => NetworkCoalesceExec
 └──────────────────────────────────────────────────
-  ┌───── Stage 1 ── tasks=3, partitions=3
-  │ SortExec: TopK(fetch=10), expr=[title@3 ASC, size_bytes@1 ASC]
-  │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)]
-  │     DistributedLeafExec:
-  │       t0: PgSearchScan: table=f, partition=id[-∞..68)
-  │       t1: PgSearchScan: table=f, partition=id[68..134)
-  │       t2: PgSearchScan: table=f, partition=id[134..∞)
-  │     DistributedLeafExec:
-  │       t0: PgSearchScan: table=p, partition=file_id[-∞..68)
-  │       t1: PgSearchScan: table=p, partition=file_id[68..134)
-  │       t2: PgSearchScan: table=p, partition=file_id[134..∞)
+  ┌───── Stage 1
+  │ SortExec: TopK(fetch=10), expr=[title ASC, size_bytes ASC]
+  │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id, file_id)]
+  │     PgSearchScan: table=files, partition=id[-∞..68)
+  │     PgSearchScan: table=pages, partition=file_id[-∞..68)
   └──────────────────────────────────────────────────
 ```
 
 Notice that:
 
-- The join executes with **zero stage boundaries**—both the scans, the join, and `SortExec: TopK` run directly in `Stage 1`.
-- There are **no network shuffle or broadcast nodes** (`NetworkShuffleExec` / `NetworkBroadcastExec`).
-- Results are only coalesced once at the end via `NetworkCoalesceExec`.
+- Scans, the join, and `SortExec: TopK` run together in a single stage (`Stage 1`).
+- There is no intermediate worker-to-worker shuffle (`NetworkShuffleExec`).
+- Results are coalesced only once at the end via `NetworkCoalesceExec` before returning to the leader.
 
 ---
 
@@ -245,5 +261,5 @@ Notice that:
 | :--------------------------------------- | :----------- | :-------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
 | `partition_by`                           | Index Option | `""` (disabled) | Comma-separated list of columnar indexed fields used to partition segments.                                                        |
 | `target_segment_count`                   | Index Option | CPU count       | Target number of segments to produce during build or reindex. When using `partition_by`, recommend setting to 2–8X CPU core count. |
-| `paradedb.enable_range_partitioned_join` | GUC          | `off`           | Enables range co-partitioning optimizations for MPP parallel joins.                                                                |
+| `paradedb.enable_range_partitioned_join` | GUC          | `off`           | Enables range co-partitioning optimizations for parallel joins.                                                                    |
 | `paradedb.enable_join_custom_scan`       | GUC          | `on`            | Enables or disables ParadeDB custom join execution.                                                                                |

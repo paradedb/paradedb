@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -1594,46 +1594,55 @@ impl SearchIndexReader {
         }
     }
 
-    /// The length of the shortest posting list this query walks, or `None` when it holds no terms
-    /// to walk. Lengths come from the term dictionary, so no postings are decoded.
+    /// The length of the shortest posting list this query walks for its positional terms, or
+    /// `None` when it has none. Lengths come from the term dictionary, so no postings are decoded.
     ///
-    /// This floors what driving the query costs. A conjunction advances its cheapest posting list
-    /// end to end and seeks the others in step, so it can never touch fewer documents than that
-    /// list holds. A phrase reports far less: Tantivy derives its cost from an intersection
-    /// estimate that assumes the terms are independent, and the words of a phrase are anything but.
-    /// The estimate then shrinks with every term added while the scan keeps walking the same
-    /// posting list, until a top-K over a common phrase looks cheap enough to leave serial.
+    /// This floors what driving a phrase costs. Tantivy derives a phrase's cost from an
+    /// intersection estimate that assumes the terms are independent, and the words of a phrase are
+    /// anything but. The estimate shrinks with every term added while the scan keeps walking the
+    /// same posting list, until a top-K over a common phrase looks cheap enough to leave serial.
+    /// The scan still advances its cheapest list end to end and seeks the others in step, so it
+    /// can never touch fewer documents than that list holds.
     ///
-    /// A leaf that exposes no terms, a range for one, never lowers the floor. A filter selective
-    /// enough to drive the scan itself therefore reads as more work than it is, costing one
-    /// parallel setup. The under-count it replaces costs a whole-docset scan on a single core.
+    /// A leaf that exposes no positional terms, a range or a plain term for one, never lowers the
+    /// floor. A filter selective enough to drive a phrase scan itself therefore reads as more work
+    /// than it is, costing one parallel setup. The under-count it replaces costs a whole-docset
+    /// scan on a single core.
     fn shortest_posting_list(&self, segment_reader: &SegmentReader) -> Option<u64> {
         /// Past this many terms a query is a set union, not a conjunction, and a union already
         /// costs more than any one of its lists. Reading the rest would only spend plan time.
         const MAX_TERMS_INSPECTED: usize = 64;
 
-        let mut shortest: Option<u64> = None;
-        let mut inspected = 0usize;
-        let mut visit = |term: &Term, _positions: bool| {
-            if inspected >= MAX_TERMS_INSPECTED {
-                return;
-            }
-            inspected += 1;
-            let Ok(inverted_index) = segment_reader.inverted_index(term.field()) else {
-                return;
-            };
-            let Ok(doc_freq) = inverted_index.doc_freq(term) else {
-                return;
-            };
-            shortest = Some(shortest.map_or(doc_freq as u64, |len| len.min(doc_freq as u64)));
-        };
-
-        // `query_terms` reports the terms a query holds for one field at a time, and a query is
-        // free to hold none for the field it is asked about.
+        // Only the queries that need positions cost what they do because of the intersection
+        // estimate, so only they need the floor. Everything else already reports the driving list
+        // and would pay for a dictionary lookup that cannot change the answer.
+        //
+        // `query_terms` reports the terms a query holds one field at a time, and most queries hand
+        // back the same terms whatever field they are asked about. Gather them first so a term
+        // costs one dictionary lookup however many fields the schema carries.
+        let mut terms: HashSet<Term> = HashSet::new();
         for (field, _) in self.schema.fields() {
-            self.query.query_terms(field, segment_reader, &mut visit);
+            if terms.len() >= MAX_TERMS_INSPECTED {
+                break;
+            }
+            self.query.query_terms(
+                field,
+                segment_reader,
+                &mut |term: &Term, needs_positions| {
+                    if needs_positions && terms.len() < MAX_TERMS_INSPECTED {
+                        terms.insert(term.clone());
+                    }
+                },
+            );
         }
-        shortest
+
+        terms
+            .iter()
+            .filter_map(|term| {
+                let inverted_index = segment_reader.inverted_index(term.field()).ok()?;
+                inverted_index.doc_freq(term).ok().map(u64::from)
+            })
+            .min()
     }
 
     /// Build a query tree with recursive estimates for EXPLAIN output.

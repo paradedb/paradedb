@@ -29,16 +29,8 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Find Dockerfiles
-        id: dockerfiles
-        run: echo "files=$(find docker -type f -name 'Dockerfile*' ! -path 'docker/Dockerfile.template' -print | sort | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
-
-      - name: Run Hadolint
-        uses: jbergstroem/hadolint-gh-action@v1
-        with:
-          dockerfile: ${{ steps.dockerfiles.outputs.files }}
-          config_file: .hadolint.yaml
-          error_level: 2 # Treat INFO as error
+      - name: Lint Docker
+        uses: paradedb/actions/lint-docker@a024855293e56a720daa69e6648d023dd0cb9f77
 
       - name: Verify Generated Dockerfiles Are In Sync With Template
         run: |

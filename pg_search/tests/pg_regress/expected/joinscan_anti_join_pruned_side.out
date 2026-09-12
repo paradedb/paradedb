@@ -1,0 +1,331 @@
+-- A `LEFT JOIN` whose `ON` clause is strict in a column that `WHERE` tests with
+-- `IS NULL` becomes an Anti join, and the inner side leaves the join output.
+-- Postgres still evaluates a `WHERE` clause that names that side above the join,
+-- where its columns are null-extended. The JoinScan must see the same NULL there
+-- instead of asking the pruned scan for a column or a match tag.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+CREATE TABLE users      (id SERIAL8 PRIMARY KEY, name TEXT, age INTEGER);
+CREATE TABLE products   (id SERIAL8 PRIMARY KEY, name TEXT, age INTEGER);
+CREATE TABLE orders     (id SERIAL8 PRIMARY KEY, age INTEGER, note TEXT);
+CREATE TABLE categories (id SERIAL8 PRIMARY KEY, label TEXT);
+CREATE INDEX idxusers ON users USING bm25 (id, name, age)
+  WITH (key_field='id', text_fields='{"name":{"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX idxproducts ON products USING bm25 (id, name, age)
+  WITH (key_field='id', text_fields='{"name":{"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX idxorders ON orders USING bm25 (id, age, note)
+  WITH (key_field='id', text_fields='{"note":{"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX idxcategories ON categories USING bm25 (id, label)
+  WITH (key_field='id', text_fields='{"label":{"fast":true}}');
+-- `alice` has a NULL age, so `users.age >= products.age` never matches her and
+-- product 1 survives the Anti join. `bob` matches product 2, which drops it.
+INSERT INTO users (name, age)      VALUES ('alice', NULL), ('bob', 5), ('carol', 1);
+INSERT INTO products (name, age)   VALUES ('alice', 3), ('bob', 4), ('carol', 9), ('dave', 2);
+INSERT INTO orders (age, note)     VALUES (7, 'urgent'), (8, 'later'), (10, 'urgent later'), (1, 'later');
+INSERT INTO categories (label)     VALUES ('food'), ('toys'), ('books'), ('games');
+SET paradedb.enable_join_custom_scan TO on;
+-- The reported shape: two `FULL JOIN`s that the planner reduces to an Anti join
+-- under an inner join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT users.id, products.id, orders.id
+FROM users
+FULL JOIN products ON users.name = products.name AND users.age >= products.age
+FULL JOIN orders ON products.id = orders.id
+WHERE ((orders.note @@@ 'urgent') OR (users.name @@@ 'alice'))
+  AND users.age IS NULL
+  AND products.age <= orders.age
+ORDER BY 2, 3
+LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: users.id, products.id, orders.id
+   ->  Result
+         Output: users.id, products.id, orders.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: products.id, users.id, orders.id
+               Relation Tree: orders INNER (products ANTI users)
+               Join Cond: products.id = orders.id, users.name = products.name
+               Join Filter: (products.age <= orders.age) AND (users.age >= products.age)
+               Join Predicate: (orders:{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"urgent","lenient":null,"conjunction_mode":null}}}}}} OR heap:NULL::boolean)
+               Limit: 10
+               Order By: products.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[orders, products]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=age@1 <= age@0, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+                 :           FilterExec: __orders_0_tag_0@3 OR NULL, projection=[ctid_0@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=orders, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"urgent","lenient":null,"conjunction_mode":null}}}}}}
+                 :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(name@0, name@3)], filter=age@1 >= age@0, projection=[ctid_1@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=users, segments=1, visibility=eager, query="all"
+                 :             CooperativeExec
+                 :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+(26 rows)
+
+SELECT users.id, products.id, orders.id
+FROM users
+FULL JOIN products ON users.name = products.name AND users.age >= products.age
+FULL JOIN orders ON products.id = orders.id
+WHERE ((orders.note @@@ 'urgent') OR (users.name @@@ 'alice'))
+  AND users.age IS NULL
+  AND products.age <= orders.age
+ORDER BY 2, 3
+LIMIT 10;
+ id | id | id 
+----+----+----
+    |  1 |  1
+    |  3 |  3
+(2 rows)
+
+-- The pruned arm is NULL, so the `OR` only keeps rows the other arm matches.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'later') OR (users.name @@@ 'alice'))
+ORDER BY 2, 3
+LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: users.id, products.id, orders.id
+   ->  Result
+         Output: users.id, products.id, orders.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: products.id, users.id, orders.id
+               Relation Tree: orders INNER (products ANTI users)
+               Join Cond: products.id = orders.id, users.name = products.name
+               Join Filter: (products.age <= orders.age) AND (users.age >= products.age)
+               Join Predicate: (orders:{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"later","lenient":null,"conjunction_mode":null}}}}}} OR heap:NULL::boolean)
+               Limit: 10
+               Order By: products.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[orders, products]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=age@1 <= age@0, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+                 :           FilterExec: __orders_0_tag_0@3 OR NULL, projection=[ctid_0@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=orders, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"later","lenient":null,"conjunction_mode":null}}}}}}
+                 :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(name@0, name@3)], filter=age@1 >= age@0, projection=[ctid_1@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=users, segments=1, visibility=eager, query="all"
+                 :             CooperativeExec
+                 :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+(26 rows)
+
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'later') OR (users.name @@@ 'alice'))
+ORDER BY 2, 3
+LIMIT 10;
+ id | id | id 
+----+----+----
+    |  3 |  3
+(1 row)
+
+-- `NOT (FALSE OR NULL)` is NULL, not TRUE: no row may come back.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND NOT ((orders.note @@@ 'later') OR (users.name @@@ 'alice'))
+ORDER BY 2, 3
+LIMIT 10;
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: users.id, products.id, orders.id
+   ->  Result
+         Output: users.id, products.id, orders.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: products.id, users.id, orders.id
+               Relation Tree: users INNER (orders INNER products)
+               Join Cond: products.name = users.name, products.id = orders.id
+               Join Filter: (users.age >= products.age) AND (products.age <= orders.age)
+               Limit: 10
+               Order By: products.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, id@2 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@3 as ctid_2]
+                 :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[users, orders, products]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1)], filter=age@0 <= age@1, projection=[ctid_0@0, ctid_1@4, id@5, ctid_2@1, id@3]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], filter=age@0 >= age@1, projection=[ctid_0@0, ctid_2@3, age@5, id@6]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=users, segments=1, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"age"}}]}},{"with_index":{"query":{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}]}}}}}}]}}
+                 :             CooperativeExec
+                 :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: table=orders, segments=1, dynamic_filters=2, query={"with_index":{"query":{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"note"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"note","query_string":"later","lenient":null,"conjunction_mode":null}}]}}}}}}
+(24 rows)
+
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND NOT ((orders.note @@@ 'later') OR (users.name @@@ 'alice'))
+ORDER BY 2, 3
+LIMIT 10;
+ id | id | id 
+----+----+----
+(0 rows)
+
+-- A plain comparison on the pruned side is NULL as well.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'later') OR (users.age > 0))
+ORDER BY 2, 3
+LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: users.id, products.id, orders.id
+   ->  Result
+         Output: users.id, products.id, orders.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: products.id, users.id, orders.id
+               Relation Tree: orders INNER (products ANTI users)
+               Join Cond: products.id = orders.id, users.name = products.name
+               Join Filter: (products.age <= orders.age) AND (users.age >= products.age)
+               Join Predicate: (orders:{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"later","lenient":null,"conjunction_mode":null}}}}}} OR heap:NULL::boolean)
+               Limit: 10
+               Order By: products.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[orders, products]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=age@1 <= age@0, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+                 :           FilterExec: __orders_0_tag_0@3 OR NULL, projection=[ctid_0@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=orders, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"later","lenient":null,"conjunction_mode":null}}}}}}
+                 :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(name@0, name@3)], filter=age@1 >= age@0, projection=[ctid_1@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=users, segments=1, visibility=eager, query="all"
+                 :             CooperativeExec
+                 :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+(26 rows)
+
+SELECT users.id, products.id, orders.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'later') OR (users.age > 0))
+ORDER BY 2, 3
+LIMIT 10;
+ id | id | id 
+----+----+----
+    |  3 |  3
+(1 row)
+
+-- The Anti join sits two levels down, under another inner join.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT users.id, products.id, orders.id, categories.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+JOIN categories ON categories.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'urgent') OR (users.name @@@ 'alice'))
+  AND categories.label @@@ 'food OR books'
+ORDER BY 2, 3, 4
+LIMIT 10;
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: users.id, products.id, orders.id, categories.id
+   ->  Result
+         Output: users.id, products.id, orders.id, categories.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: products.id, users.id, orders.id, categories.id
+               Relation Tree: (categories INNER orders) INNER (products ANTI users)
+               Join Cond: products.id = orders.id, orders.id = categories.id, users.name = products.name
+               Join Filter: (products.age <= orders.age) AND (users.age >= products.age)
+               Join Predicate: (orders:{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"urgent","lenient":null,"conjunction_mode":null}}}}}} OR heap:NULL::boolean)
+               Limit: 10
+               Order By: products.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, id@3 as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+                 :   SortExec: TopK(fetch=10), expr=[id@5 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     VisibilityFilterExec: tables=[categories, orders, products]
+                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1)], filter=age@1 <= age@0, projection=[ctid_0@0, id@1, ctid_1@2, id@3, ctid_2@5, id@6]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], projection=[ctid_0@3, id@4, ctid_1@0, id@1, age@2]
+                 :             FilterExec: __orders_1_tag_0@3 OR NULL, projection=[ctid_1@0, id@1, age@2]
+                 :               CooperativeExec
+                 :                 PgSearchScan: table=orders, segments=1, tag_0={"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"urgent","lenient":null,"conjunction_mode":null}}}}}}
+                 :             CooperativeExec
+                 :               PgSearchScan: table=categories, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"food OR books","lenient":null,"conjunction_mode":null}}}}
+                 :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(name@0, name@3)], filter=age@1 >= age@0, projection=[ctid_2@0, id@1, age@2]
+                 :             CooperativeExec
+                 :               PgSearchScan: table=users, segments=1, visibility=eager, query="all"
+                 :             CooperativeExec
+                 :               PgSearchScan: table=products, segments=1, dynamic_filters=1, query="all"
+(29 rows)
+
+SELECT users.id, products.id, orders.id, categories.id
+FROM products
+LEFT JOIN users ON users.name = products.name AND users.age >= products.age
+JOIN orders ON products.id = orders.id
+JOIN categories ON categories.id = orders.id
+WHERE users.age IS NULL
+  AND products.age <= orders.age
+  AND ((orders.note @@@ 'urgent') OR (users.name @@@ 'alice'))
+  AND categories.label @@@ 'food OR books'
+ORDER BY 2, 3, 4
+LIMIT 10;
+ id | id | id | id 
+----+----+----+----
+    |  1 |  1 |  1
+    |  3 |  3 |  3
+(2 rows)
+
+DROP TABLE categories CASCADE;
+DROP TABLE orders CASCADE;
+DROP TABLE products CASCADE;
+DROP TABLE users CASCADE;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

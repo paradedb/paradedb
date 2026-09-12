@@ -41,7 +41,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
-use pgrx::{PgList, pg_sys};
+use pgrx::{PgList, pg_guard, pg_sys};
 
 /// Extract join-level conditions from the restrict list and transform them into
 /// a `JoinLevelExpr` tree.
@@ -133,6 +133,8 @@ pub unsafe fn extract_join_level_conditions(
         if already_present {
             continue;
         }
+        let clause: *mut pg_sys::Expr =
+            null_out_pruned_vars(root, clause.cast(), &join_clause.plan).cast();
         let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
 
         if has_search_op {
@@ -227,6 +229,7 @@ pub unsafe fn extract_join_level_conditions(
                     continue;
                 }
 
+                let conjunct = null_out_pruned_vars(root, conjunct, &join_clause.plan);
                 let has_search_op = expr_contains_any_operator(conjunct.cast(), &[search_op]);
                 if has_search_op {
                     if let Some(expr) = transform_to_search_expr(
@@ -427,8 +430,12 @@ pub unsafe fn transform_to_search_expr(
         return None;
     }
 
-    // If this is a post-join expression WITHOUT search predicate, create MultiTablePredicate
-    if !has_search_op && !referenced_source_indices.is_empty() {
+    // If this is a post-join expression WITHOUT search predicate, create MultiTablePredicate.
+    // A bare constant qualifies too: `null_out_pruned_vars` can fold a whole arm of an
+    // OR down to NULL, and that arm still has to take part in the three-valued result.
+    if !has_search_op
+        && (!referenced_source_indices.is_empty() || node_type == pg_sys::NodeTag::T_Const)
+    {
         if !all_vars_are_fast_fields_recursive(node, sources, None) {
             return None;
         }
@@ -576,40 +583,28 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
             } = *j;
             let left = lower_absorbed_search_clauses(root, left, multi_table_predicate_clauses)?;
             let right = lower_absorbed_search_clauses(root, right, multi_table_predicate_clauses)?;
+            let join_node = RelNode::Join(Box::new(JoinNode {
+                join_type,
+                left,
+                right,
+                equi_keys,
+                filter,
+                subplan_id,
+                absorbed_search_clauses: Vec::new(),
+            }));
 
             if absorbed_search_clauses.is_empty() {
-                return Ok(RelNode::Join(Box::new(JoinNode {
-                    join_type,
-                    left,
-                    right,
-                    equi_keys,
-                    filter,
-                    subplan_id,
-                    absorbed_search_clauses: Vec::new(),
-                })));
+                return Ok(join_node);
             }
-
-            // PG anchors `RestrictInfo`s against RTIs from the sub-tree, so
-            // resolve against everything reachable below this join.
-            let mut sub_sources = left.sources();
-            sub_sources.extend(right.sources());
 
             let predicate = build_absorbed_filter(
                 root,
-                &sub_sources,
+                &join_node,
                 &absorbed_search_clauses,
                 multi_table_predicate_clauses,
             )?;
             Ok(RelNode::Filter(Box::new(FilterNode {
-                input: RelNode::Join(Box::new(JoinNode {
-                    join_type,
-                    left,
-                    right,
-                    equi_keys,
-                    filter,
-                    subplan_id,
-                    absorbed_search_clauses: Vec::new(),
-                })),
+                input: join_node,
                 predicate,
             })))
         }
@@ -628,10 +623,9 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
             if absorbed_clauses.is_empty() {
                 return Ok(unnest_node);
             }
-            let sub_sources = unnest_node.sources();
             let predicate = build_absorbed_filter(
                 root,
-                &sub_sources,
+                &unnest_node,
                 &absorbed_clauses,
                 multi_table_predicate_clauses,
             )?;
@@ -649,10 +643,13 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
 /// blows up the test suite instead of producing wrong rows.
 unsafe fn build_absorbed_filter(
     root: *mut pg_sys::PlannerInfo,
-    sub_sources: &[&JoinSource],
+    input: &RelNode,
     absorbed: &[*mut pg_sys::RestrictInfo],
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Result<JoinLevelExpr, String> {
+    // PG anchors `RestrictInfo`s against RTIs from the sub-tree, so
+    // resolve against everything reachable below this node.
+    let sub_sources = input.sources();
     let expr_trees: Vec<JoinLevelExpr> = absorbed
         .iter()
         .copied()
@@ -664,19 +661,18 @@ unsafe fn build_absorbed_filter(
             if clause.is_null() {
                 return Err("absorbed search clause has a null clause".to_string());
             }
-            transform_to_search_expr(
-                root,
-                clause.cast(),
-                sub_sources,
-                multi_table_predicate_clauses,
-            )
-            .ok_or_else(|| {
-                let formatted = crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
-                    .unwrap_or_else(|| {
-                        crate::postgres::deparse::node_to_string_without_context(clause.cast())
-                    });
-                format!("Failed to lower absorbed search clause: {}", formatted)
-            })
+            let clause = null_out_pruned_vars(root, clause.cast(), input);
+            transform_to_search_expr(root, clause, &sub_sources, multi_table_predicate_clauses)
+                .ok_or_else(|| {
+                    let formatted =
+                        crate::postgres::deparse::deparse_planner_expr(root, clause.cast())
+                            .unwrap_or_else(|| {
+                                crate::postgres::deparse::node_to_string_without_context(
+                                    clause.cast(),
+                                )
+                            });
+                    format!("Failed to lower absorbed search clause: {}", formatted)
+                })
         })
         .collect::<Result<_, _>>()?;
 
@@ -689,6 +685,65 @@ unsafe fn build_absorbed_filter(
         1 => Ok(expr_trees.into_iter().next().unwrap()),
         _ => Ok(JoinLevelExpr::And(expr_trees)),
     }
+}
+
+/// Replaces every `Var` of a relation that `plan` prunes (the inner side of a
+/// Semi/Anti/Mark join) with a typed NULL constant and folds the result.
+///
+/// Postgres projects the inner side of an Anti join null-extended, so a clause
+/// evaluated above the join sees NULL in those columns. Rewriting the clause
+/// keeps that value without asking the pruned scan for a column, or a match
+/// tag, that never reaches the join output. The strict `@@@` operator then
+/// folds to NULL on its own, and an `OR` around it keeps its three-valued
+/// result. Returns `clause` as is when it names no pruned relation.
+unsafe fn null_out_pruned_vars(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Node,
+    plan: &RelNode,
+) -> *mut pg_sys::Node {
+    let pruned_rtis: Vec<pg_sys::Index> = expr_collect_vars(clause, false)
+        .into_iter()
+        .map(|v| v.rti)
+        .filter(|&rti| plan.contains_rti(rti) && !plan.contains_output_rti(rti))
+        .collect();
+    if pruned_rtis.is_empty() {
+        return clause;
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn pruned_var_mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node.cast::<pg_sys::Var>();
+            let pruned_rtis = &*(context as *const Vec<pg_sys::Index>);
+            if pruned_rtis.contains(&((*var).varno as pg_sys::Index)) {
+                return pg_sys::makeNullConst((*var).vartype, (*var).vartypmod, (*var).varcollid)
+                    .cast();
+            }
+        }
+
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = pruned_var_mutator as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(pruned_var_mutator), context)
+        }
+    }
+
+    let context = std::ptr::addr_of!(pruned_rtis) as *mut core::ffi::c_void;
+    let rewritten = pruned_var_mutator(clause, context);
+    pg_sys::eval_const_expressions(root, rewritten)
 }
 
 /// Check if all Var references in an expression are fast fields.

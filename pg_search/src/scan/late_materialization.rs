@@ -872,8 +872,8 @@ pub struct DeferredField {
     pub canonical: CanonicalColumn,
     /// The range table index of the scan's base relation, which is what tells two scans of
     /// one index apart on a self-join. `canonical` names the column within the index, so it
-    /// is the same pair on both sides.
-    #[serde(default)]
+    /// is the same pair on both sides. No serde default: a missing one would read as 0, which
+    /// is a range table index two scans could share.
     pub heap_rti: u32,
     /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
     /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing

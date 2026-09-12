@@ -41,6 +41,9 @@ WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fiel
 DELETE FROM alm_products WHERE id = 2;
 
 -- Serial: the deferred path puts a VisibilityFilterExec above the join.
+-- `product_id` is not the tags index's key field, so a product's row fans out
+-- once per tag and nothing above the join stops after a fixed number of rows.
+-- The scan decodes `category` once per product rather than once per joined row.
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)

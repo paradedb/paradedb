@@ -64,7 +64,6 @@ pub struct PhysicalDeferredField {
     /// The range table index of the scan this column comes from. See [`DeferredField`].
     ///
     /// [`DeferredField`]: crate::scan::late_materialization::DeferredField
-    #[serde(default)]
     pub heap_rti: u32,
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,

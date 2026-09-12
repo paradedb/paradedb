@@ -831,6 +831,15 @@ pub unsafe fn resolve_join_conditions(
     let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
     #[cfg(feature = "pg18")]
     let is_semi_or_anti = is_semi_or_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI;
+    let is_anti = jointype == pg_sys::JoinType::JOIN_ANTI;
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    let is_anti = is_anti || jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI;
+    // Only the ON clauses of an outer or anti join decide which pairs match. A
+    // pushed-down clause there is a WHERE clause that Postgres evaluates on the
+    // join's output rows, null-extended side included, so it has to stay
+    // post-join. A semi join's own conditions are pushed-down too, so it is
+    // left out of this rule.
+    let pushed_down_stays_post_join = is_outer || is_anti;
 
     let search_op = anyelement_query_input_opoid();
     let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
@@ -844,9 +853,7 @@ pub unsafe fn resolve_join_conditions(
             unabsorbed.push(ri);
             continue;
         }
-        // For outer joins, only absorb ON-clause conditions (is_pushed_down == false);
-        // WHERE-clause conditions (is_pushed_down == true) stay as post-join filters.
-        if is_outer && (*ri).is_pushed_down {
+        if pushed_down_stays_post_join && (*ri).is_pushed_down {
             unabsorbed.push(ri);
             continue;
         }
@@ -887,20 +894,24 @@ pub unsafe fn resolve_join_conditions(
     };
 
     // Identify unabsorbed conditions that cannot be evaluated post-join:
-    // - Outer joins: ON conditions (is_pushed_down == false) must be evaluated during the join.
-    // - Semi / Anti joins: inner columns are not projected post-join, so all conditions must be evaluated during the join.
+    // - Outer / Anti joins: ON conditions (is_pushed_down == false) must be evaluated during the join.
+    // - Semi joins: inner columns are not projected post-join, so all conditions must be evaluated during the join.
     // - Keyless joins: when equi_keys is empty, at least one condition must be absorbed as a join filter.
-    let (illegal_residuals, context) = if is_outer {
+    let (illegal_residuals, context) = if pushed_down_stays_post_join {
         (
             unabsorbed
                 .iter()
                 .copied()
                 .filter(|&ri| !(*ri).is_pushed_down)
                 .collect::<Vec<_>>(),
-            "outer join ON clauses",
+            if is_outer {
+                "outer join ON clauses"
+            } else {
+                "anti join ON clauses"
+            },
         )
     } else if is_semi_or_anti {
-        (unabsorbed.clone(), "semi/anti join conditions")
+        (unabsorbed.clone(), "semi join conditions")
     } else if equi_keys.is_empty() && !other_conditions.is_empty() && filter.is_none() {
         (unabsorbed.clone(), "join conditions")
     } else {

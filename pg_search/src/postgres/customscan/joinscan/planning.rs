@@ -874,19 +874,24 @@ unsafe fn collect_join_sources_join_rel(
             parsed_jointype,
             build::JoinType::Left | build::JoinType::Right | build::JoinType::Full
         );
+        let is_anti = matches!(
+            parsed_jointype,
+            build::JoinType::Anti { .. } | build::JoinType::RightAnti
+        );
 
         // Absorbed search clauses lower to `RelNode::Filter` sitting immediately
         // above the absorbing `JoinNode`. With predicate tagging (#6010), both sides
         // of Inner and Outer (Left/Right/Full) joins preserve their match-tag columns,
         // allowing DataFusion to evaluate the filter with 3-valued boolean logic.
-        // However, for outer joins (Left/Right/Full), only WHERE-clause predicates
-        // (`is_pushed_down == true`) can be evaluated above the join: an outer join's
+        // However, for outer and anti joins, only WHERE-clause predicates
+        // (`is_pushed_down == true`) can be evaluated above the join: the join's
         // ON-clause predicate (`is_pushed_down == false`) dictates whether rows match
         // to produce join pairs, and evaluating it post-join would incorrectly drop
-        // null-extended rows.
-        // Pruned-side joins (Semi/Anti/Mark, both directions) would leave Vars/tags
-        // unresolved against the pruned schema; UniqueOuter/UniqueInner aren't
-        // lowerable to DataFusion at all.
+        // null-extended rows. Above an anti join the pruned side is null-extended,
+        // and lowering the filter folds its columns to NULL, so a WHERE clause that
+        // names that side still gets the value Postgres would give it.
+        // Semi/Mark joins would leave Vars/tags unresolved against the pruned
+        // schema; UniqueOuter/UniqueInner aren't lowerable to DataFusion at all.
         if !absorbed_search_clauses.is_empty() {
             if !matches!(
                 parsed_jointype,
@@ -894,10 +899,12 @@ unsafe fn collect_join_sources_join_rel(
                     | build::JoinType::Left
                     | build::JoinType::Right
                     | build::JoinType::Full
+                    | build::JoinType::Anti { .. }
+                    | build::JoinType::RightAnti
             ) {
                 return None;
             }
-            if is_outer
+            if (is_outer || is_anti)
                 && absorbed_search_clauses
                     .iter()
                     .any(|&ri| !(*ri).is_pushed_down)

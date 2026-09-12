@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789205177312,
+  "lastUpdate": 1789205185457,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -142882,6 +142882,108 @@ window.BENCHMARK_DATA = {
             "value": 52.19921875,
             "unit": "median mem",
             "extra": "avg mem: 51.97476901030711, max mem: 52.19921875, count: 59425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789205181743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08366982973282186, max background_merging: 2.0, count: 59436"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.656430057401201, max cpu: 9.706775, count: 59436"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 19.630050600646072, max mem: 19.640625, count: 59436"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.978484020809096, max cpu: 23.49486, count: 59436"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 50.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.37359236721011, max mem: 52.1640625, count: 59436"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 54041,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53878.33336698297, max block_count: 54041.0, count: 59436"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.36673060098256, max segment_count: 106.0, count: 59436"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.97361430422159, max cpu: 33.667336, count: 59436"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 80.02568860833502, max mem: 83.83984375, count: 59436"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.687389003258302, max cpu: 24.328432, count: 59436"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.34815869433088, max mem: 52.24609375, count: 59436"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.773989353557578, max cpu: 28.599802, count: 59436"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.36118071065936, max mem: 52.33203125, count: 59436"
           }
         ]
       }

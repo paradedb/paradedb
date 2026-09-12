@@ -108,6 +108,15 @@ impl TantivyDecodeExec {
         &self.ffhelpers
     }
 
+    /// Rebuilds this node over `input` with `deferred_fields`.
+    pub(crate) fn with_input_and_fields(
+        &self,
+        input: Arc<dyn ExecutionPlan>,
+        deferred_fields: Vec<PhysicalDeferredField>,
+    ) -> Result<Self> {
+        TantivyDecodeExec::new(input, deferred_fields, self.ffhelpers.clone())
+    }
+
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
     /// pulls them from the scans in its decoded subtree, keyed by index relid.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {

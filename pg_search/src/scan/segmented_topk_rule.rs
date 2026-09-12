@@ -168,7 +168,7 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 ///     assigned the correct physical index when it built the SortExec.
 ///   - If the name is not found at all, log a debug diagnostic and fall back
 ///     to `col.index()` as a last resort.
-fn resolve_physical_index(
+pub(crate) fn resolve_physical_index(
     col: &Column,
     schema: &datafusion::arrow::datatypes::SchemaRef,
 ) -> Option<usize> {

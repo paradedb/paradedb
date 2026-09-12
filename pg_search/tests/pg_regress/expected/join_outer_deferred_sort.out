@@ -53,8 +53,8 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id
    ->  Result
@@ -68,14 +68,13 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :     SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
@@ -109,8 +108,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id
    ->  Result
@@ -124,14 +123,13 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@1 DESC, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :     SegmentedTopKExec: expr=[tag@1 DESC, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
  id |  tag  | id 
@@ -165,8 +163,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id
    ->  Result
@@ -180,14 +178,13 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@1 ASC, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :     SegmentedTopKExec: expr=[tag@1 ASC, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
  id |  tag  | id 
@@ -222,8 +219,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 -- A mixed ON condition keeps the nullable side deferred as well.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id
    ->  Result
@@ -238,14 +235,13 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.i
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@4 as col_1, id@1 as col_2, tag@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@2 ASC NULLS LAST, id@4 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], filter=id@0 <= id@1, projection=[ctid_0@0, id@2, tag@3, ctid_1@4, id@6]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                 :     SegmentedTopKExec: expr=[tag@2 ASC NULLS LAST, id@4 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], filter=id@0 <= id@1, projection=[ctid_0@0, id@2, tag@3, ctid_1@4, id@6]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
@@ -280,8 +276,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.i
 -- A bytes-backed deferred column (NUMERIC) on the nullable side.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.amt, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.amt, f.id
    ->  Result
@@ -295,14 +291,13 @@ SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, amt@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   TantivyDecodeExec: decode=[amt]
-                 :     TantivyFetchExec: fetch=[amt]
-                 :       SegmentedTopKExec: expr=[amt@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, amt@2, ctid_1@3, id@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :     SegmentedTopKExec: expr=[amt@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, amt@2, ctid_1@3, id@5]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[amt], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.amt, f.id LIMIT 25;
  id | amt  | id 
@@ -399,8 +394,8 @@ RESET paradedb.defer_column_fetch;
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id
    ->  Result
@@ -414,14 +409,13 @@ SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           CooperativeExec
-                 :             PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+                 :     SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST], k=25, visibility_checks=[f]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
@@ -472,15 +466,14 @@ SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, tag@3 as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyDecodeExec: decode=[tag]
-           :     TantivyFetchExec: fetch=[tag]
-           :       SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
-           :         FilterExec: __f_0_tag_0@2 OR __d_1_tag_0@5, projection=[ctid_0@0, id@1, ctid_1@3, tag@4]
-           :           HashJoinExec: mode=CollectLeft, join_type=Full, on=[(k@1, k@1)], projection=[ctid_0@4, id@6, __f_0_tag_0@7, ctid_1@0, tag@2, __d_1_tag_0@3]
-           :             CooperativeExec
-           :               PgSearchScan: table=d, segments=2, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=f, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+           :     SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, id@1 ASC NULLS LAST], k=25
+           :       FilterExec: __f_0_tag_0@2 OR __d_1_tag_0@5, projection=[ctid_0@0, id@1, ctid_1@3, tag@4]
+           :         HashJoinExec: mode=CollectLeft, join_type=Full, on=[(k@1, k@1)], projection=[ctid_0@4, id@6, __f_0_tag_0@7, ctid_1@0, tag@2, __d_1_tag_0@3]
+           :           CooperativeExec
+           :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=f, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' OR d.txt @@@ 'alpha' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
@@ -517,8 +510,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, f.id, s.id
    ->  Result
@@ -532,18 +525,17 @@ SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k C
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, tag@1 as col_3, id@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
                  :   TantivyDecodeExec: decode=[tag]
-                 :     TantivyFetchExec: fetch=[tag]
-                 :       SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], k=70, visibility_checks=[f, s]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5, ctid_2@6, id@7]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
-                 :           ProjectionExec: expr=[ctid_1@2 as ctid_1, k@3 as k, id@4 as id, ctid_2@0 as ctid_2, id@1 as id]
-                 :             CrossJoinExec
-                 :               CooperativeExec
-                 :                 PgSearchScan: table=s, segments=1, query="all"
-                 :               CooperativeExec
-                 :                 PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
-(24 rows)
+                 :     SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], k=70, visibility_checks=[f, s]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, id@5, ctid_2@6, id@7]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
+                 :         ProjectionExec: expr=[ctid_1@2 as ctid_1, k@3 as k, id@4 as id, ctid_2@0 as ctid_2, id@1 as id]
+                 :           CrossJoinExec
+                 :             CooperativeExec
+                 :               PgSearchScan: table=s, segments=1, query="all"
+                 :             CooperativeExec
+                 :               PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
  id |  tag  | id | id 
@@ -697,8 +689,8 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @@@ 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.tag, r.tag
    ->  Custom Scan (ParadeDB Join Scan)
@@ -710,14 +702,13 @@ SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, tag@3 as col_2, tag@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyDecodeExec: decode=[tag]
-           :     TantivyFetchExec: fetch=[tag]
-           :       SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, tag@1 ASC NULLS LAST], k=5, visibility_checks=[r, d]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, k@1)], projection=[ctid_0@3, tag@5, ctid_1@0, tag@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=d, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+           :     SegmentedTopKExec: expr=[tag@3 ASC NULLS LAST, tag@1 ASC NULLS LAST], k=5, visibility_checks=[r, d]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, k@1)], projection=[ctid_0@3, tag@5, ctid_1@0, tag@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=d, segments=2, fetch=[tag], query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=r, segments=1, dynamic_filters=2, query="all"
+(17 rows)
 
 SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @@@ 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
  id |  tag  | tag  

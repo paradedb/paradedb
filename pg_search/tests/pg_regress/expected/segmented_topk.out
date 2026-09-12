@@ -523,7 +523,9 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 11: ORDER BY containing two different string fields from different tables
 -- =============================================================================
--- TODO: Does not get SegmentedTopK: see https://github.com/paradedb/paradedb/issues/4347
+-- The placement rule decodes the build side's category in the scan, so only f.title
+-- reaches the sort deferred and the SegmentedTopK takes it. With both decodes pinned
+-- late, the sort falls back: see https://github.com/paradedb/paradedb/issues/4347
 SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title, d.category
 FROM stk_files f
@@ -548,9 +550,54 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.title, d.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.title, d.category
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, d.category desc, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   TantivyDecodeExec: decode=[title]
+           :     TantivyFetchExec: fetch=[title]
+           :       SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], k=5, visibility_checks=[d, f]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :           CooperativeExec
+           :             PgSearchScan: table=d, segments=1, eager=[category], query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=f, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+ id  |     title     |             category              
+-----+---------------+-----------------------------------
+ 102 | Group A Title | PROJECT_ALPHA roadmap planning
+ 105 | Group A Title | PROJECT_ALPHA resource allocation
+ 104 | Group A Title | PROJECT_ALPHA milestone tracker
+ 103 | Group A Title | PROJECT_ALPHA feedback notes
+ 101 | Group A Title | PROJECT_ALPHA design review
+(5 rows)
+
+SET paradedb.defer_string_decode = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
 WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -563,12 +610,12 @@ WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, 
            : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyDecodeExec: decode=[category, title]
-           :       TantivyFetchExec: fetch=[category, title]
+           :       TantivyFetchExec: fetch=[title]
            :         VisibilityFilterExec: tables=[d, f]
            :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
            :               CooperativeExec
-           :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :                 PgSearchScan: table=d, segments=1, fetch=[category], query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :               CooperativeExec
            :                 PgSearchScan: table=f, segments=1, dynamic_filters=1, query="all"
 (20 rows)
@@ -589,6 +636,7 @@ WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, 
  101 | Group A Title | PROJECT_ALPHA design review
 (5 rows)
 
+RESET paradedb.defer_string_decode;
 -- =============================================================================
 -- TEST 12: Multi-segment global threshold pruning
 --

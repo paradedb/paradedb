@@ -312,8 +312,8 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                                QUERY PLAN                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -486,11 +486,9 @@ ORDER BY brand_text;
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   TantivyDecodeExec: decode=[metadata.brand]
-           :     TantivyFetchExec: fetch=[metadata.brand]
-           :       CooperativeExec
-           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+           :   CooperativeExec
+           :     PgSearchScan: table=p, segments=2, eager=[metadata.brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p

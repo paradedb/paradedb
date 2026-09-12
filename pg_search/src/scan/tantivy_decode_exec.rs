@@ -38,6 +38,7 @@ use crate::scan::deferred_lookup::{
     rebuild_missing_ffhelpers,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::late_materialization::FFHelperKey;
 
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
@@ -60,8 +61,8 @@ use tantivy::termdict::TermOrdinal;
 pub struct TantivyDecodeExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
-    /// Keyed by index relid; see `TantivyFetchExec::ffhelpers` for the self-join aliasing.
-    ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    /// Keyed by `(plan_position, indexrelid)` so a self-join keeps one helper per alias.
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -78,7 +79,7 @@ impl TantivyDecodeExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
-        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     ) -> Result<Self> {
         let output_schema = build_output_schema(input.schema(), &deferred_fields)?;
         let properties = Arc::new(PlanProperties::new(
@@ -100,11 +101,15 @@ impl TantivyDecodeExec {
         &self.deferred_fields
     }
 
-    pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
-        self.ffhelpers.get(&indexrelid)
+    pub fn ffhelper(
+        &self,
+        plan_position: Option<usize>,
+        indexrelid: u32,
+    ) -> Option<&Arc<FFHelper>> {
+        self.ffhelpers.get(&(plan_position, indexrelid))
     }
 
-    pub(crate) fn ffhelpers(&self) -> &HashMap<u32, Arc<FFHelper>> {
+    pub(crate) fn ffhelpers(&self) -> &HashMap<FFHelperKey, Arc<FFHelper>> {
         &self.ffhelpers
     }
 
@@ -118,7 +123,7 @@ impl TantivyDecodeExec {
     }
 
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
-    /// pulls them from the scans in its decoded subtree, keyed by index relid.
+    /// pulls them from the scans in its decoded subtree, keyed by `(plan_position, indexrelid)`.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&self.deferred_fields).map_err(|e| {
             DataFusionError::Internal(format!("TantivyDecodeExec dispatch: serialize: {e}"))
@@ -128,7 +133,7 @@ impl TantivyDecodeExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        mut ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let deferred_fields: Vec<PhysicalDeferredField> =
@@ -288,7 +293,7 @@ impl ExecutionPlan for TantivyDecodeExec {
 fn decode_batch(
     batch: RecordBatch,
     deferred_fields: &[PhysicalDeferredField],
-    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> Result<RecordBatch> {
     let mut columns = batch.columns().to_vec();

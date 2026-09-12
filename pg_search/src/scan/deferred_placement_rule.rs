@@ -746,6 +746,7 @@ mod tests {
                     ff_index: 1,
                 },
                 heap_rti,
+                plan_position: None,
                 rebuild: None,
                 fetch_at_scan: false,
             }],
@@ -848,6 +849,7 @@ mod tests {
                 is_bytes: false,
                 canonical: canonical.clone(),
                 heap_rti: 1,
+                plan_position: None,
                 rebuild: None,
                 fetch_at_scan: false,
             }],
@@ -869,7 +871,7 @@ mod tests {
             .unwrap(),
         ) as Arc<dyn ExecutionPlan>;
         let mut ffhelpers = HashMap::default();
-        ffhelpers.insert(indexrelid, Arc::new(FFHelper::empty()));
+        ffhelpers.insert((None, indexrelid), Arc::new(FFHelper::empty()));
         let decode = Arc::new(
             TantivyDecodeExec::new(
                 projection,
@@ -879,6 +881,7 @@ mod tests {
                     is_bytes: false,
                     canonical: canonical.clone(),
                     heap_rti: 1,
+                    plan_position: None,
                     rebuild: None,
                 }],
                 ffhelpers,

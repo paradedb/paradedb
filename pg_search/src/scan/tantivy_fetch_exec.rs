@@ -41,6 +41,7 @@ use crate::scan::deferred_lookup::{
     preserved_ordering, rebuild_missing_ffhelpers,
 };
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::late_materialization::FFHelperKey;
 
 use arrow_array::{ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::DataType;
@@ -87,11 +88,8 @@ pub struct TantivyFetchExec {
     input: Arc<dyn ExecutionPlan>,
     /// Deferred string/bytes columns whose doc addresses this node resolves to term ordinals.
     fetch_fields: Vec<PhysicalDeferredField>,
-    /// Keyed by index relid, so a self-join folds both aliases onto one helper. Term ordinals
-    /// and doc ids are per-reader, so the surviving helper reads the other alias correctly
-    /// only while both sources share a segment view. Keying by `(plan_position, indexrelid)`
-    /// would remove the aliasing.
-    ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    /// Keyed by `(plan_position, indexrelid)` so a self-join keeps one helper per alias (#6023).
+    ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
     /// `ctid_<plan_position>` columns this exec resolves from packed doc-addresses to real ctids.
     ctid_columns: Vec<CtidColumnLookup>,
     /// Per-plan_position `(indexrelid, FFHelper)` for resolving the ctid columns, wired by
@@ -114,7 +112,7 @@ impl TantivyFetchExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         fetch_fields: Vec<PhysicalDeferredField>,
-        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         ctid_columns: Vec<CtidColumnLookup>,
     ) -> Result<Self> {
         let schema = input.schema();
@@ -168,7 +166,7 @@ impl TantivyFetchExec {
         &self.ctid_columns
     }
 
-    pub(crate) fn ffhelpers(&self) -> &HashMap<u32, Arc<FFHelper>> {
+    pub(crate) fn ffhelpers(&self) -> &HashMap<FFHelperKey, Arc<FFHelper>> {
         &self.ffhelpers
     }
 
@@ -213,7 +211,7 @@ impl TantivyFetchExec {
     }
 
     /// Serialize for leader dispatch. The `ffhelpers` are live and don't travel; the worker
-    /// pulls them from the scans in its decoded subtree, keyed by index relid.
+    /// pulls them from the scans in its decoded subtree, keyed by `(plan_position, indexrelid)`.
     pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
         let ctid_resolver_indexes: Vec<(usize, u32)> = self
             .ctid_resolvers
@@ -236,7 +234,7 @@ impl TantivyFetchExec {
     pub(crate) fn decode_for_dispatch(
         buf: &[u8],
         input: Arc<dyn ExecutionPlan>,
-        mut ffhelpers: HashMap<u32, Arc<FFHelper>>,
+        mut ffhelpers: HashMap<FFHelperKey, Arc<FFHelper>>,
         ctid_resolvers: Vec<(usize, u32, Arc<FFHelper>)>,
         index_segment_views: &[SegmentView],
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
@@ -398,7 +396,7 @@ impl ExecutionPlan for TantivyFetchExec {
 fn fetch_batch(
     batch: RecordBatch,
     fetch_fields: &[PhysicalDeferredField],
-    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &HashMap<FFHelperKey, Arc<FFHelper>>,
 ) -> Result<RecordBatch> {
     if fetch_fields.is_empty() {
         return Ok(batch);

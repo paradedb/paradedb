@@ -32,7 +32,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use crate::scan::late_materialization::DeferredLookupRebuild;
+use crate::scan::late_materialization::{DeferredLookupRebuild, FFHelperKey};
 
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
@@ -65,11 +65,19 @@ pub struct PhysicalDeferredField {
     ///
     /// [`DeferredField`]: crate::scan::late_materialization::DeferredField
     pub heap_rti: u32,
+    /// JoinScan source identity. Distinguishes self-join aliases that share
+    /// `canonical.indexrelid` so each side keeps its own `FFHelper` (#6023).
+    #[serde(default)]
+    pub plan_position: Option<usize>,
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
 }
 
 impl PhysicalDeferredField {
+    pub fn helper_key(&self) -> FFHelperKey {
+        (self.plan_position, self.canonical.indexrelid)
+    }
+
     pub fn output_data_type(&self) -> DataType {
         if self.is_bytes {
             DataType::BinaryView
@@ -81,13 +89,13 @@ impl PhysicalDeferredField {
 
 /// The fast-field helper that reads a deferred column's index.
 pub(crate) fn ffhelper_for<'a>(
-    ffhelpers: &'a HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &'a HashMap<FFHelperKey, Arc<FFHelper>>,
     field: &PhysicalDeferredField,
 ) -> Result<&'a Arc<FFHelper>> {
-    ffhelpers.get(&field.canonical.indexrelid).ok_or_else(|| {
+    ffhelpers.get(&field.helper_key()).ok_or_else(|| {
         DataFusionError::Execution(format!(
-            "missing FFHelper for relation ID {}",
-            field.canonical.indexrelid
+            "missing FFHelper for plan_position {:?} relation ID {}",
+            field.plan_position, field.canonical.indexrelid
         ))
     })
 }
@@ -151,43 +159,41 @@ pub(crate) fn open_rebuilt_ffhelper(
 /// matches the ordering the addresses were packed against.
 pub(crate) fn rebuild_missing_ffhelpers(
     deferred_fields: &[PhysicalDeferredField],
-    ffhelpers: &mut HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &mut HashMap<FFHelperKey, Arc<FFHelper>>,
     context: LookupRebuildContext,
 ) -> Result<()> {
     // Ordinal-typed columns keep a scan's helper when one decoded in this fragment (its layout
     // lines up by construction); they rebuild only on a worker whose fragment has that scan
     // behind a network boundary.
-    let mut rebuild_indexes: HashSet<u32> = Default::default();
+    let mut rebuild_keys: HashSet<FFHelperKey> = Default::default();
     for f in deferred_fields {
         if f.rebuild.is_none() {
             continue;
         }
-        let scan_is_elsewhere = !ffhelpers.contains_key(&f.canonical.indexrelid);
-        if scan_is_elsewhere {
-            rebuild_indexes.insert(f.canonical.indexrelid);
+        let key = f.helper_key();
+        if !ffhelpers.contains_key(&key) {
+            rebuild_keys.insert(key);
         }
     }
 
-    // Group by index so two columns of the same index share one reader, and lay out every
-    // rebuildable column of a rebuilding index, not just the ones that triggered it: the
-    // rebuilt helper replaces the map entry, so it has to serve all of them.
-    let mut per_index: HashMap<u32, Vec<&PhysicalDeferredField>> = HashMap::default();
+    // Group by `(plan_position, indexrelid)` so two columns of the same alias share one
+    // reader, while a self-join's two aliases keep separate layouts. The rebuilt helper
+    // replaces the map entry, so it has to serve every rebuildable column of that alias.
+    let mut per_key: HashMap<FFHelperKey, Vec<&PhysicalDeferredField>> = HashMap::default();
     for f in deferred_fields {
-        if f.rebuild.is_some() && rebuild_indexes.contains(&f.canonical.indexrelid) {
-            per_index.entry(f.canonical.indexrelid).or_default().push(f);
+        let key = f.helper_key();
+        if f.rebuild.is_some() && rebuild_keys.contains(&key) {
+            per_key.entry(key).or_default().push(f);
         }
     }
 
-    for (indexrelid, fields) in per_index {
+    for (key, fields) in per_key {
         let mvcc = rebuild_mvcc(context, fields[0].rebuild.as_ref().unwrap())?;
         let entries: Vec<(usize, &DeferredLookupRebuild)> = fields
             .iter()
             .map(|f| (f.canonical.ff_index, f.rebuild.as_ref().unwrap()))
             .collect();
-        ffhelpers.insert(
-            indexrelid,
-            open_rebuilt_ffhelper(indexrelid, &entries, mvcc)?,
-        );
+        ffhelpers.insert(key, open_rebuilt_ffhelper(key.1, &entries, mvcc)?);
     }
     Ok(())
 }

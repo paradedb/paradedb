@@ -74,16 +74,20 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
 
 /// The scan column a plan column comes from. Two tables can share a column name, and a
 /// plain `UInt64` column (an `oid`, say) can share one with a deferred string column, so
-/// the index tells their fields apart; a self-join's two scans share both.
+/// the index tells their fields apart. A self-join's two scans share index and name;
+/// `heap_rti` is what tells those scans apart (#6023).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BaseColumn {
     pub indexrelid: u32,
     pub name: String,
+    pub heap_rti: u32,
 }
 
 impl BaseColumn {
     fn is(&self, field: &DeferredField) -> bool {
-        field.canonical.indexrelid == self.indexrelid && field.name == self.name
+        field.canonical.indexrelid == self.indexrelid
+            && field.name == self.name
+            && field.heap_rti == self.heap_rti
     }
 }
 
@@ -111,6 +115,7 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
                 Some(BaseColumn {
                     indexrelid: provider.scan_info.indexrelid.to_u32(),
                     name: field.name().clone(),
+                    heap_rti: provider.scan_info.heap_rti,
                 })
             } else {
                 None
@@ -222,9 +227,9 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
 }
 
 /// The deferred field a plan column carries, if it is one. A deferred column is a
-/// `UInt64` whose lineage ends at a deferred field of its scan. The match is by index and
-/// name, and entries are consumed from `pool` one by one, so a self-join's two identical
-/// entries each claim their own column.
+/// `UInt64` whose lineage ends at a deferred field of its scan. The match is by
+/// `(indexrelid, name, heap_rti)` so a self-join's two `name` columns cannot claim
+/// each other's fast-field layout (#6023).
 fn take_deferred_field(
     plan: &LogicalPlan,
     qualifier: Option<&datafusion::common::TableReference>,
@@ -730,13 +735,13 @@ pub struct LateMaterializePlanner;
 
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
-    helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
+    helpers: &mut crate::api::HashMap<FFHelperKey, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>()
         && scan.has_deferred_fields()
         && let Some(ff) = scan.ffhelper()
     {
-        helpers.insert(scan.indexrelid, ff);
+        helpers.insert((scan.deferred_ctid_plan_position(), scan.indexrelid), ff);
     }
 
     for child in plan.children() {
@@ -821,6 +826,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
                     is_bytes: deferred.is_bytes,
                     canonical: deferred.canonical.clone(),
                     heap_rti: deferred.heap_rti,
+                    plan_position: deferred.plan_position,
                     rebuild: deferred.rebuild.clone(),
                 });
                 if !deferred.fetch_at_scan {
@@ -875,6 +881,12 @@ pub struct DeferredField {
     /// is the same pair on both sides. No serde default: a missing one would read as 0, which
     /// is a range table index two scans could share.
     pub heap_rti: u32,
+    /// JoinScan source identity. Distinguishes self-join aliases that share
+    /// `canonical.indexrelid` so each side keeps its own `FFHelper` (#6023).
+    /// `None` is the single-scan (non-join) case. Used as the helper-map key
+    /// together with `indexrelid`; claiming uses `heap_rti` (see `BaseColumn`).
+    #[serde(default)]
+    pub plan_position: Option<usize>,
     /// Worker-side `FFHelper` rebuild info for lookups whose fragment has no scan of this
     /// index beneath them (a lookup above a network shuffle). `None` keeps the pre-existing
     /// behavior of collecting the helper from the plan subtree.
@@ -885,6 +897,11 @@ pub struct DeferredField {
     /// doc addresses and a `TantivyFetchExec` resolves them at the decode point.
     pub fetch_at_scan: bool,
 }
+
+/// Key for the per-scan `FFHelper` map used by deferred lookup and top-k.
+///
+/// `plan_position` disambiguates self-join aliases that share an `indexrelid`.
+pub type FFHelperKey = (Option<usize>, u32);
 
 /// Everything a worker needs to rebuild the fast-field reader for a deferred column when the
 /// scan that would normally supply it lives in a different plan fragment: the registered field

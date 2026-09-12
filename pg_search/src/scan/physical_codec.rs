@@ -46,6 +46,7 @@ use crate::postgres::customscan::datafusion::udaf_by_name;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+use crate::scan::late_materialization::FFHelperKey;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -113,7 +114,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_TANTIVY_FETCH => {
                 let input = single_input(inputs)?;
-                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let ffhelpers = collect_ffhelpers(&input);
                 let resolvers = collect_ctid_resolvers(&input);
                 TantivyFetchExec::decode_for_dispatch(
                     payload,
@@ -126,7 +127,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_TANTIVY_DECODE => {
                 let input = single_input(inputs)?;
-                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let ffhelpers = collect_ffhelpers(&input);
                 TantivyDecodeExec::decode_for_dispatch(
                     payload,
                     input,
@@ -136,7 +137,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             TAG_SEGMENTED_TOPK => {
                 let input = single_input(inputs)?;
-                let ffhelpers = collect_ffhelpers_by_indexrelid(&input);
+                let ffhelpers = collect_ffhelpers(&input);
                 // Re-collect the live ctid resolvers from the decoded subtree so a dispatched
                 // fragment can rebuild its absorbed visibility data (same as VFExec above).
                 let resolvers = collect_ctid_resolvers(&input);
@@ -281,14 +282,15 @@ fn collect_ctid_resolvers(input: &Arc<dyn ExecutionPlan>) -> Vec<(usize, u32, Ar
         .collect()
 }
 
-/// `indexrelid -> ffhelper` for the tantivy fetch and decode execs.
-fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u32, Arc<FFHelper>> {
+/// `(plan_position, indexrelid) -> ffhelper` for the tantivy fetch/decode and segmented top-k execs.
+/// `plan_position` keeps a self-join's two aliases from sharing one helper (#6023).
+fn collect_ffhelpers(input: &Arc<dyn ExecutionPlan>) -> HashMap<FFHelperKey, Arc<FFHelper>> {
     let mut scans = Vec::new();
     collect_scan_runtime(input, &mut scans);
     let mut map = HashMap::default();
     for s in scans {
         if let Some(ff) = s.ffhelper {
-            map.insert(s.indexrelid, ff);
+            map.insert((s.ctid_plan_position, s.indexrelid), ff);
         }
     }
     collect_lookup_ffhelpers(input, &mut map);
@@ -299,8 +301,12 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
 /// sits behind a network boundary, so the decode above a fetch reuses it instead of opening
 /// the index a second time. The reuse relies on every deferred column of a scan moving
 /// together (the placement rule moves them as a set and keys its decisions by index), so a
-/// fetch below a decode lays out exactly the columns the decode reads.
-fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32, Arc<FFHelper>>) {
+/// fetch below a decode lays out exactly the columns the decode reads. Helpers are keyed by
+/// `(plan_position, indexrelid)` so a self-join's two aliases do not share one reader (#6023).
+fn collect_lookup_ffhelpers(
+    plan: &Arc<dyn ExecutionPlan>,
+    out: &mut HashMap<FFHelperKey, Arc<FFHelper>>,
+) {
     let helpers = if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
         Some(fetch.ffhelpers())
     } else {
@@ -308,9 +314,8 @@ fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32
             .map(TantivyDecodeExec::ffhelpers)
     };
     if let Some(helpers) = helpers {
-        for (indexrelid, ffhelper) in helpers {
-            out.entry(*indexrelid)
-                .or_insert_with(|| Arc::clone(ffhelper));
+        for (key, ffhelper) in helpers {
+            out.entry(*key).or_insert_with(|| Arc::clone(ffhelper));
         }
     }
     for child in plan.children() {

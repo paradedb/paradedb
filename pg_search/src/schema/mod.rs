@@ -35,6 +35,7 @@ pub use config::*;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::LazyLock;
 use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{Typmod, type_is_alias, type_is_tokenizer};
@@ -712,7 +713,8 @@ impl SearchField {
     pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
-        let field_config = options.field_config_or_default(&field_name);
+        let mut field_config = options.field_config_or_default(&field_name);
+        restore_legacy_key_field_tokenizer(&field_entry, &mut field_config);
 
         // Derive field type from the tantivy schema, using PostgreSQL metadata for OID/scale.
         // This ensures backwards compatibility with legacy indexes.
@@ -948,6 +950,46 @@ impl SearchField {
                 value,
                 self.field_entry().field_type()
             ),
+        }
+    }
+}
+
+/// Legacy key-field tokenizers were implicit in options, but persisted in the index schema.
+fn restore_legacy_key_field_tokenizer(
+    field_entry: &FieldEntry,
+    field_config: &mut SearchFieldConfig,
+) {
+    #[allow(deprecated)]
+    static LEGACY_KEY_FIELD_TOKENIZERS: LazyLock<[(String, SearchTokenizer); 3]> =
+        LazyLock::new(|| {
+            let text_or_uuid_key = SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone());
+            let pre_019_text_or_uuid_key =
+                SearchTokenizer::Raw(SearchTokenizerFilters::keyword_deprecated().clone());
+            let json_key = SearchTokenizer::Raw(SearchTokenizerFilters::default());
+            [
+                (text_or_uuid_key.name(), text_or_uuid_key.clone()),
+                (pre_019_text_or_uuid_key.name(), text_or_uuid_key),
+                (json_key.name(), json_key),
+            ]
+        });
+
+    let (indexing, tokenizer) = match (field_entry.field_type(), field_config) {
+        (FieldType::Str(options), SearchFieldConfig::Text { tokenizer, .. }) => {
+            (options.get_indexing_options(), tokenizer)
+        }
+        (FieldType::JsonObject(options), SearchFieldConfig::Json { tokenizer, .. }) => {
+            (options.get_text_indexing_options(), tokenizer)
+        }
+        _ => return,
+    };
+    let Some(indexing) = indexing else {
+        return;
+    };
+
+    for (name, key_field_tokenizer) in LEGACY_KEY_FIELD_TOKENIZERS.iter() {
+        if indexing.tokenizer() == name {
+            *tokenizer = key_field_tokenizer.clone();
+            return;
         }
     }
 }

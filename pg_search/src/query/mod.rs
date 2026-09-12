@@ -555,16 +555,36 @@ impl SearchQueryInput {
         use crate::MORE_LIKE_THIS_SELECTIVITY;
 
         match self {
-            SearchQueryInput::Boolean { must, should, .. } => {
-                // AND: product of the children we can estimate; OR: max of them.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => {
+                // A `should` clause only narrows the result when one of them has to match.
+                // Tantivy follows Elasticsearch: one is required while nothing else is, none are
+                // once a `must` or `must_not` joins them, and `minimum_should_match` overrides
+                // both. Beside a `must` without it, a `should` adds score and keeps no row out.
+                let should_filters = match minimum_should_match {
+                    Some(count) => *count >= 1,
+                    None => must.is_empty() && must_not.is_empty(),
+                };
+
                 let must_sel = must
                     .iter()
                     .filter_map(Self::estimated_selectivity)
                     .reduce(|left, right| left * right);
-                let should_sel = should
-                    .iter()
-                    .filter_map(Self::estimated_selectivity)
-                    .reduce(f64::max);
+                // Read the group as a union however many matches it asks for. Counting them would
+                // read as fewer rows, and too few rows is what makes a scan look too cheap to
+                // hand to workers.
+                let should_sel = should_filters
+                    .then(|| {
+                        should
+                            .iter()
+                            .filter_map(Self::estimated_selectivity)
+                            .reduce(f64::max)
+                    })
+                    .flatten();
 
                 match (must_sel, should_sel) {
                     (Some(must_sel), Some(should_sel)) => Some(must_sel * should_sel),
@@ -1970,6 +1990,57 @@ mod tests {
             must_not: vec![],
             minimum_should_match: None,
         }
+    }
+
+    fn boolean(
+        must: Vec<SearchQueryInput>,
+        should: Vec<SearchQueryInput>,
+        minimum_should_match: Option<i64>,
+    ) -> SearchQueryInput {
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not: vec![],
+            minimum_should_match,
+        }
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_ignores_optional_should_clauses() {
+        // Beside a `must`, a `should` is optional: it adds score and keeps no row out, so the
+        // estimate is the `must` alone.
+        let optional = boolean(vec![create_regex_query()], vec![create_fuzzy_query()], None);
+        assert_eq!(optional.selectivity_heuristic(), crate::REGEX_SELECTIVITY);
+
+        // Asking for one of them makes it required, so now it narrows.
+        let required = boolean(
+            vec![create_regex_query()],
+            vec![create_fuzzy_query()],
+            Some(1),
+        );
+        assert_eq!(
+            required.selectivity_heuristic(),
+            crate::REGEX_SELECTIVITY * crate::FUZZY_LOW_SELECTIVITY
+        );
+
+        // On its own a `should` is required, the same default Tantivy applies.
+        let alone = boolean(vec![], vec![create_regex_query()], None);
+        assert_eq!(alone.selectivity_heuristic(), crate::REGEX_SELECTIVITY);
+    }
+
+    #[pg_test]
+    fn test_selectivity_heuristic_reads_should_group_as_a_union() {
+        // `minimum_should_match` of two still reads as a union. Counting the matches would
+        // report fewer rows, and too few rows is what leaves a scan looking too cheap to split.
+        let two_of_two = boolean(
+            vec![],
+            vec![create_regex_query(), create_fuzzy_query()],
+            Some(2),
+        );
+        assert_eq!(
+            two_of_two.selectivity_heuristic(),
+            crate::REGEX_SELECTIVITY.max(crate::FUZZY_LOW_SELECTIVITY)
+        );
     }
 
     #[pg_test]

@@ -1617,24 +1617,20 @@ impl SearchIndexReader {
         // estimate, so only they need the floor. Everything else already reports the driving list
         // and would pay for a dictionary lookup that cannot change the answer.
         //
-        // `query_terms` reports the terms a query holds one field at a time, and most queries hand
-        // back the same terms whatever field they are asked about. Gather them first so a term
-        // costs one dictionary lookup however many fields the schema carries.
+        // Each query reports the terms it holds whatever field it is asked about, so one pass
+        // collects them. Asking per field would re-walk the tree once per column, and a proximity
+        // clause would re-expand its regex every time.
+        let (any_field, _) = self.schema.fields().next()?;
         let mut terms: HashSet<Term> = HashSet::new();
-        for (field, _) in self.schema.fields() {
-            if terms.len() >= MAX_TERMS_INSPECTED {
-                break;
-            }
-            self.query.query_terms(
-                field,
-                segment_reader,
-                &mut |term: &Term, needs_positions| {
-                    if needs_positions && terms.len() < MAX_TERMS_INSPECTED {
-                        terms.insert(term.clone());
-                    }
-                },
-            );
-        }
+        self.query.query_terms(
+            any_field,
+            segment_reader,
+            &mut |term: &Term, needs_positions| {
+                if needs_positions && terms.len() < MAX_TERMS_INSPECTED {
+                    terms.insert(term.clone());
+                }
+            },
+        );
 
         terms
             .iter()

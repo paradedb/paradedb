@@ -104,13 +104,14 @@ impl Query for ProximityQuery {
 
     fn query_terms(
         &self,
-        field: Field,
+        _field: Field,
         segment_reader: &SegmentReader,
         visitor: &mut dyn FnMut(&Term, bool),
     ) {
-        // Callers walk terms per field, so `field` is routinely one this query knows nothing
-        // about and resolving it fails. That is a normal miss, not a reason to abort planning.
-        let Ok(terms) = self.terms(field, Some(segment_reader)) else {
+        // These terms live on the field this query was built for, the one `weight()` resolves
+        // against. Taking the caller's field instead would stream a regex clause over an
+        // unrelated dictionary and hand back terms that belong to nobody.
+        let Ok(terms) = self.terms(self.field, Some(segment_reader)) else {
             return;
         };
         for term in terms {

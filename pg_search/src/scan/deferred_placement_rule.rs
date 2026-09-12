@@ -61,7 +61,7 @@ use datafusion::common::{JoinType, Result};
 use datafusion::physical_expr::LexOrdering;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::aggregates::AggregateExec;
+use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::physical_plan::filter::FilterExec;
@@ -82,7 +82,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::plan_rewrite::transform_up_with_children;
+use crate::scan::plan_walk::{PathStep, transform_up_with_children, visit_with_path};
 use crate::scan::segmented_topk_rule::resolve_physical_index;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -225,10 +225,6 @@ impl Context {
     }
 }
 
-/// One step of the path from a decode point down to a scan: the node and the child that
-/// leads toward the scan.
-type PathStep = (Arc<dyn ExecutionPlan>, usize);
-
 /// Walks the plan top-down. At each decode point, every source scan it decodes gets a
 /// decision from the path between the two. `bound` says what the nearest consumer above the
 /// current node does with its rows; one that stops early makes a deferred decode cheap
@@ -246,7 +242,7 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
             .map(|f| f.heap_rti)
             .collect();
         let mut scans = Vec::new();
-        collect_scans(node, &mut Vec::new(), &wanted, &mut scans);
+        collect_scans(node, &wanted, &mut scans);
         for ((heap_rti, alias), path) in scans {
             let summary = summarize_path(&path, ctx);
             let decision = decide(&summary, bounded, ctx);
@@ -313,27 +309,21 @@ fn segmented_topk_takes(order: &LexOrdering, decode: &TantivyDecodeExec) -> bool
 }
 
 /// Collects the scans under `node` whose deferred columns the decode point reads, each with
-/// its range table index and the path of `(node, child index)` steps that leads down to it.
+/// its range table index and the path of steps that leads down to it.
 fn collect_scans(
     node: &Arc<dyn ExecutionPlan>,
-    path: &mut Vec<PathStep>,
     wanted: &[u32],
     out: &mut Vec<((u32, String), Vec<PathStep>)>,
 ) {
-    if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
+    visit_with_path(node, &mut |node, path| {
         // Every deferred column of one scan carries that scan's range table index.
-        if let Some(field) = scan.deferred_fields().first()
+        if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>()
+            && let Some(field) = scan.deferred_fields().first()
             && wanted.contains(&field.heap_rti)
         {
-            out.push(((field.heap_rti, scan.table_alias.clone()), path.clone()));
+            out.push(((field.heap_rti, scan.table_alias.clone()), path.to_vec()));
         }
-        return;
-    }
-    for (idx, child) in node.children().into_iter().enumerate() {
-        path.push((Arc::clone(node), idx));
-        collect_scans(child, path, wanted, out);
-        path.pop();
-    }
+    });
 }
 
 fn summarize_path(path: &[PathStep], ctx: &mut Context) -> PathSummary {
@@ -427,55 +417,95 @@ fn equi_join_expansion<'a>(
     other_keys: impl Iterator<Item = &'a Arc<dyn datafusion::physical_expr::PhysicalExpr>>,
     ctx: &mut Context,
 ) -> Expansion {
-    let mut traced_any = false;
+    let mut read_any = false;
     for key in other_keys {
         let Some(col) = key.downcast_ref::<Column>() else {
             continue;
         };
-        let Some((indexrelid, field)) = trace_to_scan(other, col.index()) else {
-            continue;
-        };
-        traced_any = true;
-        if ctx.key_field(indexrelid).as_deref() == Some(field.as_str()) {
+        read_any = true;
+        if is_unique(other, col.index(), ctx) {
             return Expansion::No;
         }
     }
-    if traced_any {
+    if read_any {
         Expansion::Yes
     } else {
         Expansion::Unknown
     }
 }
 
-/// Follows an output column down to the scan it comes from, through projections and
-/// schema-preserving nodes. It stops at an aggregate, whose groups are not the scan's rows,
-/// and at a join.
+/// Whether `col` holds at most one row per value where `plan` emits it.
 ///
-/// A join is not a step to walk through. The caller reads the answer as "this key is
-/// unique", and a key field keeps that only while no join below it multiplied the rows,
-/// which is this same question one level down. A key that traces to nothing reads as an
-/// unknown fan-out, and that keeps the column deferred.
-fn trace_to_scan(plan: &Arc<dyn ExecutionPlan>, col: usize) -> Option<(u32, String)> {
-    if plan.is::<AggregateExec>() {
-        return None;
-    }
+/// Read from the plan's shape alone, never from a row count. A scan's key field is unique, a
+/// group key is unique because the aggregate emits one row per group, and a node that only
+/// drops rows passes uniqueness through. A join keeps one side's uniqueness exactly while the
+/// other side's join keys are unique on that side, which is this same question one level
+/// down, so a three-table join gets an answer instead of a shrug.
+fn is_unique(plan: &Arc<dyn ExecutionPlan>, col: usize, ctx: &mut Context) -> bool {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         let schema = plan.schema();
-        return schema
-            .fields()
-            .get(col)
-            .map(|f| (scan.indexrelid, f.name().clone()));
+        return schema.fields().get(col).is_some_and(|field| {
+            ctx.key_field(scan.indexrelid).as_deref() == Some(field.name().as_str())
+        });
     }
+
     if let Some(proj) = plan.downcast_ref::<ProjectionExec>() {
-        let expr = &proj.expr().get(col)?.expr;
-        let column = expr.downcast_ref::<Column>()?;
-        return trace_to_scan(proj.input(), column.index());
+        // Only a plain reference carries uniqueness over; an expression can map two values
+        // onto one.
+        return proj
+            .expr()
+            .get(col)
+            .and_then(|e| e.expr.downcast_ref::<Column>())
+            .is_some_and(|column| is_unique(proj.input(), column.index(), ctx));
     }
+
+    if let Some(agg) = plan.downcast_ref::<AggregateExec>() {
+        // A partial aggregate emits one row per group per partition, so its keys repeat.
+        return matches!(
+            agg.mode(),
+            AggregateMode::Single | AggregateMode::Final | AggregateMode::FinalPartitioned
+        ) && agg.group_expr().is_single()
+            && col < agg.group_expr().expr().len();
+    }
+
+    if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
+        return join_keeps_uniqueness(join, col, ctx);
+    }
+
     let children = plan.children();
-    if children.len() == 1 && same_columns(plan, children[0]) {
-        return trace_to_scan(children[0], col);
+    children.len() == 1 && same_columns(plan, children[0]) && is_unique(children[0], col, ctx)
+}
+
+/// Whether `col` of a hash join's output is still unique. A semi or anti join reads one side
+/// and multiplies nothing. Any other join repeats a row of one side once per match on the
+/// other, so that side keeps its uniqueness only while the other side's keys are unique.
+fn join_keeps_uniqueness(join: &HashJoinExec, col: usize, ctx: &mut Context) -> bool {
+    let col = match &join.projection {
+        Some(projection) => match projection.get(col) {
+            Some(mapped) => *mapped,
+            None => return false,
+        },
+        None => col,
+    };
+    let left_width = join.left().schema().fields().len();
+    let (side, col, other, other_is_left) = match join.join_type() {
+        JoinType::LeftSemi | JoinType::LeftAnti | JoinType::LeftMark => {
+            return is_unique(join.left(), col, ctx);
+        }
+        JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+            return is_unique(join.right(), col, ctx);
+        }
+        _ if col < left_width => (join.left(), col, join.right(), false),
+        _ => (join.right(), col - left_width, join.left(), true),
+    };
+    if !is_unique(side, col, ctx) {
+        return false;
     }
-    None
+    join.on().iter().all(|(left, right)| {
+        let key = if other_is_left { left } else { right };
+        key.downcast_ref::<Column>()
+            .is_some_and(|c| is_unique(other, c.index(), ctx))
+    })
 }
 
 fn same_columns(a: &Arc<dyn ExecutionPlan>, b: &Arc<dyn ExecutionPlan>) -> bool {
@@ -696,6 +726,104 @@ mod tests {
         };
         assert!(!go.merge(stay).moves());
         assert!(go.merge(go).eager);
+    }
+
+    /// Builds a scan of `indexrelid` whose schema is `id` then `title`.
+    fn scan_of(indexrelid: u32, heap_rti: u32) -> Arc<dyn ExecutionPlan> {
+        Arc::new(PgSearchScanPlan::new(
+            None,
+            Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Int64, true),
+                Field::new("title", DataType::Utf8View, true),
+            ])),
+            SearchQueryInput::All,
+            None,
+            vec![DeferredField {
+                name: "title".into(),
+                is_bytes: false,
+                canonical: CanonicalColumn {
+                    indexrelid,
+                    ff_index: 1,
+                },
+                heap_rti,
+                rebuild: None,
+                fetch_at_scan: false,
+            }],
+            Some(Arc::new(FFHelper::empty())),
+            indexrelid,
+            None,
+            1,
+            None,
+            None,
+        )) as Arc<dyn ExecutionPlan>
+    }
+
+    fn ctx_with_key_field(indexrelid: u32) -> Context {
+        let mut ctx = ctx(true, true);
+        ctx.key_fields.insert(indexrelid, Some("id".to_string()));
+        ctx
+    }
+
+    #[pg_test]
+    fn a_scan_is_unique_only_on_its_key_field() {
+        let scan = scan_of(7, 1);
+        let mut ctx = ctx_with_key_field(7);
+        assert!(is_unique(&scan, 0, &mut ctx), "the key field is unique");
+        assert!(!is_unique(&scan, 1, &mut ctx), "a text column is not");
+    }
+
+    /// The answer a join asks of its other side is the same answer one level down, so a key
+    /// that a join below already multiplied stops counting as unique.
+    #[pg_test]
+    fn a_join_keeps_uniqueness_only_while_the_other_side_has_it() {
+        let mut ctx = ctx_with_key_field(7);
+        let left = scan_of(7, 1);
+        let right = scan_of(7, 2);
+
+        let on_key = vec![(
+            Arc::new(Column::new("id", 0)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+            Arc::new(Column::new("id", 0)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+        )];
+        let on_text = vec![(
+            Arc::new(Column::new("id", 0)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+            Arc::new(Column::new("title", 1)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+        )];
+
+        let key_join = hash_join(Arc::clone(&left), Arc::clone(&right), on_key);
+        assert!(
+            is_unique(&key_join, 0, &mut ctx),
+            "the left key field survives a join on the right key field"
+        );
+
+        let text_join = hash_join(left, right, on_text);
+        assert!(
+            !is_unique(&text_join, 0, &mut ctx),
+            "the right side's key is not unique, so the left rows repeat"
+        );
+    }
+
+    fn hash_join(
+        left: Arc<dyn ExecutionPlan>,
+        right: Arc<dyn ExecutionPlan>,
+        on: Vec<(
+            Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+            Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+        )>,
+    ) -> Arc<dyn ExecutionPlan> {
+        Arc::new(
+            HashJoinExec::try_new(
+                left,
+                right,
+                on,
+                None,
+                &JoinType::Inner,
+                None,
+                datafusion::physical_plan::joins::PartitionMode::CollectLeft,
+                datafusion::common::NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        ) as Arc<dyn ExecutionPlan>
     }
 
     /// A projection between the scan and its decode point caches its output schema, so the

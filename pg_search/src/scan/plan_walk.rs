@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A bottom-up plan rewrite that lets a node meet its new children.
+//! Plan walks the optimizer rules share: a bottom-up rewrite that lets a node meet its new
+//! children, and a top-down visit that carries the path it took to reach each node.
 
 use std::sync::Arc;
 
@@ -62,6 +63,33 @@ where
     })
 }
 
+/// One step down from a node into one of its children.
+pub type PathStep = (Arc<dyn ExecutionPlan>, usize);
+
+/// Walks `plan` top-down, calling `visit` at each node with the steps taken to reach it from
+/// `plan`. Each step names a node and which of its children the walk went into.
+///
+/// `TreeNodeVisitor` hands its callback the node and nothing else, so a visitor cannot say
+/// which child of its parent it is standing on. That index is what tells a join's build side
+/// from its probe side, which a caller reading the shape of a plan needs.
+pub fn visit_with_path<F>(plan: &Arc<dyn ExecutionPlan>, visit: &mut F)
+where
+    F: FnMut(&Arc<dyn ExecutionPlan>, &[PathStep]),
+{
+    fn walk<F>(node: &Arc<dyn ExecutionPlan>, path: &mut Vec<PathStep>, visit: &mut F)
+    where
+        F: FnMut(&Arc<dyn ExecutionPlan>, &[PathStep]),
+    {
+        visit(node, path);
+        for (index, child) in node.children().into_iter().enumerate() {
+            path.push((Arc::clone(node), index));
+            walk(child, path, visit);
+            path.pop();
+        }
+    }
+    walk(plan, &mut Vec::new(), visit);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +112,24 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+
+    /// The walk must name the child it went into, since that is what a caller reading a
+    /// join's shape needs and what a `TreeNodeVisitor` cannot give.
+    #[test]
+    fn the_path_names_each_step_by_node_and_child() {
+        let leaf = leaf(DataType::UInt64);
+        let plan = projection(projection(Arc::clone(&leaf)));
+        let mut seen: Vec<usize> = Vec::new();
+        let mut depths: Vec<usize> = Vec::new();
+        visit_with_path(&plan, &mut |node, path| {
+            depths.push(path.len());
+            if node.is::<EmptyExec>() {
+                seen = path.iter().map(|(_, index)| *index).collect();
+            }
+        });
+        assert_eq!(depths, vec![0, 1, 2], "root, projection, leaf");
+        assert_eq!(seen, vec![0, 0], "the leaf is child 0 of child 0");
     }
 
     #[test]

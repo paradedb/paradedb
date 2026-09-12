@@ -26,7 +26,7 @@ pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization;
 pub mod physical_codec;
-pub mod plan_rewrite;
+pub mod plan_walk;
 pub mod pre_filter;
 pub mod propagate_empty_unnest_rule;
 pub mod range_partitioning;

@@ -23,7 +23,7 @@ See [External Indexes](/documentation/filtering/external-indexes) for examples a
 ## Segment Pruning with Partitioning (Beta)
 
 <Warning>
-  `partition_by` is currently a **Beta** feature under active development.
+  `partition_by` is currently a Beta feature under active development.
 </Warning>
 
 For tables where queries frequently filter on specific high-selectivity columns (such as tenant IDs or creation timestamps), indexing with [`partition_by`](/documentation/indexing/partition-by) enables segment pruning. ParadeDB evaluates query filters against per-segment metadata bounds, skipping non-matching segments entirely before opening posting lists or columnar storage.

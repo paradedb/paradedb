@@ -41,6 +41,9 @@ WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fiel
 DELETE FROM alm_products WHERE id = 2;
 
 -- Serial: the deferred path puts a VisibilityFilterExec above the join.
+-- `product_id` is not the tags index's key field, so a product's row fans out
+-- once per tag and nothing above the join stops after a fixed number of rows.
+-- The scan decodes `category` once per product rather than once per joined row.
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
@@ -69,3 +72,49 @@ GROUP BY p.category
 ORDER BY p.category;
 
 DROP TABLE alm_products, alm_tags;
+<<<<<<< HEAD
+=======
+
+-- A nested level on an array field reads the join a second time. Both reads have to
+-- agree on the group key's type, or the array level's buckets belong to no parent and
+-- drop out of the result.
+CREATE TABLE alm_posts (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    author TEXT,
+    labels TEXT[]
+);
+CREATE TABLE alm_views (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER
+);
+
+INSERT INTO alm_posts (title, author, labels)
+SELECT 'post ' || i,
+       (ARRAY['ann', 'bob', 'cid'])[1 + i % 3],
+       ARRAY[(ARRAY['red', 'green', 'blue'])[1 + i % 3], 'all']
+FROM generate_series(1, 60) AS i;
+INSERT INTO alm_views (post_id) SELECT id FROM alm_posts;
+
+CREATE INDEX alm_posts_idx ON alm_posts
+USING bm25 (id, title, author, labels)
+WITH (key_field='id', text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
+CREATE INDEX alm_views_idx ON alm_views
+USING bm25 (id, post_id)
+WITH (key_field='id', numeric_fields='{"post_id": {"fast": true}}');
+
+SET max_parallel_workers_per_gather TO 0;
+-- Pinned so the shape under test does not depend on what the placement rule picks.
+SET paradedb.defer_string_decode TO on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
+FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
+WHERE p.title @@@ 'post';
+
+SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
+FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
+WHERE p.title @@@ 'post';
+
+RESET paradedb.defer_string_decode;
+DROP TABLE alm_posts, alm_views;
+>>>>>>> 04945c58d (feat: placed the fetch and the decode of a deferred column per source. (#6231))

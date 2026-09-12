@@ -188,11 +188,37 @@ pub fn ctid_is_valid(ctid: FakeCtid, fcinfo: pg_sys::FunctionCallInfo) -> bool {
 }
 
 #[pg_extern(stable, strict, parallel_safe)]
-pub fn xmin_is_visible(xmin: pg_sys::TransactionId) -> bool {
+pub fn xmin_is_visible(
+    xmin: pg_sys::TransactionId,
+    tableoid: pg_sys::Oid,
+    ctid: pg_sys::ItemPointerData,
+) -> bool {
     unsafe {
-        // Current-command writes and EPQ replacements can be absent from the CTID set.
-        !pg_sys::TransactionIdIsCurrentTransactionId(xmin)
-            && !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot())
+        if !pg_sys::TransactionIdIsCurrentTransactionId(xmin) {
+            return !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot());
+        }
+        if !Ctid::from(ctid).is_valid() {
+            return false;
+        }
+
+        // The tuple visibility check distinguishes earlier commands from current-command writes.
+        let heaprel = PgSearchRelation::with_lock(tableoid, pg_sys::AccessShareLock as _);
+        let mut tuple = pg_sys::HeapTupleData {
+            t_self: ctid,
+            ..Default::default()
+        };
+        let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+        let visible = pg_sys::heap_fetch(
+            heaprel.as_ptr(),
+            pg_sys::GetActiveSnapshot(),
+            &mut tuple,
+            &mut buffer,
+            false,
+        );
+        if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            pg_sys::ReleaseBuffer(buffer);
+        }
+        visible
     }
 }
 

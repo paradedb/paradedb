@@ -5,8 +5,12 @@ IMMUTABLE STRICT PARALLEL SAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'ctid_is_valid_wrapper';
 
+DROP FUNCTION IF EXISTS xmin_is_visible(xid);
+
 CREATE FUNCTION "xmin_is_visible"(
-    "xmin" xid
+    "xmin" xid,
+    "tableoid" oid,
+    "ctid" tid
 ) RETURNS bool
 STRICT STABLE PARALLEL SAFE
 LANGUAGE c

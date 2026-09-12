@@ -266,6 +266,12 @@ pub unsafe fn analyze_sort_expression(
         return Some((SortExpressionType::Lower, var, field_name));
     }
 
+    // An I/O cast reorders the values (`n::text` sorts `10` before `2`), so it is
+    // never a raw sort on the inner column. `RelabelType` was already stripped above.
+    if nodecast!(CoerceViaIO, T_CoerceViaIO, node).is_some() {
+        return None;
+    }
+
     if let Some((var, field_name)) = find_one_var_and_fieldname(context, node) {
         return Some((SortExpressionType::Raw, var, Some(field_name)));
     }

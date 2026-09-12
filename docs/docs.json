@@ -58,6 +58,7 @@
                           "documentation/indexing/indexing-composite",
                           "documentation/indexing/indexing-partial",
                           "documentation/indexing/columnar",
+                          "documentation/indexing/partition-by",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"
                         ]

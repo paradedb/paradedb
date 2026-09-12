@@ -21,7 +21,7 @@
 //! column can be resolved using Tantivy fast fields.
 
 use crate::api::FieldName;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
@@ -73,10 +73,7 @@ pub unsafe fn resolve_fast_field(
             if let Some(search_field) = schema.search_field(att.name()) {
                 let key_field_name = schema.key_field_name();
                 if att.name() == key_field_name.to_string().as_str() {
-                    return Some(WhichFastField::Named(
-                        att.name().to_string(),
-                        schema.key_field_type(),
-                    ));
+                    return Some(WhichFastField::eager(att.name(), schema.key_field_type()));
                 }
 
                 let categorized_fields = schema.categorized_fields();
@@ -100,7 +97,7 @@ pub unsafe fn resolve_fast_field(
                         && let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
                     {
-                        return Some(WhichFastField::Named(att.name().to_string(), field_type));
+                        return Some(WhichFastField::eager(att.name(), field_type));
                     }
                 }
             }
@@ -150,17 +147,17 @@ pub fn resolve_fast_field_by_name(
             .find(|(sf, _)| sf == &search_field)
             .map(|(_, data)| data.is_array)
             .unwrap_or(false);
-        if is_array {
-            Some(WhichFastField::Array(
-                field_name.to_string(),
-                search_field.field_type(),
-            ))
+        let cardinality = if is_array {
+            FieldCardinality::List
         } else {
-            Some(WhichFastField::Named(
-                field_name.to_string(),
-                search_field.field_type(),
-            ))
-        }
+            FieldCardinality::Scalar
+        };
+        Some(WhichFastField::named(
+            field_name,
+            search_field.field_type(),
+            cardinality,
+            FieldDelivery::Eager,
+        ))
     } else {
         None
     }

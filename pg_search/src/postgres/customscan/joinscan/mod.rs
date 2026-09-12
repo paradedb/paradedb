@@ -363,15 +363,19 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 /// Check whether it is safe to push LIMIT into the JoinScan plan.
 ///
 /// Returns `true` when ALL of:
-/// 1. No plan node above the join consumes the full row set: window
-///    functions, set-returning functions in the target list, and
-///    GROUP BY / GROUPING SETS / HAVING all need every joined row, so a
-///    LIMIT applied inside the scan starves them (issue #5561: an
+/// 1. No plan node above the join consumes the full row set:
+///    set-returning functions in the target list and GROUP BY /
+///    GROUPING SETS / HAVING all need every joined row, so a LIMIT
+///    applied inside the scan starves them (issue #5561: an
 ///    unpartitioned `count(*) OVER ()` returned the LIMIT instead of
 ///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
 ///    these queries; the parse flags are checked directly because
 ///    `limit_tuples == -1` also means "parameterized LIMIT", which is
-///    safe to push.
+///    safe to push. Window functions are no longer declined here: the
+///    scan absorbs them (#5637) with the limit applied above the window
+///    operator in its DataFusion plan, and a window function the scan
+///    does not absorb (e.g. in a resjunk ORDER BY entry) already
+///    declined the whole path in `validate_and_build_clause`.
 /// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
 /// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also

@@ -1723,7 +1723,11 @@ fn phrase_prefix(
         )
         .unwrap()
     });
-    let mut query = PhrasePrefixQuery::new(terms.collect());
+    let terms: Vec<_> = terms.collect();
+    if terms.is_empty() {
+        return Ok(Box::new(EmptyQuery));
+    }
+    let mut query = PhrasePrefixQuery::new(terms);
     if let Some(max_expansions) = max_expansions {
         query.set_max_expansions(max_expansions)
     }

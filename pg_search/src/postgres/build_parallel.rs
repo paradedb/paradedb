@@ -637,13 +637,22 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
 /// routed to a partition by the leader's kd-tree boundaries and its ctid appended to the
+enum PartitionSpillField {
+    Ctid,
+    Categorized(Box<(SearchField, CategorizedFieldData)>),
+}
+
+/// A worker's partition spill state.
+///
+/// Phase 1 routes each scanned row to a partition by evaluating its `partition_by` fields and
+/// consulting the global kd-tree (see [`KdTree::route`]), then appends the row's ctid to that
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
     tree: KdTree,
-    /// The `partition_by` fields in `tree.dims()` order, resolved to the index's categorized
+    /// The `partition_by` fields in `tree.dims()` order, resolved to either `Ctid` or the index's categorized
     /// fields so the callback can project each scanned row onto them.
-    dim_fields: Vec<(SearchField, CategorizedFieldData)>,
+    dim_fields: Vec<PartitionSpillField>,
     files: PartitionSpillFiles,
     /// A key's encoding can depend on the version that created the index, so routing has to
     /// convert values the way the document build does.
@@ -661,13 +670,20 @@ impl PartitionSpill {
             .dims()
             .iter()
             .map(|dim| {
-                categorized_fields
-                    .iter()
-                    .find(|(field, _)| field.field_name() == dim)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("partition_by field `{dim}` is not an indexed field")
-                    })
+                if dim.is_ctid() {
+                    Ok(PartitionSpillField::Ctid)
+                } else {
+                    categorized_fields
+                        .iter()
+                        .find(|(field, _)| field.field_name() == dim)
+                        .cloned()
+                        .map(|(field, categorized)| {
+                            PartitionSpillField::Categorized(Box::new((field, categorized)))
+                        })
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("partition_by field `{dim}` is not an indexed field")
+                        })
+                }
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         let files = files.with_partitions(tree.partition_count());
@@ -686,30 +702,35 @@ impl PartitionSpill {
         &self,
         values: *mut pg_sys::Datum,
         isnull: *mut bool,
+        ctid: u64,
         unpacked_composites: &CompositeSlotValues,
     ) -> anyhow::Result<usize> {
         let point = self
             .dim_fields
             .iter()
-            .map(|(field, categorized)| {
-                let (datum, is_null) = get_field_value(
-                    &categorized.source,
-                    categorized.attno,
-                    values,
-                    isnull,
-                    unpacked_composites,
-                );
-                if is_null {
-                    return Ok(PdbOwnedValue::Null);
+            .map(|dim_field| match dim_field {
+                PartitionSpillField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionSpillField::Categorized(boxed) => {
+                    let (field, categorized) = boxed.as_ref();
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        unpacked_composites,
+                    );
+                    if is_null {
+                        return Ok(PdbOwnedValue::Null);
+                    }
+                    let datum = unwrap_alias_datum(datum, categorized.pg_type);
+                    Ok(scalar_datum_to_tantivy_value(
+                        datum,
+                        field.field_type(),
+                        categorized.base_oid,
+                        self.created_by_version,
+                    )?
+                    .0)
                 }
-                let datum = unwrap_alias_datum(datum, categorized.pg_type);
-                Ok(scalar_datum_to_tantivy_value(
-                    datum,
-                    field.field_type(),
-                    categorized.base_oid,
-                    self.created_by_version,
-                )?
-                .0)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(self.tree.route(&point))
@@ -1045,7 +1066,7 @@ impl<'a> WorkerBuildState<'a> {
                     values,
                     isnull,
                 ));
-            partitioning.route(values, isnull, &unpacked_composites)
+            partitioning.route(values, isnull, ctid, &unpacked_composites)
         });
         self.per_row_context.reset();
         partitioning.files.append(pid?, ctid);

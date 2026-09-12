@@ -26,7 +26,7 @@ USING bm25 (
 ) WITH (
     key_field = 'id',
     -- Join keys: comments.post_id = id, users.id = owner_user_id.
-    partition_by = 'id,owner_user_id'
+    partition_by = 'ctid'
 );
 
 CREATE INDEX badges_idx ON badges
@@ -38,7 +38,8 @@ USING bm25 (
     class,
     tag_based
 ) WITH (
-    key_field = 'id'
+    key_field = 'id',
+    partition_by = 'ctid'
  );
 
 CREATE INDEX comments_idx ON comments
@@ -51,7 +52,7 @@ USING bm25 (
     (user_display_name::pdb.literal)
 ) WITH (
     key_field = 'id',
-    partition_by = 'post_id'
+    partition_by = 'ctid'
 );
 
 CREATE INDEX users_idx ON users
@@ -62,5 +63,5 @@ USING bm25 (
     reputation
 ) WITH (
     key_field = 'id',
-    partition_by = 'id'
+    partition_by = 'ctid'
 );

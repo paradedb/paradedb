@@ -37,6 +37,30 @@ CREATE INDEX partition_by_test_idx ON partition_by_test
     USING paradedb (id, name, tenant_id, created_at)
     WITH (key_field='id', partition_by=' tenant_id ,  created_at ');
 DROP INDEX partition_by_test_idx;
+\echo 'Test 1.4: partition_by with ctid'
+Test 1.4: partition_by with ctid
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING paradedb (id, name, tenant_id)
+    WITH (key_field='id', partition_by='ctid');
+SELECT id, name FROM partition_by_test WHERE name @@@ 'Alice';
+ id | name  
+----+-------
+  1 | Alice
+(1 row)
+
+DROP INDEX partition_by_test_idx;
+\echo 'Test 1.5: partition_by with multiple fields including ctid'
+Test 1.5: partition_by with multiple fields including ctid
+CREATE INDEX partition_by_test_idx ON partition_by_test
+    USING paradedb (id, name, tenant_id)
+    WITH (key_field='id', partition_by='tenant_id, ctid');
+SELECT id, name FROM partition_by_test WHERE name @@@ 'Alice';
+ id | name  
+----+-------
+  1 | Alice
+(1 row)
+
+DROP INDEX partition_by_test_idx;
 DROP TABLE partition_by_test CASCADE;
 -- SECTION 2: Error cases
 \echo '=== SECTION 2: Error cases ==='

@@ -140,12 +140,25 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
-/// Where a late-materialized string/bytes column's fast-field fetch runs. On, the scan emits
-/// doc addresses and a `TantivyFetchExec` resolves term ordinals at the decode point. Off,
-/// the scan resolves them in doc order and only the dictionary decode is deferred. The
-/// knob is what makes the scan-side fetch reachable, for its tests and as an override
-/// for the plans where the deferred fetch loses.
-static DEFER_COLUMN_FETCH: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Where one half of a late-materialized string column's lookup runs. `Auto` leaves the
+/// choice to the placement rule; `On` keeps the step as late as the other half allows; `Off`
+/// runs it inside the scan.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DeferredPlacement {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"on"]
+    On,
+    #[name = c"off"]
+    Off,
+}
+
+static DEFER_COLUMN_FETCH: GucSetting<DeferredPlacement> =
+    GucSetting::<DeferredPlacement>::new(DeferredPlacement::Auto);
+
+static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
+    GucSetting::<DeferredPlacement>::new(DeferredPlacement::Auto);
 
 /// Allows the user to enable or disable the SegmentedTopK optimization.
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
@@ -349,7 +362,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.enable_aggregate_late_materialization",
         c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. Off until selective late materialization can decide when deferral pays. Default is false.",
+        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. The placement rule for deferred string columns does not cover this trade, so it stays off. Default is false.",
         &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),
@@ -584,14 +597,34 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
+    GucRegistry::define_enum_guc(
         c"paradedb.defer_column_fetch",
+<<<<<<< HEAD
         c"Defer the fast-field fetch of late-materialized string columns to the decode point",
         c"When on, a scan emits doc addresses for its late-materialized string/bytes columns \
           and their term ordinals are resolved at the point where they are decoded. When off, \
           the scan resolves the term ordinals itself, in doc order, and only the dictionary \
           decode is deferred. Default is on.",
+=======
+        c"Where the columnar-field fetch of a late-materialized string column runs",
+        c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
+          rows reach it out of doc order or multiplied by a join, in which case the scan \
+          resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \
+          the decode runs; 'off' always runs it in the scan.",
+>>>>>>> 04945c58d (feat: placed the fetch and the decode of a deferred column per source. (#6231))
         &DEFER_COLUMN_FETCH,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.defer_string_decode",
+        c"Where the dictionary decode of a late-materialized string column runs",
+        c"When 'auto' (default), the placement rule defers the decode to the point where the \
+          string is consumed unless a join multiplies the rows on the way and nothing above \
+          bounds them, in which case the scan decodes the column. 'on' always defers the \
+          decode; 'off' never defers a string column.",
+        &DEFER_STRING_DECODE,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -942,8 +975,12 @@ pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
 }
 
-pub fn defer_column_fetch() -> bool {
+pub fn defer_column_fetch() -> DeferredPlacement {
     DEFER_COLUMN_FETCH.get()
+}
+
+pub fn defer_string_decode() -> DeferredPlacement {
+    DEFER_STRING_DECODE.get()
 }
 
 pub fn mpp_debug() -> bool {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789203789201,
+  "lastUpdate": 1789203797217,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -314746,6 +314746,42 @@ window.BENCHMARK_DATA = {
             "value": 10.480427556336812,
             "unit": "median tps",
             "extra": "avg tps: 9.112942744586482, max tps: 12.370349753441047, count: 59428"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789203775605,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.509032728793711,
+            "unit": "median tps",
+            "extra": "avg tps: 6.98842112206709, max tps: 7.899567407409115, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.483327863893507,
+            "unit": "median tps",
+            "extra": "avg tps: 9.103614864179193, max tps: 12.358893468387397, count: 59404"
           }
         ]
       }

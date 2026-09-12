@@ -42,7 +42,6 @@ USING paradedb (
     numeric_field2,
     numeric_field3
 ) WITH (
-    key_field = 'id',
     text_fields = '{"string_field1": {"fast": true, "tokenizer": {"type": "keyword"}}, "string_field2": {"fast": true, "tokenizer": {"type": "keyword"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}, "numeric_field3": {"fast": true}}'
 );

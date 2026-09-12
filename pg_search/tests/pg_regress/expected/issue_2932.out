@@ -8,7 +8,7 @@ CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
-CREATE INDEX on mock_items USING paradedb (id, description, rating) WITH (key_field='id');
+CREATE INDEX on mock_items USING paradedb (id, description, rating);
 -- Expressions involving pdb.score currently use a normal scan rather than Top K.
 SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using Top K scan (using Normal instead). Reason: ORDER BY expressions containing pdb.score() cannot be evaluated in the index. This may cause poor performance on large datasets. Remedies: Only standalone pdb.score() or sums of pdb.score() across tables are supported in ORDER BY. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)

@@ -10,8 +10,7 @@ USING paradedb (
   id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 SELECT description, rating
 FROM mock_items
@@ -26,8 +25,7 @@ USING paradedb (
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 -- direct indexed column should take precedence over aliased expression matches
 SELECT description, rating
@@ -43,8 +41,7 @@ USING paradedb (
   (description::pdb.simple),
   (description::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 -- description is not ambiguous here
 SELECT description, rating
@@ -59,8 +56,7 @@ USING paradedb (
   (description::pdb.simple('alias=simple_description')),
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
-)
-WITH (key_field='id');
+);
 
 -- description is ambiguous here
 SELECT description, rating
@@ -95,8 +91,7 @@ USING paradedb (
     )::aliased_description_fields
   ),
   rating
-)
-WITH (key_field='id');
+);
 
 -- description is ambiguous here
 SELECT description, rating
@@ -130,8 +125,7 @@ USING paradedb (
     )::partially_aliased_description_fields
   ),
   rating
-)
-WITH (key_field='id');
+);
 
 -- description is not ambiguous here
 SELECT description, rating

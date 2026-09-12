@@ -45,8 +45,7 @@ fn manual_vacuum(mut conn: PgConnection) {
 
     "
     CREATE INDEX idxsadvac ON public.sadvac
-    USING paradedb (id, data)
-    WITH (key_field = 'id');
+    USING paradedb (id, data);
     ".execute(&mut conn);
     assert_eq!(count_func(&mut conn), ROW_COUNT, "post create index");
 

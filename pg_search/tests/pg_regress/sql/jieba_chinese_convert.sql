@@ -35,8 +35,7 @@ INSERT INTO test_chinese_convert (title, content) VALUES
 
 -- Create index with T2S conversion
 CREATE INDEX test_chinese_bm25 ON test_chinese_convert
-USING paradedb (id, (title::pdb.jieba('chinese_convert=t2s')), (content::pdb.jieba('chinese_convert=t2s')))
-WITH (key_field='id');
+USING paradedb (id, (title::pdb.jieba('chinese_convert=t2s')), (content::pdb.jieba('chinese_convert=t2s')));
 
 -- Test 6: Query with Traditional Chinese (should match both Traditional and Simplified)
 SELECT id, title FROM test_chinese_convert 
@@ -71,8 +70,7 @@ ORDER BY id;
 -- Test 12: Test with S2T index
 DROP INDEX test_chinese_bm25;
 CREATE INDEX test_chinese_bm25 ON test_chinese_convert
-USING paradedb (id, (title::pdb.jieba('chinese_convert=s2t')))
-WITH (key_field='id');
+USING paradedb (id, (title::pdb.jieba('chinese_convert=s2t')));
 
 SELECT id, title FROM test_chinese_convert 
 WHERE title ||| '标题'

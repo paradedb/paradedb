@@ -21,11 +21,9 @@ ADD CONSTRAINT foreign_key_product_id
 FOREIGN KEY (product_id)
 REFERENCES mock_items_rrf(id);
 CREATE INDEX orders_rrf_idx ON orders_rrf
-USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
-WITH (key_field = 'order_id');
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name);
 CREATE INDEX mock_items_rrf_idx ON mock_items_rrf
-USING paradedb (id, description, category, rating)
-WITH (key_field = 'id');
+USING paradedb (id, description, category, rating);
 -- RRF Query
 PREPARE rrf_query(text, text) AS
 WITH order_search AS (

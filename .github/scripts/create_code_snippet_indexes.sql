@@ -13,10 +13,8 @@ USING paradedb (
   (lower(description)::pdb.literal('alias=literal_description'))
 )
 WITH (
-  key_field = 'id',
   json_fields = '{"metadata":{"fast":true}}'
 );
 
 CREATE INDEX orders_idx ON orders
-USING paradedb (order_id, product_id, order_quantity, order_total, customer_name)
-WITH (key_field = 'order_id');
+USING paradedb (order_id, product_id, order_quantity, order_total, customer_name);

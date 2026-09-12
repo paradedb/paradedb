@@ -30,7 +30,7 @@ FROM generate_series(1, 10000) AS g;
 
 CREATE INDEX inventory_items_idx ON "inventory_items" USING paradedb (
     id, supplier_id, condition, availability, customer_rating, sales_rank, is_certified, location_count
-) WITH (key_field='id');
+);
 
 SELECT "id"
 FROM "inventory_items" AS "InventoryItems"

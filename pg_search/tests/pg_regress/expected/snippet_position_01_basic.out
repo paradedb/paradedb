@@ -16,8 +16,6 @@ CREATE INDEX ON snippet_test USING paradedb (
     id,
     content,
     titles
-) WITH (
-    key_field = 'id'
 );
 SELECT id, pdb.snippet(content), pdb.snippet_positions(content)
 FROM snippet_test

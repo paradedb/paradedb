@@ -15,7 +15,6 @@ CREATE TABLE fn_wrapped_agg_logs (
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
 USING paradedb (log_id, description, category)
 WITH (
-    key_field = 'log_id',
     text_fields = '{
         "description": {},
         "category": {"fast": true}
@@ -30,7 +29,7 @@ INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
     ('info message', 'app');
 -- Test 1: Basic pdb.agg() with window function (should work)
 -- Use paradedb.all() to force custom scan
--- Only select indexed fields (log_id is the key_field)
+-- Only select indexed fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
@@ -296,8 +295,7 @@ UPDATE fn_wrapped_agg_logs SET score = log_id * 10;
 -- Recreate index with score column using v2 API
 DROP INDEX fn_wrapped_agg_logs_idx;
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING paradedb (log_id, description, (category::pdb.literal), score)
-WITH (key_field = 'log_id');
+USING paradedb (log_id, description, (category::pdb.literal), score);
 -- Test 5: pdb.agg() wrapped in jsonb_pretty (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))

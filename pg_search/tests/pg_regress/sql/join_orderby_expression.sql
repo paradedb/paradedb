@@ -49,14 +49,12 @@ UPDATE companies SET big_id = id;
 
 CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"big_id": {"fast": true}}'
 );
 
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
 USING paradedb (id, company_id, amount, (round_type::pdb.literal))
 WITH (
-    key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
 );
 
@@ -459,7 +457,6 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 
 CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'
 );
 

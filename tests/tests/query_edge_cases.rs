@@ -27,7 +27,7 @@ fn select_everything(mut conn: PgConnection) {
         value text
     );
     INSERT INTO test_table (value) VALUES ('beer'), ('wine'), ('cheese');
-    CREATE INDEX test_index ON test_table USING paradedb (id, value) WITH (key_field='id');
+    CREATE INDEX test_index ON test_table USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
@@ -48,7 +48,7 @@ fn query_empty_table(mut conn: PgConnection) {
     );
 
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (key_field='id', text_fields='{"value": {}}');
+    USING paradedb (id, value) WITH (text_fields='{"value": {}}');
     "#
     .execute(&mut conn);
 
@@ -80,7 +80,7 @@ fn unary_not_issue2141(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (key_field='id', text_fields='{"value": {}}');
+    USING paradedb (id, value) WITH (text_fields='{"value": {}}');
     "#
     .execute(&mut conn);
 
@@ -143,7 +143,6 @@ fn not_operator_preserves_null_semantics_issue_5264(mut conn: PgConnection) {
 
     CREATE INDEX min_repro_idx ON min_repro
     USING paradedb (id, color) WITH (
-        key_field = 'id',
         text_fields = '{"color": {"tokenizer": {"type": "keyword"}, "fast": true}}'
     );
     "#
@@ -182,7 +181,6 @@ fn negated_boolean_composition_preserves_null_semantics_issue_5264(mut conn: PgC
 
     CREATE INDEX bool_comp_repro_idx ON bool_comp_repro
     USING paradedb (id, color, shape) WITH (
-        key_field = 'id',
         text_fields = '{
             "color": {"tokenizer": {"type": "keyword"}, "fast": true},
             "shape": {"tokenizer": {"type": "keyword"}, "fast": true}
@@ -239,7 +237,6 @@ fn bitmap_index_scan_preserves_null_semantics_issue_5264(mut conn: PgConnection)
 
     CREATE INDEX bitmap_repro_idx ON bitmap_repro
     USING paradedb (id, quantity) WITH (
-        key_field = 'id',
         numeric_fields = '{"quantity": {"fast": true}}'
     );
 
@@ -286,7 +283,6 @@ fn negated_exists_returns_missing_rows_issue_5264(mut conn: PgConnection) {
 
     CREATE INDEX exists_repro_idx ON exists_repro
     USING paradedb (id, color) WITH (
-        key_field = 'id',
         text_fields = '{"color": {"tokenizer": {"type": "keyword"}, "fast": true}}'
     );
     "#
@@ -367,7 +363,6 @@ fn negated_predicate_preserves_empty_array_not_null_issue_5264(mut conn: PgConne
 
     CREATE INDEX array_repro_idx ON array_repro
     USING paradedb (id, tags) WITH (
-        key_field = 'id',
         text_fields = '{"tags": {"tokenizer": {"type": "keyword"}, "fast": true}}'
     );
     "#

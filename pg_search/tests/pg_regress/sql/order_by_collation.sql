@@ -89,7 +89,6 @@ CREATE INDEX collation_test_idx ON collation_test USING paradedb (
     priority
 )
 WITH (
-        key_field = 'id',
         text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_case_insensitive": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
         numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
     );
@@ -290,7 +289,6 @@ VALUES ('berlin', 3600000),
 
 CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
 WITH (
-        key_field = 'id',
         text_fields = '{"city": {"indexed": true, "fast": true}}',
         numeric_fields = '{"population": {"indexed": true, "fast": true}}',
         sort_by = 'city ASC NULLS FIRST'
@@ -405,13 +403,11 @@ CREATE INDEX collation_join_products_idx ON collation_join_products USING parade
     description
 )
 WITH (
-        key_field = 'id',
         text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
     );
 
 CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
 WITH (
-        key_field = 'id',
         text_fields = '{"supplier_name": {"fast": true}}',
         numeric_fields = '{"product_id": {"fast": true}}'
     );

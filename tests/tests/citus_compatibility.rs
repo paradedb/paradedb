@@ -89,12 +89,10 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     // Create BM25 indexes (triggers pg_search planner hook)
     r#"
     CREATE INDEX products_idx ON products 
-    USING paradedb (id, name, description, category) 
-    WITH (key_field='id');
+    USING paradedb (id, name, description, category);
 
     CREATE INDEX reviews_idx ON reviews 
-    USING paradedb (id, content, rating) 
-    WITH (key_field='id');
+    USING paradedb (id, content, rating);
     "#
     .execute(&mut conn);
 
@@ -325,8 +323,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     // Now create BM25 index on the distributed table (true sharded BM25 index)
     r#"
     CREATE INDEX articles_search_idx ON articles 
-    USING paradedb (id, title, body) 
-    WITH (key_field='id');
+    USING paradedb (id, title, body);
     "#
     .execute(&mut conn);
 
@@ -491,8 +488,7 @@ fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
     // Create BM25 index on regular table
     r#"
     CREATE INDEX events_search_idx ON events 
-    USING paradedb (event_id, event_type, event_data) 
-    WITH (key_field='event_id');
+    USING paradedb (event_id, event_type, event_data);
     "#
     .execute(&mut conn);
 

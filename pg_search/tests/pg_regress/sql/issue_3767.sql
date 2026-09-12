@@ -51,8 +51,7 @@ FROM (
 LATERAL generate_series(1, t.ct);
 
 CREATE INDEX textidx_parade_core ON testcore
-USING paradedb (dwf_doid, author)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, author);
 
 -- Running this repeatedly with pauses is the best way to repro the issue
 -- At some point, Postgres decides that all the results are visible/don't need to be heap checked

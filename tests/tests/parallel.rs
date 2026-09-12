@@ -49,7 +49,6 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
     USING paradedb (id, description)
     WITH (
-        key_field = 'id',
         text_fields = '{
             "description": {}
         }'
@@ -119,7 +118,6 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     CREATE INDEX index_a_bm25 ON public.index_a
     USING paradedb (id, content)
     WITH (
-        key_field = 'id',
         text_fields = '{
             "content": {}
         }'
@@ -128,7 +126,6 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     CREATE INDEX index_b_bm25 ON public.index_b
     USING paradedb (id, content)
     WITH (
-        key_field = 'id',
         text_fields = '{
             "content": {}
         }'
@@ -235,12 +232,10 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
 
     -- Create BM25 indexes BEFORE inserting data
     CREATE INDEX idx_parade_core ON core
-    USING paradedb (dwf_doid, author)
-    WITH (key_field='dwf_doid');
+    USING paradedb (dwf_doid, author);
 
     CREATE INDEX idx_parade_document_text ON document_text
-    USING paradedb (dwf_doid, full_text)
-    WITH (key_field='dwf_doid');
+    USING paradedb (dwf_doid, full_text);
     "#
     .execute(&mut conn);
 
@@ -399,21 +394,18 @@ async fn test_parallel_rescan_does_not_double_scan(database: Db) -> Result<()> {
     CREATE INDEX idx_rescan_users ON rescan_users
     USING paradedb (id, name, age)
     WITH (
-        key_field = 'id',
         text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
         numeric_fields = '{ "age": { "fast": true } }'
     );
     CREATE INDEX idx_rescan_products ON rescan_products
     USING paradedb (id, name, age)
     WITH (
-        key_field = 'id',
         text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
         numeric_fields = '{ "age": { "fast": true } }'
     );
     CREATE INDEX idx_rescan_orders ON rescan_orders
     USING paradedb (id, name, age)
     WITH (
-        key_field = 'id',
         text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
         numeric_fields = '{ "age": { "fast": true } }'
     );
@@ -529,7 +521,6 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     CREATE INDEX idx_test ON test
     USING paradedb (column_a, column_b)
     WITH (
-        key_field='column_a',
         target_segment_count = 1
     );
     "#

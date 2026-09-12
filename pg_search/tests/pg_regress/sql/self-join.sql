@@ -28,8 +28,7 @@ INSERT INTO test_items (description) VALUES
     ('bear toy');
 
 -- Create BM25 index
-CREATE INDEX test_items_idx ON test_items USING paradedb (id, description)
-WITH (key_field = 'id');
+CREATE INDEX test_items_idx ON test_items USING paradedb (id, description);
 
 -- Test 1: Simple self-join with AND condition and score on both sides
 -- a.description @@@ 'bear' AND b.description @@@ 'teddy bear'
@@ -114,8 +113,7 @@ INSERT INTO test_orders (item_id, customer) VALUES
     (2, 'bob'),
     (1, 'charlie');
 
-CREATE INDEX test_orders_idx ON test_orders USING paradedb (order_id, customer)
-WITH (key_field = 'order_id');
+CREATE INDEX test_orders_idx ON test_orders USING paradedb (order_id, customer);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id,

@@ -10,8 +10,7 @@ CALL paradedb.create_paradedb_test_table(
 
 -- Create the BM25 index
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description)
-WITH (key_field='id');
+USING paradedb (id, description);
 
 -- Test 1: Basic prepared statement with score and parameter
 PREPARE search_desc(text, int) AS

@@ -32,7 +32,6 @@ CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
     string_field3,
     content
 ) WITH (
-    key_field = 'id',
     text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );

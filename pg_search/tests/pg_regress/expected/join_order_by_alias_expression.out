@@ -30,13 +30,13 @@ USING paradedb (
     company_id,
     (lower(company_name::text)::pdb.literal_normalized('ascii_folding=true')),
     (company_name::pdb.simple('alias=company_name_words', 'ascii_folding=true', 'columnar=true'))
-) WITH (key_field=contact_id, numeric_fields='{"company_id": {"fast": true}}');
+) WITH (numeric_fields='{"company_id": {"fast": true}}');
 CREATE INDEX tech_installs_idx ON tech_installs
 USING paradedb (
     unique_id,
     company_id,
     technology_name
-) WITH (key_field=unique_id, numeric_fields='{"company_id": {"fast": true}}');
+) WITH (numeric_fields='{"company_id": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 -- =====================================================================
 -- Test 1: ORDER BY lower(company_name) — previously errored with

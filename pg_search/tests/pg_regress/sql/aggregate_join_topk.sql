@@ -53,7 +53,6 @@ INSERT INTO topk_tags (product_id, tag_name) VALUES
 CREATE INDEX topk_products_idx ON topk_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
@@ -61,7 +60,6 @@ WITH (
 CREATE INDEX topk_tags_idx ON topk_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );

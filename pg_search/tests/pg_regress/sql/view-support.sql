@@ -35,14 +35,12 @@ INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
 CREATE INDEX idx_products_2023_bm25 ON products_2023
 USING paradedb (id, product_name, amount, sale_date)
 WITH (
-    key_field = 'id',
     text_fields = '{"product_name": {}}'
 );
 
 CREATE INDEX idx_products_2024_bm25 ON products_2024
 USING paradedb (id, product_name, amount, sale_date)
 WITH (
-    key_field = 'id',
     text_fields = '{"product_name": {}}'
 );
 

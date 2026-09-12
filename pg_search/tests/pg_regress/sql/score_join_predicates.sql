@@ -46,14 +46,14 @@ CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
-) WITH (key_field = 'id');
+);
 
 CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
-) WITH (key_field = 'id');
+);
 
 -- Commented out for now because it has an oid in the output, which changes on every run
 -- Show the problematic query plan

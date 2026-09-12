@@ -35,8 +35,7 @@ INSERT INTO snippet_type_test (content) VALUES
     ('Another test with multiple test occurrences');
 
 CREATE INDEX snippet_type_test_idx ON snippet_type_test
-USING paradedb (id, content)
-WITH (key_field = 'id');
+USING paradedb (id, content);
 
 -- Test the actual usage and output
 SELECT 

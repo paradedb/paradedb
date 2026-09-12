@@ -13,7 +13,6 @@ CREATE TABLE mpp_date_events (
 CREATE INDEX mpp_date_events_idx ON mpp_date_events
 USING paradedb (id, created_at, amount)
 WITH (
-    key_field = 'id',
     target_segment_count = 2
 );
 

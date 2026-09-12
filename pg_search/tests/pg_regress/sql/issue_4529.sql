@@ -25,12 +25,10 @@ INSERT INTO typmod_products VALUES
 
 -- Index using typmod syntax — the field IS fast (verified below)
 CREATE INDEX typmod_products_idx ON typmod_products
-    USING paradedb (id, ((name)::pdb.literal_normalized), description, supplier_id)
-    WITH (key_field = 'id');
+    USING paradedb (id, ((name)::pdb.literal_normalized), description, supplier_id);
 
 CREATE INDEX typmod_suppliers_idx ON typmod_suppliers
-    USING paradedb (id, ((name)::pdb.literal_normalized))
-    WITH (key_field = 'id');
+    USING paradedb (id, ((name)::pdb.literal_normalized));
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -64,12 +62,10 @@ DROP INDEX typmod_suppliers_idx;
 -- Re-index with lower() expression — the fast field stores lowered values,
 -- so pulling up raw 'name' from it would return wrong data.
 CREATE INDEX typmod_products_idx ON typmod_products
-    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')), description, supplier_id)
-    WITH (key_field = 'id');
+    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')), description, supplier_id);
 
 CREATE INDEX typmod_suppliers_idx ON typmod_suppliers
-    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')))
-    WITH (key_field = 'id');
+    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')));
 
 -- JoinScan must NOT activate here — 'name' is not a direct fast field,
 -- and the expression index stores lower(name) which differs from name.

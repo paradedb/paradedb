@@ -13,8 +13,7 @@ FROM generate_series(1, 100) rating, generate_series(1, rating);
 INSERT INTO products (rating)
 VALUES (null);
 CREATE INDEX products_idx ON products
-USING paradedb (id, rating)
-WITH (key_field='id');
+USING paradedb (id, rating);
 -- These should not be pushed down
 -- No LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

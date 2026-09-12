@@ -23,7 +23,6 @@ CREATE TABLE orders
 CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age)
     WITH (
     target_segment_count = 2,
-    key_field = 'id',
     text_fields = '
             {
                 "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
@@ -35,7 +34,6 @@ CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age)
 CREATE INDEX idxorders ON orders USING paradedb (id, uuid, name, color, age)
     WITH (
     target_segment_count = 2,
-    key_field = 'id',
     text_fields = '
             {
                 "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },

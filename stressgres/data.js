@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789205065321,
+  "lastUpdate": 1789205121374,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -322982,6 +322982,126 @@ window.BENCHMARK_DATA = {
             "value": 18.297836279772916,
             "unit": "median tps",
             "extra": "avg tps: 26.512746783756043, max tps: 1291.6926081598804, count: 57423"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789205117618,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 174.091137734269,
+            "unit": "median tps",
+            "extra": "avg tps: 178.59808996159387, max tps: 220.2800404056289, count: 57366"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 303.7369736600274,
+            "unit": "median tps",
+            "extra": "avg tps: 326.7988610673344, max tps: 489.4871582228228, count: 57366"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3999.5395124751085,
+            "unit": "median tps",
+            "extra": "avg tps: 3988.223226064029, max tps: 4351.601555757284, count: 57366"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 180.18944102330835,
+            "unit": "median tps",
+            "extra": "avg tps: 185.29790216336966, max tps: 228.97596380119853, count: 57366"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3413.2450915301697,
+            "unit": "median tps",
+            "extra": "avg tps: 3412.4571135523292, max tps: 3518.419680976989, count: 57366"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3415.069789470164,
+            "unit": "median tps",
+            "extra": "avg tps: 3404.1543334261837, max tps: 3446.9605631153627, count: 57366"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 153.73171885456102,
+            "unit": "median tps",
+            "extra": "avg tps: 157.06444271680468, max tps: 185.8659522206633, count: 57366"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 270.5992606017412,
+            "unit": "median tps",
+            "extra": "avg tps: 281.2366047903032, max tps: 381.76539933710626, count: 57366"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 513.2106011817542,
+            "unit": "median tps",
+            "extra": "avg tps: 521.9619767840696, max tps: 599.9110246248906, count: 57366"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 586.2401026362547,
+            "unit": "median tps",
+            "extra": "avg tps: 597.1336601955943, max tps: 703.5241377001255, count: 57366"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1270.9738135235498,
+            "unit": "median tps",
+            "extra": "avg tps: 1269.2197426990356, max tps: 1275.5255957410277, count: 57366"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 324.81822705698494,
+            "unit": "median tps",
+            "extra": "avg tps: 349.82721536311965, max tps: 584.1019091574067, count: 57366"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 539.2040258529603,
+            "unit": "median tps",
+            "extra": "avg tps: 549.5819876951771, max tps: 648.4125263481272, count: 57366"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2293.0946539111214,
+            "unit": "median tps",
+            "extra": "avg tps: 2294.6531860962764, max tps: 2342.040377059984, count: 57366"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1773.698013551874,
+            "unit": "median tps",
+            "extra": "avg tps: 1756.386705833603, max tps: 1811.6294495433099, count: 57366"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 5.585241314155014,
+            "unit": "median tps",
+            "extra": "avg tps: 14.823900260536782, max tps: 758.0001227960199, count: 57366"
           }
         ]
       }

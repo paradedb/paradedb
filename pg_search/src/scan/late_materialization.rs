@@ -329,8 +329,11 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             for expr in &proj.expr {
                 let mut cols = HashSet::new();
                 expr.add_column_refs(&mut cols);
+                // Traced through the input, not through this node. A projection's own
+                // schema holds what it produces, so an input column an expression consumes
+                // and does not re-emit is absent from it and would trace to nothing.
                 let uses_deferred = cols.iter().any(|c| {
-                    if let Some(base_col) = trace_column(node, c) {
+                    if let Some(base_col) = trace_column(proj.input.as_ref(), c) {
                         deferred_fields.iter().any(|df| base_col.is(df))
                     } else {
                         false

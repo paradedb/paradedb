@@ -1792,11 +1792,9 @@ WARNING:  JoinScan not used: join conditions must reference columnar indexed fie
 (3 rows)
 
 -- Test 27b: Global window function over a JOIN with fast-field join keys
--- Unlike Test 27 (whose TEXT join keys already disqualify JoinScan), this join
--- is otherwise JoinScan-compatible, so the empty OVER () window aggregate is
--- the only reason for falling back to PostgreSQL's WindowAgg.
--- Should use a custom scan once https://github.com/paradedb/paradedb/issues/5637
--- is implemented.
+-- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
+-- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
+-- aggregates and computes them in its DataFusion plan (issue #5637).
 CREATE TABLE product_reviews (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,
@@ -1848,9 +1846,9 @@ ORDER BY r.score DESC
 LIMIT 3;
  id |    name     | score | total_count | total_score | avg_score | min_score | max_score 
 ----+-------------+-------+-------------+-------------+-----------+-----------+-----------
-  1 | MacBook Pro |    95 |           4 |         321 |           |        65 |        95
-  3 | ThinkPad X1 |    91 |           4 |         321 |           |        65 |        95
-  1 | MacBook Pro |    70 |           4 |         321 |           |        65 |        95
+  1 | MacBook Pro |    95 |           4 |         321 |     80.25 |        65 |        95
+  3 | ThinkPad X1 |    91 |           4 |         321 |     80.25 |        65 |        95
+  1 | MacBook Pro |    70 |           4 |         321 |     80.25 |        65 |        95
 (3 rows)
 
 -- Test 27c: Window aggregates embedded in target list expressions:

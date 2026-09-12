@@ -43,41 +43,119 @@ pub(crate) fn register_hook() {
             }
 
             let mut candidates = Vec::new();
-            for path in PgList::<pg_sys::Path>::from_pg((*rel).pathlist).iter_ptr() {
+            let mut partial_candidates = Vec::new();
+            let paths = PgList::<pg_sys::Path>::from_pg((*rel).pathlist);
+            let partial_paths = PgList::<pg_sys::Path>::from_pg((*rel).partial_pathlist);
+            for path in paths.iter_ptr().chain(partial_paths.iter_ptr()) {
                 if (*path).type_ != pg_sys::NodeTag::T_IndexPath
                     || (*path).pathtype != pg_sys::NodeTag::T_IndexScan
-                    || !(*path).param_info.is_null()
-                    || (*path).parallel_aware
                 {
                     continue;
                 }
                 let path = &*path.cast::<pg_sys::IndexPath>();
                 let index = &*path.indexinfo;
-                if index.hypothetical
-                    || !index.relam.is_paradedb_am()
-                    || !covers_required_attributes(path)
-                {
+                if index.hypothetical || !index.relam.is_paradedb_am() {
                     continue;
                 }
+                let Some(target) = index_only_target(root, path) else {
+                    continue;
+                };
 
-                candidates.push(pg_sys::create_index_path(
-                    root,
-                    path.indexinfo,
-                    path.indexclauses,
-                    path.indexorderbys,
-                    path.indexorderbycols,
-                    path.path.pathkeys,
-                    path.indexscandir,
-                    true,
-                    null_mut(),
-                    1.0,
-                    false,
-                ));
+                let required_outer = path
+                    .path
+                    .param_info
+                    .as_ref()
+                    .map_or(null_mut(), |params| params.ppi_req_outer);
+                // Match PostgreSQL's get_loop_count, including unique-ified semijoin inputs.
+                let loop_count = {
+                    let relation = |id: i32| {
+                        (id < (*root).simple_rel_array_size)
+                            .then(|| *(*root).simple_rel_array.add(id as usize))
+                            .filter(|rel| !rel.is_null() && !pg_sys::is_dummy_rel(*rel))
+                    };
+                    let mut loop_count = f64::INFINITY;
+                    let mut outer_relid = pg_sys::bms_next_member(required_outer, -1);
+                    while outer_relid >= 0 {
+                        if let Some(outer_rel) = relation(outer_relid) {
+                            let mut rows = (*outer_rel).rows;
+                            for join in
+                                PgList::<pg_sys::SpecialJoinInfo>::from_pg((*root).join_info_list)
+                                    .iter_ptr()
+                            {
+                                if (*join).jointype != pg_sys::JoinType::JOIN_SEMI
+                                    || !pg_sys::bms_is_member(
+                                        (*rel).relid as i32,
+                                        (*join).syn_lefthand,
+                                    )
+                                    || !pg_sys::bms_is_member(outer_relid, (*join).syn_righthand)
+                                {
+                                    continue;
+                                }
+                                let mut rhs_rows = 1.0;
+                                let mut rhs_relid =
+                                    pg_sys::bms_next_member((*join).syn_righthand, -1);
+                                while rhs_relid >= 0 {
+                                    if let Some(rhs_rel) = relation(rhs_relid) {
+                                        rhs_rows *= (*rhs_rel).rows;
+                                    }
+                                    rhs_relid =
+                                        pg_sys::bms_next_member((*join).syn_righthand, rhs_relid);
+                                }
+                                rows = rows.min(pg_sys::estimate_num_groups(
+                                    root,
+                                    (*join).semi_rhs_exprs,
+                                    rhs_rows,
+                                    null_mut(),
+                                    null_mut(),
+                                ));
+                            }
+                            loop_count = loop_count.min(rows);
+                        }
+                        outer_relid = pg_sys::bms_next_member(required_outer, outer_relid);
+                    }
+                    if loop_count.is_finite() && loop_count > 0.0 {
+                        loop_count
+                    } else {
+                        1.0
+                    }
+                };
+                let create_path = |partial| {
+                    let candidate = pg_sys::create_index_path(
+                        root,
+                        path.indexinfo,
+                        path.indexclauses,
+                        path.indexorderbys,
+                        path.indexorderbycols,
+                        path.path.pathkeys,
+                        path.indexscandir,
+                        true,
+                        required_outer,
+                        loop_count,
+                        partial,
+                    );
+                    (*candidate).path.pathtarget = target;
+                    candidate
+                };
+                if !path.path.parallel_aware {
+                    candidates.push(create_path(false));
+                }
+                // Index-only scans can qualify for workers even when heap scans do not.
+                if index.amcanparallel && (*rel).consider_parallel && required_outer.is_null() {
+                    let candidate = create_path(true);
+                    if (*candidate).path.parallel_workers > 0 {
+                        partial_candidates.push(candidate);
+                    } else {
+                        pg_sys::pfree(candidate.cast());
+                    }
+                }
             }
 
             // add_path can remove existing paths, so finish reading the pathlist first.
             for candidate in candidates {
                 pg_sys::add_path(rel, candidate.cast());
+            }
+            for candidate in partial_candidates {
+                pg_sys::add_partial_path(rel, candidate.cast());
             }
         }
     }
@@ -88,15 +166,28 @@ pub(crate) fn register_hook() {
     }
 }
 
-// Like PostgreSQL's check_index_only, but exclude filters enforced by exact index conditions.
-unsafe fn covers_required_attributes(path: &pg_sys::IndexPath) -> bool {
+// Exclude filters and output columns needed only by exact index conditions.
+unsafe fn index_only_target(
+    root: *mut pg_sys::PlannerInfo,
+    path: &pg_sys::IndexPath,
+) -> Option<*mut pg_sys::PathTarget> {
     unsafe {
         let index = &*path.indexinfo;
         let rel = &*index.rel;
+        let target = &*path.path.pathtarget;
+        let params = path.path.param_info.as_ref();
         let mut required = null_mut();
-        pg_sys::pull_varattnos((*rel.reltarget).exprs.cast(), rel.relid, &mut required);
-
-        for restriction in PgList::<pg_sys::RestrictInfo>::from_pg(index.indrestrictinfo).iter_ptr()
+        let restrictions = PgList::<pg_sys::RestrictInfo>::from_pg(index.indrestrictinfo);
+        let join_restrictions = PgList::<pg_sys::RestrictInfo>::from_pg(
+            params.map_or(null_mut(), |params| params.ppi_clauses),
+        );
+        // Nonmovable join clauses can still need these columns above the scan.
+        let remaining_joins =
+            PgList::<pg_sys::RestrictInfo>::from_pg(params.map_or(null_mut(), |_| rel.joininfo));
+        for restriction in restrictions
+            .iter_ptr()
+            .chain(join_restrictions.iter_ptr())
+            .chain(remaining_joins.iter_ptr())
         {
             if !(*restriction).pseudoconstant
                 && !pg_sys::is_redundant_with_indexclauses(restriction, path.indexclauses)
@@ -112,6 +203,42 @@ unsafe fn covers_required_attributes(path: &pg_sys::IndexPath) -> bool {
             }
         }
 
+        // Join-only fallback Vars need not be emitted once their index conditions are enforced.
+        let available = params.map_or(null_mut(), |params| {
+            pg_sys::bms_union(rel.relids, params.ppi_req_outer)
+        });
+        let scan_target =
+            params.map_or(path.path.pathtarget, |_| pg_sys::create_empty_pathtarget());
+        let expressions = PgList::<pg_sys::Expr>::from_pg(target.exprs);
+        for (i, expr) in expressions.iter_ptr().enumerate() {
+            let sortgroupref = if target.sortgrouprefs.is_null() {
+                0
+            } else {
+                *target.sortgrouprefs.add(i)
+            };
+            if params.is_some() && (*expr).type_ == pg_sys::NodeTag::T_Var && sortgroupref == 0 {
+                let var = &*expr.cast::<pg_sys::Var>();
+                if var.varno as u32 == rel.relid
+                    && var.varlevelsup == 0
+                    && !pg_sys::bms_is_member(
+                        var.varattno as i32 - pg_sys::FirstLowInvalidHeapAttributeNumber,
+                        required,
+                    )
+                    && pg_sys::bms_is_subset(
+                        *rel.attr_needed.add((var.varattno - rel.min_attr) as usize),
+                        available,
+                    )
+                {
+                    continue;
+                }
+            }
+            pg_sys::pull_varattnos(expr.cast(), rel.relid, &mut required);
+            if params.is_some() {
+                pg_sys::add_column_to_pathtarget(scan_target, expr, sortgroupref);
+            }
+        }
+        pg_sys::bms_free(available);
+
         let mut returnable = null_mut();
         for column in 0..index.ncolumns as usize {
             let attno = *index.indexkeys.add(column);
@@ -124,9 +251,12 @@ unsafe fn covers_required_attributes(path: &pg_sys::IndexPath) -> bool {
         }
 
         let covered = pg_sys::bms_is_subset(required, returnable);
+        if covered && params.is_some() {
+            pg_sys::set_pathtarget_cost_width(root, scan_target);
+        }
         pg_sys::bms_free(required);
         pg_sys::bms_free(returnable);
-        covered
+        covered.then_some(scan_target)
     }
 }
 

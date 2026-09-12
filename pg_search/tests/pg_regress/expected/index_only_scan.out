@@ -508,6 +508,125 @@ BEGIN
     END IF;
 END;
 $$;
+CREATE TABLE index_only_terms (term text, pattern text, min_id bigint);
+INSERT INTO index_only_terms VALUES ('needle', '%missing%', 10000), ('missing', '%needle%', 0);
+ANALYZE index_only_terms;
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+-- Parameterized index conditions and covered join filters preserve index-only scans.
+DO $$
+DECLARE
+    plan json;
+    query text;
+BEGIN
+    FOREACH query IN ARRAY ARRAY[
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term',
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id'
+    ] LOOP
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || query INTO plan;
+        IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Nested Loop'
+            OR plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Only Scan'
+            OR (plan #>> '{0,Plan,Plans,1,Heap Fetches}')::int IS DISTINCT FROM 0
+            OR (plan #>> '{0,Plan,Plans,1,Actual Loops}')::numeric IS DISTINCT FROM 2
+            OR position('t.term' IN plan #>> '{0,Plan,Plans,1,Index Cond}') = 0
+        THEN
+            RAISE EXCEPTION 'expected a parameterized index-only scan without heap fetches: %', plan;
+        END IF;
+    END LOOP;
+END;
+$$;
+SELECT t.term, count(*), sum(d.id)
+FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id
+GROUP BY t.term ORDER BY t.term;
+  term  | count |    sum    
+--------+-------+-----------
+ needle | 10000 | 150005000
+(1 row)
+
+-- A join filter on a nonreturnable field still requires heap access.
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.body LIKE t.pattern'
+    INTO plan;
+    IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan'
+        OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 0
+    THEN
+        RAISE EXCEPTION 'expected a heap scan for a nonreturnable join filter: %', plan;
+    END IF;
+END;
+$$;
+DO $$
+DECLARE
+    plan json;
+    projection text;
+BEGIN
+    FOREACH projection IN ARRAY ARRAY['d.ctid', 'd.xmin', 'd'] LOOP
+        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT ' || projection || ' FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term'
+        INTO plan;
+        IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan' THEN
+            RAISE EXCEPTION 'expected a heap scan for an explicit system column or whole row: %', plan;
+        END IF;
+    END LOOP;
+END;
+$$;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+DROP TABLE index_only_terms;
+SET max_parallel_workers_per_gather = 2;
+SET min_parallel_index_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+-- Parallel index-only scans work with and without an eligible parallel heap path.
+DO $$
+DECLARE
+    plan json;
+    heap_threshold text;
+BEGIN
+    FOREACH heap_threshold IN ARRAY ARRAY['0', '1GB'] LOOP
+        PERFORM set_config('min_parallel_table_scan_size', heap_threshold, true);
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+        INTO plan;
+        IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Gather'
+            OR (plan #>> '{0,Plan,Workers Planned}')::int <= 0
+            OR plan #>> '{0,Plan,Plans,0,Node Type}' IS DISTINCT FROM 'Index Only Scan'
+            OR (plan #>> '{0,Plan,Plans,0,Parallel Aware}')::boolean IS DISTINCT FROM true
+            OR (plan #>> '{0,Plan,Plans,0,Heap Fetches}')::int IS DISTINCT FROM 0
+            OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 20000
+        THEN
+            RAISE EXCEPTION 'expected a parallel index-only scan without heap fetches: %', plan;
+        END IF;
+    END LOOP;
+END;
+$$;
+SELECT count(*), sum(id), count(DISTINCT uuid), count(nullable_uuid)
+FROM index_only_lifetime WHERE body @@@ 'needle';
+ count |    sum    | count | count 
+-------+-----------+-------+-------
+ 20000 | 200010000 | 20000 | 10000
+(1 row)
+
+SET min_parallel_index_scan_size = '1GB';
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM index_only_lifetime WHERE body @@@ ''needle'''
+    INTO plan;
+    IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
+        OR (plan #>> '{0,Plan,Parallel Aware}')::boolean IS DISTINCT FROM false
+    THEN
+        RAISE EXCEPTION 'expected a serial index-only scan below the parallel threshold: %', plan;
+    END IF;
+END;
+$$;
+SET max_parallel_workers_per_gather = 0;
+RESET min_parallel_index_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET paradedb.enable_aggregate_custom_scan;
 -- UUID datums must survive caller resets without accumulating across rows.
 DO $$
 DECLARE

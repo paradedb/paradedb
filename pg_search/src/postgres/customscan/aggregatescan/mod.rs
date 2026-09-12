@@ -2683,7 +2683,22 @@ unsafe fn detect_join_aggregate_topk(
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
 /// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
+///
+/// The replacement List is allocated in the same memory context as the original
+/// targetlist. A parameterless PREPARE reuses a generic plan across EXECUTE, so
+/// writing a per-query List into that plan leaves a dangling pointer (#6136).
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    if (*plan).targetlist.is_null() {
+        return;
+    }
+
+    let tlist_ctx = pg_sys::GetMemoryChunkContext((*plan).targetlist.cast());
+    PgMemoryContexts::For(tlist_ctx).switch_to(|_| {
+        replace_aggrefs_in_target_list_in_current_context(plan);
+    });
+}
+
+unsafe fn replace_aggrefs_in_target_list_in_current_context(plan: *mut pg_sys::Plan) {
     use pgrx::pg_guard;
 
     if (*plan).targetlist.is_null() {

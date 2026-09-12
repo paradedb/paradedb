@@ -84,8 +84,8 @@ FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb))
    Sort Key: p.category
@@ -103,7 +103,7 @@ ORDER BY p.category;
            :         TantivyFetchExec: fetch=[tag_name]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3]
            :             CooperativeExec
-           :               PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (20 rows)
@@ -161,8 +161,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (sum(t.weight)), (pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb))
    Sort Key: p.category
@@ -181,7 +181,7 @@ ORDER BY p.category;
            :           TantivyFetchExec: fetch=[tag_name]
            :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
            :               CooperativeExec
-           :                 PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :                 PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
            :               CooperativeExec
            :                 PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (21 rows)
@@ -860,7 +860,7 @@ ORDER BY p.category;
            :         TantivyFetchExec: fetch=[tag_name]
            :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, tag_name@3, weight@4]
            :             CooperativeExec
-           :               PgSearchScan: table=p, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR keyboard","lenient":null,"conjunction_mode":null}}}}
            :             CooperativeExec
            :               PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (20 rows)

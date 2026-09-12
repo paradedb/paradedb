@@ -193,8 +193,8 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.category, f.title, (count(*))
    ->  Sort
@@ -217,22 +217,23 @@ LIMIT 10;
                  :   └──────────────────────────────────────────────────
                  :     ┌───── Stage 2 ── tasks=2, partitions=6
                  :     │ RepartitionExec: partitioning=Hash([category@0, title@1], 6), input_partitions=3
-                 :     │   AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
-                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
-                 :     │       CoalescePartitionsExec
-                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-                 :     │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-                 :     │         DistributedLeafExec:
-                 :     │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
-                 :     │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+                 :     │   TantivyDecodeExec: decode=[category]
+                 :     │     AggregateExec: mode=Partial, gby=[category@1 as category, title@0 as title], aggr=[count(1) as agg_0]
+                 :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, category@2]
+                 :     │         CoalescePartitionsExec
+                 :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                 :     │           DistributedLeafExec:
+                 :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+                 :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
                  :     └──────────────────────────────────────────────────
                  :       ┌───── Stage 1 ── tasks=2, partitions=4
                  :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
                  :       │   DistributedLeafExec:
-                 :       │     t0: PgSearchScan: table=f, segments=2, eager=[title, category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                 :       │     t1: PgSearchScan: table=f, segments=2, eager=[title, category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │     t0: PgSearchScan: table=f, segments=2, fetch=[category], eager=[title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       │     t1: PgSearchScan: table=f, segments=2, fetch=[category], eager=[title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :       └──────────────────────────────────────────────────
-(37 rows)
+(38 rows)
 
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id

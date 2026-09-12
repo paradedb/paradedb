@@ -776,8 +776,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
@@ -788,11 +788,9 @@ LIMIT 3;
                Aggregates: COUNT(*)
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
-                 :   TantivyDecodeExec: decode=[name_icu]
-                 :     TantivyFetchExec: fetch=[name_icu]
-                 :       CooperativeExec
-                 :         PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-(14 rows)
+                 :   CooperativeExec
+                 :     PgSearchScan: table=collation_test, segments=1, eager=[name_icu], visibility=eager, query={"with_index":{"query":"all"}}
+(12 rows)
 
 RESET paradedb.max_term_agg_buckets;
 \echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'

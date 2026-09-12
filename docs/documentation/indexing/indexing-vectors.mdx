@@ -171,7 +171,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (key_field='id', centroid_ratio=0.01, training_samples_per_centroid=32, cluster_replication=1);
+WITH (key_field='id', centroid_ratio=0.01, training_sample_ratio=0.32, cluster_replication=1);
 ```
 
 ```ts Drizzle
@@ -182,7 +182,6 @@ import { indexing } from "@paradedb/drizzle-paradedb";
   indexing
     .paradedbIndex("search_idx", {
       centroidRatio: 0.01,
-      trainingSamplesPerCentroid: 32,
       clusterReplication: 1,
     })
     .on(
@@ -211,7 +210,6 @@ with connection.schema_editor() as schema_editor:
             key_field="id",
             name="search_idx",
             centroid_ratio=0.01,
-            training_samples_per_centroid=32,
             cluster_replication=1,
         ),
     )
@@ -232,7 +230,6 @@ idx = Index(
         "key_field": "id",
         **indexing.VectorIndexOptions(
             centroid_ratio=0.01,
-            training_samples_per_centroid=32,
             cluster_replication=1,
         ),
     },
@@ -255,7 +252,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
   name: :search_idx,
   index_options: {
     centroid_ratio: 0.01,
-    training_samples_per_centroid: 32,
     cluster_replication: 1
   }
 )
@@ -268,7 +264,6 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
     .HasCentroidRatio(0.01)
-    .HasTrainingSamplesPerCentroid(32)
     .HasClusterReplication(1);
 ```
 
@@ -282,14 +277,14 @@ modelBuilder.Entity<MockItem>()
   improving recall at the cost of a slower, more memory-intensive build. Must be
   between `0.000001` and `1.0`.
 </ParamField>
-<ParamField body="training_samples_per_centroid" default={32}>
-  The number of vectors sampled per centroid to train the k-means clustering at
+<ParamField body="training_sample_ratio" default={0.32}>
+  The fraction of indexed vectors sampled to train the k-means clustering at
   build time. Higher values yield better-quality centroids at the cost of a
-  slower build. Must be between `1` and `100000`.
+  slower, more memory-intensive build. Must be between `0.000001` and `1.0`,
+  where `1.0` trains on every vector. The default samples `0.32 * num_vectors`,
+  about 32 vectors per centroid at the default `centroid_ratio`.
 </ParamField>
 <ParamField body="cluster_replication" default={1}>
-  The number of clusters each vector is written into: its primary cluster plus
-  up to `cluster_replication - 1` next-nearest clusters. Higher values can
-  improve recall for filtered queries at the cost of a larger index. The default
-  of `1` disables replication.
+  Accepted for compatibility. Vectors are currently assigned to their single
+  nearest cluster regardless of this value.
 </ParamField>

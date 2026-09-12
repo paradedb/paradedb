@@ -21,7 +21,6 @@
 use std::cmp::Ordering;
 use std::ops::Bound;
 
-use tantivy::Index;
 use tantivy::index::{SegmentId, SegmentReader};
 
 use super::SegmentStats;
@@ -44,7 +43,7 @@ pub(crate) fn persisted_split_points(
         return Ok(None);
     }
     let directory = MvccSatisfies::Snapshot.directory(indexrel);
-    let index = Index::open(directory.clone())?;
+    let index = crate::index::open_index(directory.clone())?;
     let Ok(field) = index.schema().get_field(partition_by) else {
         return Ok(None);
     };

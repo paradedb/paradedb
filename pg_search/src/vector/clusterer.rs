@@ -20,13 +20,19 @@ use std::sync::{Arc, Mutex};
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
 use tantivy::vector::{
     IvfCentroids, IvfClusterer, IvfMatrix, IvfMergeSettings, IvfTrainingVectors, IvfVectors,
-    Metric, VectorOptions,
+    Metric, RouterKind, VectorOptions,
 };
 use tantivy::{Index, TantivyError};
 
 use crate::postgres::options::BM25IndexOptions;
 
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
+
+/// The IVF centroid router every pg_search index builds and opens: a stacked
+/// IVF over the trained centroids. Tantivy persists the router kind in each
+/// segment's `.centroids` file and refuses to open a segment under a
+/// different kind, so this is a build-time constant, not a GUC.
+pub const IVF_ROUTER: RouterKind = RouterKind::Stacked;
 
 /// A `HierarchicalSuperKMeans` built for assignment, tagged with the
 /// `(dim, angular)` it was constructed for. `assign` never reads the clusterer's
@@ -43,13 +49,8 @@ struct AssignClusterer {
 pub struct SuperKMeansIvfClusterer {
     config: HierarchicalSuperKMeansConfig,
     centroid_ratio: f32,
-    training_samples_per_centroid: usize,
+    training_sample_ratio: f32,
     assign_batch_size: usize,
-    /// Total cells a vector is written into (SPANN `ReplicaCount`). `1` (the
-    /// default) is primary-only Phase 1; `> 1` adds up to `replicas - 1`
-    /// next-nearest cells at merge time, selected by tantivy's centroid
-    /// selector (exact scan or `RelativeNeighborhoodGraph`).
-    replicas: usize,
     /// Lazily-built clusterer reused across `assign` batches.
     assign_cache: Arc<Mutex<Option<AssignClusterer>>>,
 }
@@ -59,12 +60,8 @@ impl std::fmt::Debug for SuperKMeansIvfClusterer {
         f.debug_struct("SuperKMeansIvfClusterer")
             .field("config", &self.config)
             .field("centroid_ratio", &self.centroid_ratio)
-            .field(
-                "training_samples_per_centroid",
-                &self.training_samples_per_centroid,
-            )
+            .field("training_sample_ratio", &self.training_sample_ratio)
             .field("assign_batch_size", &self.assign_batch_size)
-            .field("replicas", &self.replicas)
             .finish_non_exhaustive()
     }
 }
@@ -74,13 +71,11 @@ impl Default for SuperKMeansIvfClusterer {
         // Per-run knobs live on the nested `base` config in superkmeans-rs.
         let mut config = HierarchicalSuperKMeansConfig::default();
         config.base.suppress_warnings = true;
-        config.base.sampling_fraction = 1.0;
         Self {
             config,
             centroid_ratio: 0.01,
-            training_samples_per_centroid: 32,
+            training_sample_ratio: 0.32,
             assign_batch_size: DEFAULT_ASSIGN_BATCH_SIZE,
-            replicas: 1,
             assign_cache: Arc::new(Mutex::new(None)),
         }
     }
@@ -96,36 +91,32 @@ impl SuperKMeansIvfClusterer {
         self
     }
 
-    pub fn with_training_samples_per_centroid(
-        mut self,
-        training_samples_per_centroid: usize,
-    ) -> Self {
-        self.training_samples_per_centroid = training_samples_per_centroid;
+    pub fn with_training_sample_ratio(mut self, training_sample_ratio: f32) -> Self {
+        self.training_sample_ratio = training_sample_ratio;
         self
     }
 
-    pub fn with_replicas(mut self, replicas: usize) -> Self {
-        self.replicas = replicas.max(1);
-        self
+    /// Density-preserving leaf cap: a subsample of size
+    /// `training_sample_ratio * N` should still yield about
+    /// `centroid_ratio * N` leaves.
+    fn max_leaf_size(&self) -> usize {
+        let leaf = (self.training_sample_ratio / self.centroid_ratio).round() as usize;
+        leaf.max(1)
     }
 }
 
 impl IvfClusterer for SuperKMeansIvfClusterer {
-    fn centroid_ratio(&self) -> f32 {
-        self.centroid_ratio
-    }
-
-    fn training_samples_per_centroid(&self) -> usize {
-        self.training_samples_per_centroid
+    fn training_sample_ratio(&self) -> f32 {
+        self.training_sample_ratio
     }
 
     fn assign_batch_size(&self) -> usize {
         self.assign_batch_size
     }
 
-    fn merge_settings(&self, total_target_docs: usize) -> tantivy::Result<IvfMergeSettings> {
+    fn merge_settings(&self, _total_target_docs: usize) -> tantivy::Result<IvfMergeSettings> {
         let centroid_ratio = self.centroid_ratio;
-        let training_samples_per_centroid = self.training_samples_per_centroid;
+        let training_sample_ratio = self.training_sample_ratio;
         let assign_batch_size = self.assign_batch_size;
 
         assert!(
@@ -133,24 +124,14 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             "centroid_ratio must be in (0, 1], got {centroid_ratio}"
         );
         assert!(
-            training_samples_per_centroid > 1,
-            "training_samples_per_centroid must be > 1, got {training_samples_per_centroid}"
+            training_sample_ratio > 0.0 && training_sample_ratio <= 1.0,
+            "training_sample_ratio must be in (0, 1], got {training_sample_ratio}"
         );
         assert!(assign_batch_size > 0, "assign_batch_size must be > 0");
 
-        let num_centroids =
-            ((total_target_docs as f64) * f64::from(centroid_ratio)).ceil() as usize;
-        let num_centroids = num_centroids.clamp(1, total_target_docs);
-
         Ok(IvfMergeSettings {
-            num_centroids,
-            training_samples_per_centroid,
+            training_sample_ratio,
             assign_batch_size,
-            // Replica cells (the `replicas - 1` non-primary cells per vector)
-            // are selected by tantivy in the field's raw metric —
-            // router-consistent with query-time `rank_centroids`. No angular
-            // assumption on this clusterer remains.
-            replicas: self.replicas.max(1),
         })
     }
 
@@ -158,7 +139,6 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         &self,
         options: &VectorOptions,
         vectors: IvfTrainingVectors,
-        num_centroids: usize,
     ) -> tantivy::Result<IvfCentroids> {
         let IvfTrainingVectors::F32(vectors) = vectors;
         let dim = options.dim();
@@ -184,20 +164,27 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
         }
 
         let mut config = self.config.clone();
+        config.max_leaf_size = self.max_leaf_size();
         if matches!(options.metric(), Metric::Cosine | Metric::Dot) {
             config.base.angular = true;
         }
-        let mut clusterer = HierarchicalSuperKMeans::with_config(num_centroids, dim, config);
+        let mut clusterer = HierarchicalSuperKMeans::with_config(dim, config);
         let rows = vectors.matrix.rows;
         // Hand the buffer to superkmeans so it can rotate in place instead of
-        // keeping a second full-size copy alive through training.
+        // keeping a second full-size copy alive through training. Callers
+        // (tantivy merge) are responsible for sampling before this call.
         let centroids = clusterer.train_owned(vectors.matrix.values, rows);
-        if centroids.len() != num_centroids * dim {
+        if !centroids.len().is_multiple_of(dim) {
             return Err(TantivyError::InternalError(format!(
-                "SuperKMeans returned {} centroid floats, expected {}",
-                centroids.len(),
-                num_centroids * dim
+                "SuperKMeans returned {} centroid floats, not a multiple of dim {dim}",
+                centroids.len()
             )));
+        }
+        let num_centroids = centroids.len() / dim;
+        if num_centroids == 0 {
+            return Err(TantivyError::InternalError(
+                "SuperKMeans returned zero centroids".to_string(),
+            ));
         }
         Ok(IvfCentroids::F32(IvfMatrix {
             values: centroids,
@@ -274,11 +261,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
                 _ => {
                     let mut config = self.config.clone();
                     config.base.angular = angular;
-                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(
-                        centroid_matrix.rows,
-                        dim,
-                        config,
-                    ));
+                    let clusterer = Arc::new(HierarchicalSuperKMeans::with_config(dim, config));
                     *cache = Some(AssignClusterer {
                         dim,
                         angular,
@@ -289,8 +272,7 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
             }
         };
         // Primary (nearest-centroid) assignment via superkmeans, angular-aware
-        // for cosine/dot. One cluster per vector — no replication. `n_centroids`
-        // is derived from the centroid slice length.
+        // for cosine/dot. One cluster per vector.
         let primaries = clusterer.assign(
             vector_matrix.values,
             centroid_matrix.values.as_slice(),
@@ -300,11 +282,17 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     }
 }
 
+/// Select the IVF router on an opened index. Every `Index::open` in pg_search
+/// goes through this: tantivy requires a configured router both to build IVF
+/// segments at merge time and to open existing ones for search.
+pub fn set_ivf_router(index: &mut Index) -> tantivy::Result<()> {
+    index.set_ivf_router(IVF_ROUTER)
+}
+
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let clusterer = SuperKMeansIvfClusterer::new()
         .with_centroid_ratio(options.centroid_ratio())
-        .with_training_samples_per_centroid(options.training_samples_per_centroid())
-        .with_replicas(options.cluster_replication());
+        .with_training_sample_ratio(options.training_sample_ratio());
     index.set_ivf_clusterer(Arc::new(clusterer));
 }
 
@@ -312,26 +300,38 @@ pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
 mod tests {
     use super::*;
 
-    /// Replication is off by default (`replicas = 1`), and non-positive
-    /// configured values clamp to `1` rather than disabling clustering.
     #[test]
-    fn replicas_default_and_clamp() {
-        let total = 100_000;
+    fn max_leaf_size_is_density_preserving() {
+        let clusterer = SuperKMeansIvfClusterer::new()
+            .with_centroid_ratio(0.01)
+            .with_training_sample_ratio(0.32);
+        assert_eq!(clusterer.max_leaf_size(), 32);
+
+        let full = SuperKMeansIvfClusterer::new()
+            .with_centroid_ratio(0.01)
+            .with_training_sample_ratio(1.0);
+        assert_eq!(full.max_leaf_size(), 100);
+    }
+
+    #[test]
+    fn merge_settings_use_training_sample_ratio() {
         let settings = SuperKMeansIvfClusterer::new()
-            .merge_settings(total)
+            .with_training_sample_ratio(0.5)
+            .merge_settings(100_000)
             .unwrap();
-        assert_eq!(settings.replicas, 1, "primary-only by default");
+        assert_eq!(settings.training_sample_ratio, 0.5);
+        assert_eq!(settings.assign_batch_size, DEFAULT_ASSIGN_BATCH_SIZE);
+    }
 
-        let replicated = SuperKMeansIvfClusterer::new()
-            .with_replicas(4)
-            .merge_settings(total)
-            .unwrap();
-        assert_eq!(replicated.replicas, 4);
+    /// The router is fixed per index: setting it twice with the same kind is
+    /// idempotent, so opening the same `Index` through several paths is safe.
+    #[test]
+    fn set_ivf_router_is_idempotent() {
+        use tantivy::schema::Schema;
 
-        let clamped = SuperKMeansIvfClusterer::new()
-            .with_replicas(0)
-            .merge_settings(total)
-            .unwrap();
-        assert_eq!(clamped.replicas, 1, "non-positive clamps to primary-only");
+        let mut index = Index::create_in_ram(Schema::builder().build());
+        set_ivf_router(&mut index).expect("first set");
+        set_ivf_router(&mut index).expect("same kind again");
+        assert!(index.set_ivf_router(RouterKind::Rng).is_err());
     }
 }

@@ -29,8 +29,19 @@ pub use search::*;
 
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
-use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
+use tantivy::directory::Directory;
+use tantivy::{Index, IndexSettings};
+
+/// Open the tantivy index behind `directory` the way every pg_search reader
+/// and writer must: with the IVF centroid router selected. Tantivy refuses
+/// to open an IVF segment for search, or to build one at merge time,
+/// without a configured router.
+pub fn open_index<D: Into<Box<dyn Directory>>>(directory: D) -> tantivy::Result<Index> {
+    let mut index = Index::open(directory)?;
+    crate::vector::clusterer::set_ivf_router(&mut index)?;
+    Ok(index)
+}
 
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///
@@ -46,7 +57,6 @@ pub fn index_settings(
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
-        vector_bounds_scope: options.bounds_scope(),
         ..IndexSettings::default()
     }
 }

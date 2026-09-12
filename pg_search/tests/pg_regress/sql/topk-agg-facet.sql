@@ -958,11 +958,9 @@ ORDER BY p.rating DESC
 LIMIT 3;
 
 -- Test 27b: Global window function over a JOIN with fast-field join keys
--- Unlike Test 27 (whose TEXT join keys already disqualify JoinScan), this join
--- is otherwise JoinScan-compatible, so the empty OVER () window aggregate is
--- the only reason for falling back to PostgreSQL's WindowAgg.
--- Should use a custom scan once https://github.com/paradedb/paradedb/issues/5637
--- is implemented.
+-- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
+-- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
+-- aggregates and computes them in its DataFusion plan (issue #5637).
 CREATE TABLE product_reviews (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,

@@ -96,7 +96,7 @@ fn resolve_var_to_df_col(
     // i64, decimal bytes, avg blobs). Native DataFusion math over those
     // would be wrong, so refuse here: per-node translation then falls back
     // to the PgExprUdf path, whose window inputs decode via
-    // `JoinClauseMapper::window_input`.
+    // `JoinClauseMapper::udf_input`.
     if rti == WINDOW_SENTINEL_VARNO {
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;

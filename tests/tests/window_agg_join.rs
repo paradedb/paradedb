@@ -18,10 +18,9 @@
 //! Global window aggregates (empty `OVER ()`) over a join with fast-field join
 //! keys: the join itself is JoinScan-compatible, so the window aggregate must
 //! not be a reason for the custom scans to decline (issue #5637). The plan
-//! assertions expect the desired post-#5637 behavior and FAIL until it is
-//! implemented; the value assertions must hold no matter which plan executes.
-//! The pg_regress twin is Test 27b in
-//! `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
+//! assertions verify the JoinScan absorbs the window aggregates; the value
+//! assertions must hold no matter which plan executes. The pg_regress twins
+//! are Tests 27b/27c in `pg_search/tests/pg_regress/sql/topk-agg-facet.sql`.
 
 use rstest::*;
 use sqlx::PgConnection;
@@ -151,12 +150,11 @@ fn setup_numeric(conn: &mut PgConnection) {
 fn global_window_aggregates_over_join_numeric(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     setup_numeric(&mut conn);
 
-    // The float8 casts wrap the placeholders, guarding the wintype (NUMERIC)
-    // contract end to end. NOTE: an I/O-coercion cast like `::text` must not
-    // be used here — replace_in_node only recurses through FuncExpr, so a
-    // CoerceViaIO-wrapped WindowFunc is found by extraction but never
-    // replaced, leaving a mixed tree that errors at execution (pre-existing
-    // hook bug, single-table included).
+    // The float8 casts wrap the WindowFuncs, so every aggregate exercises
+    // the expression path: sentinel rewrite, PgExprUdf evaluation, and the
+    // storage-encoded input decode (scaled i64 for SUM/MIN/MAX, the
+    // count+sum blob for AVG) — while keeping the value assertions exact f64
+    // comparisons.
     let query = r#"
         SELECT p.id,
                r.price::float8,

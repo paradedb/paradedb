@@ -354,7 +354,7 @@ pub enum ChildProjection {
         source_rti: SourceRti,
         field_name: String,
     },
-    /// A window function output column,
+    /// A window function output column
     WindowAgg { agg_index: WindowAggIndex },
 }
 

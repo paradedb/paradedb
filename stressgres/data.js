@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789203813131,
+  "lastUpdate": 1789203821184,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -313124,6 +313124,162 @@ window.BENCHMARK_DATA = {
             "value": 17.703125,
             "unit": "median mem",
             "extra": "avg mem: 17.63791659456562, max mem: 17.8359375, count: 59234"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789203785716,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.770647089987772, max cpu: 47.90419, count: 59224"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.40112730111526, max mem: 62.92578125, count: 59224"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.318454077225855, max cpu: 4.7244096, count: 59224"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.25,
+            "unit": "median mem",
+            "extra": "avg mem: 17.24420189925115, max mem: 17.25, count: 59224"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714535402837005, max cpu: 9.425626, count: 59224"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 21.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.62329131243246, max mem: 21.63671875, count: 59224"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 8809,
+            "unit": "median pages",
+            "extra": "avg pages: 8380.66256922869, max pages: 14342.0, count: 59224"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 68.8203125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 65.47393239016277, max relation_size:MB: 112.046875, count: 59224"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 63,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.4666013778198, max segment_count: 90.0, count: 59224"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.644412,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3939531559329614, max cpu: 4.717445, count: 59224"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.253614719117248, max mem: 17.28125, count: 59224"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.960616065706628, max cpu: 43.11377, count: 59224"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 48.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.41409580839271, max mem: 62.17578125, count: 59224"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.289665,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.648706213785825, max cpu: 47.90419, count: 59224"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 46.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.40143261705558, max mem: 57.0546875, count: 59224"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 106.55695343017578,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 202.68921669505664, max replication_lag:MB: 925.4822311401367, count: 59224"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.946314260598232, max cpu: 47.90419, count: 59224"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 51.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.379653940969874, max mem: 63.8125, count: 59224"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.97985059911754, max cpu: 32.621357, count: 59224"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.621362129900884, max mem: 17.80078125, count: 59224"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.315866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.023918687306661, max cpu: 32.876713, count: 59224"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.634102491177565, max mem: 17.8203125, count: 59224"
           }
         ]
       }

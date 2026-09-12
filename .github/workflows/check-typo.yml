@@ -29,7 +29,7 @@ jobs:
       # The `skip` parameter is a total mess, read up before adding.
       # https://github.com/codespell-project/codespell/issues/1915
       - name: Check Typo
-        uses: paradedb/actions/check-typo@a024855293e56a720daa69e6648d023dd0cb9f77
+        uses: paradedb/actions/check-typo@b7703a0b117808acb8a659ca94be8ba274344289
         with:
           ignore-words-file: .codespellignore
           skip: Cargo.lock,./tests,./pg_search/tests/pg_regress,./nix

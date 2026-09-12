@@ -23,6 +23,6 @@ jobs:
 
     steps:
       - name: Validate PR Title Format
-        uses: paradedb/actions/lint-pr-title@b7703a0b117808acb8a659ca94be8ba274344289
+        uses: paradedb/actions/lint-pr-title@v12
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789203781485,
+  "lastUpdate": 1789203789201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -336378,6 +336378,90 @@ window.BENCHMARK_DATA = {
             "value": 577.1727562104963,
             "unit": "median tps",
             "extra": "avg tps: 572.6133890719867, max tps: 638.9235539874866, count: 55382"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04945c58db60269634bac566f5adf264fb829603",
+          "message": "feat: placed the fetch and the decode of a deferred column per source. (#6231)\n\n## Ticket(s) Closed\n\n- Closes #6217\n\n## What\n\nThis PR adds `DeferredPlacementRule`, which decides per source where the\nfetch and the decode of a late-materialized string column run.\n`paradedb.defer_column_fetch` becomes `auto | on | off` and gets a\n`paradedb.defer_string_decode` twin.\n\nStacked on #6247, whose packed encoding this needs for a sort key on the\nnull-supplying side of an outer join.\n\n## Why\n\nThe two halves want different places. The fetch is a columnar read that\nis cheapest in doc order, and a hash join's build side comes back out in\nprobe order. The decode costs the same per row wherever it runs, but a\n1:N join multiplies the rows it runs on, which is how #6156 regressed\n9.5x. #6155 tried row estimates, which flip plans between machines.\n\n## How\n\nThe rule reads the plan's shape, not estimates. A build side, a sort, or\na hash repartition means the rows leave doc order, so the fetch moves\ninto the scan. A join whose other key is not that side's key field means\nfan-out. If nothing above bounds the rows, the decode moves into the\nscan too; a Top-K or `LIMIT` above keeps it deferred. An unknown shape\nkeeps the old placement. The scan shows `fetch=[...]` and `eager=[...]`\nfor what it took over.\n\nThe model follows Liu et al. (PVLDB 2025), with the plan's shape in\nplace of their trained cost model and optimizer cardinalities.\n\n## Tests\n\n- New `late_materialization_placement` regress test.\n- Unit tests for the decision logic.",
+          "timestamp": "2026-09-12T10:43:18+02:00",
+          "tree_id": "aaae729cda492c750b28baf1d993524ed96571a0",
+          "url": "https://github.com/paradedb/paradedb/commit/04945c58db60269634bac566f5adf264fb829603"
+        },
+        "date": 1789203785486,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 192.0281737885944,
+            "unit": "median tps",
+            "extra": "avg tps: 196.12536360552218, max tps: 216.1167739974975, count: 55413"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 194.47370377639615,
+            "unit": "median tps",
+            "extra": "avg tps: 198.62603295282932, max tps: 218.62233491642664, count: 55413"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 172.0151100453918,
+            "unit": "median tps",
+            "extra": "avg tps: 174.46884617506277, max tps: 197.93307537752412, count: 55413"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 446.8234828871672,
+            "unit": "median tps",
+            "extra": "avg tps: 466.7713005897377, max tps: 647.2907312988685, count: 55413"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 329.20639832431993,
+            "unit": "median tps",
+            "extra": "avg tps: 339.1572940533812, max tps: 429.5706491361091, count: 55413"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.852186529629154,
+            "unit": "median tps",
+            "extra": "avg tps: 14.877350926969395, max tps: 16.189505806916703, count: 55413"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 656.5272433851667,
+            "unit": "median tps",
+            "extra": "avg tps: 663.6068192583363, max tps: 754.7902112992388, count: 55413"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 661.4444900868758,
+            "unit": "median tps",
+            "extra": "avg tps: 669.8794002147499, max tps: 772.5351660563772, count: 55413"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 265.20875313964655,
+            "unit": "median tps",
+            "extra": "avg tps: 271.39356960989153, max tps: 325.86716210366603, count: 55413"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 577.2786845868866,
+            "unit": "median tps",
+            "extra": "avg tps: 583.9115580574424, max tps: 648.0733887731969, count: 55413"
           }
         ]
       }

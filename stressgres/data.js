@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789294772414,
+  "lastUpdate": 1789295958904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -108306,6 +108306,54 @@ window.BENCHMARK_DATA = {
             "value": 2771.6733517968846,
             "unit": "median tps",
             "extra": "avg tps: 2697.4589951088997, max tps: 3159.8000705672157, count: 59419"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789295955142,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1578.3957965047575,
+            "unit": "median tps",
+            "extra": "avg tps: 1589.4044445811564, max tps: 1756.136832840573, count: 59407"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.7402551571566836,
+            "unit": "median tps",
+            "extra": "avg tps: 3.017177220891085, max tps: 5.216586598235344, count: 59407"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1866.9528390841747,
+            "unit": "median tps",
+            "extra": "avg tps: 1857.1652183655297, max tps: 1883.32981778434, count: 59407"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1383.7756127132857,
+            "unit": "median tps",
+            "extra": "avg tps: 1277.1970474456093, max tps: 1993.1048993142376, count: 59407"
           }
         ]
       }

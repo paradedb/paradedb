@@ -238,7 +238,6 @@ fn setup_phrase_common_terms(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_phrase_common_idx ON topk_phrase_common USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 10000,
             layer_sizes = '10TB',

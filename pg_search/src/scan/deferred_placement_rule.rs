@@ -790,10 +790,10 @@ mod tests {
             CREATE UNIQUE INDEX placement_expression ON placement_unique (lower(title));
             CREATE INDEX placement_search ON placement_unique USING bm25
                 (title, id, other, nullable, tags, deferred, partial, composite_a, composite_b, normalized)
-                WITH (key_field = 'id', text_fields = '{"title":{"fast":true},"normalized":{"fast":true,"normalizer":"lowercase"}}');
+                WITH (text_fields = '{"title":{"fast":true},"normalized":{"fast":true,"normalizer":"lowercase"}}');
             CREATE TABLE placement_alias (key bigint PRIMARY KEY, id text UNIQUE NOT NULL);
             CREATE INDEX placement_alias_search ON placement_alias USING bm25
-                (key, (lower(id)::pdb.literal('alias=id'))) WITH (key_field = 'key');
+                (key, (lower(id)::pdb.literal('alias=id')));
             "#,
         )
         .unwrap();

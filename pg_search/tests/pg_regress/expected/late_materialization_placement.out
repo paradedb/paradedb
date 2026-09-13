@@ -23,9 +23,9 @@ CREATE TABLE lmp_comments (
     body TEXT
 );
 CREATE INDEX lmp_posts_idx ON lmp_posts USING bm25 (id, title, body)
-WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "body": {}}');
+WITH (text_fields = '{"title": {"fast": true}, "body": {}}');
 CREATE INDEX lmp_comments_idx ON lmp_comments USING bm25 (id, post_id, author, body)
-WITH (key_field = 'id', numeric_fields = '{"post_id": {"fast": true}}', text_fields = '{"author": {"fast": true}, "body": {}}');
+WITH (numeric_fields = '{"post_id": {"fast": true}}', text_fields = '{"author": {"fast": true}, "body": {}}');
 -- Two insert batches per table give each index two segments, enough for the MPP leg to
 -- cut the plan into tasks.
 SET paradedb.global_mutable_segment_rows = 0;
@@ -412,11 +412,11 @@ CREATE TABLE lmp_profiles (
     bio TEXT
 );
 CREATE INDEX lmp_profiles_idx ON lmp_profiles USING bm25 (id, handle, bio)
-WITH (key_field = 'id', numeric_fields = '{"handle": {"fast": true}}');
+WITH (numeric_fields = '{"handle": {"fast": true}}');
 INSERT INTO lmp_profiles (id, handle, bio)
 SELECT i, i, CASE WHEN i % 3 = 0 THEN 'alpha profile' ELSE 'beta profile' END
 FROM generate_series(1, 30) AS i;
--- `handle` is not the key field, but its unique index proves that each comment matches at
+-- The unique index on `handle` proves that each comment matches at
 -- most one profile: the fetch stays deferred.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
@@ -458,8 +458,8 @@ LIMIT 5;
   30 | author 01
 (5 rows)
 
--- The key field alone proves nothing: `id` has no unique index, so the join may fan the
--- comments out, and the comments scan resolves the ordinals itself.
+-- `id` has no unique index, so the join may fan the comments out, and the comments
+-- scan resolves the ordinals itself.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id

@@ -1746,6 +1746,7 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1771,7 +1772,7 @@ LIMIT 3;
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -1782,11 +1783,108 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
+WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
   1 | MacBook Pro |    4.8 | Portable computing devices |           4
   5 | ASUS ROG    |    4.7 | Portable computing devices |           4
   3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
+(3 rows)
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
+-- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
+-- aggregates and computes them in its DataFusion plan (issue #5637).
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+) WITH (key_field='id');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ERROR:  could not find window clause for winref 1
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id |    name     | score | total_count | total_score | avg_score | min_score | max_score 
+----+-------------+-------+-------------+-------------+-----------+-----------+-----------
+  1 | MacBook Pro |    95 |           4 |         321 |     80.25 |        65 |        95
+  3 | ThinkPad X1 |    91 |           4 |         321 |     80.25 |        65 |        95
+  1 | MacBook Pro |    70 |           4 |         321 |     80.25 |        65 |        95
+(3 rows)
+
+-- Test 27c: Window aggregates embedded in target list expressions:
+-- constant arithmetic, a cast, a source column mixed with a window value,
+-- and two window functions in one entry.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ERROR:  could not find window clause for winref 1
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | count_plus_one | avg_score | score_plus_count | count_plus_sum 
+----+-------+----------------+-----------+------------------+----------------
+  1 |    95 |              5 |     80.25 |               99 |            325
+  3 |    91 |              5 |     80.25 |               95 |            325
+  1 |    70 |              5 |     80.25 |               74 |            325
 (3 rows)
 
 -- Test 28: Window function in subquery
@@ -2487,5 +2585,6 @@ LIMIT 5;
 (4 rows)
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

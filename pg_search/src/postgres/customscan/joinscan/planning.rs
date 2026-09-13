@@ -32,6 +32,7 @@ use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
+use super::window_func::{WindowAgg, WindowAggId, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 
 use crate::api::operator::anyelement_query_input_opoid;
@@ -1676,6 +1677,16 @@ pub(super) unsafe fn collect_required_fields(
             }
         }
     }
+
+    // Window aggregate argument columns must be fetched as fast fields for
+    // the window step — whether the aggregate is projected directly
+    // (ChildProjection::WindowAgg) or embedded in an expression, where its
+    // sentinel input never appears in the projection's `input_vars`.
+    for window_agg in join_clause.window_aggs.iter() {
+        if let Some(ci) = &window_agg.col_info {
+            ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+        }
+    }
 }
 
 /// Ensures that a specific attribute from a relation is included in the output fields for a given `JoinSource`.
@@ -2014,18 +2025,8 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
         return false;
     }
     for var_ptr in vars.iter_ptr() {
-        let vno = (*var_ptr).varno as pg_sys::Index;
-        let vattno = (*var_ptr).varattno;
-        let found = sources.iter().any(|s| {
-            if !s.contains_rti(vno) {
-                return false;
-            }
-            let hr = PgSearchRelation::open(s.scan_info.heaprelid);
-            let ir = PgSearchRelation::open(s.scan_info.indexrelid);
-            let td = hr.tuple_desc();
-            resolve_fast_field(vattno as i32, &td, &ir).is_some()
-        });
-        if !found {
+        let var = &*var_ptr;
+        if !resolve_fast_field_from_join_sources(sources, var).is_some() {
             return false;
         }
     }
@@ -2053,6 +2054,14 @@ pub(crate) enum ResolvedExpr {
         expr_node: *mut pg_sys::Expr,
         input_vars: Vec<InputVarInfo>,
         result_type: pg_sys::Oid,
+        /// Window functions embedded in the expression, in walker visit order
+        /// (each one's id ordinal is its position in this Vec). They are
+        /// computed by the scan's window step and fed to expression
+        /// evaluation as opaque inputs; their argument Vars deliberately do
+        /// NOT appear in `input_vars`. The extracted specs carry a
+        /// placeholder resno of 0 in their `WindowAggId` — the caller that
+        /// records them stamps the owning target entry's resno.
+        window_deps: Vec<WindowAgg>,
     },
 }
 
@@ -2136,6 +2145,21 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
     })
 }
 
+pub fn resolve_fast_field_from_join_sources(
+    sources: &[&JoinSource],
+    var: &pg_sys::Var,
+) -> Option<WhichFastField> {
+    sources.iter().find_map(|source| {
+        if !source.contains_rti(var.varno as pg_sys::Index) {
+            return None;
+        }
+        let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+        let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+        let td = hr.tuple_desc();
+        unsafe { resolve_fast_field(var.varattno as i32, &td, &ir) }
+    })
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective ParadeDB indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
@@ -2163,26 +2187,18 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 1: Plain column reference (Var node)
     if let Some(var) = nodecast!(Var, T_Var, expr) {
-        let varno = (*var).varno as pg_sys::Index;
-        let is_fast = sources.iter().any(|source| {
-            if !source.contains_rti(varno) {
-                return false;
-            }
-            let hr = PgSearchRelation::open(source.scan_info.heaprelid);
-            let ir = PgSearchRelation::open(source.scan_info.indexrelid);
-            let td = hr.tuple_desc();
-            resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
-        })
-            || crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                root, varno,
-            )
-            .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
+        let var = unsafe { &*var };
+        let varno = var.varno as pg_sys::Index;
+        let is_fast = resolve_fast_field_from_join_sources(sources, var).is_some() || {
+            crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(root, varno)
+                .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)))
+        };
         if !is_fast {
             return None;
         }
         return Some(ResolvedExpr::Column {
             rti: varno,
-            attno: (*var).varattno,
+            attno: var.varattno,
         });
     }
 
@@ -2219,14 +2235,6 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         );
         return None;
     }
-    if pg_sys::contain_window_function(expr) {
-        pgrx::debug1!(
-            "JoinScan declined: target list expression contains a window \
-             function (tables: {})",
-            tables_str
-        );
-        return None;
-    }
     if pg_sys::contain_volatile_functions(expr) {
         pgrx::debug1!(
             "JoinScan declined: target list expression contains a volatile \
@@ -2239,6 +2247,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     struct ExprDeps {
         vars: Vec<*mut pg_sys::Var>,
         score_rtis: Vec<pg_sys::Index>,
+        window_funcs: Vec<*mut pg_sys::WindowFunc>,
     }
 
     #[pgrx::pg_guard]
@@ -2259,6 +2268,14 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             return false;
         }
 
+        // A window function is an opaque input: the scan's window step
+        // computes it, so its argument Vars are NOT expression inputs.
+        // Record the node and DO NOT recurse into it.
+        if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
+            (*deps).window_funcs.push(wf);
+            return false;
+        }
+
         if let Some(var) = nodecast!(Var, T_Var, stripped) {
             (*deps).vars.push(var);
             return false;
@@ -2270,8 +2287,32 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     let mut deps = ExprDeps {
         vars: Vec::new(),
         score_rtis: Vec::new(),
+        window_funcs: Vec::new(),
     };
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+
+    // Each embedded window function must itself be absorbable (supported
+    // aggregate, bare OVER (), fast-field argument, no FILTER).
+    let mut window_deps = Vec::new();
+    if !deps.window_funcs.is_empty() {
+        let parse = &*(*root).parse;
+        for (ordinal, wf) in deps.window_funcs.iter().enumerate() {
+            // The owning target entry's resno is unknown here; 0 is a
+            // placeholder the recording caller replaces (see `window_deps`).
+            match extract_window_agg(*wf, sources, parse, WindowAggId::nested(0, ordinal)) {
+                Ok(wa) => window_deps.push(wa),
+                Err(e) => {
+                    pgrx::debug1!(
+                        "JoinScan declined: window function in target list \
+                         expression cannot be absorbed: {} (tables: {})",
+                        e,
+                        tables_str
+                    );
+                    return None;
+                }
+            }
+        }
+    }
 
     // Verify score RTIs reference relations in the join
     for score_rti in deps.score_rtis {
@@ -2363,6 +2404,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         expr_node: expr.cast(),
         input_vars,
         result_type,
+        window_deps,
     })
 }
 

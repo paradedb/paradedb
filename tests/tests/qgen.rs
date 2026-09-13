@@ -24,6 +24,7 @@ use tests::fixtures::querygen::pagegen::arb_paging_exprs;
 use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_table};
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
+use tests::fixtures::querygen::windowgen::arb_window_targets;
 use tests::fixtures::querygen::{
     Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
     compare_outcome_retrying, compare_outcome_retrying_on, generated_queries_setup,
@@ -291,7 +292,7 @@ async fn generated_joins_small(database: Db) {
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
     proptest!(qgen_proptest_config(), |(
-        ((join, where_expr, cross_rel), distinct_mode, mut order_parts) in arb_joins_and_wheres(
+        ((join, where_expr, cross_rel), distinct_mode, mut order_parts, window_targets) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
             &where_and_join_columns,
@@ -304,7 +305,8 @@ async fn generated_joins_small(database: Db) {
             (
                 Just((join, where_expr, cross_rel)),
                 arb_distinct_mode(used_tables.clone(), COLUMNS),
-                arb_joinscan_order_parts(used_tables, false),
+                arb_joinscan_order_parts(used_tables.clone(), false),
+                arb_window_targets(used_tables),
             )
         }),
         limit in proptest::option::of(1..=50usize),
@@ -341,6 +343,9 @@ async fn generated_joins_small(database: Db) {
                     target_cols.push(part.clone());
                 }
             }
+        }
+        for target in &window_targets {
+            target_cols.push(target.to_sql());
         }
         for alias in join.unnest_aliases() {
             target_cols.push(alias.to_string());
@@ -387,6 +392,12 @@ async fn generated_joins_small(database: Db) {
         // equivalent, JoinScan intentionally declines to plan (see `rewrite_pruned_join_keys`).
         let expect_custom_scan = gucs.join_custom_scan
             && limit.is_some()
+            && window_targets.iter().all(|t| t.is_absorbable())
+            // DISTINCT + window declines: the window expression is itself a
+            // DISTINCT column, so the query's distinct pathkeys always
+            // contain it and JoinScan's ORDER BY resolution refuses the path
+            // ("unsupported ORDER BY expression shape").
+            && !(distinct_mode.is_distinct() && !window_targets.is_empty())
             && !(!join.has_only_inner() && where_expr.has_null_predicate());
 
         if expect_custom_scan {
@@ -417,8 +428,17 @@ async fn generated_joins_small(database: Db) {
                     || plan_str.contains("ParadeDB Aggregate Scan"),
                 "Query should use ParadeDB Join Scan or Aggregate Scan but got plan: {plan_str}\nQuery: {bm25_query}",
             );
+            // A leftover PostgreSQL WindowAgg node would mean the scan engaged
+            // without absorbing the window aggregates (#5637).
+            if !window_targets.is_empty() {
+                prop_assert!(
+                    !plan_str.contains("WindowAgg"),
+                    "Window aggregates should be absorbed by the JoinScan but got plan: {plan_str}\nQuery: {bm25_query}",
+                );
+            }
         }
 
+        let has_window_targets = !window_targets.is_empty();
         qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &pg_query,
             &bm25_query,
@@ -433,7 +453,37 @@ async fn generated_joins_small(database: Db) {
                     .map(|row| {
                         use sqlx::Row;
                         let id: i64 = row.try_get(0).unwrap_or(0);
-                        format!("{:020}|{:?}", id, row)
+                        if !has_window_targets {
+                            return format!("{:020}|{:?}", id, row);
+                        }
+                        // Typed, fixed-precision formatting when window
+                        // aggregates are projected: AVG decodes through
+                        // Float64/decimal encodings on the scan side while
+                        // PostgreSQL computes exact NUMERIC averages, so the
+                        // raw row Debug representation would differ in
+                        // insignificant digits.
+                        let mut parts = Vec::new();
+                        for i in 0..row.len() {
+                            let part = if let Ok(v) = row.try_get::<i64, _>(i) {
+                                v.to_string()
+                            } else if let Ok(v) = row.try_get::<i32, _>(i) {
+                                v.to_string()
+                            } else if let Ok(v) = row.try_get::<bool, _>(i) {
+                                v.to_string()
+                            } else if let Ok(v) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                                format!("{v:.6}")
+                            } else if let Ok(v) = row.try_get::<f64, _>(i) {
+                                format!("{v:.6}")
+                            } else if let Ok(v) = row.try_get::<String, _>(i) {
+                                v
+                            } else {
+                                // NULLs (and any unhandled type) format
+                                // identically on both sides.
+                                "NULL".to_string()
+                            };
+                            parts.push(part);
+                        }
+                        format!("{:020}|{}", id, parts.join("|"))
                     })
                     .collect();
                 row_strings.sort();

@@ -25,6 +25,7 @@ pub mod orderbygen;
 pub mod pagegen;
 pub mod pdbagggen;
 pub mod wheregen;
+pub mod windowgen;
 
 use std::fmt::{Debug, Write};
 use std::num::NonZeroUsize;

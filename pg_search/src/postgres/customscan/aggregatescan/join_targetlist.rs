@@ -275,7 +275,7 @@ impl JoinAggregateTargetList {
 ///
 /// Returns `None` for unsupported or unknown OIDs. `pdb.agg()` is handled before
 /// this is reached.
-fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
+pub fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
     }

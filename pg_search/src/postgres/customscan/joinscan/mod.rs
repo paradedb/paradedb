@@ -143,6 +143,7 @@ pub mod privdat;
 pub mod range_partitioning_rule;
 pub mod scan_state;
 pub mod visibility_filter;
+pub mod window_func;
 
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
@@ -152,6 +153,7 @@ use self::planning::{
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
+use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -159,7 +161,7 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
-    create_datafusion_session_context,
+    create_datafusion_session_context, numeric_window_field,
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
@@ -183,7 +185,6 @@ use crate::postgres::customscan::mpp::worker_fragments::mpp_plan_has_data_parall
 use arrow_array::Array;
 use datafusion_distributed::shm::MppMesh;
 
-use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::customscan::aggregatescan::datafusion_build;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
@@ -192,12 +193,15 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::{DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, nodecast};
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
+
+use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -359,15 +363,19 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 /// Check whether it is safe to push LIMIT into the JoinScan plan.
 ///
 /// Returns `true` when ALL of:
-/// 1. No plan node above the join consumes the full row set: window
-///    functions, set-returning functions in the target list, and
-///    GROUP BY / GROUPING SETS / HAVING all need every joined row, so a
-///    LIMIT applied inside the scan starves them (issue #5561: an
+/// 1. No plan node above the join consumes the full row set:
+///    set-returning functions in the target list and GROUP BY /
+///    GROUPING SETS / HAVING all need every joined row, so a LIMIT
+///    applied inside the scan starves them (issue #5561: an
 ///    unpartitioned `count(*) OVER ()` returned the LIMIT instead of
 ///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
 ///    these queries; the parse flags are checked directly because
 ///    `limit_tuples == -1` also means "parameterized LIMIT", which is
-///    safe to push.
+///    safe to push. Window functions are no longer declined here: the
+///    scan absorbs them (#5637) with the limit applied above the window
+///    operator in its DataFusion plan, and a window function the scan
+///    does not absorb (e.g. in a resjunk ORDER BY entry) already
+///    declined the whole path in `validate_and_build_clause`.
 /// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
 /// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also
@@ -385,11 +393,6 @@ unsafe fn is_limit_pushdown_safe(
 ) -> Result<(), JoinDeclineReason> {
     // 1. Nothing above the join may need more rows than the LIMIT keeps.
     let parse = (*root).parse;
-    if (*parse).hasWindowFuncs {
-        return Err(JoinDeclineReason::new(
-            "JoinScan not used: LIMIT pushdown is unsafe due to window functions",
-        ));
-    }
     if (*parse).hasTargetSRFs {
         return Err(JoinDeclineReason::new(
             "JoinScan not used: LIMIT pushdown is unsafe due to set-returning functions in the target list",
@@ -627,13 +630,20 @@ impl JoinScan {
 
         // Verify that every target list entry can be evaluated and projected by JoinScan.
         // At UPPERREL_FINAL, no upper projection node exists to compute unhandled expressions.
-        let parse = (*root).parse;
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        let parse = &*(*root).parse;
+        let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+        let mut window_aggs = Vec::new();
         for te in target_list.iter_ptr() {
-            if (*te).resjunk {
+            let te = &*te;
+            if te.resjunk {
+                if pg_sys::contain_window_function(te.expr.cast()) {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: non-SELECTed window functions are not supported",
+                    ));
+                }
                 continue;
             }
-            let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
+            let check_expr = crate::postgres::utils::strip_wrappers(te.expr.cast());
             if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
                 let var = check_expr as *mut pg_sys::Var;
                 let rti = (*var).varno as pg_sys::Index;
@@ -654,11 +664,39 @@ impl JoinScan {
                         "JoinScan not used: score function references a relation outside the join",
                     ));
                 }
-            } else if planning::resolve_target_entry_expr(check_expr, &all_sources, root).is_none()
-            {
-                return Err(JoinDeclineReason::new(
-                    "JoinScan not used: target list expression cannot be evaluated",
-                ));
+            } else if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, check_expr) {
+                let window_agg = match extract_window_agg(
+                    wf,
+                    &all_sources,
+                    parse,
+                    window_func::WindowAggId::bare(te.resno as pg_sys::AttrNumber),
+                ) {
+                    Ok(wa) => wa,
+                    Err(e) => {
+                        return Err(JoinDeclineReason::new(format!("JoinScan not used: {e}")));
+                    }
+                };
+                window_aggs.push(window_agg);
+            } else {
+                match planning::resolve_target_entry_expr(check_expr, &all_sources, root) {
+                    None => {
+                        return Err(JoinDeclineReason::new(
+                            "JoinScan not used: target list expression cannot be evaluated",
+                        ));
+                    }
+                    Some(planning::ResolvedExpr::Expression { window_deps, .. })
+                        if !window_deps.is_empty() =>
+                    {
+                        // Stamp the placeholder ids with the owning entry's
+                        // resno (ordinals were assigned in walker visit
+                        // order during resolution).
+                        for (ordinal, mut wa) in window_deps.into_iter().enumerate() {
+                            wa.id = window_func::WindowAggId::nested(te.resno, ordinal);
+                            window_aggs.push(wa);
+                        }
+                    }
+                    Some(_) => {}
+                }
             }
         }
 
@@ -699,7 +737,8 @@ impl JoinScan {
 
         let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit_offset(limit_offset.clone())
-            .with_distinct(has_distinct);
+            .with_distinct(has_distinct)
+            .with_window_aggs(window_aggs);
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist =
@@ -774,6 +813,9 @@ impl JoinScan {
                 (*rel).reltarget
             }
         };
+        if !pathtarget.is_null() && !rel.is_null() && (*(*rel).reltarget).exprs.is_null() {
+            (*rel).reltarget = pathtarget;
+        }
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,
@@ -1751,6 +1793,7 @@ impl CustomScan for JoinScan {
                             schema.index_of(&col_alias).ok()
                         }
                         privdat::OutputColumnInfo::Var { .. }
+                        | privdat::OutputColumnInfo::WindowAgg { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
                     .collect();
@@ -1898,6 +1941,14 @@ unsafe fn compute_output_columns(
             } else {
                 output_columns.push(privdat::OutputColumnInfo::Pruned);
             }
+        } else if is_supported_window_agg_node(check_expr) {
+            let agg_index = join_clause
+                .window_aggs
+                .find_index(window_func::WindowAggId::bare((*te).resno))
+                .expect(
+                    "At this point, any window agg found should have successfully been extracted and be findable",
+                );
+            output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
         } else {
             output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
@@ -1981,6 +2032,17 @@ unsafe fn build_output_projection(
         if resolved_entries[scan_idx].is_some() {
             continue;
         }
+        // Bare window aggregates are emitted by the direct window-output
+        // path (ChildProjection::WindowAgg); re-resolving them here would
+        // divert integer-typed ones onto the expression/UDF path, and
+        // NUMERIC-wintype ones don't resolve at all (leaving them Pruned,
+        // which projects NULL).
+        if matches!(
+            private_data.output_columns[scan_idx],
+            privdat::OutputColumnInfo::WindowAgg { .. }
+        ) {
+            continue;
+        }
         let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
@@ -2006,7 +2068,8 @@ unsafe fn build_output_projection(
             .output_columns
             .iter()
             .zip(&resolved_entries)
-            .map(|(info, resolved)| {
+            .zip(&scan_target_entries)
+            .map(|((info, resolved), te)| {
                 // If this column belongs to a relation pruned from output (e.g. the RHS
                 // of an Anti Join), do not construct projection expressions referencing
                 // the pruned source, as it does not exist in the physical scan plan.
@@ -2018,9 +2081,24 @@ unsafe fn build_output_projection(
                         expr_node,
                         input_vars,
                         result_type,
+                        window_deps,
                     }) => {
+                        // Embedded window functions cannot survive into the
+                        // serialized expression (the executor cannot evaluate
+                        // a WindowFunc outside a WindowAgg node): serialize a
+                        // copy with each one replaced by a sentinel Var that
+                        // resolves to the window step's output column.
+                        let expr_for_serialization = if window_deps.is_empty() {
+                            (*expr_node).cast::<pg_sys::Node>()
+                        } else {
+                            window_func::rewrite_window_funcs_to_sentinels(
+                                (*expr_node).cast(),
+                                (**te).resno,
+                                &private_data.join_clause.window_aggs,
+                            )
+                        };
                         let expr_string = {
-                            let node_str = pg_sys::nodeToString((*expr_node).cast());
+                            let node_str = pg_sys::nodeToString(expr_for_serialization.cast());
                             std::ffi::CStr::from_ptr(node_str)
                                 .to_string_lossy()
                                 .into_owned()
@@ -2206,6 +2284,25 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
+        // Silent gates: check for lateral unnest or at least 2 sources.
+        let has_lateral_unnest = sources.len() == 1
+            && (1..(*root).simple_rel_array_size).any(|rti| {
+                crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
+                    root,
+                    rti as pg_sys::Index,
+                )
+                .is_some_and(|u| u.source_rti.0 == sources[0].rti)
+            });
+
+        if sources.len() < 2 && !has_lateral_unnest {
+            return Err(JoinPathDecline::Quiet);
+        }
+
+        // Check if any table has a BM25 index. If none do, quiet decline.
+        if !datafusion_build::has_any_bm25_index(&sources) {
+            return Err(JoinPathDecline::Quiet);
+        }
+
         let aliases: Vec<String> = sources
             .iter()
             .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.relid))
@@ -2324,6 +2421,7 @@ impl JoinScan {
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Pruned
                 | privdat::OutputColumnInfo::Unnested { .. }
+                | privdat::OutputColumnInfo::WindowAgg { .. }
                 | privdat::OutputColumnInfo::Expression => {
                     continue;
                 }
@@ -2429,6 +2527,43 @@ impl JoinScan {
                     *datums.add(i) =
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
+                }
+                privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                    let window_agg = state
+                        .custom_state()
+                        .join_clause
+                        .window_aggs
+                        .get(*agg_index)
+                        .expect("A window agg output column should always have a valid index");
+                    let agg_col = batch.column(i);
+                    let numeric = match numeric_window_field(
+                        window_agg.agg_type,
+                        window_agg.arg_field_type(),
+                    ) {
+                        Ok(f) => f,
+                        Err(e) => pgrx::error!(
+                            "Tried to process a window aggregate with a pushdown-incompatible field: {e}"
+                        ),
+                    };
+                    let try_maybe_datum = datafusion_agg_to_datum(
+                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
+                        numeric,
+                        window_agg.result_type.0,
+                        agg_col.as_ref(),
+                        row_idx,
+                    );
+                    let maybe_datum = match try_maybe_datum {
+                        Ok(d) => d,
+                        Err(e) => pgrx::error!("Failed to convert window agg result to datum: {e}"),
+                    };
+                    // arrow_array_to_datum returns Ok(None) for nulls, so we need to handle both
+                    // cases
+                    if let Some(datum) = maybe_datum {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
                 }
                 privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::Expression => {

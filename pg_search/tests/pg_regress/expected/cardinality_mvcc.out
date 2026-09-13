@@ -20,12 +20,12 @@ WITH (key_field = 'id', numeric_fields = '{"num": {"fast": true}}');
 -- the aggregate form runs on the aggregate custom scan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"cardinality": {"field": "val"}}'::jsonb) FROM card_mvcc WHERE card_mvcc @@@ pdb.all();
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.card_mvcc
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: idx_card_mvcc
-   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":"all","score":1.0}}}}
      Applies to Aggregates: CUSTOM_AGG({"cardinality":{"field":"val"}})
      Aggregate Definition: {"0":{"cardinality":{"field":"val"}}}
 (6 rows)
@@ -115,8 +115,9 @@ ORDER BY id DESC LIMIT 1 OFFSET 0;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 1
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(12 rows)
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":"all","score":1.0}}}}
+(13 rows)
 
 SELECT id, pdb.agg('{"cardinality": {"field": "val"}}'::jsonb, true) OVER () AS agg
 FROM card_mvcc WHERE card_mvcc @@@ pdb.all()

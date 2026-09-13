@@ -38,14 +38,17 @@ use crate::api::version::{Version, VersionInfo};
 use crate::postgres::customscan::explain::{ExplainFormat, format_for_explain};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::query::more_like_this::MoreLikeThisQuery;
+pub use crate::query::more_like_this::MoreLikeThisOptions;
+use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
-    FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType, pg_sys, varlena_to_byte_slice,
+    FromDatum, IntoDatum, PgBuiltInOids, PgLogLevel, PgOid, PgSqlErrorCode, PostgresType,
+    function_name, pg_sys, varlena_to_byte_slice,
 };
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -107,17 +110,9 @@ pub enum SearchQueryInput {
     },
     Empty,
     MoreLikeThis {
-        min_doc_frequency: Option<u64>,
-        max_doc_frequency: Option<u64>,
-        min_term_frequency: Option<usize>,
-        max_query_terms: Option<usize>,
-        min_word_length: Option<usize>,
-        max_word_length: Option<usize>,
-        boost_factor: Option<f32>,
-        stopwords: Option<Vec<String>>,
-        document: Option<Vec<(String, PdbOwnedValue)>>,
-        key_value: Option<PdbOwnedValue>,
-        fields: Option<Vec<String>>,
+        #[serde(flatten)]
+        options: MoreLikeThisOptions,
+        document: Vec<(String, PdbOwnedValue)>,
     },
     Parse {
         query_string: String,
@@ -324,6 +319,57 @@ fn is_plain_single_term(s: &str) -> bool {
 }
 
 impl SearchQueryInput {
+    /// Whole-row searches accept queries that do not require an implicit field.
+    /// Keep these variants aligned with the field-independent arms of
+    /// [`pdb::Query::into_tantivy_query`]: `All`, `Empty`, and `Parse`, plus
+    /// `ScoreAdjusted` when its inner query is also field-independent.
+    /// Unclassified strings without modifiers are parsed across the index.
+    pub fn from_unfielded(query: pdb::Query) -> Self {
+        match query {
+            // pdb.all() scores matches as 1, unlike the internal zero-score match-all query.
+            pdb::Query::All => Self::ConstScore {
+                query: Box::new(Self::All),
+                score: 1.0,
+            },
+            pdb::Query::Empty => Self::Empty,
+            pdb::Query::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            } => Self::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            },
+            pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data: None,
+                slop_data: None,
+            } => Self::Parse {
+                query_string: string,
+                lenient: None,
+                conjunction_mode: None,
+            },
+            pdb::Query::ScoreAdjusted { query, score } => {
+                let query = Box::new(Self::from_unfielded(*query));
+                match score.expect("score adjustment value should have been set") {
+                    pdb::ScoreAdjustStyle::Boost(factor) => Self::Boost { query, factor },
+                    pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
+                }
+            }
+            _ => {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+                    "a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference",
+                    function_name!(),
+                )
+                .set_hint("Use an indexed column on the left-hand side.")
+                .report(PgLogLevel::ERROR);
+                unreachable!()
+            }
+        }
+    }
+
     pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
             expr: PostgresExpression {
@@ -354,6 +400,7 @@ impl SearchQueryInput {
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
             SearchQueryInput::HeapFilter { indexed_query, .. } => Self::need_scores(indexed_query),
             SearchQueryInput::MoreLikeThis { .. } => true,
+            SearchQueryInput::FieldedQuery { query, .. } => query.need_scores(),
             SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
         }
@@ -408,6 +455,10 @@ impl SearchQueryInput {
         match self {
             // All by itself is a full scan
             SearchQueryInput::All => true,
+            SearchQueryInput::FieldedQuery {
+                query: pdb::Query::All,
+                ..
+            } => true,
 
             // Boolean queries - analyze based on Boolean semantics:
             // A document matches if it matches ALL Must AND NONE of MustNot AND at least one of (Must OR Should)
@@ -705,42 +756,112 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
-        match self {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-                ..
-            } => {
-                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    q.extract_field_names(field_names);
+    /// Returns false when the query can search unspecified fields.
+    pub fn extract_field_names(
+        &self,
+        schema: &SearchIndexSchema,
+        field_names: &mut crate::api::HashSet<String>,
+    ) -> bool {
+        use tantivy::query_grammar::{
+            UserInputAst, UserInputLeaf, parse_query, parse_query_lenient,
+        };
+
+        let mut complete = true;
+        self.visit_ref(&mut |query| {
+            let query_string = match query {
+                Self::FieldedQuery { field, query } => {
+                    let mut query = query;
+                    while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                        query = inner;
+                    }
+                    match query {
+                        pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
+                        pdb::Query::ParseWithField { query_string, .. } => {
+                            field_names.insert(field.root());
+                            if schema.search_field(field).is_some_and(|field| {
+                                matches!(field.field_entry().field_type(), FieldType::Facet(_))
+                            }) {
+                                None
+                            } else {
+                                Some(format!("{field}:({query_string})"))
+                            }
+                        }
+                        pdb::Query::MoreLikeThis { fields, .. } => {
+                            if let Some(fields) = fields {
+                                field_names.extend(
+                                    fields.iter().map(|field| FieldName::from(field).root()),
+                                );
+                            } else {
+                                complete = false;
+                            }
+                            None
+                        }
+                        pdb::Query::All | pdb::Query::Empty => None,
+                        _ => {
+                            field_names.insert(field.root());
+                            None
+                        }
+                    }
+                }
+                Self::Parse { query_string, .. } => Some(query_string.clone()),
+                Self::TermSet { terms } => {
+                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                    None
+                }
+                Self::MoreLikeThis { document, .. } => {
+                    field_names.extend(
+                        document
+                            .iter()
+                            .map(|(field, _)| FieldName::from(field).root()),
+                    );
+                    None
+                }
+                Self::PostgresExpression { .. } => {
+                    complete = false;
+                    None
+                }
+                Self::Uninitialized
+                | Self::All
+                | Self::Empty
+                | Self::Boolean { .. }
+                | Self::Boost { .. }
+                | Self::ConstScore { .. }
+                | Self::ScoreFilter { .. }
+                | Self::DisjunctionMax { .. }
+                | Self::WithIndex { .. }
+                | Self::HeapFilter { .. } => None,
+            };
+            if let Some(query_string) = query_string {
+                let mut nodes = vec![
+                    parse_query(&query_string)
+                        .unwrap_or_else(|_| parse_query_lenient(&query_string).0),
+                ];
+                while let Some(node) = nodes.pop() {
+                    match node {
+                        UserInputAst::Clause(children) => {
+                            nodes.extend(children.into_iter().map(|(_, child)| child))
+                        }
+                        UserInputAst::Boost(inner, _) => nodes.push(*inner),
+                        UserInputAst::Leaf(leaf) => {
+                            let field = match *leaf {
+                                UserInputLeaf::Literal(literal) => literal.field_name,
+                                UserInputLeaf::Range { field, .. }
+                                | UserInputLeaf::Set { field, .. }
+                                | UserInputLeaf::Regex { field, .. } => field,
+                                UserInputLeaf::Exists { field } => Some(field),
+                                UserInputLeaf::All => continue,
+                            };
+                            if let Some(field) = field {
+                                field_names.insert(FieldName::from(field).root());
+                            } else {
+                                complete = false;
+                            }
+                        }
+                    }
                 }
             }
-            SearchQueryInput::Boost { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    q.extract_field_names(field_names);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.extract_field_names(field_names);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.extract_field_names(field_names);
-            }
-            SearchQueryInput::FieldedQuery { field, .. } => {
-                field_names.insert(field.root());
-            }
-            // For other query types, we can't easily extract field names
-            // This is a conservative approach - if we can't determine, we allow it
-            _ => {}
-        }
+        });
+        complete
     }
 
     pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {
@@ -1387,89 +1508,22 @@ impl SearchQueryInput {
                 let query = Box::new(EmptyQuery);
                 Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
             }
-            SearchQueryInput::MoreLikeThis {
-                min_doc_frequency,
-                max_doc_frequency,
-                min_term_frequency,
-                max_query_terms,
-                min_word_length,
-                max_word_length,
-                boost_factor,
-                stopwords,
-                document,
-                key_value,
-                fields,
-            } => {
-                let mut mlt_builder = MoreLikeThisQuery::builder()
-                    .with_index_created_by_version(index_created_by_version);
-
-                // default min_doc_frequency to 1, Tantivy's default is 5
-                if let Some(min_doc_frequency) = min_doc_frequency {
-                    mlt_builder = mlt_builder.with_min_doc_frequency(min_doc_frequency);
-                } else {
-                    mlt_builder = mlt_builder.with_min_doc_frequency(1);
+            SearchQueryInput::MoreLikeThis { options, document } => {
+                let mlt_builder = MoreLikeThisQueryBuilder::new(options, index_created_by_version);
+                let mut fields_map = HashMap::default();
+                for (field, mut value) in document {
+                    let search_field = schema
+                        .search_field(&field)
+                        .ok_or(QueryError::NonIndexedField(field.into()))?;
+                    search_field.try_coerce(&mut value)?;
+                    fields_map
+                        .entry(search_field.field())
+                        .or_insert_with(Vec::new)
+                        .push(value);
                 }
-                // default min_term_frequency to 1, Tantivy's default is 2
-                if let Some(min_term_frequency) = min_term_frequency {
-                    mlt_builder = mlt_builder.with_min_term_frequency(min_term_frequency);
-                } else {
-                    mlt_builder = mlt_builder.with_min_term_frequency(1);
-                }
-                if let Some(max_doc_frequency) = max_doc_frequency {
-                    mlt_builder = mlt_builder.with_max_doc_frequency(max_doc_frequency);
-                }
-                if let Some(max_query_terms) = max_query_terms {
-                    mlt_builder = mlt_builder.with_max_query_terms(max_query_terms);
-                }
-                if let Some(min_work_length) = min_word_length {
-                    mlt_builder = mlt_builder.with_min_word_length(min_work_length);
-                }
-                if let Some(max_work_length) = max_word_length {
-                    mlt_builder = mlt_builder.with_max_word_length(max_work_length);
-                }
-                if let Some(boost_factor) = boost_factor {
-                    mlt_builder = mlt_builder.with_boost_factor(boost_factor);
-                }
-                if let Some(stopwords_clone) = &stopwords {
-                    mlt_builder = mlt_builder.with_stop_words(stopwords_clone.clone());
-                }
-
-                let query = match (&key_value, &fields, &document) {
-                    (Some(key_value_clone), fields_ref, None) => {
-                        match mlt_builder.with_key_value(
-                            key_value_clone.clone(),
-                            fields_ref.clone(),
-                            index_oid,
-                        ) {
-                            Some(query) => Box::new(query) as Box<dyn TantivyQuery>,
-                            None => Box::new(EmptyQuery) as Box<dyn TantivyQuery>,
-                        }
-                    }
-                    (None, None, Some(doc)) => {
-                        let mut fields_map = HashMap::default();
-                        for (field, mut value) in doc.clone() {
-                            let search_field = schema
-                                .search_field(&field)
-                                .ok_or(QueryError::NonIndexedField(field.into()))?;
-                            search_field.try_coerce(&mut value)?;
-                            fields_map
-                                .entry(search_field.field())
-                                .or_insert_with(Vec::new);
-
-                            if let Some(vec) = fields_map.get_mut(&search_field.field()) {
-                                vec.push(value)
-                            }
-                        }
-                        Box::new(mlt_builder.with_document(fields_map.into_iter().collect()))
-                            as Box<dyn TantivyQuery>
-                    }
-                    _ => {
-                        panic!("more_like_this must be called with either key_value or document")
-                    }
-                };
-
+                let query = mlt_builder.with_document(fields_map.into_iter().collect());
                 Ok(builder.build_leaf(
-                    query,
+                    Box::new(query),
                     || "MoreLikeThis Query".to_string(),
                     cloned_for_estimate,
                 ))
@@ -1587,6 +1641,7 @@ impl SearchQueryInput {
                     index_created_by_version,
                     parser,
                     searcher,
+                    index_oid,
                 )?;
                 Ok(builder.build_leaf(
                     Box::new(query),

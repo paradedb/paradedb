@@ -18,6 +18,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::api::CTID_FIELD_NAME;
     use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
@@ -38,10 +39,7 @@ mod tests {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) SELECT 'test ' || i FROM generate_series(1, 100) i;")
             .unwrap();
-        Spi::run(
-            "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple)) WITH (key_field = 'id')",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple))").unwrap();
 
         let heap_oid = Spi::get_one::<pg_sys::Oid>(
             "SELECT oid FROM pg_class WHERE relname = 't' AND relkind = 'r';",
@@ -192,7 +190,6 @@ mod tests {
             "CREATE INDEX filter_test_idx ON filter_test
              USING paradedb (id, price, quantity)
              WITH (
-                 key_field = 'id',
                  numeric_fields = '{\"price\": {\"fast\": true}, \"quantity\": {\"fast\": true}}'
              );",
         )
@@ -753,7 +750,7 @@ mod tests {
         use datafusion::physical_plan::Partitioning;
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new("ctid", DataType::UInt64, true),
+            Field::new(CTID_FIELD_NAME, DataType::UInt64, true),
             Field::new("id", DataType::Int64, true),
         ]));
 

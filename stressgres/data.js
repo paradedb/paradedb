@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308078411,
+  "lastUpdate": 1789308087456,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -319986,6 +319986,66 @@ window.BENCHMARK_DATA = {
             "value": 168,
             "unit": "median segment_count",
             "extra": "avg segment_count: 195.33933049463957, max segment_count: 360.0, count: 59417"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308082896,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.077370719200918, max cpu: 33.532936, count: 59422"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 45.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.7573681806612, max mem: 45.33203125, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.927444,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.790729458249583, max cpu: 43.724693, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 102.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.95725567761099, max mem: 102.96484375, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 26582,
+            "unit": "median block_count",
+            "extra": "avg block_count: 25406.12796607317, max block_count: 29233.0, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 166,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 193.3952576486823, max segment_count: 363.0, count: 59422"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789290937328,
+  "lastUpdate": 1789292004781,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -353338,6 +353338,60 @@ window.BENCHMARK_DATA = {
             "value": 36.86550735916829,
             "unit": "median tps",
             "extra": "avg tps: 57.77072343966314, max tps: 535.0424594489349, count: 58776"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789292001706,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 34.89674518348059,
+            "unit": "median tps",
+            "extra": "avg tps: 54.29946808354879, max tps: 535.0052294554972, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.242792245542553,
+            "unit": "median tps",
+            "extra": "avg tps: 29.13652373342351, max tps: 356.01890372992347, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 83.69902176547201,
+            "unit": "median tps",
+            "extra": "avg tps: 144.89970803039319, max tps: 1173.876704338544, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.08387355485591,
+            "unit": "median tps",
+            "extra": "avg tps: 29.372340373072177, max tps: 277.78446079011024, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 36.625472537040984,
+            "unit": "median tps",
+            "extra": "avg tps: 57.515559009306344, max tps: 547.1151414143301, count: 58767"
           }
         ]
       }

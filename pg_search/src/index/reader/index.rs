@@ -33,6 +33,7 @@ use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::node::NodeExt;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
@@ -918,8 +919,7 @@ impl SearchIndexReader {
             fields.push(field.field());
         }
         let siblings: Vec<_> = self
-            .schema
-            .fields_sourced_from(field_name.as_ref())
+            .fields_backed_by(field_name.as_ref())
             .into_iter()
             .filter(|sibling| sibling.is_text() || sibling.is_json())
             .map(|sibling| sibling.field())
@@ -947,6 +947,41 @@ impl SearchIndexReader {
                 (field, generator)
             })
             .collect()
+    }
+
+    /// Every indexed field whose text comes from the heap column `column`.
+    ///
+    /// Two spellings reach the same column: a field configured with the column as its source,
+    /// which the schema resolves on its own, and an indexed expression carrying an alias,
+    /// whose source column is only recoverable by looking at the expression's `Var`. A column
+    /// indexed solely through the second spelling has no field of its own, so this is also
+    /// what lets highlighting resolve it at all.
+    fn fields_backed_by(&self, column: &str) -> Vec<crate::schema::SearchField> {
+        let mut fields = self.schema.fields_sourced_from(column);
+        let Some(heaprel) = self.index_rel.heap_relation() else {
+            return fields;
+        };
+        let expressions = self.index_rel.index_expressions();
+        for (field, data) in self.schema.categorized_fields().iter() {
+            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+                continue;
+            };
+            if fields.iter().any(|existing| existing == field) {
+                continue;
+            }
+            let matches_column = unsafe {
+                expressions
+                    .get_ptr(att_idx)
+                    .map(|expr| crate::postgres::utils::strip_tokenizer_cast(expr.cast()))
+                    .and_then(|node| node.find_single_node::<pgrx::pg_sys::Var>())
+                    .and_then(|var| crate::api::operator::attname_from_var(&heaprel, var))
+                    .is_some_and(|attname| attname.as_ref() == column)
+            };
+            if matches_column {
+                fields.push(field.clone());
+            }
+        }
+        fields
     }
 
     /// Whether `query` addresses any term to `field`.

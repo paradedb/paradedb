@@ -1521,7 +1521,10 @@ unsafe fn find_node_relation(
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
-unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) -> Option<FieldName> {
+pub(crate) unsafe fn attname_from_var(
+    heaprel: &PgSearchRelation,
+    var: *mut pg_sys::Var,
+) -> Option<FieldName> {
     if (*var).varattno == 0 {
         return None;
     }

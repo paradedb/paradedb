@@ -83,7 +83,7 @@ WHERE id @@@ paradedb.exists('metadata.category')
   AND id @@@ paradedb.exists('metadata.brand');
 
 -- =========================================
--- Test 4: SUM aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 4: SUM aggregate on JSON numeric fields
 -- =========================================
 
 -- Test SUM on JSON numeric field
@@ -118,7 +118,7 @@ FROM json_agg_test
 WHERE id @@@ paradedb.exists('data.stock');
 
 -- =========================================
--- Test 5: AVG aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 5: AVG aggregate on JSON numeric fields
 -- =========================================
 
 -- Test AVG on JSON numeric field
@@ -153,7 +153,7 @@ FROM json_agg_test
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
 
 -- =========================================
--- Test 6: MIN/MAX aggregates on JSON fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 6: MIN/MAX aggregates on JSON fields
 -- =========================================
 
 -- Test MIN/MAX on price
@@ -185,7 +185,7 @@ SELECT
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
 
--- Test MIN/MAX on text fields (alphabetical)
+-- Test MIN/MAX on text fields falls back to Postgres
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN(metadata->>'brand') as first_brand,
@@ -200,7 +200,7 @@ FROM json_agg_test
 WHERE id @@@ paradedb.exists('metadata.brand');
 
 -- =========================================
--- Test 7: Mixed aggregate functions in single query (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- Test 7: Mixed numeric and text aggregate functions falls back to Postgres
 -- =========================================
 
 -- Test multiple aggregates in one query

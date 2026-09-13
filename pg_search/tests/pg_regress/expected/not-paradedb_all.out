@@ -67,7 +67,7 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
-WARNING:  JoinScan not used: search operators in join conditions are not supported (tables: a, b)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  id | id 
 ----+----
   1 |  1

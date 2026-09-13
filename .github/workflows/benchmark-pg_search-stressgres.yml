@@ -62,6 +62,7 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
       - image=ubuntu24-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/

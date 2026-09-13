@@ -1,0 +1,147 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CREATE TABLE researchers (
+    super_researcher_id BIGINT PRIMARY KEY,
+    super_organisation_id BIGINT,
+    country TEXT
+);
+CREATE TABLE organisations (
+    super_organisation_id BIGINT PRIMARY KEY,
+    super_organisation_inactive_date TIMESTAMP,
+    super_organisation_name TEXT
+);
+INSERT INTO researchers VALUES
+    (1, 10, 'US'),
+    (2, 20, 'UK'),
+    (3, NULL, 'CA');
+INSERT INTO organisations VALUES
+    (10, NULL, 'OrgA'),
+    (20, '2023-01-01 00:00:00'::timestamp, NULL);
+CREATE INDEX researchers_idx ON researchers
+USING bm25 (super_researcher_id, super_organisation_id, country)
+WITH (
+    key_field = 'super_researcher_id',
+    numeric_fields = '{"super_organisation_id": {"fast": true}}',
+    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "keyword"}}}'
+);
+CREATE INDEX organisations_idx ON organisations
+USING bm25 (super_organisation_id, super_organisation_name)
+WITH (
+    key_field = 'super_organisation_id',
+    text_fields = '{"super_organisation_name": {"fast": true, "tokenizer": {"type": "keyword"}}}'
+);
+-- TEST 1: Non-null-rejecting IS NULL on a fast field over LEFT JOIN succeeds:
+EXPLAIN (COSTS OFF)
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_name IS NULL;
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: researchers_idx (r), organisations_idx (o)
+   Multi-Table Filter: (o.super_organisation_name IS NULL)
+   Aggregates: pdb.agg({"terms":{"field":"country"}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :       FilterExec: super_organisation_name@1 IS NULL, projection=[country@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@3, super_organisation_name@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, visibility=eager, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+(15 rows)
+
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_name IS NULL;
+                                                                   agg                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "CA", "doc_count": 1}, {"key": "UK", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- TEST 2: Non-null-rejecting IS NULL on an unindexed non-fast field produces a clear decline error:
+EXPLAIN (COSTS OFF)
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_inactive_date IS NULL;
+ERROR:  Cannot execute pdb.agg: join predicates must reference columnar indexed fields
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_inactive_date IS NULL;
+ERROR:  Cannot execute pdb.agg: join predicates must reference columnar indexed fields
+-- TEST 3: INNER JOIN with IS NULL succeeds:
+EXPLAIN (COSTS OFF)
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_name IS NULL;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: researchers_idx (r), organisations_idx (o)
+   Aggregates: pdb.agg({"terms":{"field":"country"}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=o, segments=1, visibility=eager, query={"boolean":{"must":["all"],"must_not":[{"exists":{"field":"super_organisation_name"}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(13 rows)
+
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE o.super_organisation_name IS NULL;
+                                                   agg                                                    
+----------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "UK", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- TEST 4: Disjunctive search + IS NULL on outer-joined table in pdb.agg (qgen_0 pattern)
+EXPLAIN (COSTS OFF)
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: researchers_idx (r), organisations_idx (o)
+   Multi-Table Filter: (o.super_organisation_name IS NULL)
+   Aggregates: pdb.agg({"terms":{"field":"country"}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (country@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :       FilterExec: __o_1_tag_0@2 OR super_organisation_name@1 IS NULL, projection=[country@0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@4, super_organisation_name@1, __o_1_tag_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"super_organisation_name","query_string":"OrgA","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, visibility=eager, query="all"
+(15 rows)
+
+SELECT pdb.agg('{"terms": {"field": "country"}}')
+FROM researchers r
+LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
+WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
+                                                                                  agg                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "CA", "doc_count": 1}, {"key": "UK", "doc_count": 1}, {"key": "US", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+-- Clean up
+DROP TABLE researchers CASCADE;
+DROP TABLE organisations CASCADE;

@@ -70,8 +70,12 @@ use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
-/// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
-/// by walking the join's plan sources and finding the first one that claims it.
+/// Resolve a PostgreSQL Var (`rti`, `attno`) to a DataFusion column expression (`col("...")`).
+///
+/// Uses `output_sources()` rather than `sources()` to ensure only output-visible relations
+/// are targeted. For pruned relations (e.g. the pruned RHS of an Anti Join or pruned full join
+/// inputs), their columns do not exist in the DataFusion plan schema and resolving against
+/// them would trigger `FieldNotFound` schema errors during optimization or execution.
 ///
 /// Returns `None` if no source maps the var — the caller decides whether to
 /// fall back to a literal or propagate the absence.
@@ -88,22 +92,56 @@ fn resolve_var_to_df_col(
             .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
         return Some(make_source_unnested_col(source, &unnest_info.field_name));
     }
-    join_clause.plan.sources().iter().find_map(|source| {
+    join_clause.plan.output_sources().iter().find_map(|source| {
         let mapped = source.map_var(rti, attno)?;
         let field = source.column_name(mapped)?;
         Some(make_source_col(source, &field))
     })
 }
 
-/// Adapter that lets `PredicateTranslator` resolve Vars against a
-/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+/// If a column cannot be resolved to an output DataFusion column, but its relation
+/// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
+/// from output), all its values in the join result are identically NULL.
+fn null_if_source_exists(join_clause: &JoinCSClause, rti: pg_sys::Index) -> Option<Expr> {
+    if join_clause
+        .plan
+        .sources()
+        .iter()
+        .any(|s| s.contains_rti(rti))
+    {
+        Some(datafusion::logical_expr::lit(
+            datafusion::common::ScalarValue::Null,
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolves a Var to an output DataFusion column, falling back to NULL if the relation
+/// is part of the join but was pruned from the join output.
+fn resolve_var_or_pruned_null(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    resolve_var_to_df_col(join_clause, rti, attno)
+        .or_else(|| null_if_source_exists(join_clause, rti))
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
+///
+/// NOTE: This mapper is used exclusively by [`translate_child_projection_expr`] to
+/// evaluate target-list output projections (`ChildProjection::Expression`).
+/// For output projections, emitting NULL for columns of pruned relations (e.g.
+/// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
+/// they use `CombinedMapper` where pruned columns are rejected.
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }
 
 impl<'a> ColumnMapper for JoinClauseMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        resolve_var_to_df_col(self.join_clause, varno, varattno)
+        resolve_var_or_pruned_null(self.join_clause, varno, varattno)
     }
 }
 
@@ -327,6 +365,7 @@ impl SolvePostgresExpressions for JoinScanState {
 /// - `PgSearchQueryPlanner`
 pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
+    use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
     let mut builder = SessionStateBuilder::new()
@@ -342,13 +381,19 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         ))
         .with_optimizer_rule(Arc::new(
             crate::scan::late_materialization::LateMaterializationRule,
-        ));
+        ))
+        .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
+    // Placement reads the final join sides and modes, so it follows the co-partitioning
+    // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
     builder
         .with_physical_optimizer_rule(Arc::new(
             super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
@@ -496,6 +541,7 @@ struct RelNodeBuildCtx<'a> {
     is_parallel: bool,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
+    custom_expr_idx: &'a std::cell::Cell<usize>,
     output_columns: &'a [OutputColumnInfo],
     lateral_unnests: &'a [build::LateralUnnestInfo],
 }
@@ -555,13 +601,20 @@ fn build_relnode_df<'a>(
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
                 let sources = filter.input.sources();
-                apply_join_level_filter(
+                // `custom_expr_idx` must be tracked and advanced across nested `RelNode::Filter`
+                // nodes so that each join filter level consumes its own translated expressions
+                // from `rctx.translated_exprs` instead of repeatedly consuming from index 0.
+                let mut idx = rctx.custom_expr_idx.get();
+                let df = apply_join_level_filter(
                     df,
                     &filter.predicate,
                     rctx.translated_exprs,
+                    &mut idx,
                     &sources,
                     /* handle_mark = */ true,
-                )
+                )?;
+                rctx.custom_expr_idx.set(idx);
+                Ok(df)
             }
             RelNode::Unnest(unnest) => {
                 let df = build_relnode_df(rctx, &unnest.input).await?;
@@ -625,11 +678,13 @@ fn build_clause_df<'a>(
         // stages re-borrow `plan_sources` for projection / output assembly.
         drop(translator);
 
+        let custom_expr_idx = std::cell::Cell::new(0);
         let rctx = RelNodeBuildCtx {
             ctx,
             is_parallel,
             join_clause,
             translated_exprs: &translated_exprs,
+            custom_expr_idx: &custom_expr_idx,
             output_columns: &private_data.output_columns,
             lateral_unnests: &lateral_unnests,
         };
@@ -641,12 +696,12 @@ fn build_clause_df<'a>(
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
-        // 6. Apply Limit (only when the value is statically known at planning
-        // time). Parameterized LIMIT/OFFSET are injected at execution time in
+        // 6. Apply Limit (only when BOTH limit and offset are statically known at
+        // planning time). Parameterized LIMIT/OFFSET are injected at execution time in
         // `JoinScan::exec_custom_scan` after `EState` becomes available.
         let df = if let Some(lo) = &join_clause.limit_offset {
-            if let Some(fetch) = lo.static_fetch() {
-                df.limit(0, Some(fetch))?
+            if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
+                df.limit(skip, Some(fetch))?
             } else {
                 df
             }
@@ -842,7 +897,7 @@ fn resolve_orderby_feature(
             } else {
                 join_clause
                     .plan
-                    .sources()
+                    .output_sources()
                     .iter()
                     .find(|s| s.scan_info.heap_rti == *rti)
                     .map(|source| make_source_score_col(source))
@@ -866,7 +921,7 @@ fn resolve_orderby_feature(
                     } else {
                         join_clause
                             .plan
-                            .sources()
+                            .output_sources()
                             .iter()
                             .find(|s| s.scan_info.heap_rti == *rti)
                             .map(|source| make_source_score_col(source))
@@ -896,10 +951,11 @@ fn resolve_orderby_feature(
             } else {
                 join_clause
                     .plan
-                    .sources()
+                    .output_sources()
                     .iter()
                     .find(|s| s.contains_rti(*rti))
                     .map(|source| make_source_col(source, name.as_ref()))
+                    .or_else(|| null_if_source_exists(join_clause, *rti))
                     .ok_or_else(|| {
                         DataFusionError::Plan(format!(
                             "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
@@ -915,7 +971,7 @@ fn resolve_orderby_feature(
                     ))
                 })
             } else {
-                resolve_var_to_df_col(join_clause, *rti, *attno).ok_or_else(|| {
+                resolve_var_or_pruned_null(join_clause, *rti, *attno).ok_or_else(|| {
                     DataFusionError::Plan(format!(
                         "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
                     ))
@@ -1009,7 +1065,12 @@ fn apply_output_projection(
                     }
                 }
             } else {
-                build_projection_expr(proj, join_clause)
+                match proj {
+                    build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
+                        translate_child_projection_expr(pg_expr_string, join_clause)?
+                    },
+                    _ => build_projection_expr(proj, join_clause),
+                }
             };
             final_cols.push(expr.alias(col_alias));
         }
@@ -1037,7 +1098,7 @@ fn build_projection_expr(
 ) -> Expr {
     use crate::postgres::customscan::joinscan::build::ChildProjection;
 
-    let plan_sources = join_clause.plan.sources();
+    let plan_sources = join_clause.plan.output_sources();
     match proj {
         ChildProjection::Score { rti } => {
             for source in plan_sources.iter() {
@@ -1067,7 +1128,12 @@ fn build_projection_expr(
             field_name,
             ..
         } => {
-            if let Some(source) = plan_sources.iter().find(|s| s.contains_rti(source_rti.0)) {
+            if let Some(source) = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|s| s.contains_rti(source_rti.0))
+            {
                 let alias = RelationAlias::new(source.scan_info.alias.as_deref())
                     .execution(source.plan_position);
                 return datafusion::logical_expr::col(format!("{}_{}", alias, field_name));
@@ -1075,8 +1141,7 @@ fn build_projection_expr(
         }
         ChildProjection::Expression { .. } => {
             unreachable!(
-                "Expression projections are handled via PgExprUdf in the \
-                 GROUP BY path, not through build_projection_expr"
+                "Expression projections are handled in apply_output_projection / apply_distinct"
             );
         }
     }
@@ -1173,8 +1238,8 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, PostgreSQL expands the query path-keys
-        // to include all DISTINCT columns.
+        // When DISTINCT is present, columns referenced by DISTINCT projections
+        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
@@ -1247,9 +1312,7 @@ fn build_source_df<'a>(
                 Some(WhichFastField::Ctid) => {
                     make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
-                // Normalize score fast-field column name so all score references resolve
-                // through `<execution_alias>.score`.
-                Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+                Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
                 _ => make_col(alias.as_str(), name),
             };
 

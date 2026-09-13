@@ -688,18 +688,21 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                // When resolving the data block, we build a 2-state UnionArray:
-                // 0. None -> We just have doc ids. Emit State 0 (Doc Address).
-                // 1. Some(UInt64) -> The term ordinals are already resolved, by a pre-filter
-                //    or because this column is fetched in the scan. Emit State 1.
+                // A deferred column leaves as packed doc addresses (State 0) unless its term
+                // ordinals were already read, by a pre-filter or because the column is
+                // fetched in the scan, in which case it leaves as packed ordinals (State 1).
                 WhichFastField::DeferredCtid(_) => Some(Arc::new(
                     crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
                 ) as ArrayRef),
                 WhichFastField::Deferred(_, _field_type) => match &memoized_columns[ff_index] {
                     Some(col_array) => {
+                        let ordinals = col_array
+                            .as_any()
+                            .downcast_ref::<UInt64Array>()
+                            .expect("Expected UInt64Array for deferred ordinals");
                         Some(crate::scan::deferred_encode::build_state_term_ordinals(
                             segment_ord,
-                            col_array.clone(),
+                            ordinals,
                         ))
                     }
                     None => Some(crate::scan::deferred_encode::build_state_doc_address(

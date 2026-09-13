@@ -14,6 +14,8 @@ DROP TABLE IF EXISTS oj_dim CASCADE;
 CREATE TABLE oj_fact (id INT PRIMARY KEY, dim_id INT, txt TEXT);
 CREATE TABLE oj_dim (id INT PRIMARY KEY, txt TEXT, price INT);
 
+CREATE TABLE oj_sub (id INT PRIMARY KEY, dim_id INT, val INT);
+
 -- Every third oj_fact row has a NULL dim_id (never matches);
 -- oj_dim rows 41..60 have no oj_fact partner.
 INSERT INTO oj_fact
@@ -22,6 +24,9 @@ FROM generate_series(1, 100) g;
 INSERT INTO oj_dim
 SELECT g, 'beta item ' || g, g * 10
 FROM generate_series(1, 60) g;
+INSERT INTO oj_sub
+SELECT g, (g % 30) + 1, g * 5
+FROM generate_series(1, 30) g;
 
 CREATE INDEX oj_fact_idx ON oj_fact
 USING paradedb (id, dim_id, txt)
@@ -29,9 +34,13 @@ WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}}', text_fields='{"
 CREATE INDEX oj_dim_idx ON oj_dim
 USING paradedb (id, txt, price)
 WITH (key_field='id', numeric_fields='{"price":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+CREATE INDEX oj_sub_idx ON oj_sub
+USING paradedb (id, dim_id, val)
+WITH (key_field='id', numeric_fields='{"dim_id":{"fast":true}, "val":{"fast":true}}');
 
 ANALYZE oj_fact;
 ANALYZE oj_dim;
+ANALYZE oj_sub;
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -88,6 +97,30 @@ SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN
 SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
 
 -- =============================================================================
+-- Chained outer joins with delayed predicate on multi-table nullable side:
+-- oj_fact LEFT JOIN oj_dim LEFT JOIN oj_sub WHERE oj_sub.val IS NULL
+-- Verifies that delayed RestrictInfos on multi-table outer join sides are
+-- correctly retained and evaluated as post-join filters (qgen_8 pattern).
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, b.id, s.id
+FROM oj_fact a
+LEFT JOIN oj_dim b ON a.dim_id = b.id
+LEFT JOIN oj_sub s ON b.id = s.dim_id
+WHERE s.val IS NULL AND a.txt @@@ 'alpha'
+ORDER BY a.id, b.id, s.id
+LIMIT 8;
+
+SELECT a.id, b.id, s.id
+FROM oj_fact a
+LEFT JOIN oj_dim b ON a.dim_id = b.id
+LEFT JOIN oj_sub s ON b.id = s.dim_id
+WHERE s.val IS NULL AND a.txt @@@ 'alpha'
+ORDER BY a.id, b.id, s.id
+LIMIT 8;
+
+-- =============================================================================
 -- Baselines with JoinScan off: results must match the sections above.
 -- paradedb.score() on the nullable side has no non-JoinScan fallback, so it
 -- has no baseline here.
@@ -99,8 +132,10 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.txt @@@ 'alpha' OR b.txt @@@ 'beta' ORDER BY a.id LIMIT 8;
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.price > 100 WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
 SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id < b.price WHERE a.txt @@@ 'alpha' ORDER BY a.id LIMIT 8;
+SELECT a.id, b.id, s.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id LEFT JOIN oj_sub s ON b.id = s.dim_id WHERE s.val IS NULL AND a.txt @@@ 'alpha' ORDER BY a.id, b.id, s.id LIMIT 8;
 SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id ORDER BY f.id NULLS FIRST, b.id LIMIT 12;
 SELECT COUNT(*) FROM (SELECT * FROM oj_fact WHERE txt @@@ 'alpha') f FULL JOIN oj_dim b ON f.dim_id = b.id;
 
 DROP TABLE oj_fact;
 DROP TABLE oj_dim;
+DROP TABLE oj_sub;

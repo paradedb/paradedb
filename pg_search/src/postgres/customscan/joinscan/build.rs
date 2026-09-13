@@ -662,7 +662,10 @@ pub enum JoinLevelExpr {
         /// The search predicate to evaluate against Tantivy.
         predicate: Box<JoinLevelSearchPredicate>,
     },
-    /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
+    /// Leaf: multi-table or post-join predicate evaluated at runtime against the joined row pair.
+    /// Also carries single-table post-join predicates (e.g. `o.name IS NULL` over a `LEFT JOIN`)
+    /// that cannot be pushed down to a base scan and must be evaluated post-join to preserve NULL semantics.
+    /// Rendered in `EXPLAIN` as `Multi-Table Filter`.
     MultiTablePredicate {
         predicate: Box<MultiTablePredicateInfo>,
     },
@@ -818,6 +821,23 @@ impl JoinLevelExpr {
             | Self::PgExpression { .. } => {}
         }
     }
+
+    /// Returns true if all RTI references in this expression are contained in `allowed_rtis`.
+    pub fn references_only_rtis(&self, allowed_rtis: &[pg_sys::Index]) -> bool {
+        match self {
+            Self::SingleTablePredicate { .. } | Self::MultiTablePredicate { .. } => true,
+            Self::And(children) | Self::Or(children) => children
+                .iter()
+                .all(|c| c.references_only_rtis(allowed_rtis)),
+            Self::Not(inner) => inner.references_only_rtis(allowed_rtis),
+            Self::MarkOrNull {
+                null_test_varno, ..
+            } => allowed_rtis.contains(null_test_varno),
+            Self::PgExpression { input_vars, .. } => {
+                input_vars.iter().all(|v| allowed_rtis.contains(&v.rti))
+            }
+        }
+    }
 }
 
 /// Represents a PostgreSQL RTI of a LATERAL unnest function RTE.
@@ -882,14 +902,11 @@ pub struct JoinNode {
     /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
     /// from, if any.  Set for Semi/Anti/LeftMark joins created by
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
-    /// that come from the normal join-hook path or path reconstruction.
+    /// that come from UPPERREL_FINAL or path reconstruction.
     pub subplan_id: Option<i32>,
     /// Cross-table `@@@` predicates that PG placed on this sub-join's
     /// `joinrestrictinfo`. The reconstruction in
-    /// `collect_join_sources_join_rel` parks them here because no
-    /// `JoinCSClause` exists yet to receive interned `plan_position`s;
-    /// `lower_absorbed_search_clauses` drains the field once one does, so
-    /// the vector is empty by the time the outer hook returns.
+    /// `collect_join_sources_join_rel` parks them here.
     /// `#[serde(skip)]` because the pointers are valid only within this
     /// planning pass and never reach the serialized plan.
     #[serde(skip)]
@@ -1139,6 +1156,12 @@ impl RelNode {
                     .copied()
                     .collect();
 
+                if let Some(ref filter) = j.filter
+                    && !filter.references_only_rtis(&all_output_rtis)
+                {
+                    return false;
+                }
+
                 for jk in &mut j.equi_keys {
                     let forward_ok = left_output_rtis.contains(&jk.outer_rti)
                         && right_output_rtis.contains(&jk.inner_rti);
@@ -1180,7 +1203,13 @@ impl RelNode {
                 }
                 true
             }
-            RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(root),
+            RelNode::Filter(f) => {
+                if !f.input.rewrite_pruned_join_keys(root) {
+                    return false;
+                }
+                let output_rtis = f.input.output_rtis();
+                f.predicate.references_only_rtis(&output_rtis)
+            }
             RelNode::Unnest(u) => u.input.rewrite_pruned_join_keys(root),
         }
     }
@@ -1215,18 +1244,26 @@ impl RelNode {
         .unwrap_or(false)
     }
 
-    pub fn has_absorbed_search_clauses(&self) -> bool {
-        self.exists(|node| {
-            let has = match node {
-                RelNode::Join(j) => !j.absorbed_search_clauses.is_empty(),
-                RelNode::Unnest(u) => !u.absorbed_clauses.is_empty(),
-                _ => false,
-            };
-            Ok(has)
-        })
-        .unwrap_or(false)
+    /// Returns true if `rti` belongs to an output-visible relation in this plan tree.
+    /// Relations on pruned sides of Semi/Anti/Mark joins are not output-visible.
+    pub fn contains_output_rti(&self, rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.contains_output_rti(rti)
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.contains_output_rti(rti)
+                }
+                _ => j.left.contains_output_rti(rti) || j.right.contains_output_rti(rti),
+            },
+            RelNode::Filter(f) => f.input.contains_output_rti(rti),
+            RelNode::Unnest(u) => {
+                u.unnest_info.function_rti.0 == rti || u.input.contains_output_rti(rti)
+            }
+        }
     }
-
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
     }
@@ -1530,14 +1567,36 @@ impl RelNode {
         }
     }
 
+    /// Prune redundant const equi-keys throughout the plan tree.
+    pub unsafe fn prune_redundant_const_equi_keys(&mut self, root: *mut pg_sys::PlannerInfo) {
+        match self {
+            RelNode::Join(join_node) => {
+                join_node.left.prune_redundant_const_equi_keys(root);
+                join_node.right.prune_redundant_const_equi_keys(root);
+                prune_redundant_const_equi_keys(root, &mut join_node.equi_keys);
+            }
+            RelNode::Filter(filter) => filter.input.prune_redundant_const_equi_keys(root),
+            RelNode::Unnest(unnest) => unnest.input.prune_redundant_const_equi_keys(root),
+            RelNode::Scan(_) => {}
+        }
+    }
+
     /// Find metadata for a LATERAL unnest function RTI if present in this plan tree.
     pub fn find_lateral_unnest(&self, function_rti: pg_sys::Index) -> Option<&LateralUnnestInfo> {
         match self {
             RelNode::Scan(_) => None,
-            RelNode::Join(j) => j
-                .left
-                .find_lateral_unnest(function_rti)
-                .or_else(|| j.right.find_lateral_unnest(function_rti)),
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.find_lateral_unnest(function_rti)
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.find_lateral_unnest(function_rti)
+                }
+                _ => j
+                    .left
+                    .find_lateral_unnest(function_rti)
+                    .or_else(|| j.right.find_lateral_unnest(function_rti)),
+            },
             RelNode::Filter(f) => f.input.find_lateral_unnest(function_rti),
             RelNode::Unnest(u) => {
                 if u.unnest_info.function_rti.0 == function_rti {
@@ -1559,10 +1618,18 @@ impl RelNode {
     fn collect_lateral_unnests<'a>(&'a self, acc: &mut Vec<&'a LateralUnnestInfo>) {
         match self {
             RelNode::Scan(_) => {}
-            RelNode::Join(j) => {
-                j.left.collect_lateral_unnests(acc);
-                j.right.collect_lateral_unnests(acc);
-            }
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
+                    j.left.collect_lateral_unnests(acc);
+                }
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
+                    j.right.collect_lateral_unnests(acc);
+                }
+                _ => {
+                    j.left.collect_lateral_unnests(acc);
+                    j.right.collect_lateral_unnests(acc);
+                }
+            },
             RelNode::Filter(f) => f.input.collect_lateral_unnests(acc),
             RelNode::Unnest(u) => {
                 acc.push(&u.unnest_info);
@@ -2083,6 +2150,114 @@ pub unsafe fn try_extract_equi_key(
         typlen,
         typbyval,
     })
+}
+
+/// Check if a given `(rti, attno)` participates in an `EquivalenceClass` that has a constant.
+///
+/// When an equivalence class contains a constant (`ec_has_const == true`), PostgreSQL's
+/// optimizer generates a `var = const` restriction for the base relation, pushing it down
+/// to the scan level (see `generate_base_implied_equalities_const` in `equivclass.c`).
+pub unsafe fn var_in_const_ec(
+    root: *mut pg_sys::PlannerInfo,
+    target_rti: pg_sys::Index,
+    target_attno: pg_sys::AttrNumber,
+) -> Option<(*mut pg_sys::EquivalenceClass, *mut pg_sys::Node)> {
+    if root.is_null() || (*root).eq_classes.is_null() {
+        return None;
+    }
+    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    for eqc in eq_classes.iter_ptr() {
+        let mut canonical = eqc;
+        while !canonical.is_null() && !(*canonical).ec_merged.is_null() {
+            canonical = (*canonical).ec_merged;
+        }
+        if canonical.is_null() || (*canonical).ec_broken || !(*canonical).ec_has_const {
+            continue;
+        }
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members);
+        let mut var_matched = false;
+        let mut const_expr: *mut pg_sys::Node = std::ptr::null_mut();
+        for member in members.iter_ptr() {
+            if (*member).em_is_child {
+                continue;
+            }
+            if (*member).em_is_const && const_expr.is_null() {
+                const_expr = (*member).em_expr.cast();
+            }
+            let node = strip_node_wrappers((*member).em_expr.cast());
+            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+                continue;
+            }
+            let var = node as *mut pg_sys::Var;
+            if (*var).varno as pg_sys::Index == target_rti && (*var).varattno == target_attno {
+                var_matched = true;
+            }
+        }
+        if var_matched && !const_expr.is_null() {
+            return Some((canonical, const_expr));
+        }
+    }
+    None
+}
+
+/// Returns true if both sides of the equi-join key participate in an `EquivalenceClass` that has
+/// a constant (`ec_has_const == true`), and both sides are constrained to the same constant value.
+///
+/// # Strategy
+/// When an EquivalenceClass contains a constant, PostgreSQL's equivalence class machinery pushes
+/// down `col = const` restrictions to the base scan level of each member relation
+/// (`generate_base_implied_equalities_const` in `equivclass.c`). As a result, all tuples surviving
+/// the scan on both sides are already constrained to the constant value, making the join-level
+/// equality condition `outer.col = inner.col` mathematically redundant.
+///
+/// Core PostgreSQL explicitly skips generating or enforcing merge join clauses for such equivalence
+/// classes (`EC_MUST_BE_REDUNDANT`, `equivclass.c:1608`, `joinpath.c:2589`). In ParadeDB, we prune
+/// such redundant equi-join keys when other valid equi-keys exist, preventing columns without columnar
+/// fast fields from triggering unnecessary JoinScan / AggregateScan declines.
+///
+/// If both sides belong to the same canonical equivalence class, or if each side belongs to an
+/// equivalence class (such as across an outer/anti join domain boundary) that carries the identical
+/// constant value, the equality condition is redundant.
+pub unsafe fn is_equi_key_redundant_const(
+    root: *mut pg_sys::PlannerInfo,
+    key: &JoinKeyPair,
+) -> bool {
+    match (
+        var_in_const_ec(root, key.outer_rti, key.outer_attno),
+        var_in_const_ec(root, key.inner_rti, key.inner_attno),
+    ) {
+        (Some((outer_ec, outer_const)), Some((inner_ec, inner_const))) => {
+            if outer_ec == inner_ec {
+                return true;
+            }
+            if pg_sys::equal(outer_const.cast(), inner_const.cast()) {
+                return true;
+            }
+            let stripped_outer = strip_node_wrappers(outer_const);
+            let stripped_inner = strip_node_wrappers(inner_const);
+            !stripped_outer.is_null()
+                && !stripped_inner.is_null()
+                && pg_sys::equal(stripped_outer.cast(), stripped_inner.cast())
+        }
+        _ => false,
+    }
+}
+
+/// When multiple equi-join keys exist and some are redundant because both sides
+/// are already constrained to a constant in the same equivalence class,
+/// prune the redundant keys so they do not mandate columnar fast fields or
+/// induce redundant hash table lookups (matching PostgreSQL's `EC_MUST_BE_REDUNDANT`).
+pub unsafe fn prune_redundant_const_equi_keys(
+    root: *mut pg_sys::PlannerInfo,
+    equi_keys: &mut Vec<JoinKeyPair>,
+) {
+    if equi_keys.len() > 1
+        && equi_keys
+            .iter()
+            .any(|k| !is_equi_key_redundant_const(root, k))
+    {
+        equi_keys.retain(|k| !is_equi_key_redundant_const(root, k));
+    }
 }
 
 /// Look up base-relation metadata for a given RTI: relid, alias, and ParadeDB index.

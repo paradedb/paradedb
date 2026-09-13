@@ -603,6 +603,7 @@ mod pdb {
         PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
     );
 
+    // TODO: Remove deprecated `pdb.term_set` aggregate in a future release.
     #[derive(pgrx::AggregateName, Default)]
     #[aggregate_name = "term_set"]
     pub struct TermSetAggI64;

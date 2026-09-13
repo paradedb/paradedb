@@ -102,13 +102,13 @@ pub struct PgSearchTableProvider {
     /// - **Phase 1 (false) - SQL Planning:** During initial plan construction (`joinscan`),
     ///   this provider must expose a standard relational schema (i.e. `Utf8View` for strings)
     ///   so that DataFusion's SQL expression builder and `TypeCoercion` pass don't panic
-    ///   when trying to apply normal string functions/sorts to a `Union` type.
+    ///   when trying to apply normal string functions/sorts to a packed integer column.
     ///
     /// - **Phase 2 (true) - Logical Optimization:** Once the plan is structurally validated,
     ///   our `LateMaterializationRule` flips this to `true` (via interior mutability).
-    ///   The provider immediately begins returning the physical `Union` schema. The rule
-    ///   then updates the `TableScan.projected_schema` to match, allowing the `Union`
-    ///   types to legally bubble up to our `LateMaterializeNode` anchor.
+    ///   The provider immediately begins returning the physical deferred schema. The rule
+    ///   then updates the `TableScan.projected_schema` to match, allowing the deferred
+    ///   columns to legally bubble up to our `LateMaterializeNode` anchor.
     ///
     /// SAFETY: Relaxed ordering is sufficient because the store (in LateMaterializationRule)
     /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
@@ -126,7 +126,7 @@ pub struct PgSearchTableProvider {
     /// Whether a deferred string/bytes column has its term ordinals resolved inside the
     /// scan (State 1, in doc order) or left as doc addresses for a `TantivyFetchExec`.
     /// Snapshotted from `paradedb.defer_column_fetch` when the columns are deferred, so a
-    /// dispatched plan carries the leader's choice.
+    /// dispatched plan carries the leader's choice; the placement rule may flip it per scan.
     deferred_fetch_at_scan: bool,
 
     /// Source position in the unified-sources array. When set, the codec's
@@ -252,7 +252,7 @@ impl PgSearchTableProvider {
         self.range_split_points.as_ref()
     }
 
-    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
+    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (deferred columns)
     pub fn enable_late_materialization_schema(&self) {
         self.late_materialization_active
             .store(true, Ordering::Relaxed);
@@ -291,7 +291,13 @@ impl PgSearchTableProvider {
     }
 
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
-        self.deferred_fetch_at_scan = !crate::gucs::defer_column_fetch();
+        use crate::gucs::DeferredPlacement;
+        // A column that is never deferred is decoded by the scan, which is what an eager
+        // decode setting asks for; the placement rule handles the per-column decisions.
+        if crate::gucs::defer_string_decode() == DeferredPlacement::Off {
+            return;
+        }
+        self.deferred_fetch_at_scan = crate::gucs::defer_column_fetch() == DeferredPlacement::Off;
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
@@ -404,6 +410,7 @@ impl PgSearchTableProvider {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
                     },
+                    heap_rti: self.scan_info.heap_rti,
                     // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).

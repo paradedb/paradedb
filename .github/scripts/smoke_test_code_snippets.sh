@@ -165,7 +165,8 @@ if [[ $ORMS =~ "rails" ]]; then
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
     "rails-paradedb:0.12.0" \
-    "pg"
+    "pg" \
+    "json:<3"
 
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
@@ -242,9 +243,11 @@ drizzle_pass_count=0
 drizzle_fail_count=0
 if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
-  npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
+  # Keep the Drizzle version aligned with the integration's peer dependency.
+  # Skip peer resolution for Drizzle's unused optional integrations (e.g. effect).
+  npm --prefix "$JAVASCRIPT_ENV_DIR" install --legacy-peer-deps \
     "@paradedb/drizzle-paradedb@0.5.0" \
-    "drizzle-orm" \
+    "drizzle-orm@1.0.0-rc.4" \
     "postgres" \
     "tsx"
 

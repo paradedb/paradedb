@@ -116,7 +116,12 @@ impl ExecutionPlan for FilterPassthroughExec {
         parent_filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> Result<FilterDescription> {
-        FilterDescription::from_children(parent_filters, &self.children())
+        let child_desc = crate::scan::filter_pushdown::schema_preserving_child_filter_description(
+            &parent_filters,
+            &self.inner.schema(),
+            None,
+        )?;
+        Ok(FilterDescription::new().with_child(child_desc))
     }
 
     fn handle_child_pushdown_result(

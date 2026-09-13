@@ -15,9 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
+use datafusion::common::{
+    Column, JoinType, NullEquality, NullHandling, Result, TableReference, UnnestOptions,
+};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlanBuilder, Operator, col, lit};
+use datafusion::logical_expr::{
+    BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator, col, lit,
+};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -284,6 +288,23 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
+        if let Some(rti) =
+            crate::postgres::customscan::joinscan::planning::get_score_func_rti(node.cast())
+        {
+            for source in self.sources.iter() {
+                if let Some(attno) = source.map_var(rti, 0) {
+                    if let Some(name) = source.column_name(attno) {
+                        return Some(make_source_col(source, &name));
+                    } else {
+                        return Some(make_source_score_col(source));
+                    }
+                } else if source.contains_rti(rti) {
+                    return Some(make_source_score_col(source));
+                }
+            }
+            return None;
+        }
+
         let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
@@ -341,15 +362,15 @@ pub fn apply_join_level_filter(
     mut df: DataFrame,
     predicate: &JoinLevelExpr,
     translated_exprs: &[Expr],
+    custom_expr_idx: &mut usize,
     sources: &[&JoinSource],
     handle_mark: bool,
 ) -> Result<DataFrame> {
-    let mut custom_expr_idx = 0;
     let filter_expr = unsafe {
         PredicateTranslator::translate_join_level_expr(
             predicate,
             translated_exprs,
-            &mut custom_expr_idx,
+            custom_expr_idx,
             sources,
         )
     }
@@ -409,7 +430,12 @@ pub fn build_join_df(left: DataFrame, right: DataFrame, join: &JoinNode) -> Resu
     }
 
     if on.is_empty() {
-        left.join(right, df_join_type, &[], &[], None)
+        let filter = if df_join_type != JoinType::Inner {
+            Some(lit(true))
+        } else {
+            None
+        };
+        left.join(right, df_join_type, &[], &[], filter)
     } else {
         left.join_on(right, df_join_type, on)
     }
@@ -544,9 +570,9 @@ pub fn build_join_df_with_filter(
 /// Apply a lateral unnest operation onto an existing DataFusion DataFrame.
 ///
 /// Resolves the source table's execution alias, applies DataFusion's `unnest_columns_with_options`
-/// (preserving empty arrays for LEFT joins if requested), and re-qualifies the unnested column.
+/// (preserving empty arrays for LEFT joins if requested).
 pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFrame> {
-    use datafusion::common::{NullHandling, UnnestOptions};
+    use datafusion::scalar::ScalarValue;
 
     let source = unnest
         .input
@@ -563,34 +589,78 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
     let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
 
-    let select_exprs = df
+    // If the source relation was pruned from the join output (e.g. by an internal Anti Join
+    // or Semi Join), its array column does not exist in `df`.
+    if !unnest
+        .input
+        .contains_output_rti(unnest.unnest_info.source_rti.0)
+    {
+        let null_col = lit(ScalarValue::Null).alias(&unnested_col_name);
+        let mut select_exprs = df
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| {
+                Expr::Column(datafusion::common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        select_exprs.push(null_col);
+        let df = df.select(select_exprs)?;
+
+        return if unnest.unnest_info.is_left_join {
+            // LEFT JOIN preserves the row when unnest(NULL) produces 0 rows.
+            Ok(df)
+        } else {
+            // CROSS JOIN with an empty set empties the relation.
+            df.filter(lit(false))
+        };
+    }
+
+    let null_handling = if unnest.unnest_info.is_left_join {
+        NullHandling::PreserveAndExpandEmpty
+    } else {
+        NullHandling::Drop
+    };
+    let (session_state, plan) = df.into_parts();
+    let plan = unnest_plan_column(plan, &alias, &unnest.unnest_info.field_name, null_handling)?;
+    Ok(DataFrame::new(session_state, plan))
+}
+
+/// Unnest a single array column from `plan`, aliasing `{source_alias}.{field_name}` to `{source_alias}_{field_name}`
+/// before unnesting with the specified `null_handling`.
+pub fn unnest_plan_column(
+    plan: LogicalPlan,
+    source_alias: &str,
+    field_name: &str,
+    null_handling: NullHandling,
+) -> Result<LogicalPlan> {
+    let unnested_col_name = format!("{source_alias}_{field_name}");
+    let pre_project_exprs: Vec<Expr> = plan
         .schema()
         .iter()
         .map(|(qualifier, field)| {
-            if qualifier.as_ref().map(|q| q.to_string()) == Some(alias.clone())
-                && field.name() == &unnest.unnest_info.field_name
+            let col = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+            if qualifier.as_ref().map(|q| q.to_string()).as_deref() == Some(source_alias)
+                && field.name() == field_name
             {
-                Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ))
-                .alias(&unnested_col_name)
+                col.alias(&unnested_col_name)
             } else {
-                Expr::Column(datafusion::common::Column::new(
-                    qualifier.cloned(),
-                    field.name(),
-                ))
+                col
             }
         })
-        .collect::<Vec<_>>();
-    let df = df.select(select_exprs)?;
+        .collect();
 
-    let unnest_options = if unnest.unnest_info.is_left_join {
-        UnnestOptions::new().with_null_handling(NullHandling::PreserveAndExpandEmpty)
-    } else {
-        UnnestOptions::new().with_null_handling(NullHandling::Drop)
-    };
-    df.unnest_columns_with_options(&[&unnested_col_name], unnest_options)
+    let pre_unnest = LogicalPlanBuilder::from(plan)
+        .project(pre_project_exprs)?
+        .build()?;
+
+    let unnest_options = UnnestOptions::new().with_null_handling(null_handling);
+    let unnest_col = Column::from_name(&unnested_col_name);
+    LogicalPlanBuilder::from(pre_unnest)
+        .unnest_columns_with_options(vec![unnest_col], unnest_options)?
+        .build()
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
@@ -722,7 +792,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::Expression | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false, None)
@@ -862,5 +932,89 @@ mod tests {
                 None,
             ));
         }
+    }
+
+    #[pg_test]
+    fn keyless_semi_join_plans_and_executes_as_nested_loop_join() {
+        use datafusion::arrow::array::Int64Array;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::arrow::record_batch::RecordBatch;
+        use datafusion::datasource::MemTable;
+        use datafusion::prelude::SessionContext;
+        use std::sync::Arc;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let ctx = SessionContext::new();
+            let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, true)]));
+
+            let batch_l = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Int64Array::from(vec![Some(1), Some(2), Some(3)]))],
+            )
+            .expect("build batch l");
+            ctx.register_table(
+                "l",
+                Arc::new(
+                    MemTable::try_new(schema.clone(), vec![vec![batch_l]]).expect("memtable l"),
+                ),
+            )
+            .expect("register l");
+
+            let batch_r = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Int64Array::from(vec![Some(10)]))],
+            )
+            .expect("build batch r");
+            ctx.register_table(
+                "r",
+                Arc::new(MemTable::try_new(schema, vec![vec![batch_r]]).expect("memtable r")),
+            )
+            .expect("register r");
+
+            let left = ctx.table("l").await.expect("table l");
+            let right = ctx.table("r").await.expect("table r");
+
+            let join = crate::postgres::customscan::joinscan::build::JoinNode {
+                join_type: crate::postgres::customscan::joinscan::build::JoinType::Semi,
+                left: crate::postgres::customscan::joinscan::build::RelNode::Scan(Box::new(
+                    crate::postgres::customscan::joinscan::build::JoinSource {
+                        plan_position: 1,
+                        root_id: None,
+                        scan_info: crate::scan::info::ScanInfo::new(
+                            1,
+                            pgrx::pg_sys::InvalidOid,
+                            pgrx::pg_sys::InvalidOid,
+                            crate::scan::ScanMode::all(),
+                        ),
+                    },
+                )),
+                right: crate::postgres::customscan::joinscan::build::RelNode::Scan(Box::new(
+                    crate::postgres::customscan::joinscan::build::JoinSource {
+                        plan_position: 2,
+                        root_id: None,
+                        scan_info: crate::scan::info::ScanInfo::new(
+                            2,
+                            pgrx::pg_sys::InvalidOid,
+                            pgrx::pg_sys::InvalidOid,
+                            crate::scan::ScanMode::all(),
+                        ),
+                    },
+                )),
+                equi_keys: Vec::new(),
+                filter: None,
+                absorbed_search_clauses: Vec::new(),
+                subplan_id: None,
+            };
+
+            let result = super::build_join_df(left, right, &join).expect("build_join_df");
+            let batches = result.collect().await.expect("collect");
+            let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+            assert_eq!(row_count, 3);
+        });
     }
 }

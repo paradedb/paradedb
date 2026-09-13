@@ -231,7 +231,7 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, r)
  book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |    review_positions     | review_score 
 ---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------+--------------
        3 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |  0.4624617 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {{0,4},{19,26},{50,54}} |    0.5505729

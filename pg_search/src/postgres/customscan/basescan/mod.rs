@@ -683,6 +683,11 @@ impl CustomScan for BaseScan {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
             let rel = builder.args().rel;
 
+            // Do not generate scan paths for relations proven empty (dummy rels).
+            if pg_sys::is_dummy_rel(rel) {
+                return None;
+            }
+
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
 

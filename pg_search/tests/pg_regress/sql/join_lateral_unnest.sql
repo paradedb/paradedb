@@ -382,6 +382,59 @@ ORDER BY p.id, t
 LIMIT 10;
 
 -- =====================================================================
+-- TEST 10: LEFT JOIN LATERAL unnest on a table pruned by an Anti Join
+-- =====================================================================
+INSERT INTO jlu_products (title, categories, price) VALUES
+    ('Smart Solar Charger', ARRAY['electronics', 'solar'], 45.00);
+
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, t
+LIMIT 5;
+
+SELECT
+    p.id,
+    p.title,
+    t AS tag
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN LATERAL unnest(b.tags) AS t ON true
+WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, t
+LIMIT 5;
+
+-- =====================================================================
+-- TEST 11: SELECT DISTINCT with CROSS JOIN LATERAL unnest + LIMIT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
+
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE jlu_stores CASCADE;

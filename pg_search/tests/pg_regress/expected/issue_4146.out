@@ -470,33 +470,29 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.title, d.parents
-   ->  Unique
-         Output: d.id, d.title, d.parents
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: d.id, d.title, d.parents
-               Relation Tree: d INNER (p INNER f)
-               Join Cond: d.id = f.documentId, f.id = p.fileId
-               Limit: 50
-               Distinct: true
-               Order By: d.title asc, d.id asc, d.parents asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[min(d_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1, min(f_2.ctid_2) as ctid_2]
-                 :     VisibilityFilterExec: tables=[d, p, f]
-                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_0@2, id@3, title@4, parents@5, ctid_1@0, ctid_2@6]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-                 :             CooperativeExec
-                 :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
-(24 rows)
+   Relation Tree: (d INNER f) INNER p
+   Join Cond: f.id = p.fileId, d.id = f.documentId
+   Limit: 50
+   Distinct: true
+   Order By: d.title asc, d.id asc, d.parents asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[id@0 as col_1, title@2 as col_2, parents@1 as col_3], aggr=[min(d_0.ctid_0) as ctid_0, min(f_1.ctid_1) as ctid_1, min(p_2.ctid_2) as ctid_2]
+     :     VisibilityFilterExec: tables=[d, f, p]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@0, id@4)], projection=[id@2, parents@3, title@4, ctid_0@5, ctid_1@7, ctid_2@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, documentId@1)], projection=[id@0, parents@1, title@2, ctid_0@3, id@4, ctid_1@6]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(20 rows)
 
 SELECT DISTINCT
     d.id,

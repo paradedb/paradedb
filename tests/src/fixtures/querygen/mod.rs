@@ -804,6 +804,23 @@ impl Sides {
     }
 }
 
+/// Which side of a query comparison is currently being executed.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum QuerySide {
+    Baseline,
+    Candidate,
+}
+
+impl QuerySide {
+    pub fn is_candidate(self) -> bool {
+        self == Self::Candidate
+    }
+
+    pub fn is_baseline(self) -> bool {
+        self == Self::Baseline
+    }
+}
+
 /// Run one generated case on `conn`: execute `pg_query` (custom scan off, the known-correct
 /// baseline) and `bm25_query` (with `gucs`), then compare their results.
 pub fn compare_outcome<R, F>(
@@ -816,7 +833,7 @@ pub fn compare_outcome<R, F>(
 ) -> CaseOutcome
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
     compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
@@ -835,7 +852,7 @@ pub fn compare_outcome_on<R, F>(
 ) -> CaseOutcome
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
@@ -876,7 +893,7 @@ pub fn compare_outcome_retrying<R, F>(
 ) -> CaseOutcome
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
     compare_outcome_retrying_on(&sides, pg_query, bm25_query, gucs, pool, setup, run_query)
@@ -894,7 +911,7 @@ pub fn compare_outcome_retrying_on<R, F>(
 ) -> CaseOutcome
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     use crate::fixtures::fault_grace::{Attempt, RetryError};
     let fail = |msg: String| {
@@ -933,7 +950,7 @@ fn compare_outcome_inner<R, F>(
 ) -> CaseOutcome
 where
     R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> Result<R, sqlx::Error>,
+    F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let mut queries = || -> Result<(R, R), sqlx::Error> {
         sides
@@ -941,14 +958,14 @@ where
             .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
-        let pg_result = run_query(pg_query, conn)?;
+        let pg_result = run_query(pg_query, QuerySide::Baseline, conn)?;
 
         sides
             .candidate
             .as_str()
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
-        let bm25_result = run_query(bm25_query, conn)?;
+        let bm25_result = run_query(bm25_query, QuerySide::Candidate, conn)?;
         Ok((pg_result, bm25_result))
     };
     let (pg_result, bm25_result) = match queries() {
@@ -1020,9 +1037,14 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    match compare_outcome(pg_query, bm25_query, gucs, conn, setup, |query, conn| {
-        Ok::<R, sqlx::Error>(run_query(query, conn))
-    }) {
+    match compare_outcome(
+        pg_query,
+        bm25_query,
+        gucs,
+        conn,
+        setup,
+        |query, _side, conn| Ok::<R, sqlx::Error>(run_query(query, conn)),
+    ) {
         // run_query panics on DB errors here, so a `Transient` means the GUC set failed (and a
         // plain `cargo test` never classifies anything transient anyway).
         CaseOutcome::Transient(_, e) => Err(handle_compare_error(

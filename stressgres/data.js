@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789294753189,
+  "lastUpdate": 1789294763076,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -324428,6 +324428,126 @@ window.BENCHMARK_DATA = {
             "value": 15.09215775848824,
             "unit": "median tps",
             "extra": "avg tps: 26.370499020615238, max tps: 213.895286635548, count: 57427"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789294747974,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 170.75952661326286,
+            "unit": "median tps",
+            "extra": "avg tps: 175.74272034852038, max tps: 209.73112803437382, count: 57435"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 272.1162098103328,
+            "unit": "median tps",
+            "extra": "avg tps: 300.3066386591976, max tps: 466.8467090315728, count: 57435"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 4002.231839598376,
+            "unit": "median tps",
+            "extra": "avg tps: 3998.176027988542, max tps: 4398.880693990494, count: 57435"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 176.60323514923755,
+            "unit": "median tps",
+            "extra": "avg tps: 182.03199078021723, max tps: 220.3865896419584, count: 57435"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3395.311550841341,
+            "unit": "median tps",
+            "extra": "avg tps: 3395.404035884781, max tps: 3469.6528483726756, count: 57435"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3391.4069917251245,
+            "unit": "median tps",
+            "extra": "avg tps: 3390.879970392497, max tps: 3445.4666498370593, count: 57435"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 135.9159937561382,
+            "unit": "median tps",
+            "extra": "avg tps: 138.95239807910815, max tps: 161.93136292237207, count: 57435"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 261.10347496252547,
+            "unit": "median tps",
+            "extra": "avg tps: 272.10802149732683, max tps: 349.66027473537014, count: 57435"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Primary - tps",
+            "value": 495.6819976486285,
+            "unit": "median tps",
+            "extra": "avg tps: 503.29041015946694, max tps: 558.8427670261345, count: 57435"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 570.1370827266945,
+            "unit": "median tps",
+            "extra": "avg tps: 579.8727760123583, max tps: 643.0889981222522, count: 57435"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1274.9770853520238,
+            "unit": "median tps",
+            "extra": "avg tps: 1276.0239839974752, max tps: 1291.3292406805265, count: 57435"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 305.70684856755696,
+            "unit": "median tps",
+            "extra": "avg tps: 330.6112647951238, max tps: 515.4318511497921, count: 57435"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 521.5339816623693,
+            "unit": "median tps",
+            "extra": "avg tps: 530.5398250695192, max tps: 582.9192123774524, count: 57435"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2321.0458103394067,
+            "unit": "median tps",
+            "extra": "avg tps: 2323.657677350792, max tps: 2465.813763315881, count: 57435"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1745.107799072862,
+            "unit": "median tps",
+            "extra": "avg tps: 1768.0598004637397, max tps: 2091.503698241412, count: 57435"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 7.85876231343838,
+            "unit": "median tps",
+            "extra": "avg tps: 11.621076602055744, max tps: 758.4589025251372, count: 57435"
           }
         ]
       }

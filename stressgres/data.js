@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789334939285,
+  "lastUpdate": 1789334947975,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -361566,6 +361566,96 @@ window.BENCHMARK_DATA = {
             "value": 45.4140625,
             "unit": "median mem",
             "extra": "avg mem: 45.351817683162885, max mem: 51.92578125, count: 58766"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789334943873,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 65.6640625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 63.81653591998026, max partition_index_size:MB: 102.0703125, count: 58773"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.32326197643401, max cpu: 33.20158, count: 58773"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.3401141228753, max mem: 54.2421875, count: 58773"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.96848421793764, max cpu: 33.41621, count: 58773"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.005487080589724, max mem: 67.66015625, count: 58773"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.486166,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.480057193316657, max cpu: 33.185184, count: 58773"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.338243910894455, max mem: 70.18359375, count: 58773"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.893746147611076, max cpu: 38.247013, count: 58773"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.14562443904939, max mem: 62.3046875, count: 58773"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.223420224492223, max cpu: 33.20158, count: 58773"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.298655021225734, max mem: 51.7421875, count: 58773"
           }
         ]
       }

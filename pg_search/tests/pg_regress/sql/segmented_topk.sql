@@ -275,7 +275,9 @@ LIMIT 5;
 -- TEST 11: ORDER BY containing two different string fields from different tables
 -- =============================================================================
 
--- TODO: Does not get SegmentedTopK: see https://github.com/paradedb/paradedb/issues/4347
+-- The placement rule decodes the build side's category in the scan, so only f.title
+-- reaches the sort deferred and the SegmentedTopK takes it. With both decodes pinned
+-- late, the sort falls back: see https://github.com/paradedb/paradedb/issues/4347
 
 SET paradedb.enable_segmented_topk = off;
 
@@ -302,6 +304,25 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
+
+SET paradedb.defer_string_decode = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+
+RESET paradedb.defer_string_decode;
 
 -- =============================================================================
 -- TEST 12: Multi-segment global threshold pruning

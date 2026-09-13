@@ -180,14 +180,32 @@ impl ReturnedNodePointer {
         let base_var = resolve_lhs_var_for_group((*request).root, base_var);
 
         let original_lhs = lhs;
-        let lhs = if derived {
-            lhs
+        let SearchLhs {
+            node: lhs,
+            supports_heap_fallback,
+        } = if derived {
+            SearchLhs {
+                node: lhs,
+                supports_heap_fallback: true,
+            }
         } else {
-            make_lhs(&indexrel, base_var)
+            SearchLhs::from_index(&indexrel, base_var, lhs)
         };
         let Some(rhs) = wrap_with_index(&indexrel, rhs, inferred_field) else {
             return Self::unsupported();
         };
+        if !supports_heap_fallback {
+            // Preserve index planning; the scalar operator rejects heap execution.
+            return Self::from_node(
+                SearchPredicate {
+                    lhs,
+                    rhs,
+                    location: (*(*request).fcall).location,
+                }
+                .into_opexpr()
+                .cast(),
+            );
+        }
         let ctid = (!derived).then(|| {
             let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
             (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
@@ -1065,51 +1083,84 @@ pub unsafe fn field_name_from_node(
     None
 }
 
-unsafe fn make_lhs(indexrel: &PgSearchRelation, base_var: *mut pg_sys::Var) -> *mut pg_sys::Node {
-    let index_info = unsafe { *indexrel.index_info() };
-    let tupdesc = indexrel.tuple_desc();
-    // Recheck expressions need a returnable anchor for index-only scans.
-    let index_attribute = (0..tupdesc.len())
-        .find(|&attno| pg_sys::index_can_return(indexrel.as_ptr(), attno as i32 + 1))
-        .unwrap_or(0);
-    let heap_attno = index_info.ii_IndexAttrNumbers[index_attribute];
+struct SearchLhs {
+    node: *mut pg_sys::Node,
+    supports_heap_fallback: bool,
+}
 
-    // Zero identifies an indexed expression rather than a heap column.
-    if heap_attno == 0 {
-        let expression = PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions)
-            .get_ptr(0)
-            .expect("first index attribute should have an expression");
-        let expression = pg_sys::copyObjectImpl(expression.cast()).cast::<pg_sys::Node>();
-        for var in find_vars(expression) {
-            (*var).varno = (*base_var).varno;
-            (*var).varnosyn = (*base_var).varnosyn;
-            (*var).varlevelsup = (*base_var).varlevelsup;
-            #[cfg(not(feature = "pg15"))]
-            {
-                (*var).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
+impl SearchLhs {
+    unsafe fn from_index(
+        indexrel: &PgSearchRelation,
+        base_var: *mut pg_sys::Var,
+        original_lhs: *mut pg_sys::Node,
+    ) -> Self {
+        let index_info = unsafe { *indexrel.index_info() };
+        let tupdesc = indexrel.tuple_desc();
+        // Recheck expressions need a returnable anchor for index-only scans.
+        let index_attribute = (0..tupdesc.len())
+            .find(|&attno| pg_sys::index_can_return(indexrel.as_ptr(), attno as i32 + 1))
+            .or_else(|| (0..tupdesc.len()).find(|&attno| index_info.ii_IndexAttrNumbers[attno] > 0))
+            .unwrap_or(0);
+        let heap_attno = index_info.ii_IndexAttrNumbers[index_attribute];
+
+        // Zero identifies an indexed expression rather than a heap column.
+        if heap_attno == 0 {
+            let expressions = indexrel.index_expressions();
+            let is_partial = !pg_sys::RelationGetIndexPredicate(indexrel.as_ptr()).is_null();
+            let expression = if is_partial {
+                let Some(expression) = expressions
+                    .iter_ptr()
+                    .find(|&expression| expr_matches_node(original_lhs, expression, type_is_alias))
+                else {
+                    return Self {
+                        node: original_lhs,
+                        supports_heap_fallback: false,
+                    };
+                };
+                expression
+            } else {
+                expressions
+                    .get_ptr(0)
+                    .expect("first index attribute should have an expression")
+            };
+            let expression = pg_sys::copyObjectImpl(expression.cast()).cast::<pg_sys::Node>();
+            for var in find_vars(expression) {
+                (*var).varno = (*base_var).varno;
+                (*var).varnosyn = (*base_var).varnosyn;
+                (*var).varlevelsup = (*base_var).varlevelsup;
+                #[cfg(not(feature = "pg15"))]
+                {
+                    (*var).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
+                }
+                #[cfg(feature = "pg18")]
+                {
+                    (*var).varreturningtype = (*base_var).varreturningtype;
+                }
             }
-            #[cfg(feature = "pg18")]
-            {
-                (*var).varreturningtype = (*base_var).varreturningtype;
-            }
+            return Self {
+                node: expression,
+                supports_heap_fallback: !is_partial,
+            };
         }
-        return expression;
+
+        let att = tupdesc
+            .get(index_attribute)
+            .expect("`USING paradedb` index must have at least one attribute");
+
+        let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+
+        (*var).varattno = index_info.ii_IndexAttrNumbers[index_attribute];
+        (*var).varattnosyn = (*var).varattno;
+
+        (*var).vartype = att.atttypid;
+        (*var).vartypmod = att.atttypmod;
+        (*var).varcollid = att.attcollation;
+
+        Self {
+            node: var.cast(),
+            supports_heap_fallback: true,
+        }
     }
-
-    let att = tupdesc
-        .get(index_attribute)
-        .expect("`USING paradedb` index must have at least one attribute");
-
-    let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-
-    (*var).varattno = index_info.ii_IndexAttrNumbers[index_attribute];
-    (*var).varattnosyn = (*var).varattno;
-
-    (*var).vartype = att.atttypid;
-    (*var).vartypmod = att.atttypmod;
-    (*var).varcollid = att.attcollation;
-
-    var.cast()
 }
 
 #[cfg(feature = "pg18")]

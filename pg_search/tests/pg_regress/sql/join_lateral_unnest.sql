@@ -411,6 +411,30 @@ ORDER BY p.id, t
 LIMIT 5;
 
 -- =====================================================================
+-- TEST 11: SELECT DISTINCT with CROSS JOIN LATERAL unnest + LIMIT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
+
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE jlu_stores CASCADE;

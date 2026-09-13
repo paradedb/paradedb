@@ -915,7 +915,6 @@ JOIN dist_regions dr ON dp.category = dr.category
 WHERE dp.name @@@ 'laptop OR jacket OR shoes'
 GROUP BY dp.category
 ORDER BY dp.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: dp, dr)
   category   | count 
 -------------+-------
  Clothing    |     2
@@ -1250,7 +1249,6 @@ FROM dist_ci c
 JOIN dist_ci_join j ON c.join_id = j.id
 WHERE c.id @@@ paradedb.all()
 LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
                                QUERY PLAN                                
 -------------------------------------------------------------------------
@@ -1278,7 +1276,6 @@ SELECT COUNT(*) FROM (
     WHERE c.id @@@ paradedb.all()
     LIMIT 10
 ) t;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT on a nondeterministic collation is not supported (table: join)
 WARNING:  JoinScan not used: DISTINCT on a nondeterministic collation is not supported (tables: c, j)
  count 
 -------

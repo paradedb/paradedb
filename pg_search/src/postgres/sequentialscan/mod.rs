@@ -188,11 +188,37 @@ pub fn ctid_is_valid(ctid: FakeCtid, fcinfo: pg_sys::FunctionCallInfo) -> bool {
 }
 
 #[pg_extern(stable, strict, parallel_safe)]
-pub fn xmin_is_visible(xmin: pg_sys::TransactionId) -> bool {
+pub fn xmin_is_visible(
+    xmin: pg_sys::TransactionId,
+    tableoid: pg_sys::Oid,
+    ctid: pg_sys::ItemPointerData,
+) -> bool {
     unsafe {
-        // Current-command writes and EPQ replacements can be absent from the CTID set.
-        !pg_sys::TransactionIdIsCurrentTransactionId(xmin)
-            && !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot())
+        if !pg_sys::TransactionIdIsCurrentTransactionId(xmin) {
+            return !pg_sys::XidInMVCCSnapshot(xmin, pg_sys::GetActiveSnapshot());
+        }
+        if !Ctid::from(ctid).is_valid() {
+            return false;
+        }
+
+        // The tuple visibility check distinguishes earlier commands from current-command writes.
+        let heaprel = PgSearchRelation::with_lock(tableoid, pg_sys::AccessShareLock as _);
+        let mut tuple = pg_sys::HeapTupleData {
+            t_self: ctid,
+            ..Default::default()
+        };
+        let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+        let visible = pg_sys::heap_fetch(
+            heaprel.as_ptr(),
+            pg_sys::GetActiveSnapshot(),
+            &mut tuple,
+            &mut buffer,
+            false,
+        );
+        if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            pg_sys::ReleaseBuffer(buffer);
+        }
+        visible
     }
 }
 
@@ -253,6 +279,30 @@ fn search_with_query_input_impl(
                 matches: KeySet::All,
                 missing_values: None,
             };
+        }
+
+        if ctid.is_none() {
+            let index_info = unsafe { &*index_relation.index_info() };
+            if is_partial
+                && index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize]
+                    .iter()
+                    .all(|&attno| attno == 0)
+            {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                    "searches on expression-only partial indexes require an index scan",
+                    function_name!(),
+                )
+                .set_hint("Add a directly indexed table column to support searches without an index scan.")
+                .report(PgLogLevel::ERROR);
+            }
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                "search query requires row identity that is unavailable in this context",
+                function_name!(),
+            )
+            .set_hint("Apply the search operator in a table query. Use an ordinary SQL predicate to define a partial index.")
+            .report(PgLogLevel::ERROR);
         }
 
         // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we

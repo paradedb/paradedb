@@ -762,26 +762,33 @@ impl pdb::Query {
 
     /// Returns a heuristic selectivity for this query type, avoiding expensive scorer construction.
     pub fn selectivity_heuristic(&self) -> f64 {
+        self.estimated_selectivity()
+            .unwrap_or(crate::UNKNOWN_SELECTIVITY)
+    }
+
+    /// The heuristic selectivity, or `None` for the leaves we have no heuristic for. See
+    /// [`crate::query::SearchQueryInput::estimated_selectivity`] for why the two are distinct.
+    pub(crate) fn estimated_selectivity(&self) -> Option<f64> {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
         match self {
-            pdb::Query::MoreLikeThis { .. } => crate::MORE_LIKE_THIS_SELECTIVITY,
+            pdb::Query::MoreLikeThis { .. } => Some(crate::MORE_LIKE_THIS_SELECTIVITY),
             pdb::Query::FuzzyTerm { distance, .. } => {
                 let dist = distance.unwrap_or(1);
                 if dist <= 1 {
-                    FUZZY_LOW_SELECTIVITY
+                    Some(FUZZY_LOW_SELECTIVITY)
                 } else {
-                    FUZZY_HIGH_SELECTIVITY
+                    Some(FUZZY_HIGH_SELECTIVITY)
                 }
             }
 
-            pdb::Query::ParseWithField { .. } => FUZZY_LOW_SELECTIVITY,
+            pdb::Query::ParseWithField { .. } => Some(FUZZY_LOW_SELECTIVITY),
 
-            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => REGEX_SELECTIVITY,
+            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => Some(REGEX_SELECTIVITY),
 
-            pdb::Query::ScoreAdjusted { query, .. } => query.selectivity_heuristic(),
+            pdb::Query::ScoreAdjusted { query, .. } => query.estimated_selectivity(),
 
-            _ => crate::UNKNOWN_SELECTIVITY,
+            _ => None,
         }
     }
 }

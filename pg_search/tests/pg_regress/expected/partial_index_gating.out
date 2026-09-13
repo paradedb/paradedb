@@ -76,6 +76,7 @@ SELECT plan_uses(
   $$SELECT l.id FROM pig_left l JOIN pig_right r ON r.left_id = l.id
     WHERE l.category @@@ 'a' ORDER BY l.id LIMIT 5$$,
   'ParadeDB Join Scan') AS join_when_predicate_missing;
+WARNING:  JoinScan not used: query does not imply the partial index predicate (tables: l, r)
  join_when_predicate_missing 
 -----------------------------
  f

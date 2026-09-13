@@ -39,6 +39,50 @@ ROLLBACK;
 
 DROP TABLE returning_current;
 
+CREATE TABLE earlier_command (id int, body text, note text) WITH (fillfactor = 50);
+CREATE INDEX earlier_command_idx ON earlier_command USING paradedb (id, (body::pdb.literal));
+
+BEGIN;
+INSERT INTO earlier_command VALUES (1, 'alpha', 'before'), (2, 'beta', 'before'), (3, NULL, 'before');
+SELECT bool_and(paradedb.xmin_is_visible(xmin, tableoid, ctid)) AS visible,
+       bool_and((body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha')) AS matches
+FROM earlier_command;
+
+-- Current-command replacements need inline evaluation; the next statement can use CTIDs.
+SAVEPOINT earlier_command_update;
+WITH changed AS (
+    UPDATE earlier_command SET note = 'after'
+    RETURNING paradedb.xmin_is_visible(xmin, tableoid, ctid) AS visible,
+              (body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha') AS matches
+)
+SELECT bool_and(NOT visible) AS outside_snapshot, bool_and(matches) AS matches FROM changed;
+SELECT bool_and(paradedb.xmin_is_visible(xmin, tableoid, ctid)) AS visible,
+       bool_and((body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha')) AS matches
+FROM earlier_command;
+
+-- Rolled-back updates leave combo command IDs on the original tuples.
+ROLLBACK TO earlier_command_update;
+SELECT bool_and(paradedb.xmin_is_visible(xmin, tableoid, ctid)) AS visible,
+       bool_and((body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha')) AS matches
+FROM earlier_command;
+UPDATE earlier_command SET body = 'alpha' WHERE id = 2;
+RELEASE SAVEPOINT earlier_command_update;
+SELECT bool_and(paradedb.xmin_is_visible(xmin, tableoid, ctid)) AS visible,
+       bool_and((body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha')) AS matches
+FROM earlier_command;
+
+DECLARE earlier_command_cursor CURSOR FOR
+SELECT id, paradedb.xmin_is_visible(xmin, tableoid, ctid) AS visible,
+       (body === 'alpha') IS NOT DISTINCT FROM (body = 'alpha') AS matches
+FROM earlier_command ORDER BY id;
+SAVEPOINT earlier_command_fetch;
+FETCH 1 FROM earlier_command_cursor;
+ROLLBACK TO earlier_command_fetch;
+FETCH ALL FROM earlier_command_cursor;
+CLOSE earlier_command_cursor;
+ROLLBACK;
+DROP TABLE earlier_command;
+
 CREATE TABLE returning_old_new (id int PRIMARY KEY, body text NOT NULL, covered boolean NOT NULL);
 INSERT INTO returning_old_new
 SELECT id, CASE WHEN id % 2 = 1 THEN 'alpha' ELSE 'beta' END, id IN (3, 4, 7, 8)

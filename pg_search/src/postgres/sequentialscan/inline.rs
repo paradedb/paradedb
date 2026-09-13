@@ -81,9 +81,9 @@ impl MaybeInlineRow {
         let row = if ctid.is_none() {
             let (heap_oid, _, targetlist) = find_var_relation(base_var, root);
             let targetlist = targetlist.expect("derived row should have a target list");
-            let source = targetlist
-                .get_ptr((*base_var).varattno as usize - 1)
-                .and_then(|entry| find_one_var((*entry).expr.cast()));
+            let source = pg_sys::get_tle_by_resno(targetlist.as_ptr(), (*base_var).varattno)
+                .as_ref()
+                .and_then(|entry| find_one_var(entry.expr.cast()));
             let mut fields = PgList::<pg_sys::Node>::new();
             let mut names = PgList::<pg_sys::Node>::new();
             let mut attributes: HashMap<_, Option<*mut pg_sys::TargetEntry>> = HashMap::default();
@@ -194,6 +194,12 @@ impl MaybeInlineRow {
         (*xmin).vartype = pg_sys::XIDOID;
         let mut xmin_args = PgList::<pg_sys::Node>::new();
         xmin_args.push(xmin.cast());
+        let tableoid = pg_sys::copyObjectImpl(ctid.cast()).cast::<pg_sys::Var>();
+        (*tableoid).varattno = pg_sys::TableOidAttributeNumber as _;
+        (*tableoid).varattnosyn = (*tableoid).varattno;
+        (*tableoid).vartype = pg_sys::OIDOID;
+        xmin_args.push(tableoid.cast());
+        xmin_args.push(pg_sys::copyObjectImpl(ctid.cast()).cast());
         let visible_xmin = pg_sys::makeFuncExpr(
             xmin_is_visible_procoid(),
             pg_sys::BOOLOID,
@@ -520,8 +526,8 @@ fn xmin_is_visible_procoid() -> pg_sys::Oid {
     *CACHE.get_or_init(|| unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.xmin_is_visible(xid)".into_datum()],
+            &[c"paradedb.xmin_is_visible(xid, oid, tid)".into_datum()],
         )
-        .expect("the `paradedb.xmin_is_visible(xid)` function should exist")
+        .expect("the `paradedb.xmin_is_visible(xid, oid, tid)` function should exist")
     })
 }

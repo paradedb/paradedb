@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Top-K searches over a common phrase, or over a regex combined with another filter, plan parallel workers again. Their estimated scan cost collapsed to near zero, so the planner read them as cheap enough for a single core.

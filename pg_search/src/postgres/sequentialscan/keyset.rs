@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A memory-bounded set of key-field values, used by the per-row query filter to answer
-//! "did this row's key match the query?" without materializing the whole result set in RAM.
+//! A memory-bounded set of indexed values, used by the per-row query filter to answer
+//! "did this row's CTID match the query?" without materializing the whole result set in RAM.
 //!
 //! The set is built once (from the index search) and probed once per scan row. It stays in an
 //! in-memory hash set while it fits within `work_mem`; past that it spills to a temporary file:
@@ -35,6 +35,7 @@ use crate::gucs::WorkMem;
 use crate::postgres::tuplesort::Sorter;
 use crate::postgres::types::TantivyValue;
 use pgrx::pg_sys;
+use std::cell::Cell;
 use std::os::raw::c_int;
 
 /// One sparse-index entry per this many spilled records.
@@ -42,10 +43,10 @@ const INDEX_STRIDE: usize = 1024;
 
 /// Serialize a key to the bytes used for both sorting and probing.
 fn key_bytes(value: &TantivyValue) -> Vec<u8> {
-    postcard::to_allocvec(value).expect("a key-field TantivyValue should serialize")
+    postcard::to_allocvec(value).expect("a TantivyValue should serialize")
 }
 
-/// A built, memory-bounded membership structure over key-field values.
+/// A built, memory-bounded membership structure over indexed values.
 pub enum KeySet {
     /// Every row matches (e.g. `pdb.all()`); no keys are stored.
     All,
@@ -54,10 +55,11 @@ pub enum KeySet {
     /// Small enough to keep resident.
     InMemory(HashSet<TantivyValue>),
     /// Spilled to a temporary file, probed via a sparse in-RAM index.
-    Spilled(Spilled),
+    Spilled(Box<Spilled>),
 }
 
 impl KeySet {
+    /// The current memory context must outlive the returned set.
     pub fn build_from(values: impl IntoIterator<Item = TantivyValue>) -> Self {
         let mut builder = KeySetBuilder::default();
         for value in values {
@@ -65,6 +67,10 @@ impl KeySet {
             builder.push(value);
         }
         builder.finish()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !matches!(self, Self::Spilled(spilled) if spilled.released.get())
     }
 
     /// Does `value` belong to the set?
@@ -136,6 +142,8 @@ impl KeySetBuilder {
 /// machinery here is a candidate for reuse.
 pub struct Spilled {
     file: *mut pg_sys::BufFile,
+    resource_owner: pg_sys::ResourceOwner,
+    released: Cell<bool>,
     index: Vec<IndexEntry>,
     count: usize,
 }
@@ -148,21 +156,12 @@ struct IndexEntry {
 
 impl Spilled {
     /// Drain the sorted keys into a `BufFile` + sparse index.
-    fn from_sorter(mut sorter: Sorter) -> Self {
+    fn from_sorter(mut sorter: Sorter) -> Box<Self> {
         unsafe {
             sorter.performsort();
 
-            // The BufFile is probed on later scan rows, so both the file (via its resource owner)
-            // and the BufFile *struct* (via the current memory context) must outlive the current
-            // per-tuple ExprContext. Create it against the transaction's owner/context; `Spilled`'s
-            // Drop closes it when the function's cache is torn down at end of query.
-            let saved_owner = pg_sys::CurrentResourceOwner;
-            let saved_cxt = pg_sys::CurrentMemoryContext;
-            pg_sys::CurrentResourceOwner = pg_sys::CurTransactionResourceOwner;
-            pg_sys::CurrentMemoryContext = pg_sys::CurTransactionContext;
             let file = pg_sys::BufFileCreateTemp(false);
-            pg_sys::CurrentResourceOwner = saved_owner;
-            pg_sys::CurrentMemoryContext = saved_cxt;
+            let resource_owner = pg_sys::CurrentResourceOwner;
 
             let mut index: Vec<IndexEntry> = Vec::new();
             let mut count: usize = 0;
@@ -184,11 +183,38 @@ impl Spilled {
 
             drop(sorter);
 
-            Spilled { file, index, count }
+            let mut spilled = Box::new(Spilled {
+                file,
+                resource_owner,
+                released: Cell::new(false),
+                index,
+                count,
+            });
+            pg_sys::RegisterResourceReleaseCallback(
+                Some(Self::release_resources),
+                std::ptr::from_mut(&mut *spilled).cast(),
+            );
+            spilled
+        }
+    }
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn release_resources(
+        phase: pg_sys::ResourceReleasePhase::Type,
+        _is_commit: bool,
+        _is_top_level: bool,
+        arg: *mut std::ffi::c_void,
+    ) {
+        let spilled = unsafe { &*arg.cast::<Spilled>() };
+        if phase == pg_sys::ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS
+            && unsafe { pg_sys::CurrentResourceOwner } == spilled.resource_owner
+        {
+            spilled.released.set(true);
         }
     }
 
     fn contains(&self, value: &TantivyValue) -> bool {
+        assert!(!self.released.get(), "spilled key set has been released");
         if self.count == 0 {
             return false;
         }
@@ -240,7 +266,15 @@ impl Spilled {
 
 impl Drop for Spilled {
     fn drop(&mut self) {
-        unsafe { pg_sys::BufFileClose(self.file) }
+        unsafe {
+            pg_sys::UnregisterResourceReleaseCallback(
+                Some(Self::release_resources),
+                std::ptr::from_mut(self).cast(),
+            );
+            if !self.released.get() && !std::thread::panicking() {
+                pg_sys::BufFileClose(self.file);
+            }
+        }
     }
 }
 

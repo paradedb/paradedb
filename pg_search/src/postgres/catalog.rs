@@ -19,6 +19,25 @@ use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
+pub(crate) trait OidExt {
+    fn is_paradedb_am(&self) -> bool;
+}
+
+impl OidExt for pg_sys::Oid {
+    fn is_paradedb_am(&self) -> bool {
+        static AM_OIDS: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+        *self != pg_sys::InvalidOid
+            && AM_OIDS
+                .get_or_init(|| unsafe {
+                    [
+                        pg_sys::get_index_am_oid(c"bm25".as_ptr(), true),
+                        pg_sys::get_index_am_oid(c"paradedb".as_ptr(), true),
+                    ]
+                })
+                .contains(self)
+    }
+}
+
 /// Pins a syscache entry for the lifetime of the guard; the pin is
 /// released on drop, on every exit path including panics.
 /// Note: holds a raw pointer and is therefore !Send — required, since

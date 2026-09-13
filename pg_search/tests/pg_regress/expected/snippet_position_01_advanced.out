@@ -94,13 +94,12 @@ ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+-----------+---------------------+------------------+--------------+------------
-       1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |            0 |          0
        1 |         2 |                     |                  |            0 | 0.45681813
        1 |         6 |                     |                  |            0 | 0.35745716
        2 |         2 |                     |                  |            0 | 0.36441684
        3 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |            0 |  0.4624617
        4 |         3 |                     |                  |            0 | 0.20612015
-(6 rows)
+(5 rows)
 
 SELECT
     b.id as book_id,
@@ -132,13 +131,14 @@ JOIN authors a ON b.author_id = a.id
 WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
- book_id | author_id | author_snippet | author_positions | author_score | book_score 
----------+-----------+----------------+------------------+--------------+------------
-       1 |         2 |                |                  |            0 |          0
-       1 |         6 |                |                  |            0 |          0
-       2 |         2 |                |                  |            0 |          0
-       4 |         3 |                |                  |            0 |          0
-(4 rows)
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {{5,12}}         |            0 |          0
+       1 |         2 |                     |                  |            0 |          0
+       1 |         6 |                     |                  |            0 |          0
+       2 |         2 |                     |                  |            0 |          0
+       4 |         3 |                     |                  |            0 |          0
+(5 rows)
 
 SELECT
     b.id as book_id,
@@ -231,7 +231,7 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
+WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, r)
  book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |    review_positions     | review_score 
 ---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------+--------------
        3 | J.K. <b>Rowling</b> | {{5,12}}         |    1.5404451 |  0.4624617 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {{0,4},{19,26},{50,54}} |    0.5505729

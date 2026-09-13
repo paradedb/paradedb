@@ -149,7 +149,7 @@ CREATE TABLE alias_test (
 );
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
-SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
+SELECT id, trim_scale(col) AS col FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (

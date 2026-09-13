@@ -37,7 +37,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_vars};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{Internal, IntoDatum, PgList, direct_function_call, pg_extern, pg_guard, pg_sys};
-use std::ptr::{NonNull, addr_of_mut};
+use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
@@ -328,7 +328,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>()
     ) {
         if (*srs).root.is_null() {
-            return ReturnedNodePointer(None);
+            return ReturnedNodePointer::unsupported();
         }
 
         let root = (*srs).root;
@@ -345,7 +345,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         if !has_joins && !has_aggs {
             // No joins and no aggregates - PlaceHolderVar provides no benefit
-            return ReturnedNodePointer(None);
+            return ReturnedNodePointer::unsupported();
         }
 
         let mut vars = find_vars((*srs).fcall.cast());
@@ -374,10 +374,10 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
             (*phv).phnullingrels = (*var).varnullingrels;
         }
 
-        return ReturnedNodePointer(NonNull::new(phv.cast()));
+        return ReturnedNodePointer::from_node(phv.cast());
     }
 
-    ReturnedNodePointer(None)
+    ReturnedNodePointer::unsupported()
 }
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {

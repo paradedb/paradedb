@@ -43,6 +43,7 @@ use crate::scan::deferred_lookup::{
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::late_materialization::FFHelperKey;
 
+use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
 use arrow_array::{ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::DataType;
 use datafusion::common::{DataFusionError, Result};
@@ -50,8 +51,7 @@ use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
-    FilterPushdownPropagation,
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
@@ -378,7 +378,11 @@ impl ExecutionPlan for TantivyFetchExec {
                 &self.children(),
             ));
         }
-        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
+        let child_desc = schema_preserving_child_filter_description(
+            &parent_filters,
+            &self.input.schema(),
+            None,
+        )?;
         Ok(FilterDescription::new().with_child(child_desc))
     }
 

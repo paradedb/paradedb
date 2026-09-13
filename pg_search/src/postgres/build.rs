@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
 use crate::api::version::VersionInfo;
+use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -29,11 +30,9 @@ use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::*;
-use std::ffi::CStr;
 use tantivy::Index;
 use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
-use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -73,7 +72,7 @@ pub extern "C-unwind" fn ambuild(
                     continue;
                 }
 
-                if is_bm25_index(&existing_index) && !is_concurrent {
+                if (*existing_index.rd_rel).relam.is_paradedb_am() && !is_concurrent {
                     panic!("a relation may only have one ParadeDB index");
                 }
             }
@@ -134,33 +133,25 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
 }
 
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
-    // quick check to make sure we have "WITH" options
-    if index_relation.rd_options.is_null() {
-        panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
-    }
-
     let created_by_version = index_relation.created_by_version();
-    let options = index_relation.options();
-    let key_field_name = options.key_field_name();
-
     let options = index_relation.options();
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
         });
     }
 
     let inet_configs = options.inet_config();
     for (field_name, config) in inet_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Inet(_))
         });
     }
 
     let numeric_configs = options.numeric_config();
     for (field_name, config) in numeric_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(
                 t,
                 SearchFieldType::I64(_)
@@ -174,21 +165,21 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
     let boolean_configs = options.boolean_config();
     for (field_name, config) in boolean_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Bool(_))
         });
     }
 
     let json_configs = options.json_config();
     for (field_name, config) in json_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Json(_))
         });
     }
 
     let range_configs = options.range_config();
     for (field_name, config) in range_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
+        validate_field_config(field_name, config, options, |t| {
             matches!(t, SearchFieldType::Range(_))
         });
     }
@@ -202,7 +193,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     } else {
         for (field_name, config) in datetime_configs.iter().flatten() {
-            validate_field_config(field_name, &key_field_name, config, options, |t| {
+            validate_field_config(field_name, config, options, |t| {
                 matches!(t, SearchFieldType::Date(_))
             });
         }
@@ -257,30 +248,12 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
 fn validate_field_config(
     field_name: &FieldName,
-    key_field_name: &FieldName,
     config: &SearchFieldConfig,
     options: &BM25IndexOptions,
     matches: fn(&SearchFieldType) -> bool,
 ) {
     if field_name.is_ctid() {
         panic!("the name `ctid` is reserved by pg_search");
-    }
-
-    if field_name.root() == key_field_name.root() {
-        match config {
-            // we allow the user to change a TEXT key_field tokenizer to "keyword"
-            SearchFieldConfig::Text {
-                tokenizer: SearchTokenizer::Keyword,
-                ..
-            } => {
-                // noop
-            }
-
-            // but not to anything else
-            _ => panic!(
-                "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
-            ),
-        }
     }
 
     if let Some(alias) = config.alias() {
@@ -305,39 +278,6 @@ fn validate_field_config(
         .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the USING clause"));
     if !matches(&field_type) {
         panic!("`{field_name}` was configured with the wrong type");
-    }
-}
-
-pub fn is_bm25_index(indexrel: &PgSearchRelation) -> bool {
-    indexrel.rd_amhandler == bm25_amhandler_oid().unwrap_or_default()
-}
-
-fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
-    // `paradedb` and its backwards-compatible alias `bm25` share the same handler
-    // function, so an index built with either access method has the same
-    // `rd_amhandler`. Resolve against whichever alias is present so index
-    // recognition is independent of the access method name.
-    am_handler_oid(c"paradedb").or_else(|| am_handler_oid(c"bm25"))
-}
-
-fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
-    unsafe {
-        let name = pg_sys::Datum::from(amname.as_ptr());
-        let pg_am_entry = pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::AMNAME as _, name);
-        if pg_am_entry.is_null() {
-            return None;
-        }
-
-        let mut is_null = false;
-        let datum = pg_sys::SysCacheGetAttr(
-            pg_sys::SysCacheIdentifier::AMNAME as _,
-            pg_am_entry,
-            pg_sys::Anum_pg_am_amhandler as _,
-            &mut is_null,
-        );
-        let oid = pg_sys::Oid::from_datum(datum, is_null);
-        pg_sys::ReleaseSysCache(pg_am_entry);
-        oid
     }
 }
 
@@ -411,8 +351,8 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
 
     // Add ctid field
     builder.add_u64_field(
-        "ctid",
-        options.field_config_or_default(&FieldName::from("ctid")),
+        CTID_FIELD_NAME,
+        options.field_config_or_default(&FieldName::from(CTID_FIELD_NAME)),
     );
 
     builder.build()
@@ -505,19 +445,19 @@ mod tests {
     #[pg_test]
     fn test_build_sort_by_field_ctid_explicit() {
         let mut builder = Schema::builder();
-        builder.add_u64_field("ctid", FAST);
+        builder.add_u64_field(CTID_FIELD_NAME, FAST);
         let schema = builder.build();
 
         // Explicit ctid sort_by
         let sort_by = vec![SortByField::new(
-            FieldName::from("ctid".to_string()),
+            FieldName::from(CTID_FIELD_NAME),
             SortByDirection::Asc,
         )];
 
         let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
         assert!(result.is_some());
         let sort_field = result.unwrap();
-        assert_eq!(sort_field.field, "ctid");
+        assert_eq!(sort_field.field, CTID_FIELD_NAME);
         assert_eq!(sort_field.order, Order::Asc);
     }
 
@@ -596,7 +536,7 @@ mod tests {
             r#"
             CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id', target_segment_count = 4,
+                WITH (partition_by = 'tenant_id', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": false}}');
             "#,
         )
@@ -613,7 +553,7 @@ mod tests {
             r#"
             CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
-                WITH (key_field = 'id', partition_by = 'tenant_id, name', target_segment_count = 4,
+                WITH (partition_by = 'tenant_id, name', target_segment_count = 4,
                       numeric_fields = '{"tenant_id": {"fast": true}}');
             "#,
         )
@@ -628,7 +568,7 @@ mod tests {
             r#"
             CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
             CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
-                WITH (key_field = 'id', sort_by = 'name ASC NULLS FIRST',
+                WITH (sort_by = 'name ASC NULLS FIRST',
                       text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
             INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;

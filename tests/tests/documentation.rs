@@ -1803,8 +1803,7 @@ fn specialized_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, (description::pdb.simple), (category::pdb.simple), rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -1832,20 +1831,6 @@ fn specialized_queries(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
-
-    let rows: Vec<(String, i32, String)> = r#"
-    SELECT description, rating, category
-    FROM mock_items
-    WHERE id @@@
-    '{
-        "more_like_this": {
-            "key_value": 3,
-            "min_term_frequency": 1
-        }
-    }'::jsonb;
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 16);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category

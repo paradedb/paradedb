@@ -107,7 +107,7 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
         LogicalPlan::TableScan(scan) => {
             if scan.projected_schema.has_column(col) {
                 // If the column exists in this table scan's projected schema, we have found the base!
-                let (_, field) = scan
+                let (_qualifier, field) = scan
                     .projected_schema
                     .qualified_field_from_column(col)
                     .ok()?;
@@ -335,7 +335,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
                 let mut cols = HashSet::new();
                 expr.add_column_refs(&mut cols);
                 let uses_deferred = cols.iter().any(|c| {
-                    if let Some(base_col) = trace_column(node, c) {
+                    if let Some(base_col) = trace_column(proj.input.as_ref(), c) {
                         deferred_fields.iter().any(|df| base_col.is(df))
                     } else {
                         false
@@ -443,6 +443,14 @@ fn collect_beneficial_deferred_fields_inner<'a>(
     if let LogicalPlan::TableScan(scan) = node {
         if let Some(provider) = pg_search_provider_from_scan(scan) {
             for df in provider.deferred_fields() {
+                if !scan
+                    .projected_schema
+                    .fields()
+                    .iter()
+                    .any(|f| f.name() == &df.name)
+                {
+                    continue;
+                }
                 if has_reduction_before_stop(ancestors, |ancestor| {
                     should_anchor(ancestor, std::slice::from_ref(&df))
                 }) {
@@ -707,14 +715,7 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                     ));
                     new_deferred_fields.push(d);
                 }
-                None => qualified_fields.push((
-                    qualifier.cloned(),
-                    Arc::new(arrow_schema::Field::new(
-                        field.name(),
-                        field.data_type().clone(),
-                        field.is_nullable(),
-                    )),
-                )),
+                None => qualified_fields.push((qualifier.cloned(), Arc::clone(field))),
             }
         }
 

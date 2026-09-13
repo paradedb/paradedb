@@ -220,7 +220,7 @@ CREATE INDEX conversion_search ON conversion_test USING paradedb (
     content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{
         "smallint_field": {"fast": true}, 
         "integer_field": {"fast": true}, 
@@ -660,7 +660,7 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: score_test)
+WARNING:  JoinScan not used: outer-join ON residual predicates are not supported (table: score_test)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -705,7 +705,7 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (table: score_test)
+WARNING:  JoinScan not used: outer-join ON residual predicates are not supported (table: score_test)
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

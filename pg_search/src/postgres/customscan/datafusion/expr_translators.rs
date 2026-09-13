@@ -899,14 +899,12 @@ mod tests {
             CREATE INDEX prop_items_idx ON prop_items
                 USING paradedb (id, name, value)
                 WITH (
-                    key_field='id',
                     text_fields='{"name": {"fast": true}}',
                     numeric_fields='{"value": {"fast": true}}'
                 );
             CREATE INDEX prop_exclusions_idx ON prop_exclusions
                 USING paradedb (id, pattern, threshold)
                 WITH (
-                    key_field='id',
                     text_fields='{"pattern": {"fast": true}}',
                     numeric_fields='{"threshold": {"fast": true}}'
                 );

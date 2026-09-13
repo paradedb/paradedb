@@ -229,6 +229,42 @@ fn setup_multi_term(conn: &mut PgConnection) {
     .execute(conn);
 }
 
+/// `alpha beta gamma delta` sits on 26% of the rows and those four words appear nowhere else,
+/// so the phrase and any one of its words walk the very same posting list. The share is picked
+/// to keep the independence-assumed intersection above zero: below that a full count already
+/// corrects the cost and there is nothing left to measure.
+fn setup_phrase_common_terms(conn: &mut PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS topk_phrase_common CASCADE;
+    CREATE TABLE topk_phrase_common (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        body TEXT NOT NULL
+    );
+    CREATE INDEX topk_phrase_common_idx ON topk_phrase_common USING paradedb (id, body)
+        WITH (
+            key_field = 'id',
+            target_segment_count = 4,
+            mutable_segment_rows = 10000,
+            layer_sizes = '10TB',
+            background_layer_sizes = '10TB'
+        );
+    INSERT INTO topk_phrase_common (body)
+    SELECT CASE WHEN g % 50 < 13 THEN 'alpha beta gamma delta' ELSE 'zeta eta' END
+    FROM generate_series(1, 10000) g;
+    INSERT INTO topk_phrase_common (body)
+    SELECT CASE WHEN g % 50 < 13 THEN 'alpha beta gamma delta' ELSE 'zeta eta' END
+    FROM generate_series(1, 10000) g;
+    INSERT INTO topk_phrase_common (body)
+    SELECT CASE WHEN g % 50 < 13 THEN 'alpha beta gamma delta' ELSE 'zeta eta' END
+    FROM generate_series(1, 10000) g;
+    INSERT INTO topk_phrase_common (body)
+    SELECT CASE WHEN g % 50 < 13 THEN 'alpha beta gamma delta' ELSE 'zeta eta' END
+    FROM generate_series(1, 10000) g;
+    ANALYZE topk_phrase_common;
+    "#
+    .execute(conn);
+}
+
 fn setup_unanalyzed(conn: &mut PgConnection) {
     r#"
     DROP TABLE IF EXISTS topk_unanalyzed CASCADE;
@@ -447,6 +483,21 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                     ORDER BY paradedb.score(id) DESC LIMIT 10",
             expected_workers: Some(2),
         },
+        // A regex ANDed with a clause carrying no heuristic of its own. The unknown clause has
+        // to leave the regex estimate alone; scaling it away drops the row count to one and the
+        // scan reads as too cheap to split.
+        PlanCase {
+            name: "regex_with_unestimatable_conjunct_parallelizes",
+            query: "SELECT id FROM topk_desc_large
+                    WHERE id @@@ paradedb.boolean(
+                        must => ARRAY[
+                            paradedb.regex('body', 'alph.*'),
+                            paradedb.range('id', int4range(0, NULL))
+                        ]
+                    )
+                    ORDER BY paradedb.score(id) DESC LIMIT 10",
+            expected_workers: Some(2),
+        },
         // A dense term_set (here alpha ∪ gamma = every row) has no Block-WAND-pruning
         // weight, so it must reach the cost model and parallelize -- regression guard
         // against term_set being mis-classified prunable and forced serial.
@@ -612,5 +663,42 @@ fn prunable_topk_cost_excludes_drive_work(mut conn: PgConnection) {
         prunable < non_prunable,
         "prunable score-DESC TopK ({prunable}) must cost strictly less than the otherwise-identical \
          non-prunable score-ASC ({non_prunable}); equal cost means drive_cost is no longer excluded"
+    );
+}
+
+/// Tantivy costs a phrase from an intersection estimate that assumes its terms are independent.
+/// The words of a phrase are anything but, so that estimate shrinks with every term added while
+/// the scan keeps walking the same posting list. Costing a phrase below a word it contains says
+/// the scan reads fewer documents than that word alone, which it cannot, and a top-K over a
+/// common phrase then looks cheap enough to leave serial.
+#[rstest]
+fn phrase_cost_covers_the_list_it_drives(mut conn: PgConnection) {
+    set_scaled_costs(&mut conn);
+    // Serial on both sides, so the comparison is the bare scan cost and not a Gather plan.
+    "SET max_parallel_workers_per_gather = 0;".execute(&mut conn);
+    setup_phrase_common_terms(&mut conn);
+
+    // Score ASC on both: Block-WAND cannot prune it, so each cost carries its drive work.
+    let phrase = total_cost(&explain(
+        &mut conn,
+        "SELECT id FROM topk_phrase_common
+         WHERE body @@@ pdb.phrase(ARRAY['alpha', 'beta', 'gamma', 'delta'])
+         ORDER BY paradedb.score(id) ASC LIMIT 10",
+    ));
+    // `alpha` occurs only inside that phrase, so both scans read the very same list.
+    let one_word = total_cost(&explain(
+        &mut conn,
+        "SELECT id FROM topk_phrase_common WHERE body @@@ 'alpha'
+         ORDER BY paradedb.score(id) ASC LIMIT 10",
+    ));
+
+    // Reading the same list, the two totals part only over the row count each carries, which is
+    // pennies against a cost in the hundreds. Take the intersection estimate instead and the
+    // phrase drops a tenth of the way below its own word.
+    assert!(
+        phrase >= one_word * 0.99,
+        "the phrase ({phrase}) reads the same posting list as `alpha` ({one_word}), so their \
+         scan costs must match; a phrase costed under its own word means the intersection \
+         estimate is standing in for the list the scan reads"
     );
 }

@@ -1060,6 +1060,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test edge case: Query with only indexed predicates should still work when GUC is disabled
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

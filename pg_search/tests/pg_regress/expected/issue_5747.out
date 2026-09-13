@@ -31,35 +31,34 @@ WHERE le.id @@@ paradedb.term('user_id', 'u1')
   AND sv.id @@@ paradedb.term('state', 'merged')
 ORDER BY le.id
 LIMIT 5;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.00..11.00 rows=5 width=8)
-   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=8)
-         Relation Tree: sv INNER le
-         Join Cond: le.series_id = sv.id
-         Limit: 5
-         Order By: le.id asc
-         DataFusion Physical Plan: 
-           : ┌───── DistributedExec
-           : │ ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           : │   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
-           : │     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           : │       VisibilityFilterExec: tables=[sv, le]
-           : │         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           : │             CoalescePartitionsExec
-           : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
-           : │             RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-           : │               DistributedLeafExec:
-           : │                 t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
-           : └──────────────────────────────────────────────────
-           :   ┌───── Stage 1 ── tasks=2, partitions=2
-           :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
-           :   │   DistributedLeafExec:
-           :   │     t0: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
-           :   │     t1: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
-           :   └──────────────────────────────────────────────────
-(26 rows)
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=8)
+   Relation Tree: le INNER sv
+   Join Cond: sv.id = le.series_id
+   Limit: 5
+   Order By: le.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [id@0 ASC NULLS LAST], fetch=5
+     : │     SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[true]
+     : │       VisibilityFilterExec: tables=[le, sv]
+     : │         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, series_id@1)], projection=[id@2, ctid_0@4, ctid_1@1]
+     : │             CoalescePartitionsExec
+     : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
+     : │             RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+     : │               DistributedLeafExec:
+     : │                 t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── tasks=2, partitions=2
+     :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
+     :   │   DistributedLeafExec:
+     :   │     t0: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+     :   │     t1: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
+     :   └──────────────────────────────────────────────────
+(25 rows)
 
 SELECT le.id
 FROM pc_small le

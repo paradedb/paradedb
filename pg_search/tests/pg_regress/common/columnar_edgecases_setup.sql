@@ -48,7 +48,7 @@ CREATE INDEX corner_case_search ON corner_case_test USING paradedb (
     content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"empty_string": {"tokenizer": {"type": "default"}, "fast": true}, "very_long_string": {"tokenizer": {"type": "default"}, "fast": true}, "special_chars": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "empty_string": {"tokenizer": {"type": "default"}, "fast": true}, "very_long_string": {"tokenizer": {"type": "default"}, "fast": true}, "special_chars": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"extreme_large": {"fast": true}, "extreme_small": {"fast": true}, "float_value": {"fast": true}, "zero_value": {"fast": true}, "negative_value": {"fast": true}}',
     boolean_fields = '{"bool_field": {"fast": true}}'
 );
@@ -104,7 +104,7 @@ CREATE INDEX nullable_search ON nullable_test USING paradedb (
     id, string_field, numeric_field, content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field": {"fast": true}}'
 );
 
@@ -133,7 +133,7 @@ CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING paraded
     content
 ) WITH (
     key_field = 'id',
-    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
+    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
 );
 

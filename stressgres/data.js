@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308087456,
+  "lastUpdate": 1789309171026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -356326,6 +356326,60 @@ window.BENCHMARK_DATA = {
             "value": 36.00802353947726,
             "unit": "median tps",
             "extra": "avg tps: 56.62027017212521, max tps: 545.9792914219967, count: 58765"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309166449,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 34.26319993556263,
+            "unit": "median tps",
+            "extra": "avg tps: 53.64691220444713, max tps: 540.3500850022419, count: 58766"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 17.986701636461152,
+            "unit": "median tps",
+            "extra": "avg tps: 28.97440618837577, max tps: 367.39404846556715, count: 58766"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 80.90751096203151,
+            "unit": "median tps",
+            "extra": "avg tps: 145.49148568253855, max tps: 1219.9666223309177, count: 58766"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 18.79359388416634,
+            "unit": "median tps",
+            "extra": "avg tps: 29.115423104378724, max tps: 281.81876531112545, count: 58766"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 35.99286528208332,
+            "unit": "median tps",
+            "extra": "avg tps: 56.70043975013798, max tps: 548.8145372028116, count: 58766"
           }
         ]
       }

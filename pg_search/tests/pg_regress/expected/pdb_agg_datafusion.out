@@ -653,8 +653,8 @@ FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg('{"aggs": {"total": {"sum": {"field": "price"}}}, "terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb)), (pdb.agg('{"sum": {"field": "price"}}'::jsonb)), (count(*))
    Sort Key: pa_products.category
@@ -669,7 +669,7 @@ ORDER BY category;
            :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __common_expr_1, count(pa_products_0.price) as __pdb_m1, sum(pa_products_0.price) as __pdb_m2]
            :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, brand@1 as __pdb_k0)], aggr=[count(1) as __common_expr_1, count(pa_products_0.price) as __pdb_m1, sum(pa_products_0.price) as __pdb_m2]
            :       CooperativeExec
-           :         PgSearchScan: table=pa_products, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=pa_products, segments=2, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
@@ -751,7 +751,7 @@ ORDER BY category;
            :   AggregateExec: mode=Final, gby=[category@0 as category, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(pa_products_0.price_num) as __pdb_m0, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m1, count(1) as __pdb_m2]
            :     AggregateExec: mode=Partial, gby=[(category@0 as category, NULL as __pdb_k0), (category@0 as category, price_num@1 as __pdb_k0)], aggr=[count(pa_products_0.price_num) as __pdb_m0, numeric64_sum(pa_products_0.price_num, 2) as __pdb_m1, count(1) as __pdb_m2]
            :       CooperativeExec
-           :         PgSearchScan: table=pa_products, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=pa_products, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT category, pdb.agg('{"sum": {"field": "price_num"}}'), pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}')

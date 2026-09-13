@@ -37,11 +37,17 @@
 //! every segment, so the final aggregate merges those groups like any other.
 //!
 //! A row that reaches the partial aggregate as a doc address (State 0) would group per
-//! document and reduce nothing, so a column only moves when a fetch below the aggregate,
-//! or the scan itself, resolves it first. A column moves only when the aggregate reads it
-//! as a plain group key and nowhere else: an aggregate argument, filter or ordering wants
-//! the string, so such a column keeps its decode below. Grouping sets are left alone, since
-//! their partial output carries a grouping id the final aggregate reads back.
+//! document and reduce nothing. The placement leaves every column at a decode point
+//! resolved, by a fetch below it or by the scan itself, so a group key that arrives
+//! unresolved is a planning error and the rule fails rather than leaving the decode where
+//! it is. A column moves only when the aggregate reads it as a plain group key and nowhere
+//! else: an aggregate argument, filter or ordering wants the string, so such a column keeps
+//! its decode below. Taking those onto ordinals as well needs the segment as an extra group
+//! key, since ordinals compare only within one segment, and a second aggregate over the
+//! decoded groups in place of a final one, since a merged state would hold ordinals from
+//! different segments. A grouping set fills a key with a typed NULL for the sets that leave
+//! it out; the partial groups on ordinals, so that NULL becomes an ordinal NULL, and the
+//! grouping id passes through untouched.
 //!
 //! The rewrite pays when the groups are far fewer than the rows. The dictionaries bound the
 //! groups from above (one per distinct term per segment), so a key whose dictionaries are
@@ -58,17 +64,19 @@
 
 use std::sync::Arc;
 
-use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
-use datafusion::physical_expr::expressions::Column;
+use datafusion::common::{Result, ScalarValue, internal_err};
+use datafusion::physical_expr::expressions::{Column, lit};
 use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
+use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
 use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFType;
+use crate::scan::deferred_encode::deferred_data_type;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
+use crate::scan::deferred_placement_rule::same_columns;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
@@ -122,14 +130,19 @@ fn rewrite(node: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
 }
 
 /// Indexes into `decode.deferred_fields()` of the columns that `agg` reads only as plain
-/// group keys, that arrive at the aggregate already resolved to term ordinals, and whose
-/// dictionaries are small next to the aggregate's input.
-pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec) -> Vec<usize> {
+/// group keys and whose dictionaries are small next to the aggregate's input.
+///
+/// A key that reaches the decode as doc addresses is an error, not a column to skip: the
+/// placement resolves every deferred column below its decode point, so a missing fetch
+/// means an earlier rule broke that.
+pub(crate) fn ordinal_group_keys(
+    agg: &AggregateExec,
+    decode: &TantivyDecodeExec,
+) -> Result<Vec<usize>> {
     if !matches!(agg.mode(), AggregateMode::Single | AggregateMode::Partial)
         || agg.limit_options().is_some()
-        || !agg.group_expr().is_single()
     {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut keys: HashSet<usize> = HashSet::default();
     let mut elsewhere: HashSet<usize> = HashSet::default();
@@ -152,18 +165,25 @@ pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec
     for filter in agg.filter_expr().iter().flatten() {
         elsewhere.extend(collect_columns(filter).iter().map(|c| c.index()));
     }
-    decode
-        .deferred_fields()
-        .iter()
-        .enumerate()
-        .filter(|(_, field)| keys.contains(&field.col_idx) && !elsewhere.contains(&field.col_idx))
-        .filter(|(_, field)| resolved_below(decode, field))
-        .filter(|(_, field)| reduces_enough(decode, field))
-        .map(|(i, _)| i)
-        .collect()
+    let mut lifted = Vec::new();
+    for (i, field) in decode.deferred_fields().iter().enumerate() {
+        if !keys.contains(&field.col_idx) || elsewhere.contains(&field.col_idx) {
+            continue;
+        }
+        if !resolved_below(decode, field) {
+            return internal_err!(
+                "DeferredAggregate: group key '{}' reaches the aggregate as doc addresses, nothing below the decode resolves it",
+                field.display_name
+            );
+        }
+        if reduces_enough(decode, field) {
+            lifted.push(i);
+        }
+    }
+    Ok(lifted)
 }
 
-/// The rows the scans of `field`'s index expect to emit.
+/// The rows the scan of `field`'s relation expects to emit.
 ///
 /// The dictionaries this is weighed against are a whole-index count, so its counterpart has
 /// to be one too. The rows reaching the aggregate are not that count: with no distinct count
@@ -172,7 +192,7 @@ pub(crate) fn ordinal_group_keys(agg: &AggregateExec, decode: &TantivyDecodeExec
 /// key of the large side reads as "no reduction", however small its dictionary is.
 fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Option<usize> {
     let mut scans = Vec::new();
-    collect_scans(decode.children()[0], field.canonical.indexrelid, &mut scans);
+    collect_scans(decode.children()[0], field.heap_rti, &mut scans);
     scans
         .iter()
         .map(|scan| scan.planner_estimated_rows() as usize)
@@ -180,9 +200,14 @@ fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Op
         .filter(|rows| *rows > 0)
 }
 
-/// Scanned rows per dictionary term below which the two-phase shape is not worth its second
-/// hash pass: the partial aggregate could reduce the rows by less than this factor, and
-/// the decode of its groups would run about as often as the scan's.
+/// Scanned rows per dictionary term below which the partial aggregate is not worth its own
+/// hash pass. The rewrite trades one decode and one string hash per input row for one packed
+/// hash per input row plus one decode and one string hash per group, and the terms bound the
+/// groups. Near one row per term that is a loss: the groups' decode then walks about as much
+/// of the dictionary as the scan's own decode would, with the packed pass on top. The floor
+/// comes from the benchmark on a near-unique key, where the rewrite lost at one row per term
+/// and paid off from a handful up. It is measured, not derived, so it is a constant and not a
+/// setting nobody could size from the outside.
 const MIN_ROWS_PER_TERM: usize = 4;
 
 /// Whether the scanned rows outnumber the terms of `field`'s dictionaries by
@@ -194,20 +219,30 @@ fn reduces_enough(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> 
     rows >= dictionary_terms(decode, field).saturating_mul(MIN_ROWS_PER_TERM)
 }
 
-/// Whether `field` reaches `decode` as a term ordinal: a fetch directly below resolves it,
-/// or every scan of its index resolves it itself.
+/// Whether `field` reaches `decode` as a term ordinal: a fetch below resolves it, with only
+/// nodes that keep the columns in place between the two, or its own scan resolves it.
 fn resolved_below(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> bool {
     let input = decode.children()[0];
-    if let Some(fetch) = input.downcast_ref::<TantivyFetchExec>()
-        && fetch
-            .fetch_fields()
-            .iter()
-            .any(|f| f.canonical == field.canonical && f.col_idx == field.col_idx)
-    {
-        return true;
+    let mut node = input;
+    loop {
+        if let Some(fetch) = node.downcast_ref::<TantivyFetchExec>() {
+            if fetch
+                .fetch_fields()
+                .iter()
+                .any(|f| f.canonical == field.canonical && f.col_idx == field.col_idx)
+            {
+                return true;
+            }
+            break;
+        }
+        let children = node.children();
+        if children.len() != 1 || !same_columns(node, children[0]) {
+            break;
+        }
+        node = children[0];
     }
     let mut scans = Vec::new();
-    collect_scans(input, field.canonical.indexrelid, &mut scans);
+    collect_scans(input, field.heap_rti, &mut scans);
     !scans.is_empty()
         && scans.iter().all(|scan| {
             scan.deferred_fields()
@@ -216,19 +251,25 @@ fn resolved_below(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> 
         })
 }
 
+/// Every scan of the range table entry `field` came from. The index is not enough: a
+/// self-join reads one index through two scans, and each one resolves its own columns.
 fn collect_scans<'a>(
     node: &'a Arc<dyn ExecutionPlan>,
-    indexrelid: u32,
+    heap_rti: u32,
     out: &mut Vec<&'a PgSearchScanPlan>,
 ) {
     if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
-        if scan.indexrelid == indexrelid {
+        if scan
+            .deferred_fields()
+            .iter()
+            .any(|d| d.heap_rti == heap_rti)
+        {
             out.push(scan);
         }
         return;
     }
     for child in node.children() {
-        collect_scans(child, indexrelid, out);
+        collect_scans(child, heap_rti, out);
     }
 }
 
@@ -239,7 +280,7 @@ fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let Some(decode) = agg.input().downcast_ref::<TantivyDecodeExec>() else {
         return Ok(None);
     };
-    let lifted = ordinal_group_keys(agg, decode);
+    let lifted = ordinal_group_keys(agg, decode)?;
     if lifted.is_empty() {
         return Ok(None);
     }
@@ -258,9 +299,40 @@ fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         Arc::new(decode.with_input_and_fields(Arc::clone(decode.children()[0]), kept)?)
     };
     let below_schema = below.schema();
+    let group_by = agg.group_expr();
+    let lifted_positions: HashSet<usize> = group_by
+        .expr()
+        .iter()
+        .enumerate()
+        .filter(|(_, (expr, _))| {
+            expr.downcast_ref::<Column>()
+                .is_some_and(|col| moved.iter().any(|f| f.col_idx == col.index()))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    // A grouping set fills a key with a typed NULL for the sets that leave it out. The
+    // partial groups on ordinals, so a lifted key's NULL has to be an ordinal NULL as well.
+    let null_expr = group_by
+        .null_expr()
+        .iter()
+        .enumerate()
+        .map(|(i, (expr, name))| {
+            let expr = if lifted_positions.contains(&i) {
+                lit(ScalarValue::try_from(&deferred_data_type())?)
+            } else {
+                Arc::clone(expr)
+            };
+            Ok((expr, name.clone()))
+        })
+        .collect::<Result<Vec<_>>>()?;
     let partial = Arc::new(AggregateExec::try_new(
         AggregateMode::Partial,
-        agg.group_expr().clone(),
+        PhysicalGroupBy::new(
+            group_by.expr().to_vec(),
+            null_expr,
+            group_by.groups().to_vec(),
+            group_by.has_grouping_set(),
+        ),
         agg.aggr_expr().to_vec(),
         agg.filter_expr().to_vec(),
         below,
@@ -287,11 +359,13 @@ fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         return Ok(Some(decoded));
     }
 
+    // The stream applies filters only while it reads raw rows; a final aggregate merges
+    // states and gets none.
     let final_agg = AggregateExec::try_new(
         AggregateMode::Final,
         partial.group_expr().as_final(),
         partial.aggr_expr().to_vec(),
-        agg.filter_expr().to_vec(),
+        vec![None; partial.aggr_expr().len()],
         decoded,
         below_schema,
     )?;
@@ -333,19 +407,23 @@ mod tests {
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::functions_aggregate::count::count_udaf;
     use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
-    use datafusion::physical_expr::expressions::lit;
-    use datafusion::physical_plan::aggregates::PhysicalGroupBy;
+    use datafusion::physical_expr::expressions::Literal;
+    use datafusion::physical_plan::union::UnionExec;
     use pgrx::prelude::*;
 
     const INDEXRELID: u32 = 42;
 
-    /// A scan that resolves `category` to term ordinals itself, under a decode of it.
-    fn decode_over_scan() -> Arc<dyn ExecutionPlan> {
-        let canonical = CanonicalColumn {
+    fn canonical() -> CanonicalColumn {
+        CanonicalColumn {
             indexrelid: INDEXRELID,
             ff_index: 1,
-        };
-        let scan = Arc::new(PgSearchScanPlan::new(
+        }
+    }
+
+    /// A scan of range table entry `heap_rti` with a deferred `category`, resolved to term
+    /// ordinals by the scan itself when `fetch_at_scan`.
+    fn scan(heap_rti: u32, fetch_at_scan: bool) -> Arc<dyn ExecutionPlan> {
+        Arc::new(PgSearchScanPlan::new(
             None,
             Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, true),
@@ -356,10 +434,10 @@ mod tests {
             vec![DeferredField {
                 name: "category".into(),
                 is_bytes: false,
-                canonical: canonical.clone(),
-                heap_rti: 1,
+                canonical: canonical(),
+                heap_rti,
                 rebuild: None,
-                fetch_at_scan: true,
+                fetch_at_scan,
             }],
             Some(Arc::new(FFHelper::empty())),
             INDEXRELID,
@@ -367,24 +445,32 @@ mod tests {
             1,
             None,
             None,
-        )) as Arc<dyn ExecutionPlan>;
+        ))
+    }
+
+    /// A decode of the `category` that came from range table entry `heap_rti`.
+    fn decode_over(input: Arc<dyn ExecutionPlan>, heap_rti: u32) -> Arc<dyn ExecutionPlan> {
         let mut ffhelpers = HashMap::default();
         ffhelpers.insert(INDEXRELID, Arc::new(FFHelper::empty()));
         Arc::new(
             TantivyDecodeExec::new(
-                scan,
+                input,
                 vec![PhysicalDeferredField {
                     col_idx: 1,
                     display_name: "category".into(),
                     is_bytes: false,
-                    canonical,
-                    heap_rti: 1,
+                    canonical: canonical(),
+                    heap_rti,
                     rebuild: None,
                 }],
                 ffhelpers,
             )
             .unwrap(),
         )
+    }
+
+    fn decode_over_scan() -> Arc<dyn ExecutionPlan> {
+        decode_over(scan(1, true), 1)
     }
 
     fn count_star(input: &Arc<dyn ExecutionPlan>) -> Arc<AggregateFunctionExpr> {
@@ -446,6 +532,77 @@ mod tests {
             partial.input().is::<PgSearchScanPlan>(),
             "the scan feeds the partial aggregate its ordinals"
         );
+    }
+
+    /// A grouping set's NULL literal is typed. The partial groups on ordinals, so the literal
+    /// it carries for the sets without the key must be an ordinal NULL, and the grouping id
+    /// keeps its place after the keys.
+    #[pg_test]
+    fn a_grouping_set_key_is_grouped_on_ordinals_with_an_ordinal_null() {
+        let decode = decode_over_scan();
+        let aggr = vec![count_star(&decode)];
+        let sets = PhysicalGroupBy::new(
+            vec![(Arc::new(Column::new("category", 1)), "category".into())],
+            vec![(lit(ScalarValue::Utf8View(None)), "category".into())],
+            vec![vec![true], vec![false]],
+            true,
+        );
+        let schema = decode.schema();
+        let partial = Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                sets,
+                aggr,
+                vec![None],
+                decode,
+                schema,
+            )
+            .unwrap(),
+        ) as Arc<dyn ExecutionPlan>;
+
+        let rewritten = rewrite(Arc::clone(&partial)).unwrap();
+
+        assert!(
+            rewritten.is::<TantivyDecodeExec>(),
+            "the decode is lifted over the partial"
+        );
+        assert_eq!(rewritten.schema(), partial.schema());
+        let ordinal_partial = rewritten.children()[0]
+            .downcast_ref::<AggregateExec>()
+            .expect("a partial aggregate under the decode");
+        let (null_literal, _) = &ordinal_partial.group_expr().null_expr()[0];
+        let null_literal = null_literal
+            .downcast_ref::<Literal>()
+            .expect("the set's NULL stays a literal");
+        assert_eq!(null_literal.value().data_type(), deferred_data_type());
+        assert_eq!(
+            ordinal_partial.schema().field(0).data_type(),
+            &deferred_data_type()
+        );
+        assert_eq!(ordinal_partial.schema().field(1).name(), "__grouping_id");
+    }
+
+    /// Two scans of one index under a union: the key of the range table entry whose scan
+    /// resolves it is lifted, and the key of the other one is a planning error. Keyed on the
+    /// index, the second scan would hide the first.
+    #[pg_test]
+    fn keys_are_resolved_per_range_table_entry_not_per_index() {
+        let union = UnionExec::try_new(vec![scan(1, true), scan(2, false)]).unwrap();
+
+        let resolved = decode_over(Arc::clone(&union), 1);
+        let single = group_by_category(Arc::clone(&resolved), vec![count_star(&resolved)]);
+        let rewritten = rewrite(single).unwrap();
+        assert!(
+            rewritten
+                .downcast_ref::<AggregateExec>()
+                .is_some_and(|agg| *agg.mode() == AggregateMode::Final),
+            "the resolved entry's key is grouped on ordinals"
+        );
+
+        let unresolved = decode_over(union, 2);
+        let single = group_by_category(Arc::clone(&unresolved), vec![count_star(&unresolved)]);
+        let err = rewrite(single).expect_err("an unresolved key is a planning error");
+        assert!(err.to_string().contains("doc addresses"), "{err}");
     }
 
     #[pg_test]

@@ -179,6 +179,29 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =============================================================================
+-- Grouping sets: a terms bucket under a group key groups on both keys' ordinals
+-- in every set, and an ordinal NULL stands for the set that leaves a key out
+-- =============================================================================
+
+-- The bucket cap is what routes a single-table pdb.agg to DataFusion.
+SET paradedb.max_term_agg_buckets TO 1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+
+SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+FROM aog_products
+WHERE description @@@ 'widget'
+GROUP BY category
+ORDER BY category;
+
+RESET paradedb.max_term_agg_buckets;
+
+-- =============================================================================
 -- Opting out: with the decode pinned to the scan, the aggregate sees strings
 -- =============================================================================
 

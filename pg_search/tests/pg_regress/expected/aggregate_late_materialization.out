@@ -135,8 +135,8 @@ WHERE p.title @@@ 'post';
      :     UnionExec
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, NULL as __pdb_k1, CASE CAST(__grouping_id@1 AS UInt64) WHEN 1 THEN 3 WHEN 0 THEN 1 ELSE 0 END as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
-     :           AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (author@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
-     :             TantivyDecodeExec: decode=[author]
+     :           TantivyDecodeExec: decode=[author]
+     :             AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (author@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1]
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=1, fetch=[author], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}

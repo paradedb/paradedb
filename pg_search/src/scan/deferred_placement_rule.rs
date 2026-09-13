@@ -119,7 +119,7 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
         if !ctx.fetch_auto && !ctx.decode_auto {
             return Ok(plan);
         }
-        collect_decisions(&plan, Bound::None, &mut ctx);
+        collect_decisions(&plan, Bound::None, &mut ctx)?;
         if ctx.decisions.values().all(|d| !d.moves()) {
             return Ok(plan);
         }
@@ -253,10 +253,10 @@ impl Context {
 /// decision from the path between the two. `bound` says what the nearest consumer above the
 /// current node does with its rows; one that stops early makes a deferred decode cheap
 /// whatever the path did to the row count.
-fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Context) {
+fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Context) -> Result<()> {
     if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
         let grouped = match &bound {
-            Bound::Aggregate(agg) => grouped_columns(agg, node, decode),
+            Bound::Aggregate(agg) => grouped_columns(agg, node, decode)?,
             _ => HashSet::default(),
         };
         // A limit and a Top-K bound every column below them, so only an aggregate reads one
@@ -326,8 +326,9 @@ fn collect_decisions(node: &Arc<dyn ExecutionPlan>, bound: Bound, ctx: &mut Cont
         Bound::None
     };
     for child in node.children() {
-        collect_decisions(child, below.clone(), ctx);
+        collect_decisions(child, below.clone(), ctx)?;
     }
+    Ok(())
 }
 
 /// The columns at this decode point whose ordinals `agg` groups on, so the aggregate cuts
@@ -337,14 +338,14 @@ fn grouped_columns(
     agg: &Arc<dyn ExecutionPlan>,
     decode_node: &Arc<dyn ExecutionPlan>,
     decode: &TantivyDecodeExec,
-) -> HashSet<usize> {
+) -> Result<HashSet<usize>> {
     let Some(agg) = agg.downcast_ref::<AggregateExec>() else {
-        return HashSet::default();
+        return Ok(HashSet::default());
     };
     if !Arc::ptr_eq(agg.input(), decode_node) {
-        return HashSet::default();
+        return Ok(HashSet::default());
     }
-    ordinal_group_keys(agg, decode).into_iter().collect()
+    Ok(ordinal_group_keys(agg, decode)?.into_iter().collect())
 }
 
 /// Whether `SegmentedTopKRule` will take a Top-K sort with this order over from `decode`:
@@ -582,7 +583,7 @@ fn join_keeps_uniqueness(join: &HashJoinExec, col: usize, ctx: &mut Context) -> 
     })
 }
 
-fn same_columns(a: &Arc<dyn ExecutionPlan>, b: &Arc<dyn ExecutionPlan>) -> bool {
+pub(crate) fn same_columns(a: &Arc<dyn ExecutionPlan>, b: &Arc<dyn ExecutionPlan>) -> bool {
     let (sa, sb) = (a.schema(), b.schema());
     sa.fields().len() == sb.fields().len()
         && sa

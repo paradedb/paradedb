@@ -31,7 +31,9 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::logical_expr::{
+    Aggregate, Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore,
+};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -146,14 +148,10 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
             }
         }
         LogicalPlan::Aggregate(agg) => {
+            let keys = group_keys(agg);
             if let Ok(idx) = agg.schema.index_of_column(col) {
-                if idx < agg.group_expr.len() {
-                    let expr = &agg.group_expr[idx];
-                    let unaliased = match expr {
-                        Expr::Alias(alias) => alias.expr.as_ref(),
-                        e => e,
-                    };
-                    if let Expr::Column(c) = unaliased {
+                if idx < keys.len() {
+                    if let Expr::Column(c) = unalias(keys[idx]) {
                         trace_column(agg.input.as_ref(), c)
                     } else {
                         None
@@ -443,16 +441,29 @@ fn grouped_at_anchor(
     let LogicalPlan::Aggregate(agg) = anchor else {
         return false;
     };
-    agg.group_expr.iter().any(|expr| {
-        let unaliased = match expr {
-            Expr::Alias(alias) => alias.expr.as_ref(),
-            e => e,
-        };
-        match unaliased {
-            Expr::Column(c) => trace_column(agg.input.as_ref(), c).is_some_and(|base| base.is(df)),
-            _ => false,
-        }
+    group_keys(agg).into_iter().any(|expr| match unalias(expr) {
+        Expr::Column(c) => trace_column(agg.input.as_ref(), c).is_some_and(|base| base.is(df)),
+        _ => false,
     })
+}
+
+/// The group keys in output order. A grouping set is one expression that stands for
+/// several keys, and the aggregate lays those out in the set's distinct order.
+fn group_keys(agg: &Aggregate) -> Vec<&Expr> {
+    agg.group_expr
+        .iter()
+        .flat_map(|expr| match expr {
+            Expr::GroupingSet(set) => set.distinct_expr(),
+            expr => vec![expr],
+        })
+        .collect()
+}
+
+fn unalias(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Alias(alias) => alias.expr.as_ref(),
+        expr => expr,
+    }
 }
 
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.

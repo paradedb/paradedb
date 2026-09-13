@@ -81,9 +81,9 @@ impl MaybeInlineRow {
         let row = if ctid.is_none() {
             let (heap_oid, _, targetlist) = find_var_relation(base_var, root);
             let targetlist = targetlist.expect("derived row should have a target list");
-            let source = targetlist
-                .get_ptr((*base_var).varattno as usize - 1)
-                .and_then(|entry| find_one_var((*entry).expr.cast()));
+            let source = pg_sys::get_tle_by_resno(targetlist.as_ptr(), (*base_var).varattno)
+                .as_ref()
+                .and_then(|entry| find_one_var(entry.expr.cast()));
             let mut fields = PgList::<pg_sys::Node>::new();
             let mut names = PgList::<pg_sys::Node>::new();
             let mut attributes: HashMap<_, Option<*mut pg_sys::TargetEntry>> = HashMap::default();

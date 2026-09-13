@@ -30,7 +30,6 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
 CREATE INDEX products_idx ON products
 USING paradedb (id, description, rating, category, price)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
@@ -431,7 +430,6 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
 CREATE INDEX type_test_idx ON type_test
 USING paradedb (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
-    key_field='id',
     text_fields='{"text_val": {"fast": true}}',
     numeric_fields='{
         "int_val": {"fast": true},

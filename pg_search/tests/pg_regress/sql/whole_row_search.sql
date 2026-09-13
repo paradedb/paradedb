@@ -40,7 +40,9 @@ SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.term('shoes')::pdb.boost(2
 SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.prox_clause('running', 0, 'shoes');
 
 -- A raw array is not a complete proximity clause.
+\set VERBOSITY terse
 SELECT sku FROM whole_row_search AS t WHERE t @@@ ARRAY['shoes', 'keyboard'];
+\set VERBOSITY default
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE whole_row_query(pdb.query) AS

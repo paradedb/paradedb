@@ -34,7 +34,6 @@ CREATE TABLE pa_tags (
 CREATE INDEX pa_products_idx ON pa_products
 USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata, price_num)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}, "price_num": {"fast": true}}',
     boolean_fields = '{"in_stock": {"fast": true}}',
@@ -43,7 +42,6 @@ WITH (
 CREATE INDEX pa_tags_idx ON pa_tags
 USING paradedb (id, product_id, tag_name, weight)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"product_id": {"fast": true}, "weight": {"fast": true}}',
     text_fields = '{"tag_name": {"fast": true}}'
 );
@@ -925,7 +923,6 @@ CREATE TABLE pa_posts (
 CREATE INDEX pa_authors_idx ON pa_authors
 USING paradedb (id, name, reputation, tags)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "name": {"fast": true},
         "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
@@ -935,7 +932,6 @@ WITH (
 CREATE INDEX pa_posts_idx ON pa_posts
 USING paradedb (id, author_id, title, category, tags, views)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"author_id": {"fast": true}, "views": {"fast": true}}',
     text_fields = '{
         "title": {},

@@ -20,7 +20,6 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
 USING paradedb (id, txt, n)
 WITH (
-    key_field = 'id',
     text_fields = '{"txt": {}}',
     numeric_fields = '{"n": {"fast": true}}'
 );

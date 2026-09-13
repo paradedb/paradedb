@@ -537,7 +537,6 @@ INSERT INTO json_pushdown_test (metadata) VALUES
 CREATE INDEX idx_json_pushdown_test ON json_pushdown_test
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{json_fields_config}'
 );
 

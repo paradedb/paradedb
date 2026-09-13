@@ -19,7 +19,6 @@ CREATE INDEX items_idx ON items USING paradedb (
     created_at
 )
 WITH (
-    key_field = 'id',
     text_fields = '{
         "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "group_id": { "fast": true, "tokenizer": { "type": "keyword" } },

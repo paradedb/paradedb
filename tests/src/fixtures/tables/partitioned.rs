@@ -52,7 +52,6 @@ BEGIN;
     CREATE INDEX sales_index ON sales
       USING paradedb (id, description, sale_date, amount)
       WITH (
-        key_field='id',
         numeric_fields='{"amount": {"fast": true}}'
       );
 COMMIT;

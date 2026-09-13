@@ -41,12 +41,10 @@ CREATE INDEX idxtest ON test USING paradedb (
     category_id,
     (category::pdb.literal)
 ) WITH (
-    key_field = 'id',
     numeric_fields = '{"category_id": {"fast": true}}'
 );
 
 CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 

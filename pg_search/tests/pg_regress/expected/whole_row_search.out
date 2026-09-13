@@ -141,8 +141,10 @@ SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.prox_clause('running', 0, 
 ERROR:  a field-specific search query requires an indexed field on the left-hand side, not a whole-row reference
 HINT:  Use an indexed column on the left-hand side.
 -- A raw array is not a complete proximity clause.
+\set VERBOSITY terse
 SELECT sku FROM whole_row_search AS t WHERE t @@@ ARRAY['shoes', 'keyboard'];
 ERROR:  The right-hand side of the `@@@` operator must be a text value, pdb.query, or a complete proximity clause
+\set VERBOSITY default
 SET plan_cache_mode = force_generic_plan;
 PREPARE whole_row_query(pdb.query) AS
 SELECT sku, pdb.score(t.sku) FROM whole_row_search AS t WHERE t @@@ $1 ORDER BY sku;

@@ -50,14 +50,12 @@ fn setup_join_tables(conn: &mut PgConnection) {
     CREATE INDEX products_idx ON products
     USING paradedb (id, description, category, price, rating)
     WITH (
-        key_field='id',
         text_fields='{"description": {}, "category": {"fast": true}}',
         numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
     );
     CREATE INDEX tags_idx ON tags
     USING paradedb (id, product_id, tag_name)
     WITH (
-        key_field='id',
         numeric_fields='{"product_id": {"fast": true}}',
         text_fields='{"tag_name": {"fast": true}}'
     );
@@ -308,9 +306,9 @@ fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
                [floor(random()*9+1)::int]
         FROM generate_series(1, 10);
     CREATE INDEX users_idx ON users USING paradedb (id, name)
-    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    WITH (text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
     CREATE INDEX items_idx ON items USING paradedb (id, name)
-    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    WITH (text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
     "#
     .execute(&mut conn);
 
@@ -469,7 +467,6 @@ fn setup_reviews_table(conn: &mut PgConnection) {
     CREATE INDEX reviews_idx ON reviews
     USING paradedb (id, product_id, score)
     WITH (
-        key_field='id',
         numeric_fields='{"product_id": {"fast": true}, "score": {"fast": true}}'
     );
     "#
@@ -605,7 +602,6 @@ fn test_join_aggregate_4table(mut conn: PgConnection) {
     CREATE INDEX suppliers_idx ON suppliers
     USING paradedb (id, product_id, supplier_name)
     WITH (
-        key_field='id',
         numeric_fields='{"product_id": {"fast": true}}',
         text_fields='{"supplier_name": {"fast": true}}'
     );

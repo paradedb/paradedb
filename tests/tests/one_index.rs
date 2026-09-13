@@ -31,15 +31,13 @@ fn only_one_index_allowed(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX index_one ON public.mock_items
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
     "#
     .execute(&mut conn);
 
     let result = r#"
     CREATE INDEX index_two ON public.mock_items
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
     "#
     .execute_result(&mut conn);
 

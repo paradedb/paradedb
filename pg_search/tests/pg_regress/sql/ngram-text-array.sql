@@ -20,7 +20,6 @@ INSERT INTO books (all_titles) VALUES
 CREATE INDEX idx_books ON books
 USING paradedb (id, all_titles)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "all_titles": {
             "fast": true,

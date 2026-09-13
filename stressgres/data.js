@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789294743950,
+  "lastUpdate": 1789294753189,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -358176,6 +358176,96 @@ window.BENCHMARK_DATA = {
             "value": 45.39453125,
             "unit": "median mem",
             "extra": "avg mem: 45.145646618744365, max mem: 52.0234375, count: 58767"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789294748616,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.9453125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 66.80724504339688, max partition_index_size:MB: 93.859375, count: 58760"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.311338196357212, max cpu: 34.477253, count: 58760"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 45.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.33841606747787, max mem: 52.76953125, count: 58760"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.995708607620394, max cpu: 42.249386, count: 58760"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 57.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.75154315488853, max mem: 70.296875, count: 58760"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.410502428442886, max cpu: 28.514853, count: 58760"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.481323524719194, max mem: 64.01953125, count: 58760"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.924572391292575, max cpu: 42.477875, count: 58760"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.64129489927247, max mem: 60.87109375, count: 58760"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.183694594200386, max cpu: 33.136093, count: 58760"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 44.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.47358474887253, max mem: 52.3125, count: 58760"
           }
         ]
       }

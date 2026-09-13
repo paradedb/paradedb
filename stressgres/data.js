@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789295958904,
+  "lastUpdate": 1789295967807,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -143332,6 +143332,108 @@ window.BENCHMARK_DATA = {
             "value": 50.58203125,
             "unit": "median mem",
             "extra": "avg mem: 49.63966301551272, max mem: 51.48828125, count: 59419"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789295963822,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05876411870654973, max background_merging: 2.0, count: 59407"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.711767383122796, max cpu: 9.6337185, count: 59407"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.792453632884172, max mem: 19.921875, count: 59407"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7105007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.954461768378045, max cpu: 28.528973, count: 59407"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 51.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.0219698041687, max mem: 51.84375, count: 59407"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64470,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64147.21433501103, max block_count: 64470.0, count: 59407"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 69,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.99606107024425, max segment_count: 106.0, count: 59407"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.575638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.06739523657409, max cpu: 33.718014, count: 59407"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 84.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.08692808454812, max mem: 84.3984375, count: 59407"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584423123260598, max cpu: 23.44895, count: 59407"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 45.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.52151255060431, max mem: 49.5390625, count: 59407"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.247051240865686, max cpu: 32.78049, count: 59407"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 99.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.36419924209268, max mem: 104.4296875, count: 59407"
           }
         ]
       }

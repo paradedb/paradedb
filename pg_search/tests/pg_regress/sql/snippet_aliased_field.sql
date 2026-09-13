@@ -32,9 +32,28 @@ WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
 WHERE content ||| 'certificates' ORDER BY id;
 
--- A query that also addresses the column's own field keeps using it, so a row
--- reached only through the alias comes back without a snippet.
+-- A query that addresses the column and the alias at once keeps a generator for each,
+-- so rows reached through either one are highlighted.
 SELECT id, pdb.snippet(content) FROM snippet_alias_test
-WHERE content::pdb.alias(content_de) ||| 'Zertifikat' OR content ||| 'absent' ORDER BY id;
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' OR content ||| 'certificates' ORDER BY id;
 
 DROP TABLE snippet_alias_test;
+
+-- A column indexed only through an aliased expression has no field of its own, and is
+-- still resolvable for highlighting.
+DROP TABLE IF EXISTS snippet_alias_only;
+CREATE TABLE snippet_alias_only (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+
+INSERT INTO snippet_alias_only (content) VALUES
+('Die Zertifikate werden jaehrlich ausgestellt');
+
+CREATE INDEX snippet_alias_only_idx ON snippet_alias_only
+USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+
+SELECT id, pdb.snippet(content) FROM snippet_alias_only
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+DROP TABLE snippet_alias_only;

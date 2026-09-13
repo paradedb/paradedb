@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789293651761,
+  "lastUpdate": 1789294578485,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -360716,6 +360716,60 @@ window.BENCHMARK_DATA = {
             "value": 23.036985158648395,
             "unit": "median tps",
             "extra": "avg tps: 39.59048939025289, max tps: 591.4550148237673, count: 59250"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789294574765,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3864.728296846723,
+            "unit": "median tps",
+            "extra": "avg tps: 3876.672785556059, max tps: 5177.654461615306, count: 59216"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4556.390474034789,
+            "unit": "median tps",
+            "extra": "avg tps: 4605.586653829889, max tps: 7784.04528562946, count: 59216"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.435730103942,
+            "unit": "median tps",
+            "extra": "avg tps: 189.18836249088065, max tps: 3200.2307366361115, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.153248221642958,
+            "unit": "median tps",
+            "extra": "avg tps: 39.55633201072764, max tps: 572.1514170774292, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.247331830114955,
+            "unit": "median tps",
+            "extra": "avg tps: 40.05199964987084, max tps: 588.1483649952721, count: 59216"
           }
         ]
       }

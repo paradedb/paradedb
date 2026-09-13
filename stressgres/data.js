@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308052295,
+  "lastUpdate": 1789308061207,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -307704,6 +307704,54 @@ window.BENCHMARK_DATA = {
             "value": 23.81361462101597,
             "unit": "median tps",
             "extra": "avg tps: 38.286678388672215, max tps: 430.3427223293225, count: 59237"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308023854,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 23.36784966391259,
+            "unit": "median tps",
+            "extra": "avg tps: 33.71567191201106, max tps: 199.92305120428236, count: 59242"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 23.88507290644468,
+            "unit": "median tps",
+            "extra": "avg tps: 38.176554061766055, max tps: 494.09757743957783, count: 59242"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 26.86860392176898,
+            "unit": "median tps",
+            "extra": "avg tps: 44.799171050926965, max tps: 649.3947024047759, count: 59242"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 23.83003335837479,
+            "unit": "median tps",
+            "extra": "avg tps: 37.97064245532695, max tps: 468.73066943733363, count: 59242"
           }
         ]
       }

@@ -1,7 +1,7 @@
 -- A late-materialized string column is looked up in two steps: a fast-field fetch
 -- (doc address to term ordinal, TantivyFetchExec) and a dictionary decode (term
--- ordinal to string, TantivyDecodeExec). By default the scan emits doc addresses and
--- both nodes sit next to each other at the decode point. With
+-- ordinal to string, TantivyDecodeExec). With deferred fetch and decode enabled,
+-- the scan emits doc addresses and both nodes sit at the decode point. With
 -- paradedb.defer_column_fetch = off the scan resolves the ordinals itself, in doc
 -- order, and only the decode node is needed above. Both placements must return the
 -- same rows.
@@ -60,12 +60,14 @@ SELECT
 FROM generate_series(51, 100) AS i;
 RESET paradedb.global_mutable_segment_rows;
 -- =============================================================================
--- Default: the fetch is deferred next to the decode
+-- Forced deferred fetch: the fetch stays next to the decode
 -- =============================================================================
+SET paradedb.defer_column_fetch = on;
+SET paradedb.defer_string_decode = on;
 SHOW paradedb.defer_column_fetch;
  paradedb.defer_column_fetch 
 -----------------------------
- auto
+ on
 (1 row)
 
 -- Top K on the deferred column: the SegmentedTopKExec goes under the fetch, so the
@@ -669,7 +671,7 @@ LIMIT 5;
  11 | File Title 011
 (5 rows)
 
-RESET paradedb.defer_column_fetch;
+SET paradedb.defer_column_fetch = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -728,3 +730,5 @@ LIMIT 5;
 
 DROP TABLE dfd_files;
 DROP TABLE dfd_documents;
+RESET paradedb.defer_column_fetch;
+RESET paradedb.defer_string_decode;

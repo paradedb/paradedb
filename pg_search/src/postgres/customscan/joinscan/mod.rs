@@ -1020,19 +1020,31 @@ impl JoinScan {
     }
 
     /// Join the MPP producer workers and destroy the parallel context once nothing
-    /// references the ring mesh. Drains any remaining worker metrics first, takes the
-    /// leader out (its mesh handle drops with it), then drops the stream/plan/runtime
-    /// (all carry mesh references) before `wait_for_finish` destroys the DSM. Used at
+    /// references the ring mesh. Drains worker metrics around the join when a plan is
+    /// still present, takes the leader out (its mesh handle drops with it), then drops
+    /// the stream/plan/runtime before `wait_for_finish` destroys the DSM. Used at
     /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().datafusion_stream = None;
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
-            );
+        // Clone the plan Arc so we can mutably borrow the leader for join + drain.
+        let plan = state.custom_state().physical_plan.clone();
+        if let Some(leader) = state.custom_state_mut().mpp.leader_mut() {
+            let mesh = std::sync::Arc::clone(&leader.session.mesh);
+            let finish = leader.finish.as_mut();
+            let join_workers = || {
+                if let Some(finish) = finish {
+                    let _ = finish.recv();
+                }
+            };
+            if let Some(plan) = plan.as_ref() {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics_around_join(
+                    plan,
+                    &mesh,
+                    join_workers,
+                );
+            } else {
+                join_workers();
+            }
         }
         let finish = match state.custom_state_mut().mpp.take_leader() {
             Some(mut leader) => leader.finish.take(),
@@ -1849,26 +1861,27 @@ impl CustomScan for JoinScan {
         // already reached EOF.
         state.custom_state_mut().datafusion_stream = None;
 
-        // Drain the workers' metrics frames off the mesh BEFORE joining the workers. On an
-        // early-terminated query the rings still hold data the leader will never read; a worker's
-        // bounded metrics send spins on the full ring until the leader frees slots. Draining here
-        // is what frees them: the sends land on the next try, the workers detach, and the `recv`
-        // below returns immediately instead of waiting out the workers' full spin bound.
-        if let Some(leader) = state.custom_state().mpp.leader()
-            && let Some(plan) = state.custom_state().physical_plan.as_ref()
-        {
-            crate::postgres::customscan::mpp::glue::drain_worker_metrics(
-                plan,
-                &leader.session.mesh,
-            );
-        }
-        // Join the producer workers so their metrics land before the EXPLAIN render (which runs
-        // before end_custom_scan, where the context is finally destroyed). A worker error is
-        // re-raised from inside `recv`.
-        if let Some(leader) = state.custom_state_mut().mpp.leader_mut()
-            && let Some(finish) = leader.finish.as_mut()
-        {
-            let _ = finish.recv();
+        // Drain around worker join: pre-join unblocks full metrics rings; post-join collects
+        // frames that arrive while workers finish. EXPLAIN reads the store after DSM teardown.
+        // Always join when `finish` is set, even without a plan to drain.
+        let plan = state.custom_state().physical_plan.clone();
+        if let Some(leader) = state.custom_state_mut().mpp.leader_mut() {
+            let mesh = std::sync::Arc::clone(&leader.session.mesh);
+            let finish = leader.finish.as_mut();
+            let join_workers = || {
+                if let Some(finish) = finish {
+                    let _ = finish.recv();
+                }
+            };
+            if let Some(plan) = plan.as_ref() {
+                crate::postgres::customscan::mpp::glue::drain_worker_metrics_around_join(
+                    plan,
+                    &mesh,
+                    join_workers,
+                );
+            } else {
+                join_workers();
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308033220,
+  "lastUpdate": 1789308044004,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -162338,6 +162338,66 @@ window.BENCHMARK_DATA = {
             "value": 21.327129386395736,
             "unit": "median tps",
             "extra": "avg tps: 21.352568635285078, max tps: 34.325590029432135, count: 59305"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308031044,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.0981185496248,
+            "unit": "median tps",
+            "extra": "avg tps: 78.72927016686332, max tps: 83.47279132580135, count: 59328"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 510.9072986318497,
+            "unit": "median tps",
+            "extra": "avg tps: 547.1992126637139, max tps: 5740.109780509368, count: 59328"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 931.5210582924947,
+            "unit": "median tps",
+            "extra": "avg tps: 910.6783512769348, max tps: 1306.2292082699705, count: 59328"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 195.19842263832226,
+            "unit": "median tps",
+            "extra": "avg tps: 192.99328605359153, max tps: 204.97155388377476, count: 59328"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 225.543145702678,
+            "unit": "median tps",
+            "extra": "avg tps: 313.8036211968432, max tps: 2518.1456851685066, count: 118656"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.82658603044234,
+            "unit": "median tps",
+            "extra": "avg tps: 20.903948549036222, max tps: 34.51628941052667, count: 59328"
           }
         ]
       }

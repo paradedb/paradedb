@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308044004,
+  "lastUpdate": 1789308052295,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -199794,6 +199794,126 @@ window.BENCHMARK_DATA = {
             "value": 28.421875,
             "unit": "median mem",
             "extra": "avg mem: 28.322751164530814, max mem: 28.90625, count: 59305"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308048486,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.0214205,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.069386944774642, max cpu: 37.73956, count: 59328"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.676507219398935, max mem: 42.73828125, count: 59328"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6669908,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.566649127273055, max cpu: 27.87996, count: 59328"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 24.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.63906257900991, max mem: 24.6484375, count: 59328"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.676084,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.847331931066769, max cpu: 18.595642, count: 59328"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.427645488850125, max mem: 43.45703125, count: 59328"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18871,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18990.19714131607, max block_count: 36323.0, count: 59328"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6715326,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9690838660556866, max cpu: 4.6806436, count: 59328"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.88415659026935, max mem: 21.89453125, count: 59328"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.27005798274002, max segment_count: 40.0, count: 59328"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.352168,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.269960724448026, max cpu: 24.19355, count: 59328"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 42.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.01505606279918, max mem: 42.0234375, count: 59328"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.042541833751216, max cpu: 32.860634, count: 118656"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.42894609074762, max mem: 45.19140625, count: 118656"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.297888848675429, max cpu: 19.038177, count: 59328"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.728317375964973, max mem: 29.34765625, count: 59328"
           }
         ]
       }

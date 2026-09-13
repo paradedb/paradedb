@@ -76,7 +76,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             return Err("relation is a join".into());
         }
 
-        if unsafe { missing_partial_index_predicate(index.rd_indpred, &restrict_info) } {
+        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
             return Err("query does not imply the partial index predicate".into());
         }
 
@@ -92,36 +92,32 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         // If filter_pushdown is disabled, we can't handle correlated subqueries, so bail out
         // If filter_pushdown is enabled, we'll convert correlated predicates to HeapExpr which can
         // evaluate them at execution time with proper parameter passing
-        unsafe {
-            // restrict_info is a list of RestrictInfo nodes
-            let has_correlation = restrict_info.iter_ptr().any(|rinfo| {
-                !(*rinfo).clause.is_null() && contains_exec_param((*rinfo).clause.cast())
-            });
+        // restrict_info is a list of RestrictInfo nodes
+        let has_correlation = restrict_info.iter_ptr().any(|rinfo| {
+            let rinfo = unsafe { &*rinfo };
+            !rinfo.clause.is_null() && contains_exec_param(rinfo.clause.cast())
+        });
 
-            if has_correlation && !crate::gucs::enable_filter_pushdown() {
-                // Can't handle correlation without HeapFilter support
-                return Err("correlated subqueries require paradedb.enable_filter_pushdown".into());
-            }
+        if has_correlation && !crate::gucs::enable_filter_pushdown() {
+            // Can't handle correlation without HeapFilter support
+            return Err("correlated subqueries require paradedb.enable_filter_pushdown".into());
         }
 
         let mut where_qual_state = QualExtractState::default();
 
         // Filter out predicates implied by the partial index predicate
-        let filtered_restrict_info =
-            unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
+        let filtered_restrict_info = filter_implied_predicates(index.rd_indpred, &restrict_info);
 
-        let quals = match unsafe {
-            extract_quals(
-                &PlannerContext::from_planner(args.root),
-                heap_rti,
-                filtered_restrict_info.as_ptr().cast(),
-                ri_type,
-                index,
-                false,
-                &mut where_qual_state,
-                true,
-            )
-        } {
+        let quals = match extract_quals(
+            &PlannerContext::from_planner(args.root),
+            heap_rti,
+            filtered_restrict_info.as_ptr().cast(),
+            ri_type,
+            index,
+            false,
+            &mut where_qual_state,
+            true,
+        ) {
             Some(q) => q,
             None => return Err("could not extract search query from quals".into()),
         };

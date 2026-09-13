@@ -405,29 +405,31 @@ pub struct ExtractedFieldAttribute {
 ///
 /// This is used both for schema building (determining the inner type of an indexed expression)
 /// and for Top-K query planning (canonicalizing an indexed expression to match against an ORDER BY clause).
-pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     if node.is_null() {
         return node;
     }
 
-    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if type_is_tokenizer((*func).funcresulttype) {
-            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        let func = unsafe { &*func };
+        if type_is_tokenizer(func.funcresulttype) {
+            let args = unsafe { PgList::<pg_sys::Node>::from_pg(func.args) };
             if let Some(arg) = args.get_ptr(0) {
                 return strip_tokenizer_cast(arg);
             }
         }
-    } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
         // RelabelType doesn't change physical datum representation, so it is safe to strip.
-        return strip_tokenizer_cast((*relabel).arg.cast());
-    } else if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        return strip_tokenizer_cast(unsafe { (*relabel).arg }.cast());
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
         // CoerceToDomain doesn't change physical datum representation, so it is safe to strip.
-        return strip_tokenizer_cast((*coerce).arg.cast());
-    } else if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        return strip_tokenizer_cast(unsafe { (*coerce).arg }.cast());
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
         // CoerceViaIO (e.g. `text::int`) CAN change the underlying physical representation.
         // We must only strip it if it explicitly targets a tokenizer type.
-        if type_is_tokenizer((*coerce).resulttype) {
-            return strip_tokenizer_cast((*coerce).arg.cast());
+        let coerce = unsafe { &*coerce };
+        if type_is_tokenizer(coerce.resulttype) {
+            return strip_tokenizer_cast(coerce.arg.cast());
         }
     }
 
@@ -438,33 +440,34 @@ pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node
 /// (`RelabelType`, `CoerceToDomain`, `CoerceViaIO`) from an expression.
 ///
 /// Returns a tuple containing the stripped node and a boolean indicating if `UNNEST` was found.
-pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::Node, bool) {
+pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::Node, bool) {
     let mut found_unnest = false;
     loop {
         if node.is_null() {
             return (node, found_unnest);
         }
 
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-            node = (*relabel).arg.cast();
+        if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+            node = unsafe { (*relabel).arg }.cast();
             continue;
         }
-        if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
-            node = (*coerce).arg.cast();
+        if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+            node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-            node = (*coerce).arg.cast();
+        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+            node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
-            node = (*phv).phexpr.cast();
+        if let Some(phv) = unsafe { nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) } {
+            node = unsafe { (*phv).phexpr }.cast();
             continue;
         }
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && is_unnest_func((*func).funcid)
+        if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+            && let func = unsafe { &*func }
+            && is_unnest_func(func.funcid)
         {
-            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            let args = unsafe { PgList::<pg_sys::Node>::from_pg(func.args) };
             if args.len() != 1 {
                 return (std::ptr::null_mut(), false);
             }
@@ -760,8 +763,7 @@ pub unsafe fn extract_field_attributes(
             && att_typmod == -1
             && matches!(tantivy_type, SearchFieldType::Text(..));
         if missing_tokenizer_cast {
-            let expr_str =
-                unsafe { deparse_expr(None, &heap_relation, expression.unwrap().cast()) };
+            let expr_str = deparse_expr(None, &heap_relation, expression.unwrap().cast());
             panic!("indexed expression must be cast to a tokenizer: {expr_str}");
         }
 
@@ -1118,10 +1120,7 @@ impl<T> ToPalloc for T {
 /// Both need to traverse expression trees looking for operators, so changes to one
 /// should be reflected in the other.
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
-pub unsafe fn expr_contains_any_operator(
-    node: *mut pg_sys::Node,
-    target_opnos: &[pg_sys::Oid],
-) -> bool {
+pub fn expr_contains_any_operator(node: *mut pg_sys::Node, target_opnos: &[pg_sys::Oid]) -> bool {
     use pgrx::pg_guard;
     use std::ptr::addr_of_mut;
 
@@ -1159,15 +1158,13 @@ pub unsafe fn expr_contains_any_operator(
         found: false,
     };
 
-    walker(node, addr_of_mut!(context).cast());
+    unsafe { walker(node, addr_of_mut!(context).cast()) };
     context.found
 }
 
 /// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
 /// Returns a HashSet of RTIs referenced by the expression.
-pub unsafe fn expr_collect_rtis(
-    node: *mut pg_sys::Node,
-) -> std::collections::HashSet<pg_sys::Index> {
+pub fn expr_collect_rtis(node: *mut pg_sys::Node) -> std::collections::HashSet<pg_sys::Index> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -1192,7 +1189,7 @@ pub unsafe fn expr_collect_rtis(
     }
 
     let mut rtis = HashSet::new();
-    walker(node, addr_of_mut!(rtis).cast());
+    unsafe { walker(node, addr_of_mut!(rtis).cast()) };
     rtis
 }
 
@@ -1210,10 +1207,7 @@ pub struct VarRef {
 ///
 /// If `include_special_vars` is true, variables with special varnos (like INDEX_VAR) are included.
 /// If false, only variables referencing base relations (varno > 0 and < INNER_VAR) are included.
-pub unsafe fn expr_collect_vars(
-    node: *mut pg_sys::Node,
-    include_special_vars: bool,
-) -> Vec<VarRef> {
+pub fn expr_collect_vars(node: *mut pg_sys::Node, include_special_vars: bool) -> Vec<VarRef> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -1256,7 +1250,7 @@ pub unsafe fn expr_collect_vars(
     }
 
     let mut context = (Vec::new(), include_special_vars);
-    walker(node, addr_of_mut!(context).cast());
+    unsafe { walker(node, addr_of_mut!(context).cast()) };
     context.0
 }
 
@@ -1348,7 +1342,7 @@ impl Drop for TempPgList {
 /// the predicate, so the index is missing rows the query needs and cannot safely
 /// answer it. Returns `false` for a non-partial index, or a partial index whose
 /// predicate the query implies.
-pub unsafe fn missing_partial_index_predicate(
+pub fn missing_partial_index_predicate(
     index_predicate: *mut pg_sys::List,
     restrict_info: &PgList<pg_sys::RestrictInfo>,
 ) -> bool {
@@ -1359,9 +1353,10 @@ pub unsafe fn missing_partial_index_predicate(
 
     let mut clause_list: *mut pg_sys::List = std::ptr::null_mut();
     for ri in restrict_info.iter_ptr() {
-        clause_list = pg_sys::lappend(clause_list, (*ri).clause as *mut std::ffi::c_void);
+        clause_list =
+            unsafe { pg_sys::lappend(clause_list, (*ri).clause as *mut std::ffi::c_void) };
     }
-    !pg_sys::predicate_implied_by(index_predicate, clause_list, false)
+    !unsafe { pg_sys::predicate_implied_by(index_predicate, clause_list, false) }
 }
 
 /// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
@@ -1377,33 +1372,34 @@ pub unsafe fn missing_partial_index_predicate(
 /// This is only the redundant-clause optimization; it does NOT verify the query is
 /// compatible with the partial index. Callers must separately gate on
 /// [`missing_partial_index_predicate`].
-pub unsafe fn filter_implied_predicates(
+pub fn filter_implied_predicates(
     index_predicate: *mut pg_sys::List,
     restrict_info: &PgList<pg_sys::RestrictInfo>,
 ) -> PgList<pg_sys::RestrictInfo> {
     // If there's no partial index predicate, return the original list unchanged
     if index_predicate.is_null() {
-        return PgList::from_pg(restrict_info.as_ptr());
+        return unsafe { PgList::from_pg(restrict_info.as_ptr()) };
     }
 
     // Build a new list with only the predicates that are NOT implied by the index predicate
     let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
 
     for ri in restrict_info.iter_ptr() {
-        let clause = (*ri).clause;
+        let clause = unsafe { (*ri).clause };
         let mut clause_list = TempPgList::new();
-        clause_list.push(clause as *mut std::ffi::c_void);
+        unsafe { clause_list.push(clause as *mut std::ffi::c_void) };
 
         // Check if the index predicate implies this clause
         // predicate_implied_by(A, B, false) returns true if B => A
-        let is_implied = pg_sys::predicate_implied_by(clause_list.as_ptr(), index_predicate, false);
+        let is_implied =
+            unsafe { pg_sys::predicate_implied_by(clause_list.as_ptr(), index_predicate, false) };
 
         if !is_implied {
-            filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
+            filtered_list = unsafe { pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void) };
         }
     }
 
-    PgList::from_pg(filtered_list)
+    unsafe { PgList::from_pg(filtered_list) }
 }
 
 #[macro_export]
@@ -1431,23 +1427,24 @@ macro_rules! debug2 {
 /// appended. This is used to populate `custom_scan_tlist` so that
 /// `set_customscan_references` can resolve Var references in
 /// `custom_exprs`.
-pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
+pub fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
     if expr.is_null() {
         return;
     }
 
     for var_ptr in crate::postgres::var::find_vars(expr) {
-        let varno = (*var_ptr).varno as pg_sys::Index;
-        let varattno = (*var_ptr).varattno;
+        let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
+        let varattno = unsafe { (*var_ptr).varattno };
 
         if varno == 0 || varattno <= 0 {
             continue;
         }
 
         let already_present = tlist.iter_ptr().any(|te| {
-            if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
-                let existing = (*te).expr as *mut pg_sys::Var;
-                (*existing).varno as pg_sys::Index == varno && (*existing).varattno == varattno
+            let te = unsafe { &*te };
+            if unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_Var {
+                let existing = unsafe { &*(te.expr as *mut pg_sys::Var) };
+                existing.varno as pg_sys::Index == varno && existing.varattno == varattno
             } else {
                 false
             }
@@ -1455,25 +1452,27 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
 
         if !already_present {
             let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
-            let te = pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true);
+            let new_var = unsafe { pg_sys::copyObjectImpl(var_ptr.cast()) }.cast::<pg_sys::Var>();
+            let te = unsafe {
+                pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true)
+            };
             tlist.push(te);
         }
     }
 }
 
 /// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
-pub unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if node.is_null() {
             return node;
         }
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg }.cast();
             }
             pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                node = unsafe { (*(node as *mut pg_sys::PlaceHolderVar)).phexpr }.cast();
             }
             _ => break,
         }
@@ -1483,16 +1482,16 @@ pub unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
 
 /// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`
 /// whose OID is present in `funcoids`. Returns true if it matches.
-pub unsafe fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> bool {
+pub fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> bool {
     if node.is_null() {
         return false;
     }
 
     let check_node = strip_wrappers(node);
 
-    if (*check_node).type_ == pg_sys::NodeTag::T_FuncExpr {
-        let funcexpr = check_node as *mut pg_sys::FuncExpr;
-        if funcoids.contains(&(*funcexpr).funcid) {
+    if unsafe { (*check_node).type_ } == pg_sys::NodeTag::T_FuncExpr {
+        let funcexpr = unsafe { &*(check_node as *mut pg_sys::FuncExpr) };
+        if funcoids.contains(&funcexpr.funcid) {
             return true;
         }
     }

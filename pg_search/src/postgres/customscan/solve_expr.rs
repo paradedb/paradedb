@@ -169,10 +169,8 @@ impl SearchQueryInput {
             !expr_context.is_null(),
             "expr_context was never initialized"
         );
-        unsafe {
-            pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory);
-            self.solve_postgres_expressions_no_reset(expr_context);
-        }
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        self.solve_postgres_expressions_no_reset(expr_context);
     }
 
     /// Same as `solve_postgres_expressions`, but does not reset

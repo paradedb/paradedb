@@ -61,7 +61,7 @@ extension_sql!(
     requires = [paradedb_score_from_relation, placeholder_support]
 );
 
-pub unsafe fn uses_scores(
+pub fn uses_scores(
     node: *mut pg_sys::Node,
     score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
@@ -101,7 +101,7 @@ pub unsafe fn uses_scores(
         rti,
     };
 
-    walker(node, addr_of_mut!(data).cast())
+    unsafe { walker(node, addr_of_mut!(data).cast()) }
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
@@ -121,7 +121,7 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool
 }
 
 /// Check if an expression tree contains any `pdb.score()` or `paradedb.score()` function calls.
-pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
+pub fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -140,5 +140,5 @@ pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
         expression_tree_walker(node, Some(walker), data)
     }
 
-    walker(node, std::ptr::null_mut())
+    unsafe { walker(node, std::ptr::null_mut()) }
 }

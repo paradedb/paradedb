@@ -56,25 +56,23 @@ impl BitmapExec {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) -> Option<Self> {
-        unsafe {
-            let custom_plans = PgList::<pg_sys::Plan>::from_pg((*cscan).custom_plans);
-            assert!(
-                custom_plans.len() <= 1,
-                "at most one harvested bitmap child is supported"
-            );
-            let child_plan = custom_plans.get_ptr(0)?;
-            Some(Self {
-                child: pg_sys::ExecInitNode(child_plan, estate, eflags),
-                consumed: false,
-                tbm: std::ptr::null_mut(),
-                built_in: std::ptr::null_mut(),
-                area: std::ptr::null_mut(),
-                owns_area: false,
-                table: 0,
-                source: None,
-                publish_args: None,
-            })
-        }
+        let custom_plans = unsafe { PgList::<pg_sys::Plan>::from_pg((*cscan).custom_plans) };
+        assert!(
+            custom_plans.len() <= 1,
+            "at most one harvested bitmap child is supported"
+        );
+        let child_plan = custom_plans.get_ptr(0)?;
+        Some(Self {
+            child: unsafe { pg_sys::ExecInitNode(child_plan, estate, eflags) },
+            consumed: false,
+            tbm: std::ptr::null_mut(),
+            built_in: std::ptr::null_mut(),
+            area: std::ptr::null_mut(),
+            owns_area: false,
+            table: 0,
+            source: None,
+            publish_args: None,
+        })
     }
 
     pub fn planstate(&self) -> *mut pg_sys::PlanState {

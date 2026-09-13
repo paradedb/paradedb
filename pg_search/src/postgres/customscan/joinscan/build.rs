@@ -1141,7 +1141,7 @@ impl RelNode {
     ///
     /// Returns `true` if all keys are (or were made) valid. Returns `false` if
     /// a pruned reference cannot be resolved to an output-visible equivalent.
-    pub unsafe fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
+    pub fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
         match self {
             RelNode::Scan(_) => true,
             RelNode::Join(j) => {
@@ -1807,7 +1807,7 @@ impl RelNode {
 /// searching PostgreSQL planner equivalence classes and writes it into
 /// `out_rti` and `out_attno`. Returns `true` on success.
 #[inline]
-unsafe fn substitute_pruned_key_side(
+fn substitute_pruned_key_side(
     root: *mut pg_sys::PlannerInfo,
     output_rtis: &[pg_sys::Index],
     pruned_rti: pg_sys::Index,
@@ -1818,34 +1818,36 @@ unsafe fn substitute_pruned_key_side(
     if root.is_null() {
         return false;
     }
+    let root = unsafe { &*root };
 
-    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    let eq_classes = unsafe { PgList::<pg_sys::EquivalenceClass>::from_pg(root.eq_classes) };
     for eqc in eq_classes.iter_ptr() {
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eqc).ec_members);
+        let eqc = unsafe { &*eqc };
+        let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(eqc.ec_members) };
         let mut contains_pruned = false;
         let mut replacement: Option<(pg_sys::Index, pg_sys::AttrNumber)> = None;
 
         for member in members.iter_ptr() {
-            let mut node = (*member).em_expr.cast::<pg_sys::Node>();
+            let mut node = unsafe { (*member).em_expr.cast::<pg_sys::Node>() };
             while !node.is_null() {
-                match (*node).type_ {
+                match unsafe { (*node).type_ } {
                     pg_sys::NodeTag::T_RelabelType => {
-                        node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                        node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg.cast() };
                     }
                     pg_sys::NodeTag::T_PlaceHolderVar => {
-                        node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                        node = unsafe { (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast() };
                     }
                     _ => break,
                 }
             }
 
-            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+            if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
                 continue;
             }
 
-            let var = node as *mut pg_sys::Var;
-            let rti = (*var).varno as pg_sys::Index;
-            let attno = (*var).varattno;
+            let var = unsafe { &*(node as *mut pg_sys::Var) };
+            let rti = var.varno as pg_sys::Index;
+            let attno = var.varattno;
 
             if rti == pruned_rti && attno == pruned_attno {
                 contains_pruned = true;
@@ -2126,17 +2128,17 @@ pub fn assign_tagged_queries<'a>(
 /// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
 /// underlying node. Used when extracting `Var` nodes from join conditions
 /// that may have implicit type casts.
-pub unsafe fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if node.is_null() {
             return node;
         }
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg.cast() };
             }
             pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                node = unsafe { (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast() };
             }
             _ => break,
         }

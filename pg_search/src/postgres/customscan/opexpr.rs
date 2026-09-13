@@ -393,7 +393,7 @@ unsafe fn is_type_cast_function(funcid: pg_sys::Oid) -> bool {
 ///
 /// Returns true if both lists have the same length and all corresponding
 /// arguments are semantically equal (using `expr_equal_ignoring_context`).
-unsafe fn args_equal(args_a: &PgList<pg_sys::Node>, args_b: &PgList<pg_sys::Node>) -> bool {
+fn args_equal(args_a: &PgList<pg_sys::Node>, args_b: &PgList<pg_sys::Node>) -> bool {
     if args_a.len() != args_b.len() {
         return false;
     }
@@ -525,7 +525,7 @@ unsafe fn opexpr_matches_funcexpr(
 ///
 /// Use this instead of `pg_sys::equal` when comparing expressions from
 /// different query contexts (e.g., index definition vs. WHERE clause).
-pub unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::Node) -> bool {
+pub fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::Node) -> bool {
     if a.is_null() && b.is_null() {
         return true;
     }
@@ -533,23 +533,21 @@ pub unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::
         return false;
     }
 
-    let tag_a = (*a).type_;
-    let tag_b = (*b).type_;
+    let tag_a = unsafe { (*a).type_ };
+    let tag_b = unsafe { (*b).type_ };
 
     // Handle OpExpr <-> FuncExpr cross-type comparison
     // PostgreSQL can represent operators either as OpExpr or FuncExpr
     match (tag_a, tag_b) {
         (pg_sys::NodeTag::T_OpExpr, pg_sys::NodeTag::T_FuncExpr) => {
-            return opexpr_matches_funcexpr(
-                a as *const pg_sys::OpExpr,
-                b as *const pg_sys::FuncExpr,
-            );
+            return unsafe {
+                opexpr_matches_funcexpr(a as *const pg_sys::OpExpr, b as *const pg_sys::FuncExpr)
+            };
         }
         (pg_sys::NodeTag::T_FuncExpr, pg_sys::NodeTag::T_OpExpr) => {
-            return opexpr_matches_funcexpr(
-                b as *const pg_sys::OpExpr,
-                a as *const pg_sys::FuncExpr,
-            );
+            return unsafe {
+                opexpr_matches_funcexpr(b as *const pg_sys::OpExpr, a as *const pg_sys::FuncExpr)
+            };
         }
         _ if tag_a != tag_b => return false,
         _ => {}
@@ -557,65 +555,61 @@ pub unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::
 
     // Same node type - compare based on type
     match tag_a {
-        pg_sys::NodeTag::T_Var => {
+        pg_sys::NodeTag::T_Var => unsafe {
             vars_equal_ignoring_varno(a as *const pg_sys::Var, b as *const pg_sys::Var)
-        }
+        },
 
         pg_sys::NodeTag::T_Const => {
             // Const nodes don't have context-dependent fields, use standard comparison
-            pg_sys::equal(a.cast(), b.cast())
+            unsafe { pg_sys::equal(a.cast(), b.cast()) }
         }
 
         pg_sys::NodeTag::T_OpExpr => {
-            let op_a = a as *const pg_sys::OpExpr;
-            let op_b = b as *const pg_sys::OpExpr;
+            let op_a = unsafe { &*(a as *const pg_sys::OpExpr) };
+            let op_b = unsafe { &*(b as *const pg_sys::OpExpr) };
 
-            (*op_a).opno == (*op_b).opno
-                && (*op_a).opresulttype == (*op_b).opresulttype
-                && (*op_a).opcollid == (*op_b).opcollid
-                && (*op_a).inputcollid == (*op_b).inputcollid
-                && args_equal(
-                    &PgList::from_pg((*op_a).args),
-                    &PgList::from_pg((*op_b).args),
-                )
+            op_a.opno == op_b.opno
+                && op_a.opresulttype == op_b.opresulttype
+                && op_a.opcollid == op_b.opcollid
+                && op_a.inputcollid == op_b.inputcollid
+                && unsafe { args_equal(&PgList::from_pg(op_a.args), &PgList::from_pg(op_b.args)) }
         }
 
         pg_sys::NodeTag::T_FuncExpr => {
-            let func_a = a as *const pg_sys::FuncExpr;
-            let func_b = b as *const pg_sys::FuncExpr;
+            let func_a = unsafe { &*(a as *const pg_sys::FuncExpr) };
+            let func_b = unsafe { &*(b as *const pg_sys::FuncExpr) };
 
-            (*func_a).funcid == (*func_b).funcid
-                && (*func_a).funcresulttype == (*func_b).funcresulttype
-                && (*func_a).funcretset == (*func_b).funcretset
-                && (*func_a).funccollid == (*func_b).funccollid
-                && (*func_a).inputcollid == (*func_b).inputcollid
-                && args_equal(
-                    &PgList::from_pg((*func_a).args),
-                    &PgList::from_pg((*func_b).args),
-                )
+            func_a.funcid == func_b.funcid
+                && func_a.funcresulttype == func_b.funcresulttype
+                && func_a.funcretset == func_b.funcretset
+                && func_a.funccollid == func_b.funccollid
+                && func_a.inputcollid == func_b.inputcollid
+                && unsafe {
+                    args_equal(&PgList::from_pg(func_a.args), &PgList::from_pg(func_b.args))
+                }
         }
 
         pg_sys::NodeTag::T_RelabelType => {
-            let relabel_a = a as *const pg_sys::RelabelType;
-            let relabel_b = b as *const pg_sys::RelabelType;
+            let relabel_a = unsafe { &*(a as *const pg_sys::RelabelType) };
+            let relabel_b = unsafe { &*(b as *const pg_sys::RelabelType) };
 
-            (*relabel_a).resulttype == (*relabel_b).resulttype
-                && (*relabel_a).resulttypmod == (*relabel_b).resulttypmod
-                && (*relabel_a).resultcollid == (*relabel_b).resultcollid
-                && expr_equal_ignoring_context((*relabel_a).arg.cast(), (*relabel_b).arg.cast())
+            relabel_a.resulttype == relabel_b.resulttype
+                && relabel_a.resulttypmod == relabel_b.resulttypmod
+                && relabel_a.resultcollid == relabel_b.resultcollid
+                && expr_equal_ignoring_context(relabel_a.arg.cast(), relabel_b.arg.cast())
         }
 
         pg_sys::NodeTag::T_CoerceViaIO => {
-            let coerce_a = a as *const pg_sys::CoerceViaIO;
-            let coerce_b = b as *const pg_sys::CoerceViaIO;
+            let coerce_a = unsafe { &*(a as *const pg_sys::CoerceViaIO) };
+            let coerce_b = unsafe { &*(b as *const pg_sys::CoerceViaIO) };
 
-            (*coerce_a).resulttype == (*coerce_b).resulttype
-                && (*coerce_a).resultcollid == (*coerce_b).resultcollid
-                && expr_equal_ignoring_context((*coerce_a).arg.cast(), (*coerce_b).arg.cast())
+            coerce_a.resulttype == coerce_b.resulttype
+                && coerce_a.resultcollid == coerce_b.resultcollid
+                && expr_equal_ignoring_context(coerce_a.arg.cast(), coerce_b.arg.cast())
         }
 
         // Fall back to pg_sys::equal for other node types
-        _ => pg_sys::equal(a.cast(), b.cast()),
+        _ => unsafe { pg_sys::equal(a.cast(), b.cast()) },
     }
 }
 

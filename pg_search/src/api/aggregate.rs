@@ -451,28 +451,22 @@ pub unsafe fn pdb_agg_spec(
 
 /// Extract solve_mvcc boolean from a Const node.
 /// Returns true (MVCC enabled) if the value can't be extracted or is null.
-///
-/// # Safety
-/// The caller must ensure `const_node` is a valid pointer to a Const node.
-unsafe fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const) -> bool {
-    if const_node.is_null() || (*const_node).constisnull {
+fn extract_solve_mvcc_from_const(const_node: *mut pgrx::pg_sys::Const) -> bool {
+    if const_node.is_null() || unsafe { (*const_node).constisnull } {
         return true;
     }
-    let bool_datum = (*const_node).constvalue;
-    pgrx::FromDatum::from_datum(bool_datum, false).unwrap_or(true)
+    let bool_datum = unsafe { (*const_node).constvalue };
+    unsafe { pgrx::FromDatum::from_datum(bool_datum, false) }.unwrap_or(true)
 }
 
 /// Extract a `visibility` mode from a `text` Const node. A NULL or undecodable
 /// value yields the default; an unrecognized string is an error.
-///
-/// # Safety
-/// The caller must ensure `const_node` is a valid pointer to a Const node.
-unsafe fn extract_visibility_from_const(const_node: *mut pgrx::pg_sys::Const) -> MvccVisibility {
-    if const_node.is_null() || (*const_node).constisnull {
+fn extract_visibility_from_const(const_node: *mut pgrx::pg_sys::Const) -> MvccVisibility {
+    if const_node.is_null() || unsafe { (*const_node).constisnull } {
         return MvccVisibility::default();
     }
-    let datum = (*const_node).constvalue;
-    match <String as pgrx::FromDatum>::from_datum(datum, false) {
+    let datum = unsafe { (*const_node).constvalue };
+    match unsafe { <String as pgrx::FromDatum>::from_datum(datum, false) } {
         Some(value) => MvccVisibility::from_sql_value(&value),
         None => MvccVisibility::default(),
     }

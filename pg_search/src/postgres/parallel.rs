@@ -61,7 +61,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
 
 #[cfg(feature = "pg18")]
 #[pg_guard]
-pub unsafe extern "C-unwind" fn amestimateparallelscan(
+pub extern "C-unwind" fn amestimateparallelscan(
     rel: *mut pg_sys::RelationData,
     _nkeys: i32,
     _norderbys: i32,
@@ -71,7 +71,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     let nsegments = if rel.is_null() {
         u16::MAX as usize
     } else {
-        estimated_parallel_segments(rel)
+        unsafe { estimated_parallel_segments(rel) }
     };
     ParallelScanState::size_of(&[nsegments], &[], false, false)
 }

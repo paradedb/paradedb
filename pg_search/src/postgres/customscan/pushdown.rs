@@ -35,7 +35,7 @@ use std::sync::OnceLock;
 
 /// Returns `true` when `opno` is the ltree descendant operator `<@` applied to
 /// ltree operands on both sides, e.g. `path <@ 'Top.Science'::ltree`.
-unsafe fn is_ltree_descendant_operator(
+fn is_ltree_descendant_operator(
     opno: pg_sys::Oid,
     lhs: *mut pg_sys::Node,
     rhs: *mut pg_sys::Node,
@@ -44,18 +44,18 @@ unsafe fn is_ltree_descendant_operator(
         return false;
     }
 
-    let lhs_type = pg_sys::exprType(lhs);
-    let rhs_type = pg_sys::exprType(rhs);
+    let lhs_type = unsafe { pg_sys::exprType(lhs) };
+    let rhs_type = unsafe { pg_sys::exprType(rhs) };
     if !is_ltree_oid(lhs_type) || !is_ltree_oid(rhs_type) {
         return false;
     }
 
-    let op_name = pg_sys::get_opname(opno);
+    let op_name = unsafe { pg_sys::get_opname(opno) };
     if op_name.is_null() {
         return false;
     }
 
-    CStr::from_ptr(op_name).to_bytes() == b"<@"
+    unsafe { CStr::from_ptr(op_name) }.to_bytes() == b"<@"
 }
 
 /// Pushdown PostgreSQL ltree descendant operator `<@` to the ParadeDB index.
@@ -399,21 +399,21 @@ unsafe fn try_pushdown_jsonb_exists(
 }
 
 /// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
-unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
-    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
+    if node.is_null() || unsafe { pg_sys::exprType(node) } != pg_sys::BOOLOID || is_complex(node) {
         return None;
     }
 
-    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
-    let expr_context = pg_sys::CreateStandaloneExprContext();
+    let expr_state = unsafe { pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut()) };
+    let expr_context = unsafe { pg_sys::CreateStandaloneExprContext() };
     let mut is_null = false;
-    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
-    pg_sys::FreeExprContext(expr_context, false);
+    let datum = unsafe { pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null) };
+    unsafe { pg_sys::FreeExprContext(expr_context, false) };
 
     if is_null {
         None
     } else {
-        match bool::from_datum(datum, false) {
+        match unsafe { bool::from_datum(datum, false) } {
             Some(true) => Some(Qual::All),
             Some(false) => Some(Qual::Not(Box::new(Qual::All))),
             None => None,
@@ -504,7 +504,7 @@ unsafe fn make_opexpr(
     Some(paradedb_funcexpr)
 }
 
-pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
+pub fn is_complex(root: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -520,5 +520,5 @@ pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
         return false;
     }
 
-    walker(root, std::ptr::null_mut())
+    unsafe { walker(root, std::ptr::null_mut()) }
 }

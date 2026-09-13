@@ -367,7 +367,7 @@ impl CreateUpperPathsHookArgs {
 
     /// The statically-known `LIMIT + OFFSET` of the query, or `None` when there
     /// is no LIMIT or its value is parameterized (not known at planning time).
-    pub unsafe fn limit_plus_offset(&self) -> Option<usize> {
+    pub fn limit_plus_offset(&self) -> Option<usize> {
         limit_offset::LimitOffset::from_parse(self.root().parse).and_then(|lo| lo.static_fetch())
     }
 

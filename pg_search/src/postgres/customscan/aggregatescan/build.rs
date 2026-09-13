@@ -504,7 +504,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             }
         };
         // LimitOffset is optional - returns None when there is no LIMIT clause.
-        let limit_offset = unsafe { LimitOffset::from_parse(args.root().parse) };
+        let limit_offset = LimitOffset::from_parse(args.root().parse);
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()

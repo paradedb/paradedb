@@ -53,11 +53,11 @@ pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
 /// logs so the offending node type is immediately scannable. Separate from
 /// `expr_translators::node_tag_label`, which covers only the subset of
 /// tags that reach the UDF-naming path.
-pub(crate) unsafe fn node_tag_debug(node: *mut pg_sys::Node) -> String {
+pub(crate) fn node_tag_debug(node: *mut pg_sys::Node) -> String {
     if node.is_null() {
         return "null".to_string();
     }
-    let dbg = format!("{:?}", (*node).type_);
+    let dbg = format!("{:?}", unsafe { (*node).type_ });
     dbg.strip_prefix("T_").unwrap_or(&dbg).to_string()
 }
 
@@ -218,7 +218,7 @@ impl<'a> PredicateTranslator<'a> {
     /// Validates both node-type support and column resolution against
     /// the provided sources, without requiring plan_position or
     /// output_columns.
-    pub unsafe fn can_translate(
+    pub fn can_translate(
         root: Option<*mut pg_sys::PlannerInfo>,
         sources: &'a [&'a JoinSource],
         node: *mut pg_sys::Node,
@@ -272,7 +272,7 @@ impl<'a> PredicateTranslator<'a> {
     /// (e.g. INT 95 vs Numeric64 5225 for 52.25), so we return None to indicate that the
     /// predicate cannot be evaluated purely in DataFusion and must fall back to PostgreSQL
     /// evaluation.
-    pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+    pub fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             pgrx::debug1!("PredicateTranslator: null node pointer");
             return None;
@@ -281,45 +281,51 @@ impl<'a> PredicateTranslator<'a> {
         // A List is an implicit conjunction container, so reaching here means a
         // caller skipped normalization. `translate` doubles as a capability
         // probe, so decline rather than abort an otherwise valid query.
-        if (*node).type_ == pg_sys::NodeTag::T_List {
+        if unsafe { (*node).type_ } == pg_sys::NodeTag::T_List {
             pgrx::debug1!(
                 "PredicateTranslator received an unnormalized PostgreSQL List; implicit AND conjuncts must be normalized before translation"
             );
             return None;
         }
 
-        let native = match (*node).type_ {
-            pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
-            pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
-            pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
-            pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
+        let native = match unsafe { (*node).type_ } {
+            pg_sys::NodeTag::T_OpExpr => unsafe {
+                self.translate_op_expr(node as *mut pg_sys::OpExpr)
+            },
+            pg_sys::NodeTag::T_Var => unsafe { self.translate_var(node as *mut pg_sys::Var) },
+            pg_sys::NodeTag::T_Const => unsafe { self.translate_const(node as *mut pg_sys::Const) },
+            pg_sys::NodeTag::T_BoolExpr => unsafe {
+                self.translate_bool_expr(node as *mut pg_sys::BoolExpr)
+            },
             pg_sys::NodeTag::T_RelabelType => {
                 // Binary-compatible cast (e.g. varchar → text). The underlying
                 // datum is identical — just recurse into the inner expression.
                 let relabel = node as *mut pg_sys::RelabelType;
-                self.translate((*relabel).arg.cast())
+                self.translate(unsafe { (*relabel).arg.cast() })
             }
-            pg_sys::NodeTag::T_FuncExpr => self.translate_func_expr(node),
-            pg_sys::NodeTag::T_NullTest => self.translate_null_test(node),
-            pg_sys::NodeTag::T_BooleanTest => self.translate_boolean_test(node),
-            pg_sys::NodeTag::T_CaseExpr => self.translate_case_expr(node),
-            pg_sys::NodeTag::T_CoalesceExpr => self.translate_coalesce_expr(node),
-            pg_sys::NodeTag::T_NullIfExpr => self.translate_nullif_expr(node),
-            pg_sys::NodeTag::T_MinMaxExpr => self.translate_min_max_expr(node),
-            pg_sys::NodeTag::T_ScalarArrayOpExpr => self.translate_scalar_array_op_expr(node),
-            pg_sys::NodeTag::T_CoerceViaIO => self.translate_coerce_via_io(node),
+            pg_sys::NodeTag::T_FuncExpr => unsafe { self.translate_func_expr(node) },
+            pg_sys::NodeTag::T_NullTest => unsafe { self.translate_null_test(node) },
+            pg_sys::NodeTag::T_BooleanTest => unsafe { self.translate_boolean_test(node) },
+            pg_sys::NodeTag::T_CaseExpr => unsafe { self.translate_case_expr(node) },
+            pg_sys::NodeTag::T_CoalesceExpr => unsafe { self.translate_coalesce_expr(node) },
+            pg_sys::NodeTag::T_NullIfExpr => unsafe { self.translate_nullif_expr(node) },
+            pg_sys::NodeTag::T_MinMaxExpr => unsafe { self.translate_min_max_expr(node) },
+            pg_sys::NodeTag::T_ScalarArrayOpExpr => unsafe {
+                self.translate_scalar_array_op_expr(node)
+            },
+            pg_sys::NodeTag::T_CoerceViaIO => unsafe { self.translate_coerce_via_io(node) },
             _ => None,
         };
 
         // Fallback runs per recursive call, so the innermost failing subtree
         // gets wrapped, and its parent can still evaluate natively.
         native.or_else(|| {
-            let wrapped = self.try_wrap_as_udf(node);
+            let wrapped = unsafe { self.try_wrap_as_udf(node) };
             if wrapped.is_none() {
                 pgrx::debug1!(
                     "PredicateTranslator: UDF fallback failed [{}] | {}",
                     node_tag_debug(node),
-                    self.deparse_for_debug(node)
+                    unsafe { self.deparse_for_debug(node) }
                 );
             }
             wrapped

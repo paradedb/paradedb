@@ -399,11 +399,9 @@ impl ExecMethod for ColumnarExecState {
             ..
         } = state.exec_method_type
         {
-            unsafe {
-                let estate = (*cstate).ss.ps.state;
-                if let Some(fetch) = lo.resolve_mut(estate).and_then(|lo| lo.static_fetch()) {
-                    self.batch_size_hint = Some(fetch * 2);
-                }
+            let estate = unsafe { (*cstate).ss.ps.state };
+            if let Some(fetch) = lo.resolve_mut(estate).and_then(|lo| lo.static_fetch()) {
+                self.batch_size_hint = Some(fetch * 2);
             }
         }
 
@@ -509,75 +507,75 @@ impl ExecMethod for ColumnarExecState {
     ///
     /// The next execution state containing the result or EOF
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
-        unsafe {
-            let record_batch = match self.current_record_batch.as_ref() {
-                Some(batch) => batch,
-                None => return ExecState::Eof,
-            };
+        let record_batch = match self.current_record_batch.as_ref() {
+            Some(batch) => batch,
+            None => return ExecState::Eof,
+        };
 
-            let row_idx = self.current_batch_row_idx;
-            if row_idx >= record_batch.num_rows() {
-                // This batch is exhausted.
-                self.current_record_batch = None;
-                return ExecState::Eof;
-            }
+        let row_idx = self.current_batch_row_idx;
+        if row_idx >= record_batch.num_rows() {
+            // This batch is exhausted.
+            self.current_record_batch = None;
+            return ExecState::Eof;
+        }
 
-            self.current_batch_row_idx += 1;
+        self.current_batch_row_idx += 1;
 
-            let heaprel = self
-                .inner
-                .heaprel
-                .as_ref()
-                .expect("ColumnarExecState: heaprel should be initialized");
-            let slot = self.inner.slot;
-            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+        let heaprel = self
+            .inner
+            .heaprel
+            .as_ref()
+            .expect("ColumnarExecState: heaprel should be initialized");
+        let slot = unsafe { &mut *self.inner.slot };
+        let natts = unsafe { (*slot.tts_tupleDescriptor).natts } as usize;
 
-            // Extract ctid from the RecordBatch
-            let ctid = if let Some(ctid_idx) = self.ctid_column_idx {
-                let ctid_array = record_batch
-                    .column(ctid_idx)
-                    .as_any()
-                    .downcast_ref::<arrow_array::UInt64Array>()
-                    .expect("ctid column should be UInt64Array");
-                ctid_array.value(row_idx)
-            } else {
-                panic!("ctid column not found in columnar execution");
-            };
+        // Extract ctid from the RecordBatch
+        let ctid = if let Some(ctid_idx) = self.ctid_column_idx {
+            let ctid_array = record_batch
+                .column(ctid_idx)
+                .as_any()
+                .downcast_ref::<arrow_array::UInt64Array>()
+                .expect("ctid column should be UInt64Array");
+            ctid_array.value(row_idx)
+        } else {
+            panic!("ctid column not found in columnar execution");
+        };
 
-            // Set ctid and table OID on the slot
-            crate::postgres::utils::u64_to_item_pointer(ctid, &mut (*slot).tts_tid);
-            (*slot).tts_tableOid = heaprel.oid();
+        // Set ctid and table OID on the slot
+        crate::postgres::utils::u64_to_item_pointer(ctid, &mut slot.tts_tid);
+        slot.tts_tableOid = heaprel.oid();
 
-            // Setup slot for returning data
-            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-            (*slot).tts_nvalid = natts as _;
+        // Setup slot for returning data
+        slot.tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+        slot.tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+        slot.tts_nvalid = natts as _;
 
-            let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-            let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+        let datums = unsafe { std::slice::from_raw_parts_mut(slot.tts_values, natts) };
+        let isnull = unsafe { std::slice::from_raw_parts_mut(slot.tts_isnull, natts) };
 
-            // Initialize all values to NULL
-            for i in 0..natts {
-                datums[i] = pg_sys::Datum::null();
-                isnull[i] = true;
-            }
+        // Initialize all values to NULL
+        for i in 0..natts {
+            datums[i] = pg_sys::Datum::null();
+            isnull[i] = true;
+        }
 
-            let which_fast_fields = &self.inner.which_fast_fields;
-            let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-            debug_assert!(natts == which_fast_fields.len());
+        let which_fast_fields = &self.inner.which_fast_fields;
+        let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+        debug_assert!(natts == which_fast_fields.len());
 
-            populate_slot_from_record_batch(
-                &self.const_values,
-                record_batch,
-                row_idx,
-                which_fast_fields,
-                tupdesc,
-                &mut *slot,
-                datums,
-                isnull,
-            );
+        populate_slot_from_record_batch(
+            &self.const_values,
+            record_batch,
+            row_idx,
+            which_fast_fields,
+            tupdesc,
+            slot,
+            datums,
+            isnull,
+        );
 
-            ExecState::Virtual { slot }
+        ExecState::Virtual {
+            slot: self.inner.slot,
         }
     }
 

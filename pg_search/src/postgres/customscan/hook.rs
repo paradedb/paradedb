@@ -493,14 +493,14 @@ pub unsafe fn try_extract_quals_from_query(
 ///
 /// Errors if `pdb.agg()` is used AT THE CURRENT LEVEL but requirements aren't met.
 /// Note: pdb.agg() in subqueries/CTEs will be checked separately when those are processed.
-unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     // Check if custom scan is enabled globally
     if !gucs::enable_custom_scan() {
         return false;
     }
 
     // Early return: not a SELECT query
-    if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
+    if parse.is_null() || unsafe { (*parse).commandType } != pg_sys::CmdType::CMD_SELECT {
         return false;
     }
 
@@ -510,16 +510,16 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     }
 
     // Check if pdb.agg() is used at the CURRENT level (not in subqueries/CTEs)
-    let has_paradedb_agg_current_level = query_has_paradedb_agg(parse, false);
+    let has_paradedb_agg_current_level = unsafe { query_has_paradedb_agg(parse, false) };
 
     // Check if we should handle this query (has pdb.agg or search operator)
-    let has_search_operator = query_has_search_operator(parse);
+    let has_search_operator = unsafe { query_has_search_operator(parse) };
     if !has_paradedb_agg_current_level && !has_search_operator {
         return false;
     }
 
     // Check if WHERE clause can be handled
-    if !can_handle_where_clause(parse) {
+    if !unsafe { can_handle_where_clause(parse) } {
         if has_paradedb_agg_current_level {
             // pdb.agg() requires that we handle the query, but we can't handle the WHERE clause
             if crate::gucs::enable_filter_pushdown() {
@@ -537,7 +537,7 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     }
 
     // Check Top K compatibility (ORDER BY + LIMIT on indexed columns).
-    if unsafe { validate_topk_compatibility(parse) } {
+    if validate_topk_compatibility(parse) {
         return true;
     }
 
@@ -545,7 +545,7 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     // we can still replace window functions when pdb.agg() is present and the
     // query has a LIMIT clause. The unordered TopK or NormalScan execution
     // paths will compute the aggregates via a standalone Tantivy query.
-    if has_paradedb_agg_current_level && !(*parse).limitCount.is_null() {
+    if has_paradedb_agg_current_level && !unsafe { (*parse).limitCount.is_null() } {
         return true;
     }
 
@@ -667,23 +667,26 @@ unsafe fn targetlist_has_window_func_nodes(target_list: *mut pg_sys::List) -> bo
 /// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)
 /// This is called BEFORE window function replacement in the planner hook
 /// Recursively checks subqueries and CTEs
-unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
+fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
+    let parse = unsafe { &*parse };
 
     // Check the current query's target list
-    if !(*parse).targetList.is_null() && targetlist_has_window_func_nodes((*parse).targetList) {
+    if !parse.targetList.is_null() && unsafe { targetlist_has_window_func_nodes(parse.targetList) }
+    {
         return true;
     }
 
     // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    if !parse.rtable.is_null() {
+        let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
         for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_has_window_func_nodes((*rte).subquery)
+            let rte = unsafe { &*rte };
+            if rte.rtekind == pg_sys::RTEKind::RTE_SUBQUERY
+                && !rte.subquery.is_null()
+                && query_has_window_func_nodes(rte.subquery)
             {
                 return true;
             }
@@ -691,10 +694,11 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     }
 
     // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
-        let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+    if !parse.cteList.is_null() {
+        let ctelist = unsafe { PgList::<pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
         for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_has_window_func_nodes((*cte).ctequery.cast()) {
+            let cte = unsafe { &*cte };
+            if !cte.ctequery.is_null() && query_has_window_func_nodes(cte.ctequery.cast()) {
                 return true;
             }
         }
@@ -783,7 +787,7 @@ pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> boo
 
 /// Recursively check if an expression tree contains any ParadeDB search operator.
 /// Uses expression tree walker to examine all OpExpr nodes.
-unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
+fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
     struct WalkerContext {
         found: bool,
     }
@@ -812,7 +816,7 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
     }
 
     let mut context = WalkerContext { found: false };
-    walker(node, &mut context as *mut _ as *mut core::ffi::c_void);
+    unsafe { walker(node, &mut context as *mut _ as *mut core::ffi::c_void) };
     context.found
 }
 
@@ -951,38 +955,41 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
 }
 
 /// Recursively replace window functions in the query and all subqueries/CTEs
-unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
+fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     if parse.is_null() {
         return;
     }
 
     // Extract window functions from current query
-    let window_tls = window_agg::extract_and_convert_window_functions(parse);
+    let window_tls = unsafe { window_agg::extract_and_convert_window_functions(parse) };
     if !window_tls.is_empty() {
         // Replace window functions in current query
-        replace_windowfuncs_in_query(parse, &window_tls);
+        unsafe { replace_windowfuncs_in_query(parse, &window_tls) };
     }
+    let parse = unsafe { &*parse };
 
     // Recursively process subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    if !parse.rtable.is_null() {
+        let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
         for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
+            let rte = unsafe { &*rte };
+            if rte.rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !rte.subquery.is_null() {
                 // For subqueries, check if they should have window functions replaced
                 // Each subquery is independent and may have its own Top K context
-                if should_replace_window_functions((*rte).subquery) {
-                    replace_windowfuncs_recursively((*rte).subquery);
+                if should_replace_window_functions(rte.subquery) {
+                    replace_windowfuncs_recursively(rte.subquery);
                 }
             }
         }
     }
 
     // Recursively process CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
-        let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+    if !parse.cteList.is_null() {
+        let ctelist = unsafe { PgList::<pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
         for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() {
-                let cte_query = (*cte).ctequery.cast::<pg_sys::Query>();
+            let cte = unsafe { &*cte };
+            if !cte.ctequery.is_null() {
+                let cte_query = cte.ctequery.cast::<pg_sys::Query>();
                 // For CTEs, check if they should have window functions replaced
                 // Each CTE is independent and may have its own Top K context
                 if should_replace_window_functions(cte_query) {
@@ -1053,7 +1060,7 @@ unsafe fn replace_windowfuncs_in_query(
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
-unsafe fn replace_in_node(
+fn replace_in_node(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
     window_tl: &TargetList,
@@ -1063,45 +1070,50 @@ unsafe fn replace_in_node(
     }
 
     // Check if this is a WindowFunc
-    if nodecast!(WindowFunc, T_WindowFunc, node).is_some() {
+    if unsafe { nodecast!(WindowFunc, T_WindowFunc, node) }.is_some() {
         // Replace with window_agg() placeholder
         let json =
             serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
 
         // Create a Const node for the JSON string
         let json_cstring = std::ffi::CString::new(json).expect("Invalid JSON string");
-        let json_text = pg_sys::cstring_to_text(json_cstring.as_ptr());
+        let json_text = unsafe { pg_sys::cstring_to_text(json_cstring.as_ptr()) };
         let json_datum = pg_sys::Datum::from(json_text as usize);
 
         // Create an argument list with the JSON string
         let mut args = PgList::<pg_sys::Node>::new();
-        let json_const = pg_sys::makeConst(
-            pg_sys::TEXTOID,
-            -1,
-            pg_sys::DEFAULT_COLLATION_OID,
-            -1,
-            json_datum,
-            false, // not null
-            false, // not passed by value (text is varlena)
-        );
+        let json_const = unsafe {
+            pg_sys::makeConst(
+                pg_sys::TEXTOID,
+                -1,
+                pg_sys::DEFAULT_COLLATION_OID,
+                -1,
+                json_datum,
+                false, // not null
+                false, // not passed by value (text is varlena)
+            )
+        };
         args.push(json_const.cast());
 
         // Create a FuncExpr that calls paradedb.window_agg(json)
-        let funcexpr = pg_sys::makeFuncExpr(
-            window_agg_procid,
-            window_tl.singleton_result_type_oid(),
-            args.into_pg(),
-            pg_sys::InvalidOid,
-            pg_sys::InvalidOid,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        );
+        let funcexpr = unsafe {
+            pg_sys::makeFuncExpr(
+                window_agg_procid,
+                window_tl.singleton_result_type_oid(),
+                args.into_pg(),
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            )
+        };
 
         return funcexpr.cast();
     }
 
     // Check if this is a FuncExpr that might contain a WindowFunc
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        let funcexpr = unsafe { &*funcexpr };
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
         let mut new_args = PgList::<pg_sys::Node>::new();
         let mut modified = false;
 
@@ -1116,14 +1128,16 @@ unsafe fn replace_in_node(
 
         if modified {
             // Create a new FuncExpr with the modified arguments
-            let new_funcexpr = pg_sys::makeFuncExpr(
-                (*funcexpr).funcid,
-                (*funcexpr).funcresulttype,
-                new_args.into_pg(),
-                (*funcexpr).funccollid,
-                (*funcexpr).inputcollid,
-                (*funcexpr).funcformat,
-            );
+            let new_funcexpr = unsafe {
+                pg_sys::makeFuncExpr(
+                    funcexpr.funcid,
+                    funcexpr.funcresulttype,
+                    new_args.into_pg(),
+                    funcexpr.funccollid,
+                    funcexpr.inputcollid,
+                    funcexpr.funcformat,
+                )
+            };
             return new_funcexpr.cast();
         }
     }

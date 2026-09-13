@@ -1415,7 +1415,7 @@ impl AggregateScan {
 
         // If it's not a plain relation (e.g. it's a partitioned table), we can't do Tantivy agg directly.
         // Parent partitioned tables are not yet supported for aggregate pushdown.
-        let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
+        let Some(heap_relid) = range_table::get_plain_relation_relid(heap_rte) else {
             if has_paradedb_agg {
                 pgrx::error!(
                     "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
@@ -1477,19 +1477,21 @@ impl AggregateScan {
         bm25_oid: pg_sys::Oid,
         aggregate_clause: &mut AggregateCSClause,
     ) -> CustomPathBuilder<Self> {
-        unsafe {
-            let root = builder.args().root;
-            let base_rel = if !(*root).simple_rel_array.is_null()
-                && (heap_rti as i32) < (*root).simple_rel_array_size
-            {
-                *(*root).simple_rel_array.add(heap_rti as usize)
+        let root = builder.args().root;
+        let base_rel = {
+            let root = unsafe { &*root };
+            if !root.simple_rel_array.is_null() && (heap_rti as i32) < root.simple_rel_array_size {
+                unsafe { *root.simple_rel_array.add(heap_rti as usize) }
             } else {
                 std::ptr::null_mut()
-            };
+            }
+        };
 
-            let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
-                .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
-            if let Some(harvested) = BitmapPlanner::from_search_query(
+        let bm25_row_estimate = unsafe { base_rel.as_ref() }
+            .filter(|base_rel| base_rel.tuples > 0.0)
+            .map(|base_rel| base_rel.tuples * PARAMETERIZED_SELECTIVITY);
+        if let Some(harvested) = unsafe {
+            BitmapPlanner::from_search_query(
                 root,
                 base_rel,
                 bm25_oid,
@@ -1497,19 +1499,18 @@ impl AggregateScan {
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
-            {
-                harvested.rewrite_query(aggregate_clause.query_mut());
-                let mut children = PgList::<pg_sys::Path>::new();
-                children.push(harvested.path);
-                let startup_cost = builder.startup_cost() + harvested.build_cost;
-                let total_cost = builder.total_cost() + harvested.build_cost;
-                builder = builder
-                    .set_custom_paths(children)
-                    .set_startup_cost(startup_cost)
-                    .set_total_cost(total_cost);
-            }
-            builder
+        } {
+            unsafe { harvested.rewrite_query(aggregate_clause.query_mut()) };
+            let mut children = PgList::<pg_sys::Path>::new();
+            children.push(harvested.path);
+            let startup_cost = builder.startup_cost() + harvested.build_cost;
+            let total_cost = builder.total_cost() + harvested.build_cost;
+            builder = builder
+                .set_custom_paths(children)
+                .set_startup_cost(startup_cost)
+                .set_total_cost(total_cost);
         }
+        builder
     }
 
     /// New DataFusion-backed aggregate path for JOINs.
@@ -1599,7 +1600,7 @@ impl AggregateScan {
                         // or UNION arms within the subquery.
                         if rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY {
                             let subquery = unsafe { (*rte_ptr).subquery };
-                            if !subquery.is_null() && unsafe { query_will_use_topk(subquery) } {
+                            if !subquery.is_null() && query_will_use_topk(subquery) {
                                 return Err(AggregatePathDecline::Quiet);
                             }
                         }
@@ -1622,9 +1623,9 @@ impl AggregateScan {
             // DISTINCT ON can't be modelled as an aggregate. A GROUP BY under a
             // DISTINCT ON still pushes down, with PG applying the DISTINCT ON
             // above the grouped output, so this is gated on the shape.
-            let has_distinct_on = unsafe {
+            let has_distinct_on = {
                 let parse = builder.args().root().parse;
-                !parse.is_null() && (*parse).hasDistinctOn
+                !parse.is_null() && unsafe { (*parse).hasDistinctOn }
             };
             if has_distinct_on {
                 return Err(warn(AggregateDeclineReason::DistinctOn));
@@ -1640,9 +1641,9 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        let path_info = match unsafe {
-            datafusion_build::check_join_path_predicates(root, input_rel, &sources)
-        } {
+        let path_info = match datafusion_build::check_join_path_predicates(
+            root, input_rel, &sources,
+        ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
                 return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
@@ -1700,11 +1701,13 @@ impl AggregateScan {
         // targetlist refs themselves don't carry it.
         let outer_root_id =
             crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
-        let having_filter = unsafe {
-            let parse = builder.args().root().parse;
-            if !parse.is_null() && !(*parse).havingQual.is_null() {
+        let having_filter = {
+            let parse = unsafe { builder.args().root().parse.as_ref() };
+            if let Some(parse) = parse
+                && !parse.havingQual.is_null()
+            {
                 let having = privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
+                    parse.havingQual,
                     &datafusion_build::FilterExprBuildContext::Having {
                         targetlist: &targetlist,
                         plan: &plan,
@@ -2765,7 +2768,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
 }
 
 /// Check if an expression tree contains any UNNEST nodes
-unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
+fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
     use pgrx::pg_guard;
     use std::ptr::addr_of_mut;
 
@@ -2791,12 +2794,12 @@ unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
     }
 
     let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
+    unsafe { walker(node, addr_of_mut!(found).cast()) };
     found
 }
 
 /// Check if an expression tree contains any Aggref nodes
-unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
+fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
     use pgrx::pg_guard;
     use std::ptr::addr_of_mut;
 
@@ -2819,7 +2822,7 @@ unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
     }
 
     let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
+    unsafe { walker(node, addr_of_mut!(found).cast()) };
     found
 }
 
@@ -2892,26 +2895,29 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 /// and an `ORDER BY` on a ParadeDB index), we want to silently decline it instead. This is because
 /// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
 /// bothering the user with a planner warning.
-unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
+fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
 
     // If there is an explicit LIMIT, check if TopK pushdown will natively optimize it
-    if !(*parse).limitCount.is_null()
+    if unsafe { !(*parse).limitCount.is_null() }
         && crate::gucs::enable_custom_scan()
         && validate_topk_compatibility(parse)
     {
         return true;
     }
+    let parse = unsafe { &*parse };
 
     // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    if !parse.rtable.is_null() {
+        let rtable =
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
         for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_will_use_topk((*rte).subquery)
+            let rte = unsafe { &*rte };
+            if rte.rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
+                && !rte.subquery.is_null()
+                && query_will_use_topk(rte.subquery)
             {
                 return true;
             }
@@ -2919,11 +2925,12 @@ unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     }
 
     // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
+    if !parse.cteList.is_null() {
         let ctelist =
-            pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
         for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_will_use_topk((*cte).ctequery.cast()) {
+            let cte = unsafe { &*cte };
+            if !cte.ctequery.is_null() && query_will_use_topk(cte.ctequery.cast()) {
                 return true;
             }
         }

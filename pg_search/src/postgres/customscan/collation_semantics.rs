@@ -167,14 +167,16 @@ unsafe extern "C-unwind" fn check_unsupported_collation_walker(
 
 /// Check if an expression contains an operator on a collation that cannot be
 /// safely delegated to DataFusion.
-pub unsafe fn expr_has_unsupported_collation(node: *mut pg_sys::Node) -> bool {
+pub fn expr_has_unsupported_collation(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
         return false;
     }
     let mut has_unsupported = false;
-    check_unsupported_collation_walker(
-        node,
-        &mut has_unsupported as *mut bool as *mut std::ffi::c_void,
-    );
+    unsafe {
+        check_unsupported_collation_walker(
+            node,
+            &mut has_unsupported as *mut bool as *mut std::ffi::c_void,
+        )
+    };
     has_unsupported
 }

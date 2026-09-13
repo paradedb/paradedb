@@ -294,7 +294,7 @@ impl JoinDeclineReason {
 /// Recursively walk an expression tree and collect the `plan_id` of every
 /// `T_SubPlan` node found at any depth.  Uses Postgres's
 /// `expression_tree_walker` so it handles all node types automatically.
-unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
+fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
     if node.is_null() {
         return;
     }
@@ -315,7 +315,7 @@ unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut H
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
 
-    walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void);
+    unsafe { walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void) };
 }
 
 /// Collect all SubPlan `plan_id`s present in `baserestrictinfo` of the

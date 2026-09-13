@@ -122,26 +122,29 @@ pub extern "C-unwind" fn amrescan(
         }
     }
 
-    let (indexrel, keys) = unsafe {
+    let (indexrel, keys) = {
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
-        assert!(!(*scan).indexRelation.is_null());
+        let scan = unsafe { &mut *scan };
+        assert!(!scan.indexRelation.is_null());
         assert!(!keys.is_null());
         assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
         // Clean up any previous scan state before creating a new one.
         // This is necessary for rescans - PostgreSQL may call amrescan multiple times
         // without calling amendscan in between.
-        if !(*scan).opaque.is_null() {
-            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+        if !scan.opaque.is_null() {
+            let old_state = unsafe { (*scan.opaque.cast::<Option<Bm25ScanState>>()).take() };
             drop(old_state);
-            (*scan).opaque = std::ptr::null_mut();
+            scan.opaque = std::ptr::null_mut();
         }
 
-        let indexrel = (*scan).indexRelation;
-        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
+        let indexrel = scan.indexRelation;
+        let keys = unsafe {
+            std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+        };
 
-        ((PgSearchRelation::from_pg(indexrel)), keys)
+        (unsafe { PgSearchRelation::from_pg(indexrel) }, keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
@@ -172,93 +175,90 @@ pub extern "C-unwind" fn amrescan(
     // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
     // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple/amgetbitmap,
     // which would leave claimed segments unprocessed, causing data loss.
-    let search_reader = unsafe {
-        let is_parallel = !(*scan).parallel_scan.is_null();
-        let is_worker = pg_sys::ParallelWorkerNumber >= 0;
+    let is_parallel = unsafe { !(*scan).parallel_scan.is_null() };
+    let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
 
-        if is_parallel && is_worker {
-            // Workers use ParallelWorker visibility with the segment IDs from shared state.
-            // This is because workers pick specific segments to query that are known to be
-            // held open/pinned by the leader, but might not pass a ::Snapshot visibility
-            // test due to concurrent merges/garbage collects.
-            let view = wait_for_segment_view(scan);
-            SearchIndexReader::open(
-                &indexrel,
-                search_query_input,
-                false,
-                MvccSatisfies::ParallelWorker(view),
-            )
-            .expect("amrescan: worker should be able to open a SearchIndexReader")
-        } else {
-            // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
-            // visibility to see all currently snapshot-visible segments.
-            let reader = SearchIndexReader::open(
-                &indexrel,
-                search_query_input,
-                false,
-                MvccSatisfies::Snapshot,
-            )
-            .expect("amrescan: should be able to open a SearchIndexReader");
+    let search_reader = if is_parallel && is_worker {
+        // Workers use ParallelWorker visibility with the segment IDs from shared state.
+        // This is because workers pick specific segments to query that are known to be
+        // held open/pinned by the leader, but might not pass a ::Snapshot visibility
+        // test due to concurrent merges/garbage collects.
+        let view = unsafe { wait_for_segment_view(scan) };
+        SearchIndexReader::open(
+            &indexrel,
+            search_query_input,
+            false,
+            MvccSatisfies::ParallelWorker(view),
+        )
+        .expect("amrescan: worker should be able to open a SearchIndexReader")
+    } else {
+        // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
+        // visibility to see all currently snapshot-visible segments.
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            search_query_input,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .expect("amrescan: should be able to open a SearchIndexReader");
 
-            // For parallel scans, leader initializes shared state with its segment list
-            if is_parallel {
-                parallel::maybe_init_parallel_scan(scan, &reader);
-            }
+        // For parallel scans, leader initializes shared state with its segment list
+        if is_parallel {
+            unsafe { parallel::maybe_init_parallel_scan(scan, &reader) };
+        }
 
-            reader
+        reader
+    };
+
+    let scan = unsafe { &mut *scan };
+    let results = if scan.parallel_scan.is_null() {
+        // not a parallel scan - search all segments
+        Some(search_reader.search())
+    } else {
+        // parallel scan: DON'T claim segments here
+        // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
+        None
+    };
+
+    let natts = unsafe { (*scan.xs_hitupdesc).natts as usize };
+    let scan_state = if scan.xs_want_itup {
+        let schema = indexrel.schema().expect("indexrel should have a schema");
+        Bm25ScanState {
+            fast_fields: FFHelper::with_fields(
+                &search_reader,
+                &[(schema.key_field_name(), schema.key_field_type()).into()],
+            ),
+            reader: search_reader,
+            results,
+            itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
+            key_field_oid: PgOid::from({
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                unsafe {
+                    (*scan.xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
+                }
+                #[cfg(feature = "pg18")]
+                unsafe {
+                    (*pg_sys::TupleDescAttr(scan.xs_hitupdesc, 0)).atttypid
+                }
+            }),
+            ambulkdelete_epoch,
+            ctid_cache: None,
+        }
+    } else {
+        Bm25ScanState {
+            fast_fields: FFHelper::empty(),
+            reader: search_reader,
+            results,
+            itup: (vec![], vec![]),
+            key_field_oid: PgOid::Invalid,
+            ambulkdelete_epoch,
+            ctid_cache: None,
         }
     };
 
-    unsafe {
-        let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan - search all segments
-            Some(search_reader.search())
-        } else {
-            // parallel scan: DON'T claim segments here
-            // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
-            None
-        };
-
-        let natts = (*(*scan).xs_hitupdesc).natts as usize;
-        let scan_state = if (*scan).xs_want_itup {
-            let schema = indexrel.schema().expect("indexrel should have a schema");
-            Bm25ScanState {
-                fast_fields: FFHelper::with_fields(
-                    &search_reader,
-                    &[(schema.key_field_name(), schema.key_field_type()).into()],
-                ),
-                reader: search_reader,
-                results,
-                itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: PgOid::from({
-                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                    {
-                        (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
-                    }
-                    #[cfg(feature = "pg18")]
-                    {
-                        (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
-                    }
-                }),
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
-        } else {
-            Bm25ScanState {
-                fast_fields: FFHelper::empty(),
-                reader: search_reader,
-                results,
-                itup: (vec![], vec![]),
-                key_field_oid: PgOid::Invalid,
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
-        };
-
-        (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
-            .leak_and_drop_on_delete(Some(scan_state))
-            .cast();
-    }
+    scan.opaque = PgMemoryContexts::CurrentMemoryContext
+        .leak_and_drop_on_delete(Some(scan_state))
+        .cast();
 }
 
 #[pg_guard]
@@ -482,25 +482,24 @@ pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> 
         return false;
     }
 
-    unsafe {
-        assert!(!indexrel.is_null());
-        assert!(!(*indexrel).rd_att.is_null());
-        let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
+    assert!(!indexrel.is_null());
+    let indexrel = unsafe { &*indexrel };
+    assert!(!indexrel.rd_att.is_null());
+    let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
 
-        let att = tupdesc
-            .get((attno - 1) as usize)
-            .expect("attno should exist in index tupledesc");
+    let att = tupdesc
+        .get((attno - 1) as usize)
+        .expect("attno should exist in index tupledesc");
 
-        // we can only return a field if it's one of the below types -- basically pass-by-value (non tokenized) data types
-        [
-            pg_sys::INT4OID,
-            pg_sys::INT8OID,
-            pg_sys::FLOAT4OID,
-            pg_sys::FLOAT8OID,
-            pg_sys::BOOLOID,
-            // we index UUID as strings, but it's beneficial to support returning due to Parallel Index Only Scans
-            pg_sys::UUIDOID,
-        ]
-        .contains(&att.atttypid)
-    }
+    // we can only return a field if it's one of the below types -- basically pass-by-value (non tokenized) data types
+    [
+        pg_sys::INT4OID,
+        pg_sys::INT8OID,
+        pg_sys::FLOAT4OID,
+        pg_sys::FLOAT8OID,
+        pg_sys::BOOLOID,
+        // we index UUID as strings, but it's beneficial to support returning due to Parallel Index Only Scans
+        pg_sys::UUIDOID,
+    ]
+    .contains(&att.atttypid)
 }

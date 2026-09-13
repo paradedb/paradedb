@@ -882,16 +882,15 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
         let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             // INDEX_VAR: look up the original Var from custom_scan_tlist.
             // varattno is 1-indexed into the target list.
-            unsafe {
-                let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist);
-                let idx = (varattno - 1) as usize;
-                let te = tlist.get_ptr(idx)?;
-                if (*(*te).expr).type_ != pg_sys::NodeTag::T_Var {
-                    return None;
-                }
-                let var = (*te).expr as *mut pg_sys::Var;
-                ((*var).varno as pg_sys::Index, (*var).varattno)
+            let tlist =
+                unsafe { pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist) };
+            let idx = (varattno - 1) as usize;
+            let te = unsafe { &*tlist.get_ptr(idx)? };
+            if unsafe { (*te.expr).type_ } != pg_sys::NodeTag::T_Var {
+                return None;
             }
+            let var = unsafe { &*(te.expr as *mut pg_sys::Var) };
+            (var.varno as pg_sys::Index, var.varattno)
         } else {
             (varno, varattno)
         };
@@ -1058,17 +1057,15 @@ async fn build_source_df(
     // "postgres expressions have not been solved: missing planstate" before it would call
     // `solve_postgres_expressions`, so the shared context is never reset.
     let source_expr_context = if needs_runtime_context {
-        unsafe {
-            planstate
-                .and_then(|planstate| {
-                    if planstate.is_null() || (*planstate).state.is_null() {
-                        None
-                    } else {
-                        Some(pg_sys::CreateExprContext((*planstate).state))
-                    }
-                })
-                .or(expr_context)
-        }
+        planstate
+            .and_then(|planstate| {
+                if planstate.is_null() || unsafe { (*planstate).state.is_null() } {
+                    None
+                } else {
+                    Some(unsafe { pg_sys::CreateExprContext((*planstate).state) })
+                }
+            })
+            .or(expr_context)
     } else {
         expr_context
     };

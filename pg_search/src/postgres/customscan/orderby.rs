@@ -171,33 +171,33 @@ unsafe fn extract_lower_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var>
 /// This is needed for `IndexedExpression` handling, where we need a `Var` to check
 /// relation membership via `is_varno_valid_for_relation`. Returns the first `Var` found
 /// by recursively walking the expression tree.
-unsafe fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
     if node.is_null() {
         return None;
     }
-    match (*node).type_ {
+    match unsafe { (*node).type_ } {
         pg_sys::NodeTag::T_Var => Some(node as *mut pg_sys::Var),
         pg_sys::NodeTag::T_FuncExpr => {
-            let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args);
+            let args =
+                unsafe { PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args) };
 
-            args.iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg))
+            args.iter_ptr().find_map(extract_any_var_from_expr)
         }
         pg_sys::NodeTag::T_OpExpr => {
-            let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args);
+            let args =
+                unsafe { PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args) };
 
-            args.iter_ptr()
-                .find_map(|arg| extract_any_var_from_expr(arg))
+            args.iter_ptr().find_map(extract_any_var_from_expr)
         }
         pg_sys::NodeTag::T_RelabelType => {
-            extract_any_var_from_expr((*(node as *mut pg_sys::RelabelType)).arg.cast())
+            extract_any_var_from_expr(unsafe { (*(node as *mut pg_sys::RelabelType)).arg }.cast())
         }
         pg_sys::NodeTag::T_CoerceViaIO => {
-            extract_any_var_from_expr((*(node as *mut pg_sys::CoerceViaIO)).arg.cast())
+            extract_any_var_from_expr(unsafe { (*(node as *mut pg_sys::CoerceViaIO)).arg }.cast())
         }
-        pg_sys::NodeTag::T_CoerceToDomain => {
-            extract_any_var_from_expr((*(node as *mut pg_sys::CoerceToDomain)).arg.cast())
-        }
+        pg_sys::NodeTag::T_CoerceToDomain => extract_any_var_from_expr(
+            unsafe { (*(node as *mut pg_sys::CoerceToDomain)).arg }.cast(),
+        ),
         _ => None,
     }
 }
@@ -279,17 +279,17 @@ pub unsafe fn analyze_sort_expression(
 /// travels via the index attribute's opclass (see
 /// `VectorMetric::from_index_attr`); the column type itself
 /// is just plain `vector`, so there is no cast wrapper to unwrap.
-unsafe fn resolve_vector_expr(
+fn resolve_vector_expr(
     node: *mut pg_sys::Node,
     context: VarContext,
     schema: &SearchIndexSchema,
 ) -> Option<(*mut pg_sys::Var, VectorMetric)> {
-    if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+    if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
         return None;
     }
     let var = node as *mut pg_sys::Var;
     let (relid, attno) = context.var_relation(var);
-    let field_name = fieldname_from_var(relid, var, attno)?;
+    let field_name = unsafe { fieldname_from_var(relid, var, attno) }?;
     let field_type = schema.get_field_type(field_name.root())?;
     if let SearchFieldType::Vector(_, _, metric) = field_type {
         return Some((var, metric));
@@ -402,15 +402,16 @@ unsafe fn extract_vector_distance(
 }
 
 /// Extract FuncExpr from PlaceHolderVar node
-unsafe fn extract_funcexpr_from_placeholder(
+fn extract_funcexpr_from_placeholder(
     phv: *mut pg_sys::PlaceHolderVar,
 ) -> Option<*mut pg_sys::FuncExpr> {
-    if phv.is_null() || (*phv).phexpr.is_null() {
+    if phv.is_null() || unsafe { (*phv).phexpr.is_null() } {
         return None;
     }
+    let phv = unsafe { &*phv };
 
     // The phexpr should contain our FuncExpr
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, phv.phexpr) } {
         return Some(funcexpr);
     }
 
@@ -655,17 +656,20 @@ where
 ///
 /// This function must be kept in sync with [`extract_pathkey_styles_with_sortability_check`]
 /// above to ensure that queries accepted here can be executed by the custom scan.
-pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() || (*parse).sortClause.is_null() || (*parse).limitCount.is_null() {
+pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
+    if parse.is_null()
+        || unsafe { (*parse).sortClause.is_null() }
+        || unsafe { (*parse).limitCount.is_null() }
+    {
         return false;
     }
 
-    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    let sort_list = unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
     if sort_list.len() > MAX_TOPK_FEATURES {
         return false;
     }
 
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
 
     // We need to identify the single relation that this Top K query targets
     // Tuple: (varno, relid, schema, index_expressions)
@@ -677,16 +681,17 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     )> = None;
 
     for (position, sort_clause) in sort_list.iter_ptr().enumerate() {
-        let tle_ref = (*sort_clause).tleSortGroupRef;
-        let Some(te) = find_target_entry_by_ref(&target_list, tle_ref) else {
+        let tle_ref = unsafe { (*sort_clause).tleSortGroupRef };
+        let te = unsafe { find_target_entry_by_ref(&target_list, tle_ref) };
+        let Some(te) = te else {
             return false;
         };
 
-        let expr = (*te).expr as *mut pg_sys::Node;
+        let expr = unsafe { (*te).expr } as *mut pg_sys::Node;
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
-        let expr_collation = pg_sys::exprCollation(expr as *const pg_sys::Node);
-        if !collation_supports(expr_collation, CollationOperation::Ordering) {
+        let expr_collation = unsafe { pg_sys::exprCollation(expr as *const pg_sys::Node) };
+        if !unsafe { collation_supports(expr_collation, CollationOperation::Ordering) } {
             return false;
         }
 
@@ -702,14 +707,15 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             });
 
         // Use analyze_sort_expression to identify the sort key type and underlying variable
-        let Some((sort_type, var, field_name_opt)) =
+        let sort_info = unsafe {
             analyze_sort_expression(expr, VarContext::from_query(parse), index_info.as_ref())
-        else {
+        };
+        let Some((sort_type, var, field_name_opt)) = sort_info else {
             return false;
         };
 
         // Identify relation
-        let varno = (*var).varno as pg_sys::Index;
+        let varno = unsafe { (*var).varno } as pg_sys::Index;
         if varno == 0 {
             return false;
         }

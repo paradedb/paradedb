@@ -29,8 +29,8 @@
 //!   that case the scan decodes the column and no union is carried at all.
 //!
 //! Row multiplication is read from the join keys, not from cardinality estimates: a source's
-//! rows fan out through an equi-join when the other side's key is not that side's unique key
-//! field, and through any non-equi or cross join. Estimates move between machines and would
+//! rows fan out through an equi-join when the other side's join key is not known to be
+//! unique, and through any non-equi or cross join. Estimates move between machines and would
 //! flip plans between runs; the key shape does not. The price of that is a join whose other
 //! side is far more selective than the keys suggest: the scan then decodes rows the join
 //! would have dropped. The join key `InList` pushed down into the probe scan covers the
@@ -107,7 +107,7 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
         let mut ctx = Context {
             fetch_auto: gucs::defer_column_fetch() == DeferredPlacement::Auto,
             decode_auto: gucs::defer_string_decode() == DeferredPlacement::Auto,
-            key_fields: HashMap::default(),
+            unique_fields: HashMap::default(),
             decisions: HashMap::default(),
         };
         if !ctx.fetch_auto && !ctx.decode_auto {
@@ -203,25 +203,25 @@ impl Decision {
 struct Context {
     fetch_auto: bool,
     decode_auto: bool,
-    /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
-    key_fields: HashMap<u32, Option<String>>,
+    /// Per index, since every join key asks the same question of the same scan.
+    unique_fields: HashMap<u32, HashSet<String>>,
     /// Per column of per scan, since each one has its own consumer and its own path, so its
     /// own point to stop at.
     decisions: HashMap<DeferredSource, Decision>,
 }
 
 impl Context {
-    fn key_field(&mut self, indexrelid: u32) -> Option<String> {
-        self.key_fields
+    fn is_unique_field(&mut self, indexrelid: u32, field_name: &str) -> bool {
+        self.unique_fields
             .entry(indexrelid)
             .or_insert_with(|| {
+                // A placeholder scan has no index to ask.
                 if indexrelid == 0 {
-                    return None;
+                    return HashSet::default();
                 }
-                let rel = PgSearchRelation::open(pg_sys::Oid::from(indexrelid));
-                Some(rel.options().key_field_name().to_string())
+                PgSearchRelation::open(pg_sys::Oid::from(indexrelid)).unique_fields()
             })
-            .clone()
+            .contains(field_name)
     }
 }
 
@@ -409,8 +409,8 @@ fn rebuilds_with_new_types(node: &Arc<dyn ExecutionPlan>) -> bool {
         || node.is::<TantivyDecodeExec>()
 }
 
-/// A source's rows fan out through an equi-join unless one of the other side's keys is that
-/// side's unique key field. A key that cannot be traced to a scan (the other side is itself a
+/// A source's rows fan out through an equi-join unless one of the other side's keys is
+/// known to be unique. A key that cannot be traced to a scan (the other side is itself a
 /// join, or the key is an expression) leaves the answer open.
 fn equi_join_expansion<'a>(
     other: &Arc<dyn ExecutionPlan>,
@@ -434,19 +434,22 @@ fn equi_join_expansion<'a>(
     }
 }
 
-/// Whether `col` holds at most one row per value where `plan` emits it.
+/// Whether `col` holds at most one row per non-null value where `plan` emits it. `NULL` does
+/// not count: an equi-join key never matches it, so a nullable unique column is as good as a
+/// primary key here.
 ///
-/// Read from the plan's shape alone, never from a row count. A scan's key field is unique, a
-/// group key is unique because the aggregate emits one row per group, and a node that only
-/// drops rows passes uniqueness through. A join keeps one side's uniqueness exactly while the
-/// other side's join keys are unique on that side, which is this same question one level
-/// down, so a three-table join gets an answer instead of a shrug.
+/// Read from constraints and the plan's shape, never from a row count. A group key is unique
+/// because the aggregate emits one row per group, and a node that only drops rows passes
+/// uniqueness through. A join keeps one side's uniqueness exactly while the other side's join
+/// keys are unique on that side, which is this same question one level down, so a
+/// three-table join gets an answer instead of a shrug.
 fn is_unique(plan: &Arc<dyn ExecutionPlan>, col: usize, ctx: &mut Context) -> bool {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         let schema = plan.schema();
-        return schema.fields().get(col).is_some_and(|field| {
-            ctx.key_field(scan.indexrelid).as_deref() == Some(field.name().as_str())
-        });
+        return schema
+            .fields()
+            .get(col)
+            .is_some_and(|field| ctx.is_unique_field(scan.indexrelid, field.name()));
     }
 
     if let Some(proj) = plan.downcast_ref::<ProjectionExec>() {
@@ -656,7 +659,7 @@ mod tests {
         Context {
             fetch_auto,
             decode_auto,
-            key_fields: HashMap::default(),
+            unique_fields: HashMap::default(),
             decisions: HashMap::default(),
         }
     }
@@ -758,25 +761,80 @@ mod tests {
         )) as Arc<dyn ExecutionPlan>
     }
 
-    fn ctx_with_key_field(indexrelid: u32) -> Context {
+    fn ctx_with_unique_field(indexrelid: u32) -> Context {
         let mut ctx = ctx(true, true);
-        ctx.key_fields.insert(indexrelid, Some("id".to_string()));
+        ctx.unique_fields
+            .insert(indexrelid, HashSet::from_iter(["id".to_string()]));
         ctx
     }
 
     #[pg_test]
-    fn a_scan_is_unique_only_on_its_key_field() {
-        let scan = scan_of(7, 1);
-        let mut ctx = ctx_with_key_field(7);
-        assert!(is_unique(&scan, 0, &mut ctx), "the key field is unique");
-        assert!(!is_unique(&scan, 1, &mut ctx), "a text column is not");
+    fn a_scan_is_unique_only_on_a_proven_unique_field() {
+        Spi::run(
+            r#"
+            CREATE TABLE placement_unique (
+                id bigint PRIMARY KEY,
+                title text,
+                other bigint UNIQUE NOT NULL,
+                nullable bigint UNIQUE,
+                tags text[] UNIQUE NOT NULL,
+                deferred bigint NOT NULL UNIQUE DEFERRABLE INITIALLY DEFERRED,
+                partial bigint NOT NULL,
+                composite_a bigint NOT NULL,
+                composite_b bigint NOT NULL,
+                normalized text UNIQUE NOT NULL,
+                UNIQUE (composite_a, composite_b)
+            );
+            CREATE UNIQUE INDEX placement_partial ON placement_unique (partial) WHERE partial > 0;
+            CREATE UNIQUE INDEX placement_include ON placement_unique (id) INCLUDE (title);
+            CREATE UNIQUE INDEX placement_expression ON placement_unique (lower(title));
+            CREATE INDEX placement_search ON placement_unique USING bm25
+                (title, id, other, nullable, tags, deferred, partial, composite_a, composite_b, normalized)
+                WITH (key_field = 'id', text_fields = '{"title":{"fast":true},"normalized":{"fast":true,"normalizer":"lowercase"}}');
+            CREATE TABLE placement_alias (key bigint PRIMARY KEY, id text UNIQUE NOT NULL);
+            CREATE INDEX placement_alias_search ON placement_alias USING bm25
+                (key, (lower(id)::pdb.literal('alias=id'))) WITH (key_field = 'key');
+            "#,
+        )
+        .unwrap();
+        let indexrelid = Spi::get_one::<pg_sys::Oid>("SELECT 'placement_search'::regclass::oid")
+            .unwrap()
+            .unwrap()
+            .to_u32();
+        let scan = scan_of(indexrelid, 1);
+        let mut ctx = ctx(true, true);
+        assert!(is_unique(&scan, 0, &mut ctx), "the primary key is unique");
+        assert!(
+            !is_unique(&scan, 1, &mut ctx),
+            "the first indexed column is not"
+        );
+        for field in ["other", "nullable"] {
+            assert!(ctx.is_unique_field(indexrelid, field), "{field}");
+        }
+        for field in [
+            "tags",
+            "deferred",
+            "partial",
+            "composite_a",
+            "composite_b",
+            "normalized",
+        ] {
+            assert!(!ctx.is_unique_field(indexrelid, field), "{field}");
+        }
+        let expression_index =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'placement_alias_search'::regclass::oid")
+                .unwrap()
+                .unwrap()
+                .to_u32();
+        assert!(!ctx.is_unique_field(expression_index, "id"));
+        assert!(!ctx.is_unique_field(0, "id"));
     }
 
     /// The answer a join asks of its other side is the same answer one level down, so a key
     /// that a join below already multiplied stops counting as unique.
     #[pg_test]
     fn a_join_keeps_uniqueness_only_while_the_other_side_has_it() {
-        let mut ctx = ctx_with_key_field(7);
+        let mut ctx = ctx_with_unique_field(7);
         let left = scan_of(7, 1);
         let right = scan_of(7, 2);
 
@@ -792,7 +850,7 @@ mod tests {
         let key_join = hash_join(Arc::clone(&left), Arc::clone(&right), on_key);
         assert!(
             is_unique(&key_join, 0, &mut ctx),
-            "the left key field survives a join on the right key field"
+            "the left unique field survives a join on the right unique field"
         );
 
         let text_join = hash_join(left, right, on_text);

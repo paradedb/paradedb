@@ -1,6 +1,6 @@
 -- The placement rule decides per source where the two halves of a late-materialized
 -- string lookup run. A build side comes back out of doc order, and a join key that is not
--- the other side's key field fans the rows out; either moves the fetch into the scan. A
+-- unique on the other side fans the rows out; either moves the fetch into the scan. A
 -- fan-out with nothing above that stops after a fixed number of rows moves the decode into
 -- the scan as well.
 
@@ -13,6 +13,7 @@ SET paradedb.enable_aggregate_custom_scan = on;
 
 DROP TABLE IF EXISTS lmp_comments CASCADE;
 DROP TABLE IF EXISTS lmp_posts CASCADE;
+DROP TABLE IF EXISTS lmp_profiles CASCADE;
 
 CREATE TABLE lmp_posts (
     id SERIAL PRIMARY KEY,
@@ -73,8 +74,8 @@ SHOW paradedb.defer_string_decode;
 -- Top-K: the consumer is bounded, so the decode stays deferred either way
 -- =============================================================================
 
--- The sort key is on the build side, and `post_id` is not the key field of the comments
--- index: the posts scan resolves the ordinals itself.
+-- The sort key is on the build side, and `post_id` is not unique in the comments table:
+-- the posts scan resolves the ordinals itself.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
@@ -88,7 +89,7 @@ WHERE p.body @@@ 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
--- The sort key is on the probe side, and `id` is the key field of the posts index: the
+-- The sort key is on the probe side, and `id` is the primary key of the posts table: the
 -- rows reach the decode point in doc order and at most once, so the fetch stays deferred.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
@@ -198,6 +199,53 @@ ORDER BY c.author ASC, c.id ASC, c2.id ASC
 LIMIT 5;
 
 -- =============================================================================
+-- Uniqueness is read from the heap's unique indexes
+-- =============================================================================
+
+CREATE TABLE lmp_profiles (
+    id INTEGER,
+    handle INTEGER UNIQUE NOT NULL,
+    bio TEXT
+);
+
+CREATE INDEX lmp_profiles_idx ON lmp_profiles USING bm25 (id, handle, bio)
+WITH (key_field = 'id', numeric_fields = '{"handle": {"fast": true}}');
+
+INSERT INTO lmp_profiles (id, handle, bio)
+SELECT i, i, CASE WHEN i % 3 = 0 THEN 'alpha profile' ELSE 'beta profile' END
+FROM generate_series(1, 30) AS i;
+
+-- `handle` is not the key field, but its unique index proves that each comment matches at
+-- most one profile: the fetch stays deferred.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
+WHERE p.bio @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+
+SELECT c.id, c.author
+FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
+WHERE p.bio @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+
+-- The key field alone proves nothing: `id` has no unique index, so the join may fan the
+-- comments out, and the comments scan resolves the ordinals itself.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.author
+FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.bio @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+
+SELECT c.id, c.author
+FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id
+WHERE p.bio @@@ 'alpha'
+ORDER BY c.author ASC, c.id ASC
+LIMIT 5;
+
+-- =============================================================================
 -- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
 -- =============================================================================
 
@@ -236,7 +284,7 @@ LIMIT 5;
 -- =============================================================================
 -- A self-join reads one index through two scans, and each one gets its own
 -- answer. The build side comes back out of doc order, so it resolves its
--- ordinals in the scan. The probe side joins on the build side's key field, so
+-- ordinals in the scan. The probe side joins on the build side's primary key, so
 -- its rows arrive in doc order and at most once, and both halves stay deferred.
 -- =============================================================================
 
@@ -374,5 +422,6 @@ LIMIT 5;
 
 RESET paradedb.enable_aggregate_late_materialization;
 
+DROP TABLE lmp_profiles;
 DROP TABLE lmp_comments;
 DROP TABLE lmp_posts;

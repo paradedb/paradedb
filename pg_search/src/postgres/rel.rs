@@ -15,11 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use crate::api::HashSet;
 use crate::api::version::Version;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
@@ -420,6 +422,56 @@ impl PgSearchRelation {
             .map(|oid| PgSearchRelation::with_lock(oid, lockmode))
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    /// Zero-based heap attributes that a single-column unique index proves unique. The
+    /// filter is the one `relation_has_unique_index_for` applies, minus partial indexes,
+    /// whose predicate the query would have to imply. A deferrable constraint allows
+    /// duplicates inside a transaction, so `indimmediate` is required as well.
+    pub fn unique_column_attnos(&self) -> HashSet<usize> {
+        self.indices(pg_sys::AccessShareLock as _)
+            .filter_map(|index| unsafe {
+                // SAFETY: rd_index is set for every index relation and lives as long as it.
+                let info = &*index.rd_index;
+                if !info.indisunique
+                    || !info.indisvalid
+                    || !info.indimmediate
+                    || info.indnkeyatts != 1
+                    || !pg_sys::RelationGetIndexPredicate(index.as_ptr()).is_null()
+                {
+                    return None;
+                }
+                // An expression key has no attribute number.
+                let attno = *info.indkey.values.as_ptr();
+                usize::try_from(attno - 1).ok()
+            })
+            .collect()
+    }
+
+    /// Search fields whose columnar value is unique across the heap. A normalizer folds
+    /// distinct heap values onto one term and an array field emits one term per element, so
+    /// neither carries the heap's constraint over; an expression field has no heap column to
+    /// carry it from.
+    pub fn unique_fields(&self) -> HashSet<String> {
+        let heap = self.heap_relation().expect("relation must be an index");
+        let unique_attnos = heap.unique_column_attnos();
+        let schema = self.schema().expect("relation must be a bm25 index");
+        let options = self.options();
+        options
+            .attributes()
+            .iter()
+            .filter_map(|(name, attr)| {
+                let FieldSource::Heap { attno } = attr.source else {
+                    return None;
+                };
+                (unique_attnos.contains(&attno)
+                    && !options.is_multi_valued(name)
+                    && schema
+                        .search_field(name)
+                        .is_some_and(|f| f.is_raw_sortable()))
+                .then(|| name.to_string())
+            })
+            .collect()
     }
 
     pub fn options(&self) -> &BM25IndexOptions {

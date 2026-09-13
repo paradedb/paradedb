@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789292004781,
+  "lastUpdate": 1789292012749,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -360074,6 +360074,60 @@ window.BENCHMARK_DATA = {
             "value": 23.095180175396486,
             "unit": "median tps",
             "extra": "avg tps: 39.44350999246399, max tps: 553.1254399075764, count: 59239"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789292009142,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3882.106805710354,
+            "unit": "median tps",
+            "extra": "avg tps: 3883.7048422995967, max tps: 5224.427579445873, count: 59250"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4519.0123509084915,
+            "unit": "median tps",
+            "extra": "avg tps: 4555.088738023269, max tps: 6988.731459571767, count: 59250"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.3629690963818,
+            "unit": "median tps",
+            "extra": "avg tps: 187.80673626622024, max tps: 2846.7981349676484, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 22.99971630316688,
+            "unit": "median tps",
+            "extra": "avg tps: 39.335629474875354, max tps: 573.3718159764129, count: 59250"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.036985158648395,
+            "unit": "median tps",
+            "extra": "avg tps: 39.59048939025289, max tps: 591.4550148237673, count: 59250"
           }
         ]
       }

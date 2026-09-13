@@ -500,7 +500,9 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
--- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
+-- Aggregates: the key's own table decides. A title with one row per term is not
+-- grouped on ordinals, so nothing bounds the fan-out and the scan decodes it. An
+-- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)

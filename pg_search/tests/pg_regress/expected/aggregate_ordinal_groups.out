@@ -280,7 +280,6 @@ FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
 WHERE p.description @@@ 'widget'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -313,7 +312,6 @@ FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id
 WHERE p.description @@@ 'widget'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
  category | count | sum 
 ----------+-------+-----
  Garden   |    72 | 144

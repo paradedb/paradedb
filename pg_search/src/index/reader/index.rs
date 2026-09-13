@@ -887,15 +887,14 @@ impl SearchIndexReader {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
-    /// Snippet generators for `column`, in the order they should be tried.
+    /// Snippet generators for `column`, one per indexed field the column is stored under.
     ///
-    /// A column can back more than one indexed field: an alias carries its own tokenizer over
-    /// the same text. A query can address any mix of them, so highlighting needs a generator
-    /// per addressed field rather than a single winner, and the caller renders with the first
-    /// one that produces a fragment. The column's own field comes first when the query
-    /// addresses it, so the common case is unchanged. A column that is only reachable through
-    /// an alias has no field of its own, which is why resolution falls back to the siblings
-    /// instead of requiring the name to be in the schema.
+    /// A column can back more than one field: an alias carries its own tokenizer over the same
+    /// text, and a column indexed only through an aliased expression has no field of its own.
+    /// Which of those fields a query matched cannot be read off the index, because term
+    /// lookups go through the segment readers and an empty index reports that nothing is
+    /// addressed at all. So the list comes from the index settings, and a field the query
+    /// never touched yields a generator with no terms, which renders nothing.
     pub fn snippet_generators(
         &self,
         field_name: impl AsRef<str> + Display,
@@ -911,30 +910,20 @@ impl SearchIndexReader {
             )
         }
 
-        let query = self.make_query(query, expr_context);
-        let mut fields = Vec::new();
-        if let Some(field) = &named
-            && self.query_addresses(&*query, field.field())
-        {
-            fields.push(field.field());
-        }
+        let mut fields: Vec<_> = named.iter().map(|field| field.field()).collect();
         let siblings: Vec<_> = self
             .fields_backed_by(field_name.as_ref())
             .into_iter()
             .filter(|sibling| sibling.is_text() || sibling.is_json())
             .map(|sibling| sibling.field())
-            .filter(|sibling| !fields.contains(sibling) && self.query_addresses(&*query, *sibling))
+            .filter(|sibling| !fields.contains(sibling))
             .collect();
         fields.extend(siblings);
-        // Nothing the query touched is backed by this column. Keep the column's own field so
-        // callers still get a generator, and let it render nothing.
         if fields.is_empty() {
-            let field = named.map(|field| field.field()).unwrap_or_else(|| {
-                panic!("cannot generate snippet for field {field_name} because it was not found in the index")
-            });
-            fields.push(field);
+            panic!("cannot generate snippet for field {field_name} because it was not found in the index")
         }
 
+        let query = self.make_query(query, expr_context);
         fields
             .into_iter()
             .map(|field| {
@@ -982,20 +971,6 @@ impl SearchIndexReader {
             }
         }
         fields
-    }
-
-    /// Whether `query` addresses any term to `field`.
-    fn query_addresses(&self, query: &dyn Query, field: tantivy::schema::Field) -> bool {
-        self.searcher
-            .segment_readers()
-            .iter()
-            .any(|segment_reader| {
-                let mut addressed = false;
-                query.query_terms(field, segment_reader, &mut |term, _| {
-                    addressed |= term.field() == field;
-                });
-                addressed
-            })
     }
 
     /// Search the Tantivy index for matching documents.

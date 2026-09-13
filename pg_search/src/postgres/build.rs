@@ -27,11 +27,14 @@ use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::vector::clusterer::VectorSampler;
 use anyhow::Result;
 use pgrx::*;
 use std::ffi::CStr;
+use std::sync::Arc;
 use tantivy::Index;
 use tantivy::schema::Schema;
+use tantivy::vector::CentroidProducer;
 use tantivy::vector::VectorOptions;
 use tokenizers::SearchTokenizer;
 
@@ -56,7 +59,10 @@ pub extern "C-unwind" fn ambuild(
     }
 
     unsafe {
-        build_empty(&index_relation);
+        // Vector fields require centroids at index CREATION (tantivy's V3
+        // format trains once, index-wide), so `create_index` gets the heap
+        // to sample and train from.
+        build_empty(&index_relation, Some((&heap_relation, index_info)));
     }
 
     // ensure we only allow one ParadeDB index on this relation, accounting for a REINDEX
@@ -120,17 +126,69 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
     relation.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
     // INIT fork always needs WAL, even if the relation is unlogged
     relation.set_need_wal(true);
-    build_empty(&relation);
+    build_empty(&relation, None);
 }
 
-unsafe fn build_empty(index_relation: &PgSearchRelation) {
+unsafe fn build_empty(
+    index_relation: &PgSearchRelation,
+    heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
+) {
     unsafe {
         MetaPage::init(index_relation);
     }
 
     validate_index_config(index_relation);
 
-    create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
+    create_index(index_relation, heap_scan).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Sample the heap (one `table_index_build_scan` pass feeding a reservoir
+/// per vector field), enforce the training floor, and train the
+/// index-level centroids.
+unsafe fn train_vector_centroids(
+    heap_relation: &PgSearchRelation,
+    index_relation: &PgSearchRelation,
+    index_info: *mut pg_sys::IndexInfo,
+    specs: Vec<crate::vector::clusterer::SampledFieldSpec>,
+) -> Result<Arc<dyn CentroidProducer>> {
+    let mut sampler = VectorSampler::from_specs(specs, index_relation.options());
+
+    unsafe extern "C-unwind" fn sample_callback(
+        _indexrel: pg_sys::Relation,
+        _ctid: pg_sys::ItemPointer,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        _tuple_is_alive: bool,
+        state: *mut std::os::raw::c_void,
+    ) {
+        check_for_interrupts!();
+        let sampler = &mut *state.cast::<VectorSampler>();
+        sampler.offer(values, isnull);
+    }
+
+    pg_sys::table_index_build_scan(
+        heap_relation.as_ptr(),
+        index_relation.as_ptr(),
+        index_info,
+        true,
+        true,
+        Some(sample_callback),
+        std::ptr::addr_of_mut!(sampler).cast(),
+        std::ptr::null_mut(),
+    );
+
+    let floor = crate::gucs::vector_min_training_rows();
+    for (field_name, seen) in sampler.rows_seen() {
+        if seen < floor {
+            pgrx::error!(
+                "vector field '{field_name}' has {seen} vectors, but at least {floor} are \
+                required to train a vector index (see paradedb.vector_min_training_rows); create \
+                the index after loading data"
+            );
+        }
+    }
+
+    Ok(Arc::new(sampler.train(index_relation.options())?))
 }
 
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
@@ -341,24 +399,54 @@ fn am_handler_oid(amname: &CStr) -> Option<pg_sys::Oid> {
     }
 }
 
-fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
-    let schema = planned_schema(index_relation);
+fn create_index(
+    index_relation: &PgSearchRelation,
+    heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
+) -> Result<()> {
+    let (schema, vector_fields) = plan_index_schema(index_relation);
+    let options = index_relation.options();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    let settings = index_settings(index_relation.options(), &schema);
-    let _ = Index::create(directory, schema, settings)?;
+    let settings = index_settings(options, &schema);
+    let centroid_producer: Option<Arc<dyn CentroidProducer>> = if vector_fields.is_empty() {
+        None
+    } else {
+        let Some((heap_relation, index_info)) = heap_scan else {
+            anyhow::bail!(
+                "a vector index requires data to train its centroids at CREATE INDEX time; \
+                 empty init forks (unlogged tables) are not supported for vector fields"
+            );
+        };
+        Some(unsafe {
+            train_vector_centroids(heap_relation, index_relation, index_info, vector_fields)?
+        })
+    };
+    let mut index_builder = Index::builder().schema(schema).settings(settings);
+    if let Some(centroid_producer) = centroid_producer {
+        index_builder = index_builder
+            .centroid_producer(centroid_producer)
+            .ivf_router(crate::vector::clusterer::IVF_ROUTER)?;
+    }
+    let _ = index_builder.create(directory)?;
     Ok(())
 }
 
-/// The tantivy schema this index will carry, from its reloptions and heap attributes. The
-/// stored copy exists only after [`create_index`], so validation reads the schema from here.
+/// Plan the schema before index creation so validation can inspect it.
 fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
+    plan_index_schema(index_relation).0
+}
+
+fn plan_index_schema(
+    index_relation: &PgSearchRelation,
+) -> (Schema, Vec<crate::vector::clusterer::SampledFieldSpec>) {
     let options = index_relation.options();
     let mut builder = Schema::builder();
+    let mut vector_fields: Vec<crate::vector::clusterer::SampledFieldSpec> = Vec::new();
 
     for (
         name,
         ExtractedFieldAttribute {
+            attno,
             tantivy_type,
             normalizer,
             ..
@@ -396,7 +484,18 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
             SearchFieldType::Vector(_, dims, metric) => {
-                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
+                let field = builder
+                    .add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()));
+                vector_fields.push(crate::vector::clusterer::SampledFieldSpec {
+                    // The build callback's `values` array is in index
+                    // attribute order.
+                    ordinal: attno,
+                    field,
+                    field_name: name.as_ref().to_string(),
+                    dim: dims,
+                    metric: metric.into(),
+                });
+                field
             }
         };
     }
@@ -415,7 +514,7 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
         options.field_config_or_default(&FieldName::from("ctid")),
     );
 
-    builder.build()
+    (builder.build(), vector_fields)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

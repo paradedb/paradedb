@@ -5,12 +5,19 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 DROP TABLE IF EXISTS mv;
 CREATE TABLE mv (
     id    int PRIMARY KEY,
     label text,
     vec   vector(3)
 );
+-- Centroids train at CREATE INDEX over existing rows, so seed a corpus
+-- first; the rows inserted AFTER the index exercise the mutable segment.
+INSERT INTO mv VALUES
+    (1, 'east',  '[1.0,  0.0, 0.0]'),
+    (2, 'east2', '[0.9,  0.0, 0.1]');
 CREATE INDEX mv_idx ON mv
     USING paradedb (id, label, vec vector_l2_ops)
     WITH (
@@ -20,8 +27,6 @@ CREATE INDEX mv_idx ON mv
         layer_sizes = '100mb'
     );
 INSERT INTO mv VALUES
-    (1, 'east',  '[1.0,  0.0, 0.0]'),
-    (2, 'east2', '[0.9,  0.0, 0.1]'),
     (3, 'north', '[0.0,  1.0, 0.0]'),
     (4, 'up',    '[0.0,  0.0, 1.0]'),
     (5, 'mid',   '[0.7,  0.7, 0.0]');
@@ -30,8 +35,9 @@ FROM paradedb.index_info('mv_idx')
 ORDER BY mutable DESC, num_docs DESC;
  mutable | num_docs 
 ---------+----------
- t       |        5
-(1 row)
+ t       |        3
+ f       |        2
+(2 rows)
 
 SELECT id, label
 FROM mv

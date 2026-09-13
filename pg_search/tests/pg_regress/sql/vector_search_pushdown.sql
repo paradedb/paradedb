@@ -14,6 +14,8 @@
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Tiny fixtures: lower the centroid-training floor.
+SET paradedb.vector_min_training_rows = 1;
 
 CREATE TABLE vsp (
     id    int PRIMARY KEY,
@@ -40,6 +42,27 @@ CREATE INDEX vsp_idx ON vsp
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
 SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+
+-- The shared router and recall GUC must survive index creation and reopen.
+SET paradedb.vector_router_recall = 0.5;
+DO $$
+DECLARE
+    plan jsonb;
+    routing jsonb;
+BEGIN
+    EXECUTE $query$
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON, COSTS OFF, TIMING OFF)
+        SELECT id FROM vsp WHERE id @@@ pdb.all()
+        ORDER BY vec <-> '[1,0,0]' LIMIT 2
+    $query$ INTO plan;
+    routing := (jsonb_path_query_first(plan, '$.**."Vector Search"') #>> '{}')::jsonb->'routing';
+    IF routing->>'kind' IS DISTINCT FROM 'stacked'
+       OR (routing->>'recall_target')::real IS DISTINCT FROM 0.5::real THEN
+        RAISE EXCEPTION 'unexpected global router: %', routing;
+    END IF;
+END;
+$$;
+RESET paradedb.vector_router_recall;
 
 -- mismatch: <=> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

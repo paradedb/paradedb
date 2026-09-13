@@ -188,18 +188,9 @@ extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_cha
         .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
 }
 
-/// The only legal `bounds_scope`: the merge folds centroid bounds over a
-/// cluster's NATIVE (primary-assignment) members. Kept as a CREATE INDEX
-/// option for compatibility; Tantivy no longer stores a bounds-scope setting.
-pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
+pub use tantivy::vector::BoundsScope;
 
-/// Local mirror of the former Tantivy `BoundsScope`. Native is the only
-/// supported value; bounds folding always covers primary-assignment members.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
-pub enum BoundsScope {
-    #[default]
-    Native,
-}
+pub(crate) const BOUNDS_SCOPE_NATIVE: &str = "native";
 
 #[pg_guard]
 extern "C-unwind" fn validate_bounds_scope(value: *const std::os::raw::c_char) {

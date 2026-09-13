@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789290894117,
+  "lastUpdate": 1789290905630,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -315718,6 +315718,42 @@ window.BENCHMARK_DATA = {
             "value": 10.336477309657521,
             "unit": "median tps",
             "extra": "avg tps: 9.000683970105724, max tps: 12.246436013538776, count: 59413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789290902649,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 7.502304932408236,
+            "unit": "median tps",
+            "extra": "avg tps: 6.973899576990696, max tps: 7.87340676756439, count: 59423"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.398952798097827,
+            "unit": "median tps",
+            "extra": "avg tps: 9.03223900173892, max tps: 12.25165346940084, count: 59423"
           }
         ]
       }

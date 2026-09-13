@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789309188146,
+  "lastUpdate": 1789309196387,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -368740,6 +368740,108 @@ window.BENCHMARK_DATA = {
             "value": 47.92578125,
             "unit": "median mem",
             "extra": "avg mem: 46.42971803612734, max mem: 57.2578125, count: 59228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309184110,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.352963420935793, max cpu: 4.7737446, count: 59231"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.292885917530516, max mem: 17.30078125, count: 59231"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.454130663077739, max cpu: 4.7808766, count: 59231"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.201004528350865, max mem: 17.2265625, count: 59231"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.365853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.464339102161823, max cpu: 33.23442, count: 59231"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 17.624981402264016, max mem: 17.796875, count: 59231"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.90496530533, max document_count: 10002.0, count: 59231"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.916496429234, max document_count: 10002.0, count: 59231"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.747585693003646, max cpu: 33.31681, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.4023096541507, max mem: 56.875, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.613668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.701661465131465, max cpu: 32.78049, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.37241880571407, max mem: 57.1171875, count: 59231"
           }
         ]
       }

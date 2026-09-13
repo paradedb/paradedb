@@ -61,10 +61,12 @@ pub struct PhysicalDeferredField {
     pub display_name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
+    /// The range table index of the scan this column comes from. See [`DeferredField`].
+    ///
+    /// [`DeferredField`]: crate::scan::late_materialization::DeferredField
+    pub heap_rti: u32,
     #[serde(default)]
     pub rebuild: Option<DeferredLookupRebuild>,
-    #[serde(default)]
-    pub ctid_col_name: Option<String>,
 }
 
 impl PhysicalDeferredField {

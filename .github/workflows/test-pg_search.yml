@@ -37,6 +37,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
@@ -323,6 +324,7 @@ jobs:
         if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
           path: coverage-*.lcov
           retention-days: 1
@@ -352,6 +354,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
+          overwrite: true
           name: postgres-log-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
           path: postgres-${{ matrix.pg_version }}.log
           retention-days: 1

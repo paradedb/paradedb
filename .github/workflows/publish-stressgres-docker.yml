@@ -25,6 +25,7 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
       - family=m7a+m7i
       - cpu=8
       - ram=32

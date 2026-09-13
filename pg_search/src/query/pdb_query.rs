@@ -772,7 +772,7 @@ impl pdb::Query {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
         match self {
-            pdb::Query::MoreLikeThis { .. } => crate::MORE_LIKE_THIS_SELECTIVITY,
+            pdb::Query::MoreLikeThis { .. } => Some(crate::MORE_LIKE_THIS_SELECTIVITY),
             pdb::Query::FuzzyTerm { distance, .. } => {
                 let dist = distance.unwrap_or(1);
                 if dist <= 1 {

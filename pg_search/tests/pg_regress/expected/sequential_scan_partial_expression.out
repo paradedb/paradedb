@@ -1,0 +1,90 @@
+BEGIN;
+SET LOCAL paradedb.planner_warnings = off;
+SET LOCAL client_min_messages = error;
+SET LOCAL max_parallel_workers_per_gather = 0;
+CREATE TABLE partial_expression_anchor (id int, body text, divisor int);
+INSERT INTO partial_expression_anchor VALUES
+    (1, 'alpha', 1), (2, 'alpha', 0), (3, 'beta', 0), (4, 'alpha', 1), (5, NULL, 0);
+CREATE INDEX partial_expression_anchor_idx ON partial_expression_anchor
+USING paradedb (
+    (substring(body FROM 1 FOR (10 / divisor))::pdb.simple('alias=danger')),
+    body
+) WHERE divisor <> 0;
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor WHERE body === 'alpha';
+ array_agg 
+-----------
+ {1,2,4}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor <> 0 AND body === 'alpha';
+ array_agg 
+-----------
+ {1,4}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor = 0 AND body === 'alpha';
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_indexscan = off;
+SET LOCAL enable_indexonlyscan = off;
+SET LOCAL enable_bitmapscan = off;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM partial_expression_anchor WHERE body === ''alpha'''
+        INTO plan;
+    ASSERT plan #>> '{0,Plan,Node Type}' = 'Seq Scan';
+END;
+$$;
+SELECT id, body === 'alpha' AS matches FROM partial_expression_anchor ORDER BY id;
+ id | matches 
+----+---------
+  1 | t
+  2 | t
+  3 | f
+  4 | t
+  5 | f
+(5 rows)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor WHERE body === 'alpha';
+ array_agg 
+-----------
+ {1,2,4}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor <> 0 AND body === 'alpha';
+ array_agg 
+-----------
+ {1,4}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor = 0 AND body === 'alpha';
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+DROP INDEX partial_expression_anchor_idx;
+CREATE INDEX partial_expression_anchor_idx ON partial_expression_anchor
+USING paradedb (
+    (substring(body FROM 1 FOR (10 / divisor))::pdb.simple('alias=danger')),
+    (lower(body)::pdb.literal('alias=lower_body'))
+) WHERE divisor <> 0;
+DO $$
+BEGIN
+    PERFORM id FROM partial_expression_anchor WHERE lower(body) === 'alpha';
+    RAISE EXCEPTION 'expected an unsupported expression-only partial index error';
+EXCEPTION WHEN feature_not_supported THEN
+    ASSERT SQLERRM = 'searches on expression-only partial indexes are not supported';
+END;
+$$;
+ROLLBACK;

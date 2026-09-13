@@ -1071,11 +1071,21 @@ unsafe fn make_lhs(indexrel: &PgSearchRelation, base_var: *mut pg_sys::Var) -> *
     // Recheck expressions need a returnable anchor for index-only scans.
     let index_attribute = (0..tupdesc.len())
         .find(|&attno| pg_sys::index_can_return(indexrel.as_ptr(), attno as i32 + 1))
+        .or_else(|| (0..tupdesc.len()).find(|&attno| index_info.ii_IndexAttrNumbers[attno] > 0))
         .unwrap_or(0);
     let heap_attno = index_info.ii_IndexAttrNumbers[index_attribute];
 
     // Zero identifies an indexed expression rather than a heap column.
     if heap_attno == 0 {
+        if !pg_sys::RelationGetIndexPredicate(indexrel.as_ptr()).is_null() {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                "searches on expression-only partial indexes are not supported",
+                function_name!(),
+            )
+            .set_hint("Add a directly indexed table column to the partial index.")
+            .report(PgLogLevel::ERROR);
+        }
         let expression = PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions)
             .get_ptr(0)
             .expect("first index attribute should have an expression");

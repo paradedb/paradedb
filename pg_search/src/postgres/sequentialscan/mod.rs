@@ -281,6 +281,16 @@ fn search_with_query_input_impl(
             };
         }
 
+        if ctid.is_none() {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                "search query requires row identity that is unavailable in this context",
+                function_name!(),
+            )
+            .set_hint("Apply the search operator in a table query. Use an ordinary SQL predicate to define a partial index.")
+            .report(PgLogLevel::ERROR);
+        }
+
         // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
         // materialize the match set and apply it as a per-row filter (the slow path).
 

@@ -61,7 +61,7 @@ fn setup(conn: &mut PgConnection) {
 }
 
 fn explain(conn: &mut PgConnection, query: &str) -> String {
-    let lines: Vec<String> = format!("EXPLAIN (COSTS OFF) {query}").fetch_scalar(conn);
+    let lines: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(conn);
     lines.join("\n")
 }
 

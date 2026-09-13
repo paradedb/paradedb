@@ -34,7 +34,8 @@ WITH (
     text_fields='{
         "name": {},
         "description": {},
-        "brand": {"fast": true}
+        "brand": {"fast": true},
+        "category": {"fast": true}
     }',
     numeric_fields='{
         "price": {"fast": true},
@@ -889,7 +890,7 @@ LIMIT 3;
 
 -- =============================================================================
 -- QUERY CONTEXT FEATURE FLAG TESTS
--- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- Testing HAVING_SUPPORT, and SUBQUERY_SUPPORT feature flags
 -- =============================================================================
 
 -- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
@@ -916,7 +917,7 @@ HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
 
--- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+-- Test 27: Window function with JOIN (This is supported. Joinscan shouuld engage)
 
 -- Create a second table for JOIN testing
 CREATE TABLE product_categories (
@@ -929,7 +930,7 @@ INSERT INTO product_categories VALUES
 ('Laptops', 'Portable computing devices', 1);
 
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority)
+USING paradedb (name, (description::pdb.simple('columnar=true')), priority)
 WITH (key_field='name');
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -371,11 +371,7 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 ///    the true match count). `grouping_planner` sets `limit_tuples = -1` for exactly
 ///    these queries; the parse flags are checked directly because
 ///    `limit_tuples == -1` also means "parameterized LIMIT", which is
-///    safe to push. Window functions are no longer declined here: the
-///    scan absorbs them (#5637) with the limit applied above the window
-///    operator in its DataFusion plan, and a window function the scan
-///    does not absorb (e.g. in a resjunk ORDER BY entry) already
-///    declined the whole path in `validate_and_build_clause`.
+///    safe to push.
 /// 2. JoinScan absorbed every base relation in the query (no outer
 ///    relations that could add post-filters above JoinScan).
 /// 3. Every SubPlan in `baserestrictinfo` of absorbed relations was also
@@ -1211,6 +1207,32 @@ impl CustomScan for JoinScan {
             );
 
             bake_logical_plan(&mut private_data, node.custom_exprs, false);
+
+            // PG18's EXPLAIN cannot deparse a WindowFunc without a WindowAgg
+            // plan node (commit 8b1b342544b6 removed the `OVER (?)` fallback),
+            // and the scan absorbs the window so none exists. Swap every
+            // WindowFunc in both target lists for a typed
+            // `paradedb.window_agg('<description>')` placeholder — applied
+            // identically to both copies so setrefs' whole-entry equality
+            // match still rewrites the outer occurrence to an INDEX_VAR into
+            // the scan output, meaning the placeholder is never executed.
+            // This must run after compute_output_columns and
+            // build_output_projection, which match on the original
+            // WindowFunc nodes.
+            if !private_data.join_clause.window_aggs.is_empty() {
+                for tlist in [tlist_ptr, node.custom_scan_tlist] {
+                    let entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+                    for te in entries.iter_ptr() {
+                        if pg_sys::contain_window_function((*te).expr.cast()) {
+                            (*te).expr = window_func::rewrite_window_funcs_to_placeholders(
+                                (*te).expr.cast(),
+                                root,
+                            )
+                            .cast();
+                        }
+                    }
+                }
+            }
 
             // Convert PrivateData back to a list and preserve the restrictlist.
             let private_list = PrivateData::into(private_data);
@@ -2237,12 +2259,13 @@ impl JoinScan {
         let parse = (*root).parse;
         let input_rel = &*input_rel;
 
-        // Decline if the query has aggs, grouping, window functions, row locking (e.g. FOR UPDATE,
+        // Decline if the query has aggs, grouping, row locking (e.g. FOR UPDATE,
         // which grouping_planner wraps in LockRows prior to UPPERREL_FINAL), non-SELECT commands,
-        // or set operations.
+        // or set operations. Window functions are NOT declined here: the scan
+        // absorbs global window aggregates (#5637), and unsupported window
+        // shapes decline with a reason in `validate_and_build_clause`.
         if (*parse).hasAggs
             || !(*parse).groupClause.is_null()
-            || (*parse).hasWindowFuncs
             || !(*parse).rowMarks.is_null()
             || (*parse).commandType != pg_sys::CmdType::CMD_SELECT
             || !(*parse).setOperations.is_null()

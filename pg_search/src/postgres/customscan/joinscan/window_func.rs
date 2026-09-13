@@ -197,6 +197,10 @@ impl WindowAggList {
         self.0.iter().position(|wa| wa.id == id).map(WindowAggIndex)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &WindowAgg> {
         self.0.iter()
     }
@@ -347,6 +351,126 @@ pub unsafe fn rewrite_window_funcs_to_sentinels(
         window_aggs,
     };
     sentinel_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
+}
+
+/// Copy `expr`, replacing each embedded `WindowFunc` with a
+/// `paradedb.window_agg('<description>')` placeholder `FuncExpr` whose
+/// node-level `funcresulttype` is the aggregate's wintype.
+///
+/// PG18's EXPLAIN requires a `WindowAgg` plan node to deparse a `WindowFunc`
+/// (commit 8b1b342544b6 removed the `OVER (?)` fallback), but the scan
+/// absorbs the window so no such node exists — a raw `WindowFunc` left in
+/// the plan's target lists makes every `EXPLAIN VERBOSE` fail with "could
+/// not find window clause". The placeholder deparses as an ordinary function
+/// call. It is never executed: `plan_custom_path` applies this rewrite
+/// identically to `scan.plan.targetlist` and `custom_scan_tlist`, so
+/// setrefs' whole-entry equality match still rewrites the outer occurrence
+/// to an INDEX_VAR into the scan output. The text argument is cosmetic
+/// EXPLAIN output only — it is never parsed.
+pub unsafe fn rewrite_window_funcs_to_placeholders(
+    expr: *mut pg_sys::Node,
+    root: *mut pg_sys::PlannerInfo,
+) -> *mut pg_sys::Node {
+    let mut ctx = PlaceholderRewriteCtx { root };
+    placeholder_mutator(expr, std::ptr::addr_of_mut!(ctx).cast())
+}
+
+struct PlaceholderRewriteCtx {
+    root: *mut pg_sys::PlannerInfo,
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn placeholder_mutator(
+    node: *mut pg_sys::Node,
+    context: *mut core::ffi::c_void,
+) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+        let ctx = context.cast::<PlaceholderRewriteCtx>();
+
+        // A ruleutils deparse of the WindowFunc hits the same PG18 error
+        // this rewrite exists to avoid (deparse_planner_expr catches it and
+        // returns None on PG18; on older versions it renders `OVER (?)`),
+        // so fall back to a description built from the node itself.
+        let description = crate::postgres::deparse::deparse_planner_expr((*ctx).root, node)
+            .unwrap_or_else(|| describe_window_func(&*wf, (*ctx).root));
+
+        match crate::api::window_aggregate::make_window_agg_placeholder(
+            &description,
+            (*wf).wintype,
+            (*wf).wincollid,
+        ) {
+            Some(placeholder) => return placeholder.cast(),
+            // Should not happen once the extension is installed; leave the
+            // node for PostgreSQL to complain about rather than panicking.
+            None => return node,
+        }
+    }
+
+    #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+    {
+        let fnptr = placeholder_mutator as *const ();
+        let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+            std::mem::transmute(fnptr);
+        pg_sys::expression_tree_mutator(node, Some(mutator), context)
+    }
+
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    {
+        pg_sys::expression_tree_mutator_impl(node, Some(placeholder_mutator), context)
+    }
+}
+
+/// Human-readable description of a window aggregate for the EXPLAIN
+/// placeholder, e.g. `count(*) OVER ()` or `sum(price) OVER ()`.
+unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::PlannerInfo) -> String {
+    let func_name = {
+        let name_ptr = pg_sys::get_func_name(wf.winfnoid);
+        if name_ptr.is_null() {
+            "window".to_string()
+        } else {
+            std::ffi::CStr::from_ptr(name_ptr)
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    if wf.winstar {
+        return format!("{func_name}(*) OVER ()");
+    }
+    let args = PgList::<pg_sys::Node>::from_pg(wf.args);
+    let arg_name = args
+        .get_ptr(0)
+        .and_then(|arg| {
+            let var = unwrap_to_var(arg)?;
+            var_column_name(&*var, root)
+        })
+        .unwrap_or_else(|| "...".to_string());
+    format!("{func_name}({arg_name}) OVER ()")
+}
+
+/// The column name a parse-tree Var refers to, resolved through the query's
+/// range table; `None` when anything along the way is unresolvable.
+unsafe fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<String> {
+    if root.is_null() || (*root).parse.is_null() || var.varno < 1 {
+        return None;
+    }
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
+    let rte = rtable.get_ptr(var.varno as usize - 1)?;
+    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+        return None;
+    }
+    let name_ptr = pg_sys::get_attname((*rte).relid, var.varattno, true);
+    if name_ptr.is_null() {
+        return None;
+    }
+    Some(
+        std::ffi::CStr::from_ptr(name_ptr)
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 #[pgrx::pg_guard]

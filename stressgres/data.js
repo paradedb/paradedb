@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789309179767,
+  "lastUpdate": 1789309188146,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -360792,6 +360792,96 @@ window.BENCHMARK_DATA = {
             "value": 45.4765625,
             "unit": "median mem",
             "extra": "avg mem: 45.659199778779886, max mem: 52.67578125, count: 58765"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309175607,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 65.484375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 73.71632220374026, max partition_index_size:MB: 129.4296875, count: 58766"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.334953,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.431457357706723, max cpu: 33.23442, count: 58766"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46,
+            "unit": "median mem",
+            "extra": "avg mem: 46.769055581671374, max mem: 54.40234375, count: 58766"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.052441213170358, max cpu: 37.851162, count: 58766"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 55.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.81377737818211, max mem: 102.078125, count: 58766"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.481482,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.133445584050143, max cpu: 32.78049, count: 58766"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.28992270456131, max mem: 69.3984375, count: 58766"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.96295587186017, max cpu: 33.20158, count: 58766"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.37059421848943, max mem: 63.09765625, count: 58766"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.313158214127082, max cpu: 33.15244, count: 58766"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.351817683162885, max mem: 51.92578125, count: 58766"
           }
         ]
       }

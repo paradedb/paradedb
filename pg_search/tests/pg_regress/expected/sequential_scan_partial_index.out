@@ -138,8 +138,7 @@ SELECT a.id, b.id
 FROM partial_index_fallback a LEFT JOIN partial_index_fallback b ON b.id = a.id + 1
 WHERE b.id IS NULL OR b.body === 'allowed'
 ORDER BY a.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: query does not imply the partial index predicate (tables: a, b)
  id | id 
 ----+----
   2 |  3

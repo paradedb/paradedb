@@ -726,7 +726,6 @@ SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_line
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_lines l ON l.numagg_id = n.id WHERE n.description ||| 'apple OR basket';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, n)
    sum   |                                      sum                                       |     min     
 ---------+--------------------------------------------------------------------------------+-------------
  4010.50 | 400000000000000000000000000000000000000000000000000000000000000000000000000037 | 0.100000003

@@ -640,8 +640,7 @@ SELECT q.label, t.id,
 FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
 WHERE t.id IN (4, 5)
 ORDER BY q.label, t.id;
-WARNING:  the table is being sequentially scanned for this query, so performance may be slow
-if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: q, t)
    label    | id | matched 
 ------------+----+---------
  compressed |  4 | t
@@ -660,6 +659,7 @@ SELECT q.label, t.id,
 FROM sequential_scan_queries q CROSS JOIN sequential_scan_nulls t
 WHERE t.id IN (4, 5)
 ORDER BY q.label, t.id;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: q, t)
    label    | id | inline_match | strict_inline_match 
 ------------+----+--------------+---------------------
  compressed |  4 | t            | t

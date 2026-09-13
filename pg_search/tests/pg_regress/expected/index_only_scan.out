@@ -536,6 +536,8 @@ BEGIN
     END LOOP;
 END;
 $$;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
 SELECT t.term, count(*), sum(d.id)
 FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id
 GROUP BY t.term ORDER BY t.term;
@@ -558,6 +560,7 @@ BEGIN
     END IF;
 END;
 $$;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
 DO $$
 DECLARE
     plan json;
@@ -572,6 +575,9 @@ BEGIN
     END LOOP;
 END;
 $$;
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
+WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
 RESET enable_hashjoin;
 RESET enable_mergejoin;
 DROP TABLE index_only_terms;

@@ -291,7 +291,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
     // Regression guard: both sort keys must appear at distinct physical indices.
     // A single-key collapse would silently return wrong ordering.
     assert!(
-        explain.contains("ord@3") && explain.contains("ord@1"),
+        explain.contains("ord@4") && explain.contains("ord@1"),
         "Expected both sort keys at distinct physical indices in plan:\n{explain}"
     );
 

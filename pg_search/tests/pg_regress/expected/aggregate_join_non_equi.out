@@ -384,7 +384,6 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, pr)
  count |        sum         |        avg         
 -------+--------------------+--------------------
     12 | 3189.8799999999983 | 3.4166666666666667
@@ -408,7 +407,6 @@ JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_pric
 WHERE p.description @@@ 'laptop OR shoes OR keyboard'
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, pr)
  promo_code  | count |        sum         
 -------------+-------+--------------------
  all         |     2 |             169.98
@@ -443,7 +441,6 @@ FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
 WHERE p.description @@@ 'laptop';
 WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pr)
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -464,7 +461,6 @@ FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
 WHERE p.description @@@ 'laptop';
 WARNING:  Aggregate Scan (DataFusion) not used: outer-join ON residual predicates are not supported (table: join)
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pr)
  count 
 -------
      0

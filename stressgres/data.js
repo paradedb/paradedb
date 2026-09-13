@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789293640395,
+  "lastUpdate": 1789293651761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -143182,6 +143182,108 @@ window.BENCHMARK_DATA = {
             "value": 100.5,
             "unit": "median mem",
             "extra": "avg mem: 99.95516311781391, max mem: 104.765625, count: 59403"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789293647857,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06383480031639711, max background_merging: 2.0, count: 59419"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.798461085126687, max cpu: 9.6725445, count: 59419"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.857680203301975, max mem: 19.91796875, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7990742786734835, max cpu: 28.500742, count: 59419"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 88.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 86.59937353003669, max mem: 88.9765625, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51600,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51420.02317440549, max block_count: 51600.0, count: 59419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 74,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 70.54028172806677, max segment_count: 103.0, count: 59419"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.09098870390154, max cpu: 33.61681, count: 59419"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 84.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 77.84129754108534, max mem: 84.38671875, count: 59419"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.150093858342329, max cpu: 33.633633, count: 59419"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.707609900137165, max mem: 52.4453125, count: 59419"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8127836800929025, max cpu: 28.486649, count: 59419"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 50.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.63966301551272, max mem: 51.48828125, count: 59419"
           }
         ]
       }

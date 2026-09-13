@@ -99,15 +99,49 @@ fn resolve_var_to_df_col(
     })
 }
 
-/// Adapter that lets `PredicateTranslator` resolve Vars against a
-/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+/// If a column cannot be resolved to an output DataFusion column, but its relation
+/// participates in the join (e.g. the non-preserved side of an Anti Join that was pruned
+/// from output), all its values in the join result are identically NULL.
+fn null_if_source_exists(join_clause: &JoinCSClause, rti: pg_sys::Index) -> Option<Expr> {
+    if join_clause
+        .plan
+        .sources()
+        .iter()
+        .any(|s| s.contains_rti(rti))
+    {
+        Some(datafusion::logical_expr::lit(
+            datafusion::common::ScalarValue::Null,
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolves a Var to an output DataFusion column, falling back to NULL if the relation
+/// is part of the join but was pruned from the join output.
+fn resolve_var_or_pruned_null(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    resolve_var_to_df_col(join_clause, rti, attno)
+        .or_else(|| null_if_source_exists(join_clause, rti))
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
+///
+/// NOTE: This mapper is used exclusively by [`translate_child_projection_expr`] to
+/// evaluate target-list output projections (`ChildProjection::Expression`).
+/// For output projections, emitting NULL for columns of pruned relations (e.g.
+/// the RHS of an Anti Join) is correct. Filter predicates do not use this mapper;
+/// they use `CombinedMapper` where pruned columns are rejected.
 struct JoinClauseMapper<'a> {
     join_clause: &'a JoinCSClause,
 }
 
 impl<'a> ColumnMapper for JoinClauseMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        resolve_var_to_df_col(self.join_clause, varno, varattno)
+        resolve_var_or_pruned_null(self.join_clause, varno, varattno)
     }
 }
 
@@ -662,12 +696,12 @@ fn build_clause_df<'a>(
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
-        // 6. Apply Limit (only when the value is statically known at planning
-        // time). Parameterized LIMIT/OFFSET are injected at execution time in
+        // 6. Apply Limit (only when BOTH limit and offset are statically known at
+        // planning time). Parameterized LIMIT/OFFSET are injected at execution time in
         // `JoinScan::exec_custom_scan` after `EState` becomes available.
         let df = if let Some(lo) = &join_clause.limit_offset {
-            if let Some(fetch) = lo.static_fetch() {
-                df.limit(0, Some(fetch))?
+            if let (Some(fetch), Some(skip)) = (lo.static_limit(), lo.static_offset()) {
+                df.limit(skip, Some(fetch))?
             } else {
                 df
             }
@@ -731,7 +765,7 @@ fn apply_distinct_group_by(
 ) -> Result<(DataFrame, DistinctColMap)> {
     let mut distinct_col_map: DistinctColMap = Default::default();
 
-    if !join_clause.has_distinct() {
+    if !join_clause.has_distinct {
         return Ok((df, distinct_col_map));
     }
     let Some(projection) = &join_clause.output_projection else {
@@ -921,6 +955,7 @@ fn resolve_orderby_feature(
                     .iter()
                     .find(|s| s.contains_rti(*rti))
                     .map(|source| make_source_col(source, name.as_ref()))
+                    .or_else(|| null_if_source_exists(join_clause, *rti))
                     .ok_or_else(|| {
                         DataFusionError::Plan(format!(
                             "JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'"
@@ -936,7 +971,7 @@ fn resolve_orderby_feature(
                     ))
                 })
             } else {
-                resolve_var_to_df_col(join_clause, *rti, *attno).ok_or_else(|| {
+                resolve_var_or_pruned_null(join_clause, *rti, *attno).ok_or_else(|| {
                     DataFusionError::Plan(format!(
                         "JoinScan: could not resolve var column for RTI {rti}, attno {attno}"
                     ))
@@ -1030,7 +1065,12 @@ fn apply_output_projection(
                     }
                 }
             } else {
-                build_projection_expr(proj, join_clause)
+                match proj {
+                    build::ChildProjection::Expression { pg_expr_string, .. } => unsafe {
+                        translate_child_projection_expr(pg_expr_string, join_clause)?
+                    },
+                    _ => build_projection_expr(proj, join_clause),
+                }
             };
             final_cols.push(expr.alias(col_alias));
         }
@@ -1101,8 +1141,7 @@ fn build_projection_expr(
         }
         ChildProjection::Expression { .. } => {
             unreachable!(
-                "Expression projections are handled via PgExprUdf in the \
-                 GROUP BY path, not through build_projection_expr"
+                "Expression projections are handled in apply_output_projection / apply_distinct"
             );
         }
     }
@@ -1199,9 +1238,9 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, PostgreSQL expands the query path-keys
-        // to include all DISTINCT columns.
-        if join_clause.has_distinct() {
+        // When DISTINCT is present, columns referenced by DISTINCT projections
+        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
+        if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
                     if let build::ChildProjection::IndexedExpression { rti, field_name } = proj
@@ -1273,9 +1312,7 @@ fn build_source_df<'a>(
                 Some(WhichFastField::Ctid) => {
                     make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
-                // Normalize score fast-field column name so all score references resolve
-                // through `<execution_alias>.score`.
-                Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+                Some(WhichFastField::Score) => make_col(alias.as_str(), SCORE_COL_NAME),
                 _ => make_col(alias.as_str(), name),
             };
 

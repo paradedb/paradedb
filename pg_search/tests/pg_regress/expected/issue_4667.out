@@ -42,30 +42,37 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
-WARNING:  JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains derived expressions (e.g. IS NULL or function calls) (tables: c, p)
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the scan (table: p)
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-   ->  Unique
+   ->  Sort
          Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-         ->  Sort
+         Sort Key: p.id DESC
+         ->  HashAggregate
                Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               Sort Key: p.id DESC, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               ->  Custom Scan (ParadeDB Base Scan) on public.people p
+               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
+               ->  Result
                      Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
-                     Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
-                     Table: people
-                     Index: people_search_idx
-                     Worker Selection: Row-capped
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-                     SubPlan 1
-                       ->  Seq Scan on public.companies c
-                             Output: c.id
-(19 rows)
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Output: p.id, p.full_name, p.linkedin_followers, p.seniority_slug
+                           Relation Tree: p LEFTMARK c
+                           Join Cond: p.company_id = c.id
+                           Join Predicate: (mark = true OR col IS NULL)
+                           Limit: 26
+                           Distinct: true
+                           Order By: p.id desc, p.full_name asc, p.linkedin_followers asc, p.seniority_slug asc
+                           DataFusion Physical Plan: 
+                             : SortExec: TopK(fetch=26), expr=[col_1@0 DESC, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST, col_4@3 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[id@1 as col_1, full_name@2 as col_2, linkedin_followers@3 as col_3, seniority_slug@4 as col_4], aggr=[min(p_0.ctid_0) as ctid_0]
+                             :     FilterExec: mark@6 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2, full_name@3, linkedin_followers@4, seniority_slug@5]
+                             :       HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(id@0, company_id@1)]
+                             :         CooperativeExec
+                             :           PgSearchScan: table=c, segments=1, visibility=eager, query="all"
+                             :         CooperativeExec
+                             :           PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+(27 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -81,8 +88,7 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
-WARNING:  JoinScan not used: LIMIT cannot be pushed down when DISTINCT contains derived expressions (e.g. IS NULL or function calls) (tables: c, p)
+WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the scan (table: p)
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------
   3 | Carol Manager  | f          |           800 | f               | manager       | f
@@ -99,7 +105,7 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
-WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
+WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the scan (table: p)
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -129,7 +135,7 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
-WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the aggregate scan (table: p)
+WARNING:  Aggregate Scan (DataFusion) not used: OR-nested subquery cannot be pushed into the scan (table: p)
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
  id | nameIsNull 
 ----+------------

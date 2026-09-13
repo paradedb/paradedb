@@ -76,39 +76,17 @@ pub unsafe fn collect_fast_fields(
     .unwrap_or_default()
 }
 
-unsafe fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
-    if list.is_null() {
-        return;
-    }
-    let list = PgList::<pg_sys::Node>::from_pg(list);
-    for node in list.iter_ptr() {
-        fix_varno_in_place(node, old_varno, new_varno);
-    }
-}
-
 unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
     if node.is_null() {
         return;
     }
-    if let Some(var) = nodecast!(Var, T_Var, node) {
+    for var in find_vars(node) {
         if (*var).varno as i32 == old_varno {
             (*var).varno = new_varno as _;
         }
         if (*var).varnosyn as i32 == old_varno {
             (*var).varnosyn = new_varno as _;
         }
-    } else if let Some(expr) = nodecast!(OpExpr, T_OpExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
-        fix_varno_list((*expr).args, old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(RelabelType, T_RelabelType, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
-    } else if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
     }
 }
 
@@ -118,14 +96,29 @@ pub(crate) unsafe fn find_matching_fast_field(
     schema: SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
+    if node.is_null() {
+        return None;
+    }
+
+    // In PostgreSQL 17+, `Var` nodes on the nullable side of an outer join carry
+    // `varnullingrels` tracking outer-join relids. Base table index expressions
+    // always have `varnullingrels == NULL`. Clone the candidate query expression
+    // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
+    let node_copy = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
+    #[cfg(not(feature = "pg15"))]
+    for var in find_vars(node_copy) {
+        (*var).varnullingrels = std::ptr::null_mut();
+    }
+
     let categorized_fields = schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {
         let unwrapped = strip_tokenizer_cast(candidate);
-        fix_varno_in_place(unwrapped, 1, rti as i32);
+        let candidate_copy = pg_sys::copyObjectImpl(unwrapped.cast()).cast::<pg_sys::Node>();
+        fix_varno_in_place(candidate_copy, 1, rti as i32);
         pg_sys::equal(
-            node as *const core::ffi::c_void,
-            unwrapped as *const core::ffi::c_void,
+            node_copy as *const core::ffi::c_void,
+            candidate_copy as *const core::ffi::c_void,
         )
     };
 

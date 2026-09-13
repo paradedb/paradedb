@@ -128,23 +128,22 @@ ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
                                                                  QUERY PLAN                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: Child INNER Parent
-         Join Cond: Parent.child_id = Child.id
-         Limit: 12
-         Order By: Parent.updated_at desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, updated_at@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=12), expr=[updated_at@2 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[Child, Parent]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, child_id@1)], projection=[ctid_0@0, ctid_1@2, updated_at@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=Child, segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=Parent, segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
-(16 rows)
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: Parent INNER Child
+   Join Cond: Parent.child_id = Child.id
+   Limit: 12
+   Order By: Parent.updated_at desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, updated_at@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=12), expr=[updated_at@1 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[Parent, Child]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@2, updated_at@4, ctid_0@5, ctid_1@1]
+     :           CooperativeExec
+     :             PgSearchScan: table=Child, segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=Parent, segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
+(15 rows)
 
 SELECT "Parent"."id"
 FROM repro_5525_parent AS "Parent"

@@ -130,7 +130,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -145,7 +146,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -160,7 +162,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -175,7 +178,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -190,7 +194,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -205,7 +210,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -220,7 +226,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -237,7 +244,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -252,7 +260,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -267,7 +276,8 @@ WHERE dt.full_text @@@ 'ea'
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
   AND DATE(c.date_time_combined) >= DATE('2001-01-01')
   AND DATE(c.date_time_combined) <= DATE('2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -286,35 +296,40 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) <= $6;
 -- Execute multiple times to trigger generic plan after 5 executions
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -322,19 +337,24 @@ WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enabl
 
 -- 6th execution uses generic plan
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
@@ -354,19 +374,24 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20
 (1 row)
 
 EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
     20

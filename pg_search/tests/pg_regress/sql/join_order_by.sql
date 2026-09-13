@@ -77,6 +77,114 @@ ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
 
 -- =============================================================================
+-- TEST 2.1: Parameterized OFFSET with static LIMIT in prepared statements
+-- Verify generic prepared plan does not double-limit when OFFSET is parameterized.
+-- =============================================================================
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE prep_join_offset(int) AS
+SELECT t1.val, t2.val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5 OFFSET $1;
+
+-- Offset 0: should return 5 rows
+EXECUTE prep_join_offset(0);
+
+-- Offset 10: should return 5 rows, NOT 0 rows
+EXECUTE prep_join_offset(10);
+
+DEALLOCATE prep_join_offset;
+RESET plan_cache_mode;
+
+-- =============================================================================
+-- TEST 2.2: Static LIMIT with static OFFSET
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.val, t2.val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5 OFFSET 10;
+
+SELECT t1.val, t2.val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5 OFFSET 10;
+
+-- =============================================================================
+-- TEST 2.2b: Distributed plan with LIMIT and OFFSET
+-- Verify that GlobalLimitExec skip stays on the leader above the final SortExec,
+-- rather than each worker offsetting its own slice.
+-- =============================================================================
+
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.mpp_min_rows = 0;
+SET paradedb.enable_range_partitioned_join = on;
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.val, t2.val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5 OFFSET 10;
+
+SELECT t1.val, t2.val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5 OFFSET 10;
+
+RESET paradedb.enable_range_partitioned_join;
+RESET paradedb.mpp_min_rows;
+SET max_parallel_workers_per_gather = 0;
+
+-- =============================================================================
+-- TEST 2.3: SELECT ... FOR UPDATE preserves row locking (LockRows)
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, t2.id
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5
+FOR UPDATE OF t1;
+
+-- =============================================================================
+-- TEST 2.4: Volatile expression in target list declines JoinScan
+-- =============================================================================
+
+SELECT setseed(0.5);
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+SELECT setseed(0.5);
+
+SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+-- =============================================================================
 -- TEST 3: Multi-segment sorted join
 -- =============================================================================
 

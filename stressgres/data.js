@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789287835124,
+  "lastUpdate": 1789290894117,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -161768,6 +161768,66 @@ window.BENCHMARK_DATA = {
             "value": 20.757471730962266,
             "unit": "median tps",
             "extra": "avg tps: 20.668722637463, max tps: 34.163814671417896, count: 59306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789290893011,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 79.37566893375855,
+            "unit": "median tps",
+            "extra": "avg tps: 79.13048454198575, max tps: 84.71865691580669, count: 59309"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.7298734300366,
+            "unit": "median tps",
+            "extra": "avg tps: 310.7485953653858, max tps: 5824.456025196703, count: 59309"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 836.3362155005872,
+            "unit": "median tps",
+            "extra": "avg tps: 825.6669860758913, max tps: 2185.821741141784, count: 59309"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 194.6654692524908,
+            "unit": "median tps",
+            "extra": "avg tps: 192.57307459399846, max tps: 213.41479518342015, count: 59309"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 221.4618814986909,
+            "unit": "median tps",
+            "extra": "avg tps: 224.55692530891451, max tps: 2143.714114736967, count: 118618"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 20.99537400952666,
+            "unit": "median tps",
+            "extra": "avg tps: 20.77390183178186, max tps: 34.647586748808706, count: 59309"
           }
         ]
       }

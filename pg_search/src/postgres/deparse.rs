@@ -19,10 +19,11 @@
 //! into human-readable SQL strings for EXPLAIN output.
 
 use crate::nodecast;
-use crate::postgres::customscan::qual_inspect::{PlannerContext, contains_exec_param};
+use crate::postgres::customscan::qual_inspect::PlannerContext;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::find_vars;
-use pgrx::{pg_guard, pg_sys};
+
+use pgrx::pg_sys;
 
 /// Helper function to deparse an expression using a relation context.
 /// Returns a human-readable SQL string representation of the expression.
@@ -51,7 +52,7 @@ pub unsafe fn deparse_expr(
     // clone and replace them with placeholder constants, then deparse
     // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
     // deparsed as "$N" by PostgreSQL's deparse_expression
-    let expr_to_deparse = if contains_exec_param(expr) {
+    let expr_to_deparse = if expr.contains_exec_param() {
         let cloned = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
         replace_exec_params_with_placeholders(cloned);
         cloned
@@ -69,7 +70,8 @@ pub unsafe fn deparse_expr(
     };
 
     // Collect all vars, extract varnos and remove duplicate varnos
-    let mut varnos = find_vars(expr_to_deparse)
+    let mut varnos = expr_to_deparse
+        .collect_nodes::<pg_sys::Var>()
         .into_iter()
         .map(|var| (*var).varno as pg_sys::Index)
         .collect::<Vec<pg_sys::Index>>();
@@ -148,11 +150,7 @@ pub unsafe fn deparse_planner_expr(
     expr: *mut pg_sys::Node,
 ) -> Option<String> {
     use std::panic::AssertUnwindSafe;
-    if root.is_null()
-        || expr.is_null()
-        || (*root).parse.is_null()
-        || crate::postgres::customscan::qual_inspect::contains_exec_param(expr)
-    {
+    if root.is_null() || expr.is_null() || (*root).parse.is_null() || expr.contains_exec_param() {
         return None;
     }
 
@@ -216,31 +214,15 @@ unsafe fn deparse_with_single_relation(
 /// This allows deparse_expression to render them as `$N` instead of crashing.
 /// The expression should be cloned before calling this function.
 unsafe fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
-    if node.is_null() {
-        return;
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn param_replacer(
-        node: *mut pg_sys::Node,
-        _context: *mut core::ffi::c_void,
-    ) -> bool {
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            // Convert PARAM_EXEC to PARAM_EXTERN so deparse_expression can handle it
-            // PARAM_EXEC = 1 (subquery params), PARAM_EXTERN = 0 (prepared stmt params)
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
-                (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
-                // Adjust paramid: PARAM_EXEC uses 0-based ids, PARAM_EXTERN uses 1-based
-                // Add 1 to make it display as $1, $2, etc. instead of $0
-                (*param).paramid += 1;
-            }
+    node.visit(|node| {
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+        {
+            (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+            // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
+            (*param).paramid += 1;
         }
-
-        // Continue walking
-        pg_sys::expression_tree_walker(node, Some(param_replacer), std::ptr::null_mut())
-    }
-
-    param_replacer(node, std::ptr::null_mut());
+    });
 }
 
 /// Remap varnos in an expression tree from old_varno to new_varno
@@ -249,36 +231,16 @@ unsafe fn remap_varnos(
     old_varno: pg_sys::Index,
     new_varno: pg_sys::Index,
 ) {
-    if node.is_null() {
-        return;
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn remap_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        let (old_varno, new_varno) = *(context as *const (pg_sys::Index, pg_sys::Index));
-
+    node.visit(|node| {
         if let Some(var) = nodecast!(Var, T_Var, node) {
             if (*var).varno as pg_sys::Index == old_varno {
                 (*var).varno = new_varno as _;
             }
-            // Also update varnosyn if it matches
             if (*var).varnosyn as pg_sys::Index == old_varno {
                 (*var).varnosyn = new_varno as _;
             }
         }
-
-        // Continue walking - return false to continue, true to stop
-        pg_sys::expression_tree_walker(node, Some(remap_walker), context)
-    }
-
-    let context = (old_varno, new_varno);
-    remap_walker(
-        node,
-        &context as *const (pg_sys::Index, pg_sys::Index) as *mut core::ffi::c_void,
-    );
+    });
 }
 
 /// Convert a PostgreSQL node to its raw AST string representation using `nodeToString`.

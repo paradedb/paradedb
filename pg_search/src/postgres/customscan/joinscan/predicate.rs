@@ -34,12 +34,11 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
-};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -109,7 +108,7 @@ pub unsafe fn extract_join_level_conditions(
 
     for ri in &all_restrict_infos {
         let clause = (**ri).clause;
-        let rtis = expr_collect_rtis(clause.cast());
+        let rtis = clause.collect_rtis();
         // All clauses in `all_restrict_infos` originate from `extra.restrictlist` (or
         // `post_join_conditions` extracted from it). PostgreSQL places clauses in a joinrel's
         // restrictlist ONLY if they can and must be evaluated at this join level; clauses that
@@ -133,7 +132,7 @@ pub unsafe fn extract_join_level_conditions(
         if already_present {
             continue;
         }
-        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        let has_search_op = clause.contains_operators(&[search_op]);
 
         if has_search_op {
             if let Some(expr) = transform_to_search_expr(
@@ -204,7 +203,7 @@ pub unsafe fn extract_join_level_conditions(
         );
         let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
         for conjunct in conjuncts {
-            let rtis = expr_collect_rtis(conjunct);
+            let rtis = conjunct.collect_rtis();
             // Only process cross-table predicates whose referenced RTIs are all in `sources`
             // and span across both sides of this join level.
             if rtis.len() > 1
@@ -227,7 +226,7 @@ pub unsafe fn extract_join_level_conditions(
                     continue;
                 }
 
-                let has_search_op = expr_contains_any_operator(conjunct.cast(), &[search_op]);
+                let has_search_op = conjunct.contains_operators(&[search_op]);
                 if has_search_op {
                     if let Some(expr) = transform_to_search_expr(
                         root,
@@ -361,10 +360,10 @@ pub unsafe fn transform_to_search_expr(
     }
 
     let search_op = anyelement_query_input_opoid();
-    let has_search_op = expr_contains_any_operator(node, &[search_op]);
+    let has_search_op = node.contains_operators(&[search_op]);
 
     // Check which tables this expression references
-    let rtis = expr_collect_rtis(node);
+    let rtis = node.collect_rtis();
     let mut referenced_source_indices = Vec::new();
 
     for (i, source) in sources.iter().enumerate() {
@@ -697,7 +696,7 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
     sources: &[&JoinSource],
     plan: Option<&crate::postgres::customscan::joinscan::build::RelNode>,
 ) -> bool {
-    let vars = expr_collect_vars(node, false);
+    let vars = node.collect_var_refs(false);
 
     for var_ref in vars {
         let mut source_found = false;
@@ -785,7 +784,7 @@ pub unsafe fn resolve_join_conditions(
         let clause = (*ri).clause;
         // Skip `@@@` (and any search ops): search clauses pass through to
         // `extract_join_level_conditions`, where `transform_to_search_expr` handles them.
-        if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+        if !clause.is_null() && clause.contains_operators(&[search_op]) {
             unabsorbed.push(ri);
             continue;
         }
@@ -796,7 +795,7 @@ pub unsafe fn resolve_join_conditions(
             continue;
         }
         if clause.is_null()
-            || contains_exec_param(clause.cast())
+            || clause.contains_exec_param()
             || !all_vars_are_fast_fields_recursive(clause.cast(), sources, None)
             || !PredicateTranslator::can_translate(Some(root), sources, clause.cast(), None)
         {
@@ -863,8 +862,7 @@ pub unsafe fn resolve_join_conditions(
         }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
-            !clause.is_null()
-                && crate::postgres::utils::expr_contains_any_operator(clause.cast(), &[search_op])
+            !clause.is_null() && clause.contains_operators(&[search_op])
         }) {
             return Err(super::JoinDeclineReason::new(format!(
                 "JoinScan not used: search operators in {context} are not supported"
@@ -872,10 +870,7 @@ pub unsafe fn resolve_join_conditions(
         }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
-            !clause.is_null()
-                && crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
-                    clause.cast(),
-                )
+            !clause.is_null() && clause.has_unsupported_collation()
         }) {
             return Err(super::JoinDeclineReason::new(
                 "JoinScan not used: join conditions on a nondeterministic collation are not supported",

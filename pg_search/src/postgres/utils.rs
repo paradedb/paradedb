@@ -29,9 +29,10 @@ use crate::postgres::composite::{
 };
 use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::postgres::var::find_vars;
+
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
@@ -39,9 +40,8 @@ use anyhow::Result;
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
-use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tokenizers::SearchNormalizer;
 
@@ -636,7 +636,7 @@ pub unsafe fn extract_field_attributes(
 
                     let parsed_typmod =
                         UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
-                    let vars = find_vars(node);
+                    let vars = node.collect_nodes::<pg_sys::Var>();
 
                     normalizer = parsed_typmod.normalizer();
                     attname = parsed_typmod.alias();
@@ -1111,155 +1111,6 @@ impl<T> ToPalloc for T {
     }
 }
 
-/// Recursively check if an expression tree contains any of the specified operators
-/// Uses PostgreSQL's expression_tree_walker for robust traversal
-///
-/// NOTE: This logic is duplicated with `extract_quals` in qual_inspect.rs.
-/// Both need to traverse expression trees looking for operators, so changes to one
-/// should be reflected in the other.
-/// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
-pub unsafe fn expr_contains_any_operator(
-    node: *mut pg_sys::Node,
-    target_opnos: &[pg_sys::Oid],
-) -> bool {
-    use pgrx::pg_guard;
-    use std::ptr::addr_of_mut;
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let context = &*(data as *const Context);
-        let node_type = (*node).type_;
-
-        // Check if this node is an OpExpr with one of our target operators
-        if node_type == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = node as *mut pg_sys::OpExpr;
-            if context.target_opnos.contains(&(*opexpr).opno) {
-                // Found a match! Set the flag and stop walking
-                (*(data as *mut Context)).found = true;
-                return true; // Stop walking
-            }
-        }
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Context {
-        target_opnos: Vec<pg_sys::Oid>,
-        found: bool,
-    }
-
-    let mut context = Context {
-        target_opnos: target_opnos.to_vec(),
-        found: false,
-    };
-
-    walker(node, addr_of_mut!(context).cast());
-    context.found
-}
-
-/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
-/// Returns a HashSet of RTIs referenced by the expression.
-pub unsafe fn expr_collect_rtis(
-    node: *mut pg_sys::Node,
-) -> std::collections::HashSet<pg_sys::Index> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
-
-        if (*node).type_ == pg_sys::NodeTag::T_Var {
-            let var = node as *mut pg_sys::Var;
-            let varno = (*var).varno as pg_sys::Index;
-            // Skip special RTIs like INNER_VAR/OUTER_VAR
-            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
-                rtis.insert(varno);
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    let mut rtis = HashSet::new();
-    walker(node, addr_of_mut!(rtis).cast());
-    rtis
-}
-
-/// A Var reference with its range table index and attribute number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VarRef {
-    /// Range table index (varno)
-    pub rti: pg_sys::Index,
-    /// Attribute number (varattno), 1-indexed
-    pub attno: pg_sys::AttrNumber,
-}
-
-/// Collects all unique Var references (RTI + attribute number) from an expression tree.
-/// Returns a Vec of VarRef structs for each column referenced by the expression.
-///
-/// If `include_special_vars` is true, variables with special varnos (like INDEX_VAR) are included.
-/// If false, only variables referencing base relations (varno > 0 and < INNER_VAR) are included.
-pub unsafe fn expr_collect_vars(
-    node: *mut pg_sys::Node,
-    include_special_vars: bool,
-) -> Vec<VarRef> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let (vars, include_special_vars) = &mut *(data as *mut (Vec<VarRef>, bool));
-
-        if (*node).type_ == pg_sys::NodeTag::T_Var {
-            let var = node as *mut pg_sys::Var;
-            let varno = (*var).varno as pg_sys::Index;
-            let varattno = (*var).varattno;
-
-            // Standard check for base relation var:
-            let is_base_rel_var = varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index;
-
-            if *include_special_vars {
-                // Include if valid attno
-                if varattno > 0 {
-                    vars.push(VarRef {
-                        rti: varno,
-                        attno: varattno,
-                    });
-                }
-            } else {
-                // Only include base relation vars
-                if is_base_rel_var && varattno > 0 {
-                    vars.push(VarRef {
-                        rti: varno,
-                        attno: varattno,
-                    });
-                }
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    let mut context = (Vec::new(), include_special_vars);
-    walker(node, addr_of_mut!(context).cast());
-    context.0
-}
-
 /// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
 pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
@@ -1436,7 +1287,7 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
         return;
     }
 
-    for var_ptr in crate::postgres::var::find_vars(expr) {
+    for var_ptr in expr.collect_nodes::<pg_sys::Var>() {
         let varno = (*var_ptr).varno as pg_sys::Index;
         let varattno = (*var_ptr).varattno;
 
@@ -1512,58 +1363,33 @@ pub unsafe fn add_missing_search_operators_to_tlist(
     tlist: &mut PgList<pg_sys::TargetEntry>,
     search_operator_funcoids: &[pg_sys::Oid],
 ) {
-    use pgrx::pg_sys::expression_tree_walker;
-    use std::ptr::addr_of_mut;
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<Context>();
-        if is_search_operator(node, (*ctx).search_operator_funcoids) {
+    let mut add_missing = |node| {
+        if is_search_operator(node, search_operator_funcoids) {
             let unwrapped_expr = strip_wrappers(node);
-            let already_present = (*ctx).tlist.iter_ptr().any(|te| {
+            let already_present = tlist.iter_ptr().any(|te| {
                 pg_sys::equal(
                     strip_wrappers((*te).expr.cast()).cast(),
                     unwrapped_expr.cast(),
                 )
             });
-
             if !already_present {
-                let resno = (*ctx).tlist.len() as pg_sys::AttrNumber + 1;
+                let resno = tlist.len() as pg_sys::AttrNumber + 1;
                 let te = pg_sys::makeTargetEntry(
                     pg_sys::copyObjectImpl(node.cast()).cast(),
                     resno,
                     std::ptr::null_mut(),
-                    true, // resjunk
+                    true,
                 );
-                (*ctx).tlist.push(te);
+                tlist.push(te);
             }
         }
-
-        expression_tree_walker(node, Some(walker), context)
-    }
-
-    struct Context<'a> {
-        tlist: &'a mut PgList<pg_sys::TargetEntry>,
-        search_operator_funcoids: &'a [pg_sys::Oid],
-    }
-
-    let mut ctx = Context {
-        tlist,
-        search_operator_funcoids,
     };
 
     // Look in processed_tlist
     if !(*root).processed_tlist.is_null() {
         let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
         for te in p_tlist.iter_ptr() {
-            walker((*te).expr.cast(), addr_of_mut!(ctx).cast());
+            (*te).expr.visit(&mut add_missing);
         }
     }
 
@@ -1575,7 +1401,7 @@ pub unsafe fn add_missing_search_operators_to_tlist(
             if !eclass.is_null() {
                 let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
                 for em in members.iter_ptr() {
-                    walker((*em).em_expr.cast(), addr_of_mut!(ctx).cast());
+                    (*em).em_expr.visit(&mut add_missing);
                 }
             }
         }

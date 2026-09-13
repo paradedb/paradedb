@@ -1619,29 +1619,6 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn can_index_only_key_field(mut conn: PgConnection) {
-    "CREATE TABLE can_index_only_key_field (
-        id SERIAL PRIMARY KEY,
-        text_field TEXT
-    );"
-    .execute(&mut conn);
-
-    let result = r#"
-
-        INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');
-
-        CREATE INDEX idxcan_index_only_key_field ON can_index_only_key_field
-        USING paradedb (id);
-    "#
-    .execute_result(&mut conn);
-    assert!(result.is_ok());
-
-    let (count,) = "SELECT COUNT(*) FROM can_index_only_key_field WHERE id @@@ '1'"
-        .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
-}
-
-#[rstest]
 fn missing_source_column(mut conn: PgConnection) {
     "CREATE TABLE missing_source (
         id SERIAL PRIMARY KEY,

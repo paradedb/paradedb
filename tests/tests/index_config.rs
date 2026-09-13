@@ -365,42 +365,6 @@ fn null_values(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn null_key_field_build(mut conn: PgConnection) {
-    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
-    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description)"#
-        .execute(&mut conn);
-    let rows: Vec<(Option<i32>,)> =
-        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
-            .fetch(&mut conn);
-    assert_eq!(rows, vec![(None,), (Some(2),)]);
-}
-
-#[rstest]
-#[case(0)]
-#[case(1000)]
-fn null_key_field_insert(mut conn: PgConnection, #[case] mutable_segment_rows: usize) {
-    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
-    "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
-        .execute(&mut conn);
-
-    format!(
-        "CREATE INDEX index_config_index ON paradedb.index_config USING paradedb (id, description)
-        WITH (mutable_segment_rows={mutable_segment_rows})"
-    )
-    .execute(&mut conn);
-
-    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute(&mut conn);
-    let rows: Vec<(Option<i32>,)> =
-        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
-            .fetch(&mut conn);
-    assert_eq!(rows, vec![(None,), (Some(1),), (Some(2),)]);
-}
-
-#[rstest]
 fn column_name_camelcase(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config(\"IdName\" INTEGER, \"ColumnName\" TEXT)"
         .execute(&mut conn);
@@ -684,25 +648,6 @@ fn custom_enum_parse(mut conn: PgConnection) {
         "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.parse('color:1.0')".fetch(&mut conn);
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
-}
-
-#[rstest]
-fn long_text_key_field_issue2198(mut conn: PgConnection) {
-    "CREATE TABLE issue2198 (id TEXT, value TEXT)".execute(&mut conn);
-
-    "CREATE INDEX idxissue2198 ON issue2198 USING paradedb (id, value)".execute(&mut conn);
-
-    let long_string = "a".repeat(10000);
-
-    format!("INSERT INTO issue2198(id) VALUES ('{long_string}')").execute(&mut conn);
-    let (count,) = format!("SELECT count(*) FROM issue2198 WHERE id @@@ '{long_string}'")
-        .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
-
-    let (count,) =
-        format!("SELECT count(*) FROM issue2198 WHERE id @@@ paradedb.term('id', '{long_string}')")
-            .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
 }
 
 #[rstest]

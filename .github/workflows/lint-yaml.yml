@@ -30,7 +30,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v7
 
-      - name: Lint Yaml
-        uses: paradedb/actions/lint-prettier@v12
+      - name: Lint YAML
+        uses: paradedb/actions/lint-yaml@v12
         with:
           ignore-path: .prettierignore

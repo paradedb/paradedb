@@ -103,12 +103,19 @@ prost = "0.14.3"
 # SuperKMeans IVF clusterer (pure-Rust port). BLAS backend is target-specific:
 # Accelerate on macOS, OpenBLAS on Linux (already required by the build env).
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+# Preserve BLAS for Tantivy's in-memory trainer until its older revision is bumped.
+superkmeans_in_memory = { git = "https://github.com/paradedb/superkmeans-rs.git", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+  "accelerate",
+] }
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "d312a8d5b8a0bb83960f08dc3ddf8ab516f72dc7", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+superkmeans_in_memory = { git = "https://github.com/paradedb/superkmeans-rs.git", package = "superkmeans-rs", rev = "c06dc2b6e9bd15fb5c4a0627178bebbe1fb37a64", features = [
+  "openblas",
+] }
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "d312a8d5b8a0bb83960f08dc3ddf8ab516f72dc7", features = [
   "openblas",
 ] }
 

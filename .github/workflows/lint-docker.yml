@@ -31,6 +31,8 @@ jobs:
 
       - name: Lint Docker
         uses: paradedb/actions/lint-docker@v12
+        with:
+          exclude: docker/Dockerfile.template
 
       - name: Verify Generated Dockerfiles Are In Sync With Template
         run: |

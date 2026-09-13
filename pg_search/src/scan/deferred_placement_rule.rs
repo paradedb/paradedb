@@ -79,7 +79,6 @@ use crate::gucs::{self, DeferredPlacement};
 use crate::index::fast_fields_helper::FFIndex;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::FieldSource;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
@@ -204,7 +203,7 @@ impl Decision {
 struct Context {
     fetch_auto: bool,
     decode_auto: bool,
-    /// Fields backed by an immediate, non-partial unique index on the heap.
+    /// Per index, since every join key asks the same question of the same scan.
     unique_fields: HashMap<u32, HashSet<String>>,
     /// Per column of per scan, since each one has its own consumer and its own path, so its
     /// own point to stop at.
@@ -216,49 +215,11 @@ impl Context {
         self.unique_fields
             .entry(indexrelid)
             .or_insert_with(|| {
+                // A placeholder scan has no index to ask.
                 if indexrelid == 0 {
                     return HashSet::default();
                 }
-                let rel = PgSearchRelation::open(pg_sys::Oid::from(indexrelid));
-                let heap = rel.heap_relation().expect("scan relation must be an index");
-                let tuple_desc = heap.tuple_desc();
-                let unique_attributes: HashSet<usize> = heap
-                    .indices(pg_sys::AccessShareLock as _)
-                    .filter_map(|index| unsafe {
-                        let info = &*index.rd_index;
-                        if !info.indisunique
-                            || !info.indisvalid
-                            || !info.indimmediate
-                            || info.indnkeyatts != 1
-                            || !pg_sys::RelationGetIndexPredicate(index.as_ptr()).is_null()
-                        {
-                            return None;
-                        }
-                        let attno = *info.indkey.values.as_ptr();
-                        if attno <= 0 {
-                            return None;
-                        }
-                        let attno = (attno - 1) as usize;
-                        (tuple_desc.get(attno)?.attnotnull || info.indnullsnotdistinct)
-                            .then_some(attno)
-                    })
-                    .collect();
-                let schema = rel.schema().expect("scan relation must have a schema");
-                rel.options()
-                    .attributes()
-                    .iter()
-                    .filter_map(|(name, attr)| {
-                        let FieldSource::Heap { attno } = attr.source else {
-                            return None;
-                        };
-                        (unique_attributes.contains(&attno)
-                            && !rel.options().is_multi_valued(name)
-                            && schema
-                                .search_field(name)
-                                .is_some_and(|f| f.is_raw_sortable()))
-                        .then(|| name.to_string())
-                    })
-                    .collect()
+                PgSearchRelation::open(pg_sys::Oid::from(indexrelid)).unique_fields()
             })
             .contains(field_name)
     }
@@ -473,13 +434,15 @@ fn equi_join_expansion<'a>(
     }
 }
 
-/// Whether `col` holds at most one row per value where `plan` emits it.
+/// Whether `col` holds at most one row per non-null value where `plan` emits it. `NULL` does
+/// not count: an equi-join key never matches it, so a nullable unique column is as good as a
+/// primary key here.
 ///
 /// Read from constraints and the plan's shape, never from a row count. A group key is unique
-/// because the aggregate emits one row per group, and a node that only
-/// drops rows passes uniqueness through. A join keeps one side's uniqueness exactly while the
-/// other side's join keys are unique on that side, which is this same question one level
-/// down, so a three-table join gets an answer instead of a shrug.
+/// because the aggregate emits one row per group, and a node that only drops rows passes
+/// uniqueness through. A join keeps one side's uniqueness exactly while the other side's join
+/// keys are unique on that side, which is this same question one level down, so a
+/// three-table join gets an answer instead of a shrug.
 fn is_unique(plan: &Arc<dyn ExecutionPlan>, col: usize, ctx: &mut Context) -> bool {
     if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
         let schema = plan.schema();
@@ -814,7 +777,7 @@ mod tests {
                 title text,
                 other bigint UNIQUE NOT NULL,
                 nullable bigint UNIQUE,
-                nulls_equal bigint UNIQUE NULLS NOT DISTINCT,
+                tags text[] UNIQUE NOT NULL,
                 deferred bigint NOT NULL UNIQUE DEFERRABLE INITIALLY DEFERRED,
                 partial bigint NOT NULL,
                 composite_a bigint NOT NULL,
@@ -826,7 +789,7 @@ mod tests {
             CREATE UNIQUE INDEX placement_include ON placement_unique (id) INCLUDE (title);
             CREATE UNIQUE INDEX placement_expression ON placement_unique (lower(title));
             CREATE INDEX placement_search ON placement_unique USING bm25
-                (title, id, other, nullable, nulls_equal, deferred, partial, composite_a, composite_b, normalized)
+                (title, id, other, nullable, tags, deferred, partial, composite_a, composite_b, normalized)
                 WITH (key_field = 'id', text_fields = '{"title":{"fast":true},"normalized":{"fast":true,"normalizer":"lowercase"}}');
             CREATE TABLE placement_alias (key bigint PRIMARY KEY, id text UNIQUE NOT NULL);
             CREATE INDEX placement_alias_search ON placement_alias USING bm25
@@ -845,11 +808,11 @@ mod tests {
             !is_unique(&scan, 1, &mut ctx),
             "the first indexed column is not"
         );
-        for field in ["other", "nulls_equal"] {
+        for field in ["other", "nullable"] {
             assert!(ctx.is_unique_field(indexrelid, field), "{field}");
         }
         for field in [
-            "nullable",
+            "tags",
             "deferred",
             "partial",
             "composite_a",

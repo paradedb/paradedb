@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789299012249,
+  "lastUpdate": 1789299021337,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -199464,6 +199464,126 @@ window.BENCHMARK_DATA = {
             "value": 27.828125,
             "unit": "median mem",
             "extra": "avg mem: 27.82461302397734, max mem: 28.40625, count: 59306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e87c7e2f935b1c855d076b0559881d39f28d7568",
+          "message": "feat: remove the key_field requirement from search indexes (#6221)\n\n# Ticket(s) Closed\n\n- Part of #6198. Documentation and ORM guidance remain in #6303.\n- Consolidates the implementation stack #6222–#6228 into this PR. The\nbroad test-fixture cleanup remains separate in #6304.\n\n## What\n\nRemove the dependency on a designated `key_field` throughout BM25 index\ncreation and search execution. New indexes can contain only the fields\nbeing searched, without a primary key, unique first column, or\n`key_field` option:\n\n```sql\nCREATE INDEX products_search ON products USING paradedb (description, category);\nSELECT * FROM products AS p WHERE p @@@ 'shoes';\n```\n\nExisting indexes remain usable after an extension upgrade without\nrebuilding. The `key_field` option remains accepted for compatibility\nbut has no effect on new indexes; fields follow their ordinary\nconfiguration rules.\n\n## Why\n\nSearch evaluation, index-only scans, projections, and aggregates\npreviously relied on assumptions about a special key column. Those\nassumptions prevented ordinary nullable or duplicate-valued columns from\nbehaving consistently and produced incorrect matches in some\nsequential-scan and RLS cases.\n\n## How\n\n- Use PostgreSQL row identity and visibility when evaluating indexed\nsearch predicates during sequential scans. Fall back to inline row\nevaluation for prospective RLS rows, rows outside a partial index, and\nother cases the index cannot answer.\n- Allow index-only scans over eligible fast fields and apply the same\nfield eligibility rules to custom scans. Restrict document-count\nshortcuts to actual document counts.\n- Treat whole-row queries as unfielded searches. A field-specific\nbuilder such as `pdb.term()` requires an indexed column on the left-hand\nside; it no longer implicitly binds to a key field.\n- Bind more-like-this source-document lookups to the field on the\nleft-hand side. The changed overload returns `pdb.query`; upgrade SQL\nrecreates it without cascading through dependent objects, which must be\nmigrated explicitly.\n- Include the SQL upgrade fragments and retain legacy key-field upgrade\nfixtures. The broad removal of obsolete `key_field` options from\nregression, integration, stress, benchmark, and snippet-test fixtures is\nisolated in #6304.\n\n## Tests\n\n- All source PRs passed CI before consolidation, including PostgreSQL\n15–18 integration tests, PG18 regression tests, upgrade tests from\n`0.21.0` and `0.25.9`, schema checks, Rust lint, and applicable\ndocumentation checks.\n- Published `0.26.0-rc.1` from the implementation head and smoke-tested\nthe Docker image on arm64: upgraded five `0.25.9` databases, verified\nlegacy indexes without rebuilding, compared upgraded and fresh extension\nschemas, and tested keyless indexes with NULLs, duplicates, searches,\nwrites, rollback, vacuum, reindex, and restart persistence.\n- Runtime code matches #6228 at `4405076dc`, which passed CI and was\nused to cut the beta. Migration fragments are grouped under #6221 so\nSchemaBot validates the full schema change against `main`; its validator\nfinds all 13 required statements, and fragment lint passes. The\ntest-fixture cleanup is stacked separately in #6304.\n\nThe related docs PR remains separate while the ORM clients are updated.",
+          "timestamp": "2026-09-13T13:11:13+02:00",
+          "tree_id": "c95893209d706d93992857f5edae9e4e5350376f",
+          "url": "https://github.com/paradedb/paradedb/commit/e87c7e2f935b1c855d076b0559881d39f28d7568"
+        },
+        "date": 1789299016952,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.0625,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.8961179728761, max cpu: 38.28514, count: 59305"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.77341569798078, max mem: 42.80859375, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.597384886379143, max cpu: 37.702503, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 24.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.661696618645138, max mem: 24.671875, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.833448075372432, max cpu: 19.15212, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.3993012156437, max mem: 43.4375, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18955,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19053.90080094427, max block_count: 36457.0, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6399226,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2201080260316424, max cpu: 4.6875, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.892108722915438, max mem: 21.8984375, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.178871933226542, max segment_count: 38.0, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.020351038965652, max cpu: 24.012007, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 42.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 42.0636726983391, max mem: 42.10546875, count: 59305"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.088996422683882, max cpu: 37.702503, count: 118610"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.47945258488956, max mem: 45.93359375, count: 118610"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.444171,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.63982398937012, max cpu: 23.471882, count: 59305"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.322751164530814, max mem: 28.90625, count: 59305"
           }
         ]
       }

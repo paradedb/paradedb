@@ -366,13 +366,16 @@ impl BaseScanState {
         snippet_type: &SnippetType,
     ) -> Option<IntArray2D> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let generators = self.snippet_generators.get(snippet_type)?;
-        let snippet = generators
+        // Positions render with an unbounded fragment, so every generator reports offsets into
+        // the same text and the lists can be pooled rather than picked between.
+        let mut highlighted: Vec<_> = self
+            .snippet_generators
+            .get(snippet_type)?
             .iter()
-            .map(|generator| generator.snippet(&text))
-            .find(|snippet| !snippet.highlighted().is_empty())
-            .or_else(|| generators.first().map(|g| g.snippet(&text)))?;
-        let highlighted = snippet.highlighted();
+            .flat_map(|generator| generator.snippet(&text).highlighted().to_vec())
+            .collect();
+        highlighted.sort_by_key(|span| (span.start, span.end));
+        highlighted.dedup();
 
         if highlighted.is_empty() {
             None

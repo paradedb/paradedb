@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789301558658,
+  "lastUpdate": 1789301567137,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -143482,6 +143482,108 @@ window.BENCHMARK_DATA = {
             "value": 99.89453125,
             "unit": "median mem",
             "extra": "avg mem: 99.36419924209268, max mem: 104.4296875, count: 59407"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e87c7e2f935b1c855d076b0559881d39f28d7568",
+          "message": "feat: remove the key_field requirement from search indexes (#6221)\n\n# Ticket(s) Closed\n\n- Part of #6198. Documentation and ORM guidance remain in #6303.\n- Consolidates the implementation stack #6222–#6228 into this PR. The\nbroad test-fixture cleanup remains separate in #6304.\n\n## What\n\nRemove the dependency on a designated `key_field` throughout BM25 index\ncreation and search execution. New indexes can contain only the fields\nbeing searched, without a primary key, unique first column, or\n`key_field` option:\n\n```sql\nCREATE INDEX products_search ON products USING paradedb (description, category);\nSELECT * FROM products AS p WHERE p @@@ 'shoes';\n```\n\nExisting indexes remain usable after an extension upgrade without\nrebuilding. The `key_field` option remains accepted for compatibility\nbut has no effect on new indexes; fields follow their ordinary\nconfiguration rules.\n\n## Why\n\nSearch evaluation, index-only scans, projections, and aggregates\npreviously relied on assumptions about a special key column. Those\nassumptions prevented ordinary nullable or duplicate-valued columns from\nbehaving consistently and produced incorrect matches in some\nsequential-scan and RLS cases.\n\n## How\n\n- Use PostgreSQL row identity and visibility when evaluating indexed\nsearch predicates during sequential scans. Fall back to inline row\nevaluation for prospective RLS rows, rows outside a partial index, and\nother cases the index cannot answer.\n- Allow index-only scans over eligible fast fields and apply the same\nfield eligibility rules to custom scans. Restrict document-count\nshortcuts to actual document counts.\n- Treat whole-row queries as unfielded searches. A field-specific\nbuilder such as `pdb.term()` requires an indexed column on the left-hand\nside; it no longer implicitly binds to a key field.\n- Bind more-like-this source-document lookups to the field on the\nleft-hand side. The changed overload returns `pdb.query`; upgrade SQL\nrecreates it without cascading through dependent objects, which must be\nmigrated explicitly.\n- Include the SQL upgrade fragments and retain legacy key-field upgrade\nfixtures. The broad removal of obsolete `key_field` options from\nregression, integration, stress, benchmark, and snippet-test fixtures is\nisolated in #6304.\n\n## Tests\n\n- All source PRs passed CI before consolidation, including PostgreSQL\n15–18 integration tests, PG18 regression tests, upgrade tests from\n`0.21.0` and `0.25.9`, schema checks, Rust lint, and applicable\ndocumentation checks.\n- Published `0.26.0-rc.1` from the implementation head and smoke-tested\nthe Docker image on arm64: upgraded five `0.25.9` databases, verified\nlegacy indexes without rebuilding, compared upgraded and fresh extension\nschemas, and tested keyless indexes with NULLs, duplicates, searches,\nwrites, rollback, vacuum, reindex, and restart persistence.\n- Runtime code matches #6228 at `4405076dc`, which passed CI and was\nused to cut the beta. Migration fragments are grouped under #6221 so\nSchemaBot validates the full schema change against `main`; its validator\nfinds all 13 required statements, and fragment lint passes. The\ntest-fixture cleanup is stacked separately in #6304.\n\nThe related docs PR remains separate while the ORM clients are updated.",
+          "timestamp": "2026-09-13T13:11:13+02:00",
+          "tree_id": "c95893209d706d93992857f5edae9e4e5350376f",
+          "url": "https://github.com/paradedb/paradedb/commit/e87c7e2f935b1c855d076b0559881d39f28d7568"
+        },
+        "date": 1789301563042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.059484745990879564, max background_merging: 2.0, count: 59427"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759924226814279, max cpu: 9.514371, count: 59427"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 20.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.018267619831896, max mem: 20.06640625, count: 59427"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.909103881853521, max cpu: 28.374382, count: 59427"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 47.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.485780085230616, max mem: 51.40625, count: 59427"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64660,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64335.11636124994, max block_count: 64660.0, count: 59427"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 69,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.67822706850421, max segment_count: 106.0, count: 59427"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.610426,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.04575049874603, max cpu: 33.718014, count: 59427"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 84.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 80.92734054228296, max mem: 84.99609375, count: 59427"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.771322762493921, max cpu: 23.79772, count: 59427"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 34.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.39680445651808, max mem: 51.34765625, count: 59427"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.259295930858499, max cpu: 28.614008, count: 59427"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 100.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.81011511497299, max mem: 104.7734375, count: 59427"
           }
         ]
       }

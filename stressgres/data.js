@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789334371076,
+  "lastUpdate": 1789334939285,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -357010,6 +357010,60 @@ window.BENCHMARK_DATA = {
             "value": 35.99286528208332,
             "unit": "median tps",
             "extra": "avg tps: 56.70043975013798, max tps: 548.8145372028116, count: 58766"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789334935255,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 35.24200095070008,
+            "unit": "median tps",
+            "extra": "avg tps: 54.96896539442623, max tps: 540.8853099159525, count: 58773"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 18.421201912272355,
+            "unit": "median tps",
+            "extra": "avg tps: 29.595798561385234, max tps: 356.92688376857814, count: 58773"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 83.30861947193208,
+            "unit": "median tps",
+            "extra": "avg tps: 147.56614679115722, max tps: 1216.6815604917438, count: 58773"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.29231453277878,
+            "unit": "median tps",
+            "extra": "avg tps: 29.73461174443706, max tps: 276.85616685708663, count: 58773"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.094982770806496,
+            "unit": "median tps",
+            "extra": "avg tps: 58.14611635742906, max tps: 549.5324262859083, count: 58773"
           }
         ]
       }

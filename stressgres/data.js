@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789309171026,
+  "lastUpdate": 1789309179767,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -363494,6 +363494,60 @@ window.BENCHMARK_DATA = {
             "value": 22.53795992592187,
             "unit": "median tps",
             "extra": "avg tps: 38.757472639418154, max tps: 576.9292733653688, count: 59228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309166786,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3817.8544288537423,
+            "unit": "median tps",
+            "extra": "avg tps: 3820.2093036133792, max tps: 5190.330962980423, count: 59231"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4563.928005738016,
+            "unit": "median tps",
+            "extra": "avg tps: 4604.488243341964, max tps: 7462.952040333773, count: 59231"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.55729048641989,
+            "unit": "median tps",
+            "extra": "avg tps: 188.5720032096906, max tps: 3149.1077318152675, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 22.590736033965317,
+            "unit": "median tps",
+            "extra": "avg tps: 38.868061857511144, max tps: 589.1011052528388, count: 59231"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 22.558472138456732,
+            "unit": "median tps",
+            "extra": "avg tps: 38.76455336895509, max tps: 572.1959243094653, count: 59231"
           }
         ]
       }

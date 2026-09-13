@@ -79,12 +79,72 @@ USING paradedb (
     (substring(body FROM 1 FOR (10 / divisor))::pdb.simple('alias=danger')),
     (lower(body)::pdb.literal('alias=lower_body'))
 ) WHERE divisor <> 0;
+SET LOCAL paradedb.enable_custom_scan = on;
+SET LOCAL enable_indexscan = on;
+SET LOCAL enable_indexonlyscan = on;
+SET LOCAL enable_bitmapscan = on;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM partial_expression_anchor WHERE divisor <> 0 AND lower(body) === ''alpha'''
+        INTO plan;
+    ASSERT plan #>> '{0,Plan,Node Type}' = 'Custom Scan';
+END;
+$$;
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor <> 0 AND lower(body) === 'alpha';
+ array_agg 
+-----------
+ {1,4}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor <> 0 AND partial_expression_anchor @@@ paradedb.term('lower_body', 'alpha');
+ array_agg 
+-----------
+ {1,4}
+(1 row)
+
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_seqscan = off;
+SET LOCAL enable_bitmapscan = off;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM partial_expression_anchor WHERE divisor <> 0 AND lower(body) === ''alpha'''
+        INTO plan;
+    ASSERT plan #>> '{0,Plan,Node Type}' = 'Index Scan';
+    ASSERT plan #>> '{0,Plan,Index Cond}' IS NOT NULL;
+    ASSERT plan #>> '{0,Plan,Filter}' IS NULL;
+END;
+$$;
+SELECT array_agg(id ORDER BY id) FROM partial_expression_anchor
+WHERE divisor <> 0 AND lower(body) === 'alpha';
+ array_agg 
+-----------
+ {1,4}
+(1 row)
+
+SET LOCAL enable_seqscan = on;
+SET LOCAL enable_indexscan = off;
+SET LOCAL enable_indexonlyscan = off;
+DO $$
+DECLARE
+    plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM partial_expression_anchor WHERE lower(body) === ''alpha'''
+        INTO plan;
+    ASSERT plan #>> '{0,Plan,Node Type}' = 'Seq Scan';
+END;
+$$;
 DO $$
 BEGIN
-    PERFORM id FROM partial_expression_anchor WHERE lower(body) === 'alpha';
+    PERFORM id FROM partial_expression_anchor WHERE divisor = 0 AND lower(body) === 'alpha';
     RAISE EXCEPTION 'expected an unsupported expression-only partial index error';
 EXCEPTION WHEN feature_not_supported THEN
-    ASSERT SQLERRM = 'searches on expression-only partial indexes are not supported';
+    ASSERT SQLERRM = 'searches on expression-only partial indexes require an index scan';
 END;
 $$;
 ROLLBACK;

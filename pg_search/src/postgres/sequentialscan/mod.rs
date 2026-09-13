@@ -282,6 +282,20 @@ fn search_with_query_input_impl(
         }
 
         if ctid.is_none() {
+            let index_info = unsafe { &*index_relation.index_info() };
+            if is_partial
+                && index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize]
+                    .iter()
+                    .all(|&attno| attno == 0)
+            {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                    "searches on expression-only partial indexes require an index scan",
+                    function_name!(),
+                )
+                .set_hint("Add a directly indexed table column to support searches without an index scan.")
+                .report(PgLogLevel::ERROR);
+            }
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
                 "search query requires row identity that is unavailable in this context",

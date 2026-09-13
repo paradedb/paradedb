@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector index builds store training samples and hierarchical clustering scratch in PostgreSQL temporary files, reducing memory growth as training samples increase. Active training buffers are sized from `maintenance_work_mem`; model memory and later index construction are additional.

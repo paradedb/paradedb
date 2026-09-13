@@ -31,7 +31,12 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::vector::PgVector;
 use anyhow::{Result, bail};
 use pgrx::{FromDatum, pg_sys};
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
+use superkmeans::{
+    HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, Matrix, SpillOptions, TempMatrix,
+    TempStorage,
+};
+
+use super::temp_storage::{PgTempFile, PgTempStorage};
 use tantivy::schema::Field;
 use tantivy::vector::{
     CentroidProducer, IvfCentroids, IvfMatrix, Metric, RouterKind, VectorOptions,
@@ -47,6 +52,7 @@ pub fn set_ivf_router(index: &mut Index) -> tantivy::Result<()> {
 /// Floor on reservoir capacity, so a tiny table still trains on whatever
 /// it has rather than on a couple of rows.
 const MIN_RESERVOIR_ROWS: usize = 1024;
+const TRAINING_READ_BYTES: usize = 64 * 1024;
 
 /// The frozen training result for every vector field of the schema,
 /// pulled by tantivy exactly once at index creation.
@@ -97,7 +103,7 @@ struct SampledField {
     /// and the reservoir's algorithm-R denominator.
     seen: usize,
     /// The reservoir: `min(seen, cap)` rows, `dim`-strided.
-    rows: Vec<f32>,
+    rows: TempMatrix<PgTempFile>,
 }
 
 /// Sampler over the CREATE INDEX heap scan, one reservoir per vector field.
@@ -112,23 +118,27 @@ pub struct VectorSampler {
 
 impl VectorSampler {
     /// Allocate reservoirs for the vector fields discovered during schema planning.
-    pub fn from_specs(specs: Vec<SampledFieldSpec>, options: &BM25IndexOptions) -> Self {
+    pub fn from_specs(specs: Vec<SampledFieldSpec>, options: &BM25IndexOptions) -> Result<Self> {
         assert!(!specs.is_empty(), "sampling requires vector fields");
         let sample_fraction = f64::from(options.training_sample_ratio());
         let fields = specs
             .into_iter()
-            .map(|spec| SampledField {
-                spec,
-                cap: MIN_RESERVOIR_ROWS,
-                seen: 0,
-                rows: Vec::new(),
+            .map(|spec| {
+                let batch_rows = (TRAINING_READ_BYTES / (spec.dim * 4)).max(1);
+                let rows = TempMatrix::new(PgTempStorage.create()?, spec.dim, batch_rows)?;
+                Ok(SampledField {
+                    spec,
+                    cap: MIN_RESERVOIR_ROWS,
+                    seen: 0,
+                    rows,
+                })
             })
-            .collect();
-        VectorSampler {
+            .collect::<Result<Vec<_>>>()?;
+        Ok(VectorSampler {
             fields,
             sample_fraction,
             rng: 0x9E37_79B9_7F4A_7C15,
-        }
+        })
     }
 
     fn next_rng(&mut self) -> u64 {
@@ -147,14 +157,14 @@ impl VectorSampler {
     ///
     /// `values` and `isnull` must be the arrays Postgres passes to an
     /// `IndexBuildCallback`, valid for the index's column count.
-    pub unsafe fn offer(&mut self, values: *mut pg_sys::Datum, isnull: *mut bool) {
+    pub unsafe fn offer(&mut self, values: *mut pg_sys::Datum, isnull: *mut bool) -> Result<()> {
         for i in 0..self.fields.len() {
             let ordinal = self.fields[i].spec.ordinal;
             if *isnull.add(ordinal) {
                 continue;
             }
             let datum = *values.add(ordinal);
-            let Some(vector) = PgVector::from_datum(datum, false) else {
+            let Some(mut vector) = PgVector::from_datum(datum, false) else {
                 continue;
             };
             let field = &self.fields[i];
@@ -178,7 +188,7 @@ impl VectorSampler {
             // way the reservoir grows, so a widened capacity is filled by
             // subsequent rows instead of leaving zero-filled holes for
             // k-means to train on.
-            let filled = field.rows.len() / dim;
+            let filled = field.rows.n();
             let slot = if filled < cap {
                 Some(filled)
             } else {
@@ -190,16 +200,28 @@ impl VectorSampler {
             let field = &mut self.fields[i];
             field.cap = cap;
             if let Some(slot) = slot {
-                let start = slot * dim;
-                debug_assert!(start <= field.rows.len(), "reservoir must stay dense");
-                if field.rows.len() == start {
-                    field.rows.extend_from_slice(&vector.0);
+                if field.spec.metric == Metric::Cosine {
+                    let norm = vector
+                        .0
+                        .iter()
+                        .map(|&x| f64::from(x) * f64::from(x))
+                        .sum::<f64>()
+                        .sqrt();
+                    if norm.is_finite() && norm > 0.0 {
+                        for value in &mut vector.0 {
+                            *value = (f64::from(*value) / norm) as f32;
+                        }
+                    }
+                }
+                if field.rows.n() == slot {
+                    field.rows.append(Matrix::new(&vector.0, 1, dim))?;
                 } else {
-                    field.rows[start..start + dim].copy_from_slice(&vector.0);
+                    field.rows.replace_row(slot, &vector.0)?;
                 }
             }
             field.seen += 1;
         }
+        Ok(())
     }
 
     /// Vector-bearing rows seen per field, for the training floor.
@@ -214,11 +236,16 @@ impl VectorSampler {
     /// count (`seen`), not the reservoir size.
     pub fn train(self, options: &BM25IndexOptions) -> Result<TrainedCentroidProducer> {
         let centroid_ratio = options.centroid_ratio();
+        let memory_budget = crate::gucs::adjust_maintenance_work_mem(0)
+            .get()
+            .saturating_sub(self.fields.len() * PgTempStorage.buffer_bytes_per_file())
+            .saturating_sub(TRAINING_READ_BYTES);
+        let spill_options = SpillOptions { memory_budget };
         let mut fields = HashMap::default();
         for sampled in self.fields {
             let spec = sampled.spec;
             // The reservoir is dense, so its length IS the sample size.
-            let sampled_rows = sampled.rows.len() / spec.dim;
+            let sampled_rows = sampled.rows.n();
             if sampled_rows == 0 {
                 bail!(
                     "vector field '{}' has no vectors to train on",
@@ -231,24 +258,7 @@ impl VectorSampler {
             let num_centroids = num_centroids.clamp(1, sampled_rows);
 
             let mut values = sampled.rows;
-            debug_assert_eq!(values.len(), sampled_rows * spec.dim);
             let angular = matches!(spec.metric, Metric::Cosine | Metric::Dot);
-            if spec.metric == Metric::Cosine {
-                // Mirror the stored-row contract: rows are unit-normalized
-                // at ingest, so train in the same space.
-                for row in values.chunks_exact_mut(spec.dim) {
-                    let norm = row
-                        .iter()
-                        .map(|x| f64::from(*x) * f64::from(*x))
-                        .sum::<f64>()
-                        .sqrt();
-                    if norm.is_finite() && norm > 0.0 {
-                        for x in row {
-                            *x = (f64::from(*x) / norm) as f32;
-                        }
-                    }
-                }
-            }
 
             let mut config = HierarchicalSuperKMeansConfig::default();
             config.base.suppress_warnings = true;
@@ -257,7 +267,8 @@ impl VectorSampler {
                 .round()
                 .max(1.0) as usize;
             let mut clusterer = HierarchicalSuperKMeans::with_config(spec.dim, config);
-            let centroids = clusterer.train_owned(values, sampled_rows);
+            let centroids =
+                clusterer.train_spillable(&mut values, &mut PgTempStorage, spill_options)?;
             if centroids.is_empty() || !centroids.len().is_multiple_of(spec.dim) {
                 bail!(
                     "SuperKMeans returned {} centroid floats for field '{}' with dimension {}",

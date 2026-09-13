@@ -17,6 +17,7 @@
 
 pub mod clusterer;
 pub mod metric;
+mod temp_storage;
 
 use pgrx::{FromDatum, pg_sys};
 

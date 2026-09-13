@@ -151,7 +151,7 @@ unsafe fn train_vector_centroids(
     index_info: *mut pg_sys::IndexInfo,
     specs: Vec<crate::vector::clusterer::SampledFieldSpec>,
 ) -> Result<Arc<dyn CentroidProducer>> {
-    let mut sampler = VectorSampler::from_specs(specs, index_relation.options());
+    let mut sampler = VectorSampler::from_specs(specs, index_relation.options())?;
 
     unsafe extern "C-unwind" fn sample_callback(
         _indexrel: pg_sys::Relation,
@@ -163,7 +163,9 @@ unsafe fn train_vector_centroids(
     ) {
         check_for_interrupts!();
         let sampler = &mut *state.cast::<VectorSampler>();
-        sampler.offer(values, isnull);
+        sampler
+            .offer(values, isnull)
+            .unwrap_or_else(|error| pgrx::error!("could not store training sample: {error}"));
     }
 
     pg_sys::table_index_build_scan(

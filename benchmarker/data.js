@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789290959008,
+  "lastUpdate": 1789293505746,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3271,6 +3271,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789293501653,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7528454154643656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.706,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.046,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.097,
             "unit": "ms"
           }
         ]

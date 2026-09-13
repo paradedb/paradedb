@@ -920,7 +920,9 @@ impl SearchIndexReader {
             .collect();
         fields.extend(siblings);
         if fields.is_empty() {
-            panic!("cannot generate snippet for field {field_name} because it was not found in the index")
+            panic!(
+                "cannot generate snippet for field {field_name} because it was not found in the index"
+            )
         }
 
         let query = self.make_query(query, expr_context);

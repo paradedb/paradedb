@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+`pdb.score()` and `pdb.snippet()` now explain why they could not be rewritten: a missing ParadeDB search operator, a disabled custom/join/aggregate scan, or an unsupported query shape such as a top-level join without `LIMIT`.

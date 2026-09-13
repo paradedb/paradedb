@@ -188,7 +188,7 @@ INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 2: Non-equi joins and problematic conditions
 -- =============================================================================
@@ -286,7 +286,7 @@ INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 3: CROSS-TABLE OR TESTS
 -- =============================================================================
@@ -480,7 +480,7 @@ JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5.3: LEFT JOIN semantics test
 SELECT 
     a.name as author_name,

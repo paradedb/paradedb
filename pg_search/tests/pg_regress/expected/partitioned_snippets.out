@@ -113,7 +113,7 @@ FROM logs
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 \echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table'
 Test 3: UNNEST(pdb.snippets(...)) on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -241,5 +241,5 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() / pdb.snippet() cannot be evaluated for this query shape. A common cause is a top-level join without LIMIT, which prevents JoinScan. If this looks like a bug, please report it at https://github.com/paradedb/paradedb/issues/new/choose
 DROP TABLE IF EXISTS logs CASCADE;

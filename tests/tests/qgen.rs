@@ -26,7 +26,8 @@ use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
     Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
-    compare_outcome_retrying, compare_outcome_retrying_on, generated_queries_setup,
+    compare_outcome_retrying, compare_outcome_retrying_on, compare_plan_retrying,
+    generated_queries_setup,
 };
 
 use tests::fixtures::*;
@@ -35,7 +36,6 @@ use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
-use serde_json::Value;
 use sqlx::{PgConnection, Row};
 
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
@@ -390,33 +390,17 @@ async fn generated_joins_small(database: Db) {
             && !(!join.has_only_inner() && where_expr.has_null_predicate());
 
         if expect_custom_scan {
-            use tests::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
-            let plan = match retry_transient(&pool, "qgen joinscan plan check", |conn| {
-                sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
-                    format!("EXPLAIN (FORMAT JSON) {bm25_query}").fetch_one_result::<(Value,)>(conn)
-                }))
-            }) {
-                Ok(Ok(plan)) => plan,
-                Ok(Err(e)) => {
-                    return Err(proptest::test_runner::TestCaseError::fail(format!(
-                        "{e}: EXPLAIN failed for '{bm25_query}'"
-                    )));
-                }
-                Err(RetryError::TimedOutUnderPause(e)) => {
-                    return Err(proptest::test_runner::TestCaseError::fail(format!(
-                        "EXPLAIN timed out while faults were paused, for '{bm25_query}': {e}"
-                    )));
-                }
-                Err(RetryError::GraceExpired(reason)) => {
-                    return Err(proptest::test_runner::TestCaseError::fail(reason));
-                }
-            };
-            let plan_str = format!("{:#?}", plan.0);
-            prop_assert!(
-                plan_str.contains("ParadeDB Join Scan")
-                    || plan_str.contains("ParadeDB Aggregate Scan"),
-                "Query should use ParadeDB Join Scan or Aggregate Scan but got plan: {plan_str}\nQuery: {bm25_query}",
-            );
+            qgen_oracle!(
+                "qgen: generated_joins_small - ParadeDB custom scan planned",
+                compare_plan_retrying(
+                    &pg_query,
+                    &bm25_query,
+                    &gucs,
+                    &pool,
+                    &setup_sql,
+                    &["ParadeDB Join Scan", "ParadeDB Aggregate Scan"],
+                )
+            )?;
         }
 
         qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(

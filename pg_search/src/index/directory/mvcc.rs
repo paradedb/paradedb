@@ -34,6 +34,7 @@ use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -45,7 +46,7 @@ use tantivy::directory::error::{
 };
 use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, InnerWritePtr, Lock, RamDirectory,
-    WatchCallback, WatchHandle,
+    TempFilePtr, WatchCallback, WatchHandle,
 };
 use tantivy::index::{SegmentComponent, SegmentId, SegmentMetaInventory};
 use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
@@ -54,6 +55,74 @@ use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 /// We want to write more at a time so we can allocate chunks of blocks all at once,
 /// which creates less lock contention than allocating one block at a time.
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
+
+/// PostgreSQL-owned spill file for Tantivy merge-local temporary payloads.
+///
+/// `BufFileCreateTemp(false)` registers the file with PostgreSQL's resource
+/// owner and temporary-file accounting, so it is removed on normal close,
+/// transaction abort, backend exit, or process failure. It never enters the
+/// immutable segment-component map.
+struct PgTempFile {
+    file: *mut pg_sys::BufFile,
+}
+
+impl PgTempFile {
+    fn create() -> Self {
+        let file = unsafe { pg_sys::BufFileCreateTemp(false) };
+        assert!(!file.is_null(), "BufFileCreateTemp returned null");
+        Self { file }
+    }
+}
+
+impl Read for PgTempFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+    }
+}
+
+impl Write for PgTempFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unsafe {
+            #[cfg(feature = "pg15")]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
+            #[cfg(not(feature = "pg15"))]
+            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // BufFileSeek flushes pending writes before the read phase. There is
+        // no independent BufFile flush API.
+        Ok(())
+    }
+}
+
+impl Seek for PgTempFile {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if position != SeekFrom::Start(0) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "PostgreSQL quantization spill files support rewind only",
+            ));
+        }
+        let result = unsafe {
+            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
+        };
+        if result != 0 {
+            return Err(io::Error::other(format!(
+                "BufFileSeek rewind failed with status {result}"
+            )));
+        }
+        Ok(0)
+    }
+}
+
+impl Drop for PgTempFile {
+    fn drop(&mut self) {
+        unsafe { pg_sys::BufFileClose(self.file) }
+    }
+}
 
 /// The `(max_doc, num_deleted_docs)` pair of a mutable segment's meta entry as one reader
 /// loaded it. A mutable segment is materialized from the heap on open, from the prefix of its
@@ -586,6 +655,10 @@ impl Directory for MVCCDirectory {
             (writer.file_entry(), writer.total_bytes()),
         );
         Ok(Box::new(writer))
+    }
+
+    fn open_temp_file(&self) -> io::Result<TempFilePtr> {
+        Ok(Box::new(PgTempFile::create()))
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json

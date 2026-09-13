@@ -1,0 +1,199 @@
+SET client_min_messages = WARNING;
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+
+SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_cluster_max_probe = 1.0;
+
+CREATE FUNCTION quant_fixture_vector(d integer, n integer)
+RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE
+AS $$
+    SELECT (
+        '[' || string_agg((((n * 31 + i * 17) % 101) - 50)::text, ',' ORDER BY i) || ']'
+    )::vector
+    FROM generate_series(1, d) i
+$$;
+
+CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":false}}'
+);
+INSERT INTO q_cal_unquantized
+SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
+VACUUM q_cal_unquantized;
+DROP TABLE q_cal_unquantized;
+
+CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":true}}'
+);
+DROP TABLE q_explicit_below_floor;
+
+CREATE TABLE q_default_below_floor (id integer PRIMARY KEY, vec vector(63));
+CREATE INDEX q_default_below_floor_idx ON q_default_below_floor
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id
+);
+DROP TABLE q_default_below_floor;
+
+CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
+CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
+);
+CREATE INDEX q_grid_first_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
+);
+DROP TABLE q_schedule_validation;
+
+CREATE TABLE q_cosine (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_cosine_idx ON q_cosine
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id,
+    centroid_ratio = 0.2,
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_cosine SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_cosine;
+
+SET paradedb.vector_cluster_max_probe = 0.25;
+CREATE TEMP TABLE q_cosine_unquantized_ivf AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+SET paradedb.vector_cluster_max_probe = 1.0;
+
+CREATE TEMP TABLE q_cosine_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
+CREATE INDEX q_l2_idx ON q_l2
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '400kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(1, 100) g;
+INSERT INTO q_l2 SELECT g, quant_fixture_vector(768, g) FROM generate_series(101, 200) g;
+VACUUM q_l2;
+
+SELECT bool_or(vector_format = 'ivf') AS l2_has_ivf
+FROM paradedb.vector_info('q_l2_idx', 'vec');
+
+CREATE TEMP TABLE q_l2_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_l2
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_odd_idx ON q_odd
+USING paradedb (id, vec vector_l2_ops)
+WITH (
+    key_field = id,
+    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    target_segment_count = 1,
+    mutable_segment_rows = 0,
+    layer_sizes = '50kb',
+    background_layer_sizes = '0'
+);
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 100) g;
+INSERT INTO q_odd SELECT g, quant_fixture_vector(100, g) FROM generate_series(101, 200) g;
+VACUUM q_odd;
+
+SELECT bool_or(vector_format = 'ivf') AS odd_has_ivf
+FROM paradedb.vector_info('q_odd_idx', 'vec');
+
+CREATE TEMP TABLE q_odd_quantized AS
+SELECT array_agg(id) AS ids
+FROM (
+    SELECT id
+    FROM q_odd
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <-> quant_fixture_vector(100, 0), id
+    LIMIT 10
+) hits;
+
+CREATE TABLE q_flat (id integer PRIMARY KEY, vec vector(100));
+CREATE INDEX q_flat_idx ON q_flat
+USING paradedb (id, vec vector_cosine_ops)
+WITH (
+    key_field = id
+);
+INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
+
+SET paradedb.max_scan_levels = 0;
+SET paradedb.vector_cluster_max_probe = 0.25;
+
+CREATE TEMP TABLE q_cosine_lvl0 AS
+SELECT
+    row_number() OVER (ORDER BY distance, id) AS ordinal,
+    id,
+    distance
+FROM (
+    SELECT id, vec <=> quant_fixture_vector(768, 0) AS distance
+    FROM q_cosine
+    WHERE id @@@ pdb.all()
+    ORDER BY vec <=> quant_fixture_vector(768, 0), id
+    LIMIT 10
+) hits;
+
+SELECT
+    count(*) = 10
+        AND bool_and(baseline.id IS NOT DISTINCT FROM lvl0.id)
+        AND bool_and(baseline.distance IS NOT DISTINCT FROM lvl0.distance)
+        AS lvl0_matches_unquantized_ivf
+FROM q_cosine_unquantized_ivf baseline
+FULL JOIN q_cosine_lvl0 lvl0 USING (ordinal);
+
+RESET paradedb.max_scan_levels;
+RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_clustering_threshold;
+
+DROP TABLE q_cosine;
+DROP TABLE q_l2;
+DROP TABLE q_odd;
+DROP TABLE q_flat;
+DROP FUNCTION quant_fixture_vector(integer, integer);

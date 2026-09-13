@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789333821712,
+  "lastUpdate": 1789333830053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -200124,6 +200124,126 @@ window.BENCHMARK_DATA = {
             "value": 28.3671875,
             "unit": "median mem",
             "extra": "avg mem: 28.728317375964973, max mem: 29.34765625, count: 59328"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789333826194,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.127293789892246, max cpu: 37.907207, count: 59305"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.7752803304949, max mem: 42.796875, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.574777879234378, max cpu: 42.1875, count: 59305"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 24.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.76404985351151, max mem: 24.7734375, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.68979,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.918973936778298, max cpu: 19.057072, count: 59305"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.832482373956665, max mem: 43.84765625, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 18930,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19038.90550543799, max block_count: 36420.0, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.065959388586097, max cpu: 4.698972, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.812058031574065, max mem: 21.82421875, count: 59305"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.287817216086335, max segment_count: 39.0, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.37958,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.321679542408743, max cpu: 23.964054, count: 59305"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 42.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.082500882619506, max mem: 42.08984375, count: 59305"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.184407515676815, max cpu: 37.5, count: 118610"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 44.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 43.450228229597, max mem: 45.26171875, count: 118610"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.552238,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.866874882394276, max cpu: 23.460411, count: 59305"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 29.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.996433690245343, max mem: 29.6171875, count: 59305"
           }
         ]
       }

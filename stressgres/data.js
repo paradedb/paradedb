@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789301567137,
+  "lastUpdate": 1789308024995,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -340140,6 +340140,90 @@ window.BENCHMARK_DATA = {
             "value": 593.514891706692,
             "unit": "median tps",
             "extra": "avg tps: 590.829908470826, max tps: 684.3599451303438, count: 55195"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789308021205,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 202.9442145691818,
+            "unit": "median tps",
+            "extra": "avg tps: 203.00934263964106, max tps: 237.99009417705264, count: 55471"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 206.17329165900443,
+            "unit": "median tps",
+            "extra": "avg tps: 205.98747244655456, max tps: 222.66554444532503, count: 55471"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 166.83169575362686,
+            "unit": "median tps",
+            "extra": "avg tps: 166.52335044947412, max tps: 182.9614188576484, count: 55471"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 509.7172526065983,
+            "unit": "median tps",
+            "extra": "avg tps: 510.5810336162477, max tps: 664.8001340128532, count: 55471"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 362.23586151845274,
+            "unit": "median tps",
+            "extra": "avg tps: 362.4072352514184, max tps: 442.7528289968729, count: 55471"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.911469488515834,
+            "unit": "median tps",
+            "extra": "avg tps: 14.927298660629456, max tps: 15.568396638955575, count: 55471"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 666.6718768165518,
+            "unit": "median tps",
+            "extra": "avg tps: 666.4776651017618, max tps: 791.3208060602639, count: 55471"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 688.7570114407534,
+            "unit": "median tps",
+            "extra": "avg tps: 689.2269558792825, max tps: 806.1583389742481, count: 55471"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 284.3596084881192,
+            "unit": "median tps",
+            "extra": "avg tps: 284.20162949305666, max tps: 335.0372503588588, count: 55471"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 593.9064659913918,
+            "unit": "median tps",
+            "extra": "avg tps: 593.0029192255374, max tps: 659.2551184534434, count: 55471"
           }
         ]
       }

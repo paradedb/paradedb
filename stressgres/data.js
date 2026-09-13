@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789286392063,
+  "lastUpdate": 1789286400609,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -356736,6 +356736,96 @@ window.BENCHMARK_DATA = {
             "value": 45.16015625,
             "unit": "median mem",
             "extra": "avg mem: 45.979066278033486, max mem: 53.74609375, count: 58769"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2438a366894d88ee0649b54d0ee7a2c631634b4",
+          "message": "fix: restored parallel top-K for phrase and filtered searches. (#6296)\n\n## Ticket(s) Closed\n\n- Closes #5746\n\n## What\n\nThis PR fixes two drive-cost estimates that collapse to near zero, which\nleaves top-K searches serial.\n\n[searchbench](https://serenedb.com/blog/searchbench-postgres) found 3 of\nits 88 queries 7-8x slower on `0.25.0` than on `0.24.1` at 100M rows: a\nfour-word phrase by score, that phrase under a time window, and a\n`charg.*` regex under a time window. #5746 is the same regression from\nanother user.\n\n## Why\n\nSince #5150 a costable scan picks serial or parallel from its drive\ncost, and two estimates feeding that choice are off by orders of\nmagnitude.\n\n`UNKNOWN_SELECTIVITY` marks a clause we cannot estimate, so multiplying\nit into a conjunction read as an extremely selective one. On 3M rows,\n`regex('body','charg.*') AND ts BETWEEN ...` estimated 1 row against\n189,034 actual.\n\nTantivy derives a phrase's cost from an intersection estimate that\nassumes independent terms, so it shrinks with every term added while the\nscan walks the same posting list. A phrase matching 300,000 rows costed\n136. Only a narrow band is hit, which is why so few queries moved. Below\nit `size_hint()` reaches zero and the existing full count is right,\nabove it the phrase really is rare.\n\n## How\n\nAn un-estimatable conjunct drops out of the product, leaving\n`UNKNOWN_SELECTIVITY` for queries with nothing to estimate at all.\n\nThe drive cost is floored at the shortest posting list the query walks,\nread from the term dictionary. A conjunction advances that list end to\nend, so it cannot touch fewer documents. The floor is inert for terms\nand unions and bites only on phrases.\n\n`ProximityQuery::query_terms` reports a field miss instead of aborting\nthe plan, since callers walk terms one field at a time.\n\n## Tests\n\n`topk_parallel_estimates` covers the three shapes plus a rare phrase\nthat must stay serial. Plans on one 3M-row table:\n\n| query | 0.24.1 | 0.25.0 | this PR |\n| --- | --- | --- | --- |\n| phrase, top-K by score | parallel | serial | parallel |\n| phrase under a window | parallel | serial | parallel |\n| regex under a window | parallel | serial | parallel |\n| Q43, Q47, Q70 (never flagged) | parallel | parallel | parallel |\n\nThat cuts the three by 7.6x, 7.3x and 3.5x. I could not run #5746's\ndata, but its query shape goes from `rows=1` and serial to `rows=29999`\nand parallel.",
+          "timestamp": "2026-09-13T09:20:24+02:00",
+          "tree_id": "0b928d729d493c337c2b39f6ef1daafa042e8acf",
+          "url": "https://github.com/paradedb/paradedb/commit/a2438a366894d88ee0649b54d0ee7a2c631634b4"
+        },
+        "date": 1789286396512,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 67.25032365995474, max partition_index_size:MB: 109.8046875, count: 58776"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.308132104569253, max cpu: 33.267326, count: 58776"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.79367462112512, max mem: 54.44921875, count: 58776"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.004026475751413, max cpu: 37.390457, count: 58776"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 53.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.38136101469988, max mem: 106.8515625, count: 58776"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.490856,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.59813613725014, max cpu: 32.8125, count: 58776"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 51.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.35577054463131, max mem: 65.73828125, count: 58776"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.913434812272687, max cpu: 33.31681, count: 58776"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.58203895935416, max mem: 62.42578125, count: 58776"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.239743957611775, max cpu: 33.349876, count: 58776"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.15706519774228, max mem: 51.5390625, count: 58776"
           }
         ]
       }

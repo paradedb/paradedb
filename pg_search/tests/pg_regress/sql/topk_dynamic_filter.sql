@@ -286,7 +286,7 @@ SELECT
 FROM generate_series(1, 200) AS i;
 
 CREATE INDEX bench_documents_bm25_idx ON bench_documents USING paradedb (id, category, title)
-WITH (key_field = 'id');
+WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 
 CREATE INDEX bench_files_bm25_idx ON bench_files USING paradedb (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');

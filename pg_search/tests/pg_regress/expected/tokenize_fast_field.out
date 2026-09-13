@@ -38,8 +38,9 @@ LIMIT 5;
          Scores: false
             TopK Order By: description asc
             TopK Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(12 rows)
+(13 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
@@ -110,8 +111,9 @@ LIMIT 5;
          Scores: false
             TopK Order By: description asc
             TopK Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(12 rows)
+(13 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()

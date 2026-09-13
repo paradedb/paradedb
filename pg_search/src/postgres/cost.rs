@@ -64,12 +64,16 @@ pub unsafe extern "C-unwind" fn amcostestimate(
     *index_startup_cost = DEFAULT_STARTUP_COST;
 
     // choose the smallest selectivity from the RestrictInfo clauses that have already done their estimations
-    *index_selectivity = index_clauses
-        .iter_ptr()
-        .map(|clause| (*(*clause).rinfo).norm_selec)
-        .filter(|norm| *norm > 0.0)
-        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Greater))
-        .unwrap_or(UNKNOWN_SELECTIVITY);
+    *index_selectivity = if index_clauses.is_empty() {
+        1.0
+    } else {
+        index_clauses
+            .iter_ptr()
+            .map(|clause| (*(*clause).rinfo).norm_selec)
+            .filter(|norm| *norm > 0.0)
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Greater))
+            .unwrap_or(UNKNOWN_SELECTIVITY)
+    };
 
     // use the selectivity to further estimate how many postgres pages we'd read,
     // if in fact we were based on Postgres' block storage

@@ -25,7 +25,7 @@
 //! lower into a DataFusion plan.
 
 use super::privdat::{CompareOp, FilterExpr};
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::expr_contains_search_predicate;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -49,8 +49,7 @@ use crate::postgres::customscan::qual_inspect::{
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{
-    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
-    missing_partial_index_predicate,
+    expr_collect_rtis, expr_collect_vars, missing_partial_index_predicate,
 };
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
@@ -824,7 +823,6 @@ unsafe fn extract_non_equi_filter_from_quals(
         .collect();
 
     let mut non_equi_nodes = Vec::new();
-    let search_op = crate::api::operator::anyelement_query_input_opoid();
 
     for node in conjuncts {
         if (*node).type_ == pg_sys::NodeTag::T_OpExpr
@@ -864,7 +862,7 @@ unsafe fn extract_non_equi_filter_from_quals(
             continue;
         }
 
-        if expr_contains_any_operator(node, &[search_op]) {
+        if expr_contains_search_predicate(node) {
             return Err("search operators in join ON clause are not supported".into());
         }
 
@@ -1182,11 +1180,9 @@ unsafe fn analyze_join_path_restrictinfo(
     }
     let path = input_rel.cheapest_total_path;
     if !path.is_null() {
-        let search_op = anyelement_query_input_opoid();
         let cx = PathWalkContext {
             root,
             sources,
-            search_op,
             on_clauses: &on_clauses,
         };
         walk_path_restrictinfo(&cx, path, false, &mut info);
@@ -1197,7 +1193,6 @@ unsafe fn analyze_join_path_restrictinfo(
 struct PathWalkContext<'a> {
     root: *mut pg_sys::PlannerInfo,
     sources: &'a [JoinAggSource],
-    search_op: pg_sys::Oid,
     on_clauses: &'a [*mut pg_sys::Node],
 }
 
@@ -1269,7 +1264,7 @@ unsafe fn classify_path_restrictinfo(
                 .on_clauses
                 .iter()
                 .any(|&on_node| nodes_equal_modulo_commutation(clause, on_node));
-        if is_on_clause && !expr_contains_any_operator(clause, &[cx.search_op]) {
+        if is_on_clause && !expr_contains_search_predicate(clause) {
             // ON-clause predicate (for inner or outer join) - handled in JoinNode.filter during
             // join execution. Decline only if columns are not columnar fields.
             if !all_vars_are_fast_fields_for_agg(cx.root, clause, cx.sources) {
@@ -1280,7 +1275,7 @@ unsafe fn classify_path_restrictinfo(
 
         let rtis = expr_collect_rtis(clause);
         if !rtis.is_empty() {
-            let has_search = expr_contains_any_operator(clause, &[cx.search_op]);
+            let has_search = expr_contains_search_predicate(clause);
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
             } else {

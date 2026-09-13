@@ -27,15 +27,14 @@ use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
     directory::RamDirectory,
 };
-use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::setup_tokenizers;
 use crate::index::stats::{self, LogicalBoundsByField, StatsWriter};
-use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{STATS_EXT, SegmentMetaEntry};
+use crate::schema::SearchIndexSchema;
 use crate::vector::clusterer::set_ivf_clusterer;
-use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{IntoDatum, PgLogLevel, PgSqlErrorCode, direct_function_call, function_name};
 
@@ -213,7 +212,7 @@ pub struct SerialIndexWriter {
     indexrel: PgSearchRelation,
     ctid_field: Field,
     config: IndexWriterConfig,
-    index: Index,
+    pub(crate) index: Index,
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
     schema: SearchIndexSchema,
@@ -335,16 +334,7 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
-
-        let settings = index_settings(index_relation.options(), &tantivy_schema);
-        // No stats plugin here: the segment is a throwaway materialization that nothing
-        // reads statistics from, and it is rebuilt per reader.
-        let mut index = Index::create(directory, tantivy_schema, settings)?;
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, index_relation.options());
-        }
-        setup_tokenizers(index_relation, &mut index)?;
+        let index = index_relation.create_in_memory_index(directory)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.
         let memory_budget = NonZeroUsize::new(usize::MAX).unwrap();
@@ -664,24 +654,6 @@ impl Mergeable for SearchIndexMerger {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum IndexError {
-    #[error(transparent)]
-    TantivyError(#[from] tantivy::TantivyError),
-
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-
-    #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    TantivyValueError(#[from] TantivyValueError),
-
-    #[error("key_field column '{0}' cannot be NULL")]
-    KeyIdNull(String),
-}
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
@@ -698,7 +670,7 @@ mod tests {
             Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
             Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
             Spi::run(
-                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
+                "CREATE INDEX t_vec_idx ON t_vec USING paradedb (id, data, embedding vector_l2_ops)",
             )
             .unwrap();
             Spi::get_one::<pg_sys::Oid>(
@@ -709,10 +681,7 @@ mod tests {
         } else {
             Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
             Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
-            Spi::run(
-                "CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple)) WITH (key_field = 'id')",
-            )
-            .unwrap();
+            Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, (data::pdb.simple))").unwrap();
             Spi::get_one::<pg_sys::Oid>(
                 "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
             )

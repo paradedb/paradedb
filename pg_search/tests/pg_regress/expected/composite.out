@@ -1758,8 +1758,9 @@ LIMIT 3;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 SELECT id, name, category,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
@@ -1826,8 +1827,9 @@ LIMIT 3;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 SELECT id, name, price,
        pdb.agg('{"stats": {"field": "price"}}'::jsonb) OVER () as price_stats
@@ -2191,8 +2193,9 @@ LIMIT 3;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 ------------------------------------------------------------
 -- TEST: Field existence with pdb.exists()

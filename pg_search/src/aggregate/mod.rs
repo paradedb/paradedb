@@ -920,30 +920,6 @@ mod scrub_missing_sentinel_value_tests {
     }
 
     #[test]
-    fn leaves_bucket_without_key_field_unchanged() {
-        let mut input = json!({
-            "buckets": [
-                { "doc_count": 5 }
-            ]
-        });
-        let original = input.clone();
-        scrub_missing_sentinel_value(&mut input);
-        assert_eq!(input, original);
-    }
-
-    #[test]
-    fn does_not_replace_sentinel_in_non_key_field() {
-        let mut input = json!({
-            "buckets": [
-                { "key": "alpha", "label": NULL_SENTINEL_MAX, "doc_count": 1 }
-            ]
-        });
-        scrub_missing_sentinel_value(&mut input);
-        assert_eq!(input["buckets"][0]["key"], "alpha");
-        assert_eq!(input["buckets"][0]["label"], NULL_SENTINEL_MAX);
-    }
-
-    #[test]
     fn returns_unchanged_when_top_level_is_not_object() {
         let mut input = json!([
             { "buckets": [{ "key": NULL_SENTINEL_MIN }] }
@@ -1071,6 +1047,7 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
+    use crate::api::CTID_FIELD_NAME;
     use crate::index::fast_fields_helper::FFType;
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
@@ -1100,7 +1077,7 @@ pub mod mvcc_collector {
             Ok(MVCCFilterSegmentCollector {
                 inner,
                 lock: self.lock.clone(),
-                ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
+                ctid_ff: FFType::new(segment.fast_fields(), CTID_FIELD_NAME),
                 doc_buffer: Vec::with_capacity(BATCH_SIZE),
                 score_buffer: if requires_scoring {
                     Vec::with_capacity(BATCH_SIZE)

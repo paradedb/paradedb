@@ -22,7 +22,6 @@ use crate::api::tokenizers::{
 };
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
-use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::composite::{
     CompositeSlotValues, get_composite_fields_for_index, is_composite_type,
@@ -215,6 +214,35 @@ mod tests {
             let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
             prop_assert_eq!(us, pg);
         });
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Ctid(u64);
+
+impl Ctid {
+    pub unsafe fn from_fcinfo(
+        fcinfo: pg_sys::FunctionCallInfo,
+        argument_index: usize,
+    ) -> Option<Self> {
+        let datum = unsafe { pg_getarg_datum(fcinfo, argument_index) }?;
+        unsafe { pg_sys::ItemPointerData::from_datum(datum, false) }.map(Self::from)
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.0 as pg_sys::OffsetNumber != pg_sys::InvalidOffsetNumber
+    }
+}
+
+impl From<pg_sys::ItemPointerData> for Ctid {
+    fn from(value: pg_sys::ItemPointerData) -> Self {
+        Self(item_pointer_to_u64(value))
+    }
+}
+
+impl From<Ctid> for u64 {
+    fn from(value: Ctid) -> Self {
+        value.0
     }
 }
 
@@ -791,7 +819,7 @@ pub unsafe fn row_to_search_document<'a>(
     >,
     document: &mut tantivy::TantivyDocument,
     created_by_version: Option<Version>,
-) -> Result<(), IndexError> {
+) {
     for (
         datum,
         isnull,
@@ -799,17 +827,12 @@ pub unsafe fn row_to_search_document<'a>(
         CategorizedFieldData {
             pg_type,
             base_oid,
-            is_key_field,
             is_array,
             is_json,
             ..
         },
     ) in categorized_fields
     {
-        if isnull && *is_key_field {
-            return Err(IndexError::KeyIdNull(search_field.field_name().to_string()));
-        }
-
         if isnull {
             continue;
         }
@@ -876,7 +899,6 @@ pub unsafe fn row_to_search_document<'a>(
             );
         }
     }
-    Ok(())
 }
 
 /// Converts a non-NULL, single-valued (non-array, non-JSON, non-vector) index datum into the

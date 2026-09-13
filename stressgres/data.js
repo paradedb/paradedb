@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789292020056,
+  "lastUpdate": 1789292029000,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -357534,6 +357534,96 @@ window.BENCHMARK_DATA = {
             "value": 45.33203125,
             "unit": "median mem",
             "extra": "avg mem: 45.15706519774228, max mem: 51.5390625, count: 58776"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5",
+          "message": "fix: derive deferred placement uniqueness from heap indexes (#6307)\n\nThis PR reads a join column's uniqueness from the heap's unique indexes\ninstead of the BM25 key field, which #6221 removes.\n\n`PgSearchRelation::unique_fields()` keeps a search field when a valid,\nimmediate, non-partial, single-column unique index backs its heap column\nand the index stores the value as is (no normalizer, no array). `NULL`\nneeds no special case, since an equi-join key never matches it.\nPrimary-key join plans do not change; a key field without a unique index\nnow counts as a fan-out.\n\nAll review findings are fixed: the catalog walk moved onto\n`PgSearchRelation`, the `NOT NULL` gate is gone, the filters carry their\nreasons, and `late_materialization_placement` covers a join on a non-key\n`UNIQUE NOT NULL` column and one on a key field without a unique index.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-13T10:55:18+02:00",
+          "tree_id": "0fe762cda8caf6b4e5d6cac2c81d81465b481203",
+          "url": "https://github.com/paradedb/paradedb/commit/c7c92ba54638a57cb0c2bc1376ee86bf8ed249e5"
+        },
+        "date": 1789292009524,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 62.8203125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 73.71231170342199, max partition_index_size:MB: 131.3046875, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.381590953427697, max cpu: 33.267326, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 47.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.53866042219698, max mem: 55.6796875, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.03141108903024, max cpu: 38.000988, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 55.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.37259683899978, max mem: 104.32421875, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 9.486166,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.811561460605242, max cpu: 33.267326, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 54.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.720010207152825, max mem: 68.359375, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.44895,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.939951268263428, max cpu: 33.366436, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 54.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.11049568635459, max mem: 63.95703125, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 23.312288,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.250178606539006, max cpu: 33.267326, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 45.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.145646618744365, max mem: 52.0234375, count: 58767"
           }
         ]
       }

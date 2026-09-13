@@ -18,7 +18,6 @@ Using the `partition_by` option in `CREATE INDEX`, you can partition the index s
 CREATE INDEX items_idx ON items
 USING paradedb (id, tenant_id, description, created_at)
 WITH (
-  key_field = 'id',
   partition_by = 'tenant_id',
   target_segment_count = 16
 );
@@ -57,7 +56,6 @@ You can partition an index along multiple columns by specifying a comma-separate
 CREATE INDEX events_idx ON events
 USING paradedb (id, organization_id, created_at, message)
 WITH (
-  key_field = 'id',
   partition_by = 'organization_id, created_at',
   target_segment_count = 32
 );
@@ -109,10 +107,10 @@ The ceiling on physical over-partitioning is segment metadata overhead. Each seg
 ```sql
 -- Example: On an 8-core machine, over-partition by 4X (target_segment_count = 32)
 CREATE INDEX users_idx ON users USING paradedb (id, name)
-WITH (key_field = 'id', partition_by = 'id', target_segment_count = 32);
+WITH (partition_by = 'id', target_segment_count = 32);
 
 CREATE INDEX posts_idx ON posts USING paradedb (id, owner_user_id, title)
-WITH (key_field = 'id', partition_by = 'owner_user_id', target_segment_count = 32);
+WITH (partition_by = 'owner_user_id', target_segment_count = 32);
 ```
 
 ### Column Eligibility Rules
@@ -122,7 +120,7 @@ Columns specified in `partition_by` must meet the following constraints:
 1. Single-valued only: Multi-valued types (such as arrays `TEXT[]`, `INT[]` and JSON/JSONB fields) cannot be used.
 2. Columnar indexed: The column must be columnar indexed. Scalar types (integers, floats, booleans, dates, timestamps, UUIDs) are columnar indexed by default.
 3. Raw ordering for text columns: If a text column is used in `partition_by`, it must use the [`literal`](/documentation/tokenizers/available-tokenizers/literal) tokenizer (e.g. `(tenant_code::pdb.literal)`).
-4. Avoid low-cardinality standalone columns: Avoid using columns with very few distinct values (such as a boolean `is_active` flag) as the sole partition column, as a column with only 2 distinct values cannot produce more than 2 partitions.
+4. Low-cardinality columns: Columns with few distinct values (booleans, enums) cap total partitions to their cardinality. To reach `target_segment_count`, pair them with Postgres's internal `ctid` column (e.g. `partition_by = 'is_active, ctid'`). Only use `ctid` in this specific case: it usually cannot prune on its own and should not be used alone or with high-cardinality columns.
 
 ---
 
@@ -147,7 +145,6 @@ CREATE TABLE documents (
 CREATE INDEX documents_idx ON documents
 USING paradedb (id, tenant_id, title, body)
 WITH (
-  key_field = 'id',
   partition_by = 'tenant_id',
   target_segment_count = 8
 );

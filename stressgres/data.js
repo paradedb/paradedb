@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789294578485,
+  "lastUpdate": 1789294586887,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -365668,6 +365668,108 @@ window.BENCHMARK_DATA = {
             "value": 47.60546875,
             "unit": "median mem",
             "extra": "avg mem: 46.06348793512658, max mem: 57.1640625, count: 59250"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f5e33bf756e3dce0c06238a4af1f3a96df7928b",
+          "message": "feat: Fully support DISTINCT in JoinScan via hook location migration (#6239)\n\n# Ticket(s) Closed\n\n- Closes #6022\n\n## What\n\nMoves `JoinScan` path generation from `set_join_pathlist_hook` to\n`create_upper_paths_hook` at `UPPERREL_FINAL`, planning the full join\ntree, projections, `DISTINCT`, `ORDER BY`, and `LIMIT`/`OFFSET` into a\nsingle root DataFusion execution plan once per query.\n\n## Why\n\n- Reduces code duplication by aligning the join and aggregate scans in\nthe same hook.\n- Followup PRs can further pull on this to increase reuse across the\nscans, since they now both use the parse.\n- Eliminates plan non-determinism (#6022) by planning against the\ncomplete query tree rather than depending on PostgreSQL's relation\nsearch order.\n- Cuts planning/estimation overhead by planning joins once per query\ninstead of evaluating candidate pairs across join permutations.\n- Provides reliable `SELECT DISTINCT` support.\n- Previously we have to bail in many situations where we ended up\nwrapped in upper nodes which needed to be able to consume the unfiltered\noutput.\n\n## How\n\n- Replaced `set_join_pathlist_hook` with `create_upper_paths_hook`\ntargeting `UPPERREL_FINAL`.\n\n## Tests\n\n- Reduced property test planning restrictions, as we can now almost\nalways plan the join scan.\n- Expanded regress tests based on failing property tests.",
+          "timestamp": "2026-09-13T02:38:02-07:00",
+          "tree_id": "0746e6ef2331626723cac45d6260ec882caf3fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/3f5e33bf756e3dce0c06238a4af1f3a96df7928b"
+        },
+        "date": 1789294583195,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.6806436,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.316668789184053, max cpu: 4.7267356, count: 59216"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.236387758376114, max mem: 17.24609375, count: 59216"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604097031086845, max cpu: 4.7690015, count: 59216"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.155327793586192, max mem: 17.171875, count: 59216"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.575577923950961, max cpu: 28.166258, count: 59216"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.572646975162964, max mem: 17.74609375, count: 59216"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.920021615779, max document_count: 10002.0, count: 59216"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.921017968116, max document_count: 10002.0, count: 59216"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.586735897930314, max cpu: 32.8125, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.48754658527678, max mem: 55.70703125, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.549121223437528, max cpu: 32.925037, count: 59216"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 47.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.522886946728924, max mem: 55.8828125, count: 59216"
           }
         ]
       }

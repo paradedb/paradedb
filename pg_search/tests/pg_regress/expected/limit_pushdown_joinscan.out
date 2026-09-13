@@ -199,11 +199,11 @@ LIMIT 26;
    Limit: 26
    Order By: c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=26), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=26), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c, p]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@0)], projection=[id@0, ctid_0@1, ctid_1@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
      :           CooperativeExec

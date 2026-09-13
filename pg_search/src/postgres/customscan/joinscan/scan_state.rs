@@ -1243,14 +1243,24 @@ fn build_source_df<'a>(
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
-                    if let build::ChildProjection::IndexedExpression { rti, field_name } = proj
-                        && source.contains_rti(*rti)
-                    {
-                        insert_field_name_required_early(
-                            source,
-                            field_name.as_ref(),
-                            &mut required_early,
-                        );
+                    match proj {
+                        build::ChildProjection::IndexedExpression { rti, field_name } => {
+                            if source.contains_rti(*rti) {
+                                insert_field_name_required_early(
+                                    source,
+                                    field_name.as_ref(),
+                                    &mut required_early,
+                                );
+                            }
+                        }
+                        build::ChildProjection::Column { rti, attno } => {
+                            if source.contains_rti(*rti)
+                                && let Some(col_name) = source.column_name(*attno)
+                            {
+                                required_early.insert(col_name);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }

@@ -71,12 +71,10 @@ pub struct JoinAggSource {
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
     /// Eagerly populated attno -> fast-field mapping for this relation.
-    /// Built once in [`collect_join_agg_sources`] and flowed through to the
-    /// `JoinSourceCandidate` in [`build_scan_node`], so both
-    /// [`JoinAggSource::column_name`] and the downstream
-    /// [`JoinSource::column_name`] / `build_source_df` paths agree on the
-    /// BM25-registered field name for every heap attno. Empty when the
-    /// relation has no ParadeDB index.
+    /// Built once in [`collect_join_agg_sources`] and used by
+    /// [`JoinAggSource::column_name`] during planning (such as aggregate
+    /// extraction) to resolve the BM25-registered field name for every heap
+    /// attno. Empty when the relation has no ParadeDB index.
     pub fields: Vec<FieldInfo>,
 }
 
@@ -557,16 +555,10 @@ unsafe fn build_scan_node(
     })?;
 
     // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
-    // and `partition_by` so RangePartitioningRule can co-partition equi-joins
-    // under AggregateScan (matches JoinScan planning).
+    // and `partition_by` so RangePartitioningRule can co-partition equi-joins.
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
         .with_index(bm25_index);
-
-    // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
-    // (and everything built on it - AggregateIndexVarMapper, build_source_df)
-    // agrees with JoinAggSource::column_name on alias-aware field names.
-    candidate.fields = source.fields.clone();
 
     if let Some(ref alias) = source.alias {
         candidate = candidate.with_alias(alias.clone());

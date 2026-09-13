@@ -40,12 +40,12 @@ LIMIT 5;
    Order By: le.id asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     : │   SortPreservingMergeExec: [id@0 ASC NULLS LAST], fetch=5
-     : │     SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[true]
+     : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [id@1 ASC NULLS LAST], fetch=5
+     : │     SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
      : │       VisibilityFilterExec: tables=[le, sv]
      : │         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, series_id@1)], projection=[id@2, ctid_0@4, ctid_1@1]
+     : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      : │             CoalescePartitionsExec
      : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
      : │             RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1

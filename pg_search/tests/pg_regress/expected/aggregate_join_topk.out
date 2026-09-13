@@ -77,7 +77,7 @@ GROUP BY p.category;
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
@@ -125,7 +125,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
                  :       CooperativeExec
                  :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
@@ -173,7 +173,7 @@ LIMIT 2;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[category@0, price@1]
                  :       CooperativeExec
                  :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
@@ -299,7 +299,7 @@ LIMIT 1;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
                  :       CooperativeExec
                  :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
@@ -470,7 +470,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[category@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
                  :       CooperativeExec
                  :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec
@@ -570,7 +570,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=3), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[min(p_0.price) as agg_0, max(p_0.price) as agg_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, price@2]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[category@0, price@1]
                  :       CooperativeExec
                  :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook","lenient":null,"conjunction_mode":null}}}}
                  :       CooperativeExec

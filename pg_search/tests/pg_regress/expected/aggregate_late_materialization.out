@@ -57,7 +57,7 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
            :   VisibilityFilterExec: tables=[p, t]
            :     TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, ctid_0@2, ctid_1@4]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, ctid_0@2, ctid_1@4]
            :         CooperativeExec
            :           PgSearchScan: table=p, segments=1, eager=[category], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
@@ -149,13 +149,13 @@ WHERE p.title @@@ 'post';
      :                     CooperativeExec
      :                       PgSearchScan: table=v, segments=1, dynamic_filters=1, query="all"
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
-     :         AggregateExec: mode=Single, gby=[author@0 as __pdb_k0, p_0_labels@1 as __pdb_k1], aggr=[count(1) as __pdb_m0]
+     :         AggregateExec: mode=Single, gby=[author@1 as __pdb_k0, p_0_labels@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
      :           VisibilityFilterExec: tables=[p, v]
      :             TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :               UnnestExec
      :                 TantivyDecodeExec: decode=[author]
-     :                   ProjectionExec: expr=[author@0 as author, labels@1 as p_0_labels, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :                     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, labels@2, ctid_0@3, ctid_1@5]
+     :                   ProjectionExec: expr=[labels@0 as p_0_labels, author@1 as author, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+     :                     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[labels@1, author@2, ctid_0@3, ctid_1@5]
      :                       CooperativeExec
      :                         PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
      :                       CooperativeExec

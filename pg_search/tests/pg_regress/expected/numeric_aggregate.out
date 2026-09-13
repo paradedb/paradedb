@@ -704,7 +704,7 @@ SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_line
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
-     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@0)], projection=[price@2, weight@3, amount@4]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@3)], projection=[price@1, amount@2, weight@3]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
      :   │     DistributedLeafExec:

@@ -82,7 +82,7 @@ ORDER BY doc_count DESC, job_title;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@1, ldf_id@0)], projection=[job_title@0]
            :     CooperativeExec
            :       PgSearchScan: table=asa_cccf, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
@@ -124,8 +124,8 @@ ORDER BY doc_count DESC, job_title;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@1, ldf_id@0)], projection=[job_title@0]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@1, ldf_id@0)]
            :       CooperativeExec
            :         PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -175,8 +175,8 @@ ORDER BY doc_count DESC, job_title;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], null_aware
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@1, ldf_id@0)], projection=[job_title@0]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@1, ldf_id@0)], null_aware
            :       CooperativeExec
            :         PgSearchScan: table=asa_cccf, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -399,8 +399,8 @@ ORDER BY doc_count DESC, label;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[label@0 as label], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)], null_aware
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, id@0)], projection=[label@0]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, eid@0)], null_aware
            :       CooperativeExec
            :         PgSearchScan: table=asa_excl_outer, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -645,7 +645,7 @@ WHERE a.id NOT IN (
    Aggregates: COUNT(*), SUM(val)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(b_3.val) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@1)], filter=val@1 > threshold@0, projection=[val@2]
      :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)], null_aware
      :       CooperativeExec
      :         PgSearchScan: table=a, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}

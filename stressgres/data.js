@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789309196387,
+  "lastUpdate": 1789309404343,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -108402,6 +108402,54 @@ window.BENCHMARK_DATA = {
             "value": 1515.735990095164,
             "unit": "median tps",
             "extra": "avg tps: 1409.578253110303, max tps: 3029.253000790055, count: 59427"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309400605,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1975.7344019556365,
+            "unit": "median tps",
+            "extra": "avg tps: 1985.701662783941, max tps: 2122.740064997287, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 2.740682758580155,
+            "unit": "median tps",
+            "extra": "avg tps: 3.014250398595542, max tps: 5.167661909688323, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 798.6140860551907,
+            "unit": "median tps",
+            "extra": "avg tps: 770.2403720945528, max tps: 2445.8991565561346, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3396.8795303564866,
+            "unit": "median tps",
+            "extra": "avg tps: 3349.9060256148737, max tps: 3564.5871549622357, count: 59422"
           }
         ]
       }

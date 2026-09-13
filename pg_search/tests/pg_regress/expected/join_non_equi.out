@@ -65,8 +65,8 @@ JOIN nonequi_offers o ON i.price <= o.max_price
 WHERE i.description @@@ 'ergonomic'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -74,18 +74,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, query="all"
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@1
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"ergonomic","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], query="all"
+(16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
@@ -111,8 +109,8 @@ JOIN nonequi_offers o ON i.rating >= o.min_rating
 WHERE o.description @@@ 'exclusive OR value'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.rating, o.min_rating, o.id
    Relation Tree: i INNER o
@@ -120,18 +118,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, rating@2 as col_4, min_rating@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1, projection=[id@4, name@5, rating@6, ctid_0@7, id@0, promo_name@1, min_rating@2, ctid_1@3]
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query="all"
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, rating@2 as col_4, min_rating@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         NestedLoopJoinExec: join_type=Inner, filter=rating@0 >= min_rating@1, projection=[id@4, name@5, rating@6, ctid_0@7, id@0, promo_name@1, min_rating@2, ctid_1@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR value","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query="all"
+(16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.rating, o.min_rating
 FROM nonequi_items i
@@ -157,8 +153,8 @@ JOIN nonequi_offers o ON i.price >= o.min_price AND i.price <= o.max_price
 WHERE i.description @@@ 'keyboard OR mouse OR headset'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -166,18 +162,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, min_price@6 as col_5, max_price@7 as col_6, id@4 as col_7, ctid_0@3 as ctid_0, ctid_1@8 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, query="all"
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, min_price@6 as col_5, max_price@7 as col_6, id@4 as col_7, ctid_0@3 as ctid_0, ctid_1@8 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], query="all"
+(16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price, o.max_price
 FROM nonequi_items i
@@ -203,8 +197,8 @@ JOIN nonequi_offers o ON i.category <> o.target_category
 WHERE i.description @@@ 'wireless' AND o.description @@@ 'budget'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.category, o.target_category, o.id
    Relation Tree: i INNER o
@@ -212,18 +206,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, category@2 as col_4, target_category@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             NestedLoopJoinExec: join_type=Inner, filter=category@0 != target_category@1
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, category@2 as col_4, target_category@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         NestedLoopJoinExec: join_type=Inner, filter=category@0 != target_category@1
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"budget","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT i.id, i.name, o.promo_name, i.category, o.target_category
 FROM nonequi_items i
@@ -247,8 +239,8 @@ JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.max_pri
 WHERE i.description @@@ 'cable OR riser OR mat'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.max_price, o.id
    Relation Tree: i INNER o
@@ -257,18 +249,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@2, target_category@2)], filter=price@0 <= max_price@1, projection=[id@0, name@1, price@3, ctid_0@4, id@5, promo_name@6, max_price@8, ctid_1@9]
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR riser OR mat","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@2, target_category@2)], filter=price@0 <= max_price@1, projection=[id@0, name@1, price@3, ctid_0@4, id@5, promo_name@6, max_price@8, ctid_1@9]
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR riser OR mat","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.max_price
 FROM nonequi_items i
@@ -292,8 +282,8 @@ JOIN nonequi_offers o ON i.category = o.target_category
 WHERE i.description @@@ 'electronics OR keyboard OR headset'
 ORDER BY i.id, o.id
 LIMIT 10;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, i.rating, o.id
    Relation Tree: i INNER o
@@ -302,18 +292,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@6 as col_3, price@2 as col_4, rating@3 as col_5, id@5 as col_6, ctid_0@4 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@2, target_category@2)], filter=price@0 >= min_price@2 AND rating@1 >= min_rating@3, projection=[id@0, name@1, price@3, rating@4, ctid_0@5, id@6, promo_name@7, ctid_1@11]
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"electronics OR keyboard OR headset","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
-(19 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@6 as col_3, price@2 as col_4, rating@3 as col_5, id@5 as col_6, ctid_0@4 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@2, target_category@2)], filter=price@0 >= min_price@2 AND rating@1 >= min_rating@3, projection=[id@0, name@1, price@3, rating@4, ctid_0@5, id@6, promo_name@7, ctid_1@11]
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"electronics OR keyboard OR headset","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, i.rating
 FROM nonequi_items i
@@ -343,8 +331,8 @@ LEFT JOIN nonequi_offers o ON i.price > o.max_price AND o.min_rating >= 4
 WHERE i.description @@@ 'keyboard OR cable OR headset'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price, o.promo_name, o.max_price, o.id
    Relation Tree: i LEFT o
@@ -352,18 +340,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, promo_name@5 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             NestedLoopJoinExec: join_type=Right, filter=price@0 > max_price@1, projection=[id@4, name@5, price@6, ctid_0@7, id@0, promo_name@1, max_price@2, ctid_1@3]
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, promo_name@5 as col_4, max_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         NestedLoopJoinExec: join_type=Right, filter=price@0 > max_price@1, projection=[id@4, name@5, price@6, ctid_0@7, id@0, promo_name@1, max_price@2, ctid_1@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], visibility=eager, query={"range":{"field":"min_rating","lower_bound":{"included":4},"upper_bound":null}}
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR cable OR headset","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT i.id, i.name, i.price, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -386,8 +372,8 @@ LEFT JOIN nonequi_offers o ON i.category = o.target_category AND i.price < o.min
 WHERE i.description @@@ 'cable OR mat OR mouse'
 ORDER BY i.id, o.id NULLS LAST
 LIMIT 10;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, i.price, o.min_price, o.id
    Relation Tree: i LEFT o
@@ -396,18 +382,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, min_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@2, target_category@2)], filter=price@0 < min_price@1, projection=[id@0, name@1, price@3, ctid_0@4, id@5, promo_name@6, min_price@8, ctid_1@9]
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@5 as col_3, price@2 as col_4, min_price@6 as col_5, id@4 as col_6, ctid_0@3 as ctid_0, ctid_1@7 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@2, target_category@2)], filter=price@0 < min_price@1, projection=[id@0, name@1, price@3, ctid_0@4, id@5, promo_name@6, min_price@8, ctid_1@9]
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable OR mat OR mouse","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name, i.price, o.min_price
 FROM nonequi_items i
@@ -430,8 +414,8 @@ RIGHT JOIN nonequi_offers o ON i.category = o.target_category AND i.price <= o.m
 WHERE o.description @@@ 'exclusive OR budget'
 ORDER BY o.id, i.id NULLS LAST
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, o.promo_name, o.max_price, o.id
    Relation Tree: o LEFT i
@@ -440,18 +424,16 @@ LIMIT 10;
    Limit: 10
    Order By: o.id asc, i.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@4 as col_1, name@5 as col_2, promo_name@1 as col_3, max_price@2 as col_4, id@0 as col_5, ctid_0@3 as ctid_0, ctid_1@6 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[o]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             HashJoinExec: mode=CollectLeft, join_type=Left, on=[(target_category@2, category@2)], filter=price@1 <= max_price@0, projection=[id@0, promo_name@1, max_price@3, ctid_0@4, id@5, name@6, ctid_1@9]
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+     : ProjectionExec: expr=[id@4 as col_1, name@5 as col_2, promo_name@1 as col_3, max_price@2 as col_4, id@0 as col_5, ctid_0@3 as ctid_0, ctid_1@6 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[o]
+     :       TantivyFetchExec: fetch=[ctid_0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(target_category@2, category@2)], filter=price@1 <= max_price@0, projection=[id@0, promo_name@1, max_price@3, ctid_0@4, id@5, name@6, ctid_1@9]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"exclusive OR budget","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name, o.max_price
 FROM nonequi_items i
@@ -482,8 +464,8 @@ WHERE i.description @@@ 'keyboard OR mouse OR headset'
   )
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price
    Relation Tree: i SEMI o
@@ -493,17 +475,16 @@ LIMIT 10;
    Order By: i.id asc
    DataFusion Physical Plan: 
      : TantivyDecodeExec: decode=[name]
-     :   TantivyFetchExec: fetch=[name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, ctid_0@3 as ctid_0]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@2, target_category@0)], filter=min_price@1 > price@0, projection=[id@0, name@1, price@3, ctid_0@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+     :   ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, ctid_0@3 as ctid_0]
+     :     SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :       VisibilityFilterExec: tables=[i]
+     :         TantivyFetchExec: fetch=[ctid_0]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@2, target_category@0)], filter=min_price@1 > price@0, projection=[id@0, name@1, price@3, ctid_0@4]
+     :             CooperativeExec
+     :               PgSearchScan: table=i, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
 
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
@@ -530,8 +511,8 @@ WHERE i.description @@@ 'keyboard OR mouse OR headset'
   )
 ORDER BY i.id
 LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id, i.name, i.price
    Relation Tree: i ANTI o
@@ -541,17 +522,16 @@ LIMIT 10;
    Order By: i.id asc
    DataFusion Physical Plan: 
      : TantivyDecodeExec: decode=[name]
-     :   TantivyFetchExec: fetch=[name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, ctid_0@3 as ctid_0]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i]
-     :           TantivyFetchExec: fetch=[ctid_0]
-     :             HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(category@2, target_category@0)], filter=min_price@1 > price@0, projection=[id@0, name@1, price@3, ctid_0@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(19 rows)
+     :   ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, price@2 as col_3, ctid_0@3 as ctid_0]
+     :     SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :       VisibilityFilterExec: tables=[i]
+     :         TantivyFetchExec: fetch=[ctid_0]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(category@2, target_category@0)], filter=min_price@1 > price@0, projection=[id@0, name@1, price@3, ctid_0@4]
+     :             CooperativeExec
+     :               PgSearchScan: table=i, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR mouse OR headset","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(18 rows)
 
 SELECT i.id, i.name, i.price
 FROM nonequi_items i
@@ -589,18 +569,16 @@ LIMIT 10;
    Limit: 10
    Order By: i.id asc, o.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name, promo_name]
-     :   TantivyFetchExec: fetch=[name, promo_name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@4 as col_3, id@3 as col_4, ctid_0@2 as ctid_0, ctid_1@5 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[i, o]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@2 AND (__i_0_tag_0@1 OR __o_1_tag_0@3), projection=[id@5, name@6, ctid_0@8, id@0, promo_name@1, ctid_1@3]
-     :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=i, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, promo_name@4 as col_3, id@3 as col_4, ctid_0@2 as ctid_0, ctid_1@5 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         NestedLoopJoinExec: join_type=Inner, filter=price@0 <= max_price@2 AND (__i_0_tag_0@1 OR __o_1_tag_0@3), projection=[id@5, name@6, ctid_0@8, id@0, promo_name@1, ctid_1@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, eager=[promo_name], tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"clearance","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, eager=[name], tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"gaming","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT i.id, i.name, o.promo_name
 FROM nonequi_items i

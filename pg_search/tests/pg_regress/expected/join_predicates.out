@@ -549,8 +549,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE qgen_users.name @@@ 'bob' 
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: qgen_users.id, qgen_users.name
    Relation Tree: qgen_users INNER qgen_products
@@ -558,18 +558,16 @@ LIMIT 5;
    Limit: 5
    Order By: qgen_users.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name]
-     :   TantivyFetchExec: fetch=[name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :       SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[qgen_users, qgen_products]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], projection=[id@0, name@1, ctid_0@3, ctid_1@5]
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[qgen_users, qgen_products]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], projection=[id@0, name@1, ctid_0@3, ctid_1@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_users, segments=1, eager=[name], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -595,8 +593,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE NOT (qgen_users.name @@@ 'bob') 
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: qgen_users.id, qgen_users.name
    Relation Tree: qgen_users INNER qgen_products
@@ -604,18 +602,16 @@ LIMIT 5;
    Limit: 5
    Order By: qgen_users.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name]
-     :   TantivyFetchExec: fetch=[name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :       SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[qgen_users, qgen_products]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], projection=[id@0, name@1, ctid_0@3, ctid_1@5]
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[qgen_users, qgen_products]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], projection=[id@0, name@1, ctid_0@3, ctid_1@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_users, segments=1, eager=[name], dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -650,18 +646,16 @@ LIMIT 5;
    Limit: 5
    Order By: qgen_users.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[name]
-     :   TantivyFetchExec: fetch=[name]
-     :     ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :       SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[qgen_users, qgen_products]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], filter=__qgen_products_1_tag_0@1 OR __qgen_users_0_tag_0@0, projection=[id@0, name@1, ctid_0@3, ctid_1@6]
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+     : ProjectionExec: expr=[id@0 as col_1, name@1 as col_2, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[qgen_users, qgen_products]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@0)], filter=__qgen_products_1_tag_0@1 OR __qgen_users_0_tag_0@0, projection=[id@0, name@1, ctid_0@3, ctid_1@6]
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_users, segments=1, eager=[name], dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 

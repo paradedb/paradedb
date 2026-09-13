@@ -31,7 +31,7 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::joinscan::build::{
     FilterNode, JoinKeyPair, JoinLevelExpr, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode, RelationAlias, is_equi_key_redundant_const, lookup_base_rel_info,
+    PlannerRootId, RelNode, RelationAlias, lookup_base_rel_info, prune_redundant_const_equi_keys,
     strip_node_wrappers, try_extract_equi_key,
 };
 use crate::postgres::customscan::joinscan::planning::{
@@ -623,7 +623,7 @@ unsafe fn build_scan_node(
                 rti,
                 source.alias.as_deref().unwrap_or("unknown"),
             );
-            "baserestrictinfo predicate cannot be pushed into the scan".to_string()
+            "a WHERE predicate cannot be pushed into the scan".to_string()
         })?;
         let query = SearchQueryInput::from(&qual);
         candidate = candidate.with_query(query);
@@ -750,13 +750,7 @@ unsafe fn build_join_node(
         Vec::new()
     };
 
-    if equi_keys.len() > 1
-        && equi_keys
-            .iter()
-            .any(|k| !is_equi_key_redundant_const(root, k))
-    {
-        equi_keys.retain(|k| !is_equi_key_redundant_const(root, k));
-    }
+    prune_redundant_const_equi_keys(root, &mut equi_keys);
 
     // Extract non-equi join conditions from ON clause (join.quals).
     //
@@ -1003,9 +997,7 @@ unsafe fn extract_equi_keys_from_quals(
         return Ok(());
     }
 
-    if keys.len() > 1 && keys.iter().any(|k| !is_equi_key_redundant_const(root, k)) {
-        keys.retain(|k| !is_equi_key_redundant_const(root, k));
-    }
+    prune_redundant_const_equi_keys(root, &mut keys);
 
     plan.inject_equi_keys(keys);
 

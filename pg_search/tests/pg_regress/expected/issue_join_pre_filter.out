@@ -36,8 +36,8 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                        QUERY PLAN                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER u
    Join Cond: p.owner_user_id = u.id
@@ -45,17 +45,16 @@ LIMIT 10;
    Order By: pdb.score() desc
    DataFusion Physical Plan: 
      : TantivyDecodeExec: decode=[title]
-     :   TantivyFetchExec: fetch=[title]
-     :     ProjectionExec: expr=[id@0 as col_1, title@1 as col_2, pdb.score()@2 as col_3, ctid_0@3 as ctid_0, ctid_1@4 as ctid_1]
-     :       SortExec: TopK(fetch=10), expr=[pdb.score()@2 DESC], preserve_partitioning=[false]
-     :         VisibilityFilterExec: tables=[p, u]
-     :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[id@0, title@1, pdb.score()@3, ctid_0@4, ctid_1@6]
-     :               CooperativeExec
-     :                 PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
-(17 rows)
+     :   ProjectionExec: expr=[id@0 as col_1, title@1 as col_2, pdb.score()@2 as col_3, ctid_0@3 as ctid_0, ctid_1@4 as ctid_1]
+     :     SortExec: TopK(fetch=10), expr=[pdb.score()@2 DESC], preserve_partitioning=[false]
+     :       VisibilityFilterExec: tables=[p, u]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@0)], projection=[id@0, title@1, pdb.score()@3, ctid_0@4, ctid_1@6]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=2, fetch=[title], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=u, segments=2, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+(16 rows)
 
 -- Reproduce the bug
 SELECT

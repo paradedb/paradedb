@@ -1152,7 +1152,6 @@ impl SegmentedTopKState {
             ))
         })?;
 
-
         let mut global_term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
         let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();
         for (row_idx, value) in deferred.values().enumerate() {

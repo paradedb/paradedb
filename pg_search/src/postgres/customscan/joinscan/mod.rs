@@ -654,11 +654,8 @@ impl JoinScan {
                         "JoinScan not used: score function references a relation outside the join",
                     ));
                 }
-            } else if planning::resolve_target_entry_expr(check_expr, &all_sources, root).is_none()
-            {
-                return Err(JoinDeclineReason::new(
-                    "JoinScan not used: target list expression cannot be evaluated",
-                ));
+            } else {
+                planning::resolve_target_entry_expr(check_expr, &all_sources, root)?;
             }
         }
 
@@ -1984,8 +1981,7 @@ unsafe fn build_output_projection(
         let scan_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*scan_expr).type_ != pg_sys::NodeTag::T_Var
             && get_score_func_rti(scan_expr.cast()).is_none()
-            && let Some(resolved) =
-                planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
+            && let Ok(resolved) = planning::resolve_target_entry_expr(scan_expr, &all_sources, root)
         {
             resolved_entries[scan_idx] = Some(resolved);
         }

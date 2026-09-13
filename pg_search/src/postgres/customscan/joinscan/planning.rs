@@ -750,16 +750,7 @@ unsafe fn collect_join_sources_join_rel(
             ));
         }
 
-        if join_conditions.equi_keys.len() > 1
-            && join_conditions
-                .equi_keys
-                .iter()
-                .any(|k| !build::is_equi_key_redundant_const(root, k))
-        {
-            join_conditions
-                .equi_keys
-                .retain(|k| !build::is_equi_key_redundant_const(root, k));
-        }
+        build::prune_redundant_const_equi_keys(root, &mut join_conditions.equi_keys);
 
         let jointype = (*join_path).jointype;
 
@@ -1431,20 +1422,7 @@ unsafe fn extract_join_conditions_from_list(
         }
     }
 
-    // When multiple equi-join keys exist and some are redundant because both sides
-    // are already constrained to a constant in their equivalence classes,
-    // prune the redundant keys so they do not mandate columnar fast fields or
-    // induce redundant hash table lookups (matching PostgreSQL's `EC_MUST_BE_REDUNDANT`).
-    if result.equi_keys.len() > 1
-        && result
-            .equi_keys
-            .iter()
-            .any(|k| !build::is_equi_key_redundant_const(root, k))
-    {
-        result
-            .equi_keys
-            .retain(|k| !build::is_equi_key_redundant_const(root, k));
-    }
+    build::prune_redundant_const_equi_keys(root, &mut result.equi_keys);
 
     result
 }
@@ -2154,7 +2132,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     sources: &[&JoinSource],
     root: *mut pg_sys::PlannerInfo,
-) -> Option<ResolvedExpr> {
+) -> Result<ResolvedExpr, JoinDeclineReason> {
     let tables_str = sources
         .iter()
         .map(|s| source_table_name(s))
@@ -2178,9 +2156,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             )
             .is_some_and(|u| sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
         if !is_fast {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: target list column is not columnar",
+            ));
         }
-        return Some(ResolvedExpr::Column {
+        return Ok(ResolvedExpr::Column {
             rti: varno,
             attno: (*var).varattno,
         });
@@ -2189,9 +2169,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     // Case 2: Score function
     if let Some(rti) = get_score_func_rti(expr.cast()) {
         if sources.iter().any(|s| s.contains_rti(rti)) {
-            return Some(ResolvedExpr::Score { rti });
+            return Ok(ResolvedExpr::Score { rti });
         }
-        return None;
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: score function references a relation outside the join",
+        ));
     }
 
     // Case 3: Check if expression matches an indexed expression (existing behavior)
@@ -2207,7 +2189,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         Some((source.scan_info.heap_rti, search_field.name().to_string()))
     });
     if let Some((rti, field_name)) = matched_source {
-        return Some(ResolvedExpr::IndexedExpression { rti, field_name });
+        return Ok(ResolvedExpr::IndexedExpression { rti, field_name });
     }
 
     // Case 4: General expression (or constant).
@@ -2217,7 +2199,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
              function (tables: {})",
             tables_str
         );
-        return None;
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: target list expression contains an aggregate function",
+        ));
     }
     if pg_sys::contain_window_function(expr) {
         pgrx::debug1!(
@@ -2225,7 +2209,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
              function (tables: {})",
             tables_str
         );
-        return None;
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: target list expression contains a window function",
+        ));
     }
     if pg_sys::contain_volatile_functions(expr) {
         pgrx::debug1!(
@@ -2233,7 +2219,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
              function (tables: {})",
             tables_str
         );
-        return None;
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: target list expression contains a volatile function",
+        ));
     }
 
     struct ExprDeps {
@@ -2282,7 +2270,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                 score_rti,
                 tables_str
             );
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: score function references a relation outside the join",
+            ));
         }
     }
 
@@ -2314,7 +2304,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                         source.scan_info.heaprelid,
                         tables_str
                     );
-                    return None;
+                    return Err(JoinDeclineReason::new(format!(
+                        "JoinScan not used: target list expression depends on '{col}' which is not columnar",
+                    )));
                 }
                 input_vars.push(InputVarInfo {
                     rti: varno,
@@ -2338,7 +2330,9 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                         varattno,
                         tables_str
                     );
-                    return None;
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: target list references a relation outside the join",
+                    ));
                 }
             }
         }
@@ -2356,10 +2350,12 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             result_type,
             tables_str
         );
-        return None;
+        return Err(JoinDeclineReason::new(format!(
+            "JoinScan not used: target list expression returns type '{type_name}' which is not supported for Arrow conversion",
+        )));
     }
 
-    Some(ResolvedExpr::Expression {
+    Ok(ResolvedExpr::Expression {
         expr_node: expr.cast(),
         input_vars,
         result_type,
@@ -2389,7 +2385,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .find(|te| (**te).ressortgroupref == tle_ref)?;
 
         let expr = strip_wrappers((*te).expr as *mut pg_sys::Node);
-        let resolved = resolve_target_entry_expr(expr, sources, root)?;
+        let resolved = resolve_target_entry_expr(expr, sources, root).ok()?;
         entries.push(resolved);
     }
 

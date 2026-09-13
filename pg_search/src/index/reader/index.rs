@@ -886,53 +886,67 @@ impl SearchIndexReader {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
-    pub fn snippet_generator(
+    /// Snippet generators for `column`, in the order they should be tried.
+    ///
+    /// A column can back more than one indexed field: an alias carries its own tokenizer over
+    /// the same text. A query can address any mix of them, so highlighting needs a generator
+    /// per addressed field rather than a single winner, and the caller renders with the first
+    /// one that produces a fragment. The column's own field comes first when the query
+    /// addresses it, so the common case is unchanged. A column that is only reachable through
+    /// an alias has no field of its own, which is why resolution falls back to the siblings
+    /// instead of requiring the name to be in the schema.
+    pub fn snippet_generators(
         &self,
         field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-    ) -> (tantivy::schema::Field, SnippetGenerator) {
-        let search_field = self
-            .schema
-            .search_field(&field_name)
-            .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
-        if search_field.is_text() || search_field.is_json() {
-            let query = self.make_query(query, expr_context);
-            let field = self.highlight_field(&*query, &field_name, search_field.field());
-            let generator = SnippetGenerator::create(&self.searcher, &*query, field)
-                .unwrap_or_else(|err| {
-                    panic!("failed to create snippet generator for field: {field_name}... {err}")
-                });
-            (field, generator)
-        } else {
+    ) -> Vec<(tantivy::schema::Field, SnippetGenerator)> {
+        let named = self.schema.search_field(&field_name);
+        if let Some(field) = &named
+            && !(field.is_text() || field.is_json())
+        {
             panic!(
                 "failed to create snippet generator for field: {field_name}... can only highlight text fields"
             )
         }
-    }
 
-    /// The field whose terms and tokenizer should drive highlighting of `column`.
-    ///
-    /// A column can back more than one indexed field: an alias carries its own tokenizer over
-    /// the same text. Whichever of them the query addressed is the one holding the matched
-    /// terms, and [`SnippetGenerator`] keeps only terms belonging to the field it is built
-    /// for, so building for a field the query never touched yields nothing to mark up. Prefer
-    /// the column's own field and fall back to a sibling the query did address.
-    fn highlight_field(
-        &self,
-        query: &dyn Query,
-        column: impl AsRef<str>,
-        requested: tantivy::schema::Field,
-    ) -> tantivy::schema::Field {
-        if self.query_addresses(query, requested) {
-            return requested;
+        let query = self.make_query(query, expr_context);
+        let mut fields = Vec::new();
+        if let Some(field) = &named
+            && self.query_addresses(&*query, field.field())
+        {
+            fields.push(field.field());
         }
-        self.schema
-            .fields_sourced_from(column)
+        let siblings: Vec<_> = self
+            .schema
+            .fields_sourced_from(field_name.as_ref())
             .into_iter()
+            .filter(|sibling| sibling.is_text() || sibling.is_json())
             .map(|sibling| sibling.field())
-            .find(|&sibling| sibling != requested && self.query_addresses(query, sibling))
-            .unwrap_or(requested)
+            .filter(|sibling| !fields.contains(sibling) && self.query_addresses(&*query, *sibling))
+            .collect();
+        fields.extend(siblings);
+        // Nothing the query touched is backed by this column. Keep the column's own field so
+        // callers still get a generator, and let it render nothing.
+        if fields.is_empty() {
+            let field = named.map(|field| field.field()).unwrap_or_else(|| {
+                panic!("cannot generate snippet for field {field_name} because it was not found in the index")
+            });
+            fields.push(field);
+        }
+
+        fields
+            .into_iter()
+            .map(|field| {
+                let generator = SnippetGenerator::create(&self.searcher, &*query, field)
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "failed to create snippet generator for field: {field_name}... {err}"
+                        )
+                    });
+                (field, generator)
+            })
+            .collect()
     }
 
     /// Whether `query` addresses any term to `field`.

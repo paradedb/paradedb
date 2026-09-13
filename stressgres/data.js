@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789287826523,
+  "lastUpdate": 1789287835124,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -143032,6 +143032,108 @@ window.BENCHMARK_DATA = {
             "value": 52.32421875,
             "unit": "median mem",
             "extra": "avg mem: 51.36118071065936, max mem: 52.33203125, count: 59436"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2438a366894d88ee0649b54d0ee7a2c631634b4",
+          "message": "fix: restored parallel top-K for phrase and filtered searches. (#6296)\n\n## Ticket(s) Closed\n\n- Closes #5746\n\n## What\n\nThis PR fixes two drive-cost estimates that collapse to near zero, which\nleaves top-K searches serial.\n\n[searchbench](https://serenedb.com/blog/searchbench-postgres) found 3 of\nits 88 queries 7-8x slower on `0.25.0` than on `0.24.1` at 100M rows: a\nfour-word phrase by score, that phrase under a time window, and a\n`charg.*` regex under a time window. #5746 is the same regression from\nanother user.\n\n## Why\n\nSince #5150 a costable scan picks serial or parallel from its drive\ncost, and two estimates feeding that choice are off by orders of\nmagnitude.\n\n`UNKNOWN_SELECTIVITY` marks a clause we cannot estimate, so multiplying\nit into a conjunction read as an extremely selective one. On 3M rows,\n`regex('body','charg.*') AND ts BETWEEN ...` estimated 1 row against\n189,034 actual.\n\nTantivy derives a phrase's cost from an intersection estimate that\nassumes independent terms, so it shrinks with every term added while the\nscan walks the same posting list. A phrase matching 300,000 rows costed\n136. Only a narrow band is hit, which is why so few queries moved. Below\nit `size_hint()` reaches zero and the existing full count is right,\nabove it the phrase really is rare.\n\n## How\n\nAn un-estimatable conjunct drops out of the product, leaving\n`UNKNOWN_SELECTIVITY` for queries with nothing to estimate at all.\n\nThe drive cost is floored at the shortest posting list the query walks,\nread from the term dictionary. A conjunction advances that list end to\nend, so it cannot touch fewer documents. The floor is inert for terms\nand unions and bites only on phrases.\n\n`ProximityQuery::query_terms` reports a field miss instead of aborting\nthe plan, since callers walk terms one field at a time.\n\n## Tests\n\n`topk_parallel_estimates` covers the three shapes plus a rare phrase\nthat must stay serial. Plans on one 3M-row table:\n\n| query | 0.24.1 | 0.25.0 | this PR |\n| --- | --- | --- | --- |\n| phrase, top-K by score | parallel | serial | parallel |\n| phrase under a window | parallel | serial | parallel |\n| regex under a window | parallel | serial | parallel |\n| Q43, Q47, Q70 (never flagged) | parallel | parallel | parallel |\n\nThat cuts the three by 7.6x, 7.3x and 3.5x. I could not run #5746's\ndata, but its query shape goes from `rows=1` and serial to `rows=29999`\nand parallel.",
+          "timestamp": "2026-09-13T09:20:24+02:00",
+          "tree_id": "0b928d729d493c337c2b39f6ef1daafa042e8acf",
+          "url": "https://github.com/paradedb/paradedb/commit/a2438a366894d88ee0649b54d0ee7a2c631634b4"
+        },
+        "date": 1789287831359,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.058885914852785215, max background_merging: 2.0, count: 59403"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.66592493407001, max cpu: 9.571285, count: 59403"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 19.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 19.65929093438042, max mem: 19.671875, count: 59403"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.703577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.943382499612002, max cpu: 23.880596, count: 59403"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 52.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.83605408975557, max mem: 52.52734375, count: 59403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64522,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64195.35015066579, max block_count: 64522.0, count: 59403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 66,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 64.30383987340707, max segment_count: 106.0, count: 59403"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.54095,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.175508171930673, max cpu: 33.466137, count: 59403"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 83.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 79.49827660219181, max mem: 83.90625, count: 59403"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.772789318611019, max cpu: 23.856857, count: 59403"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.51878416809757, max mem: 52.83203125, count: 59403"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.701273,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.417254931558361, max cpu: 32.973503, count: 59403"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 100.5,
+            "unit": "median mem",
+            "extra": "avg mem: 99.95516311781391, max mem: 104.765625, count: 59403"
           }
         ]
       }

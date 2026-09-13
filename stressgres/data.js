@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789334362715,
+  "lastUpdate": 1789334371076,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -369526,6 +369526,108 @@ window.BENCHMARK_DATA = {
             "value": 47.9375,
             "unit": "median mem",
             "extra": "avg mem: 46.37241880571407, max mem: 57.1171875, count: 59231"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789334367245,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.685212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.632210410016079, max cpu: 4.7151275, count: 59230"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 17.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.314189982378018, max mem: 17.34375, count: 59230"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579705202791967, max cpu: 4.745428, count: 59230"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 17.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.20620416438038, max mem: 17.2109375, count: 59230"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.524487035486674, max cpu: 32.941177, count: 59230"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 17.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.675004220834037, max mem: 17.84375, count: 59230"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.919382069897, max document_count: 10002.0, count: 59230"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10000.922370420396, max document_count: 10002.0, count: 59230"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 59230"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.595642,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.690129810375698, max cpu: 33.08715, count: 59230"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 47.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 46.28376950816731, max mem: 57.0546875, count: 59230"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.563790315748843, max cpu: 32.98969, count: 59230"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 48.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.48934793390174, max mem: 57.77734375, count: 59230"
           }
         ]
       }

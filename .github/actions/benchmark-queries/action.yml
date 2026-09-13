@@ -55,6 +55,16 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Refresh pg_search after snapshot restore
+      shell: bash
+      run: |
+        # Heap snapshots include an old extension catalog. Recreate it from the installed
+        # build so benchmarks also pick up unreleased SQL changes.
+        psql "postgresql://localhost:288${{ env.pg_version }}/postgres" \
+          -v ON_ERROR_STOP=1 --single-transaction \
+          -c "DROP EXTENSION IF EXISTS pg_search;" \
+          -c "CREATE EXTENSION pg_search;"
+
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash

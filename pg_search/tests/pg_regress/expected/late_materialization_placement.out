@@ -424,27 +424,25 @@ FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
 WHERE p.bio @@@ 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.author
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: c.id, c.author
-         Relation Tree: c INNER p
-         Join Cond: p.handle = c.post_id
-         Limit: 5
-         Order By: c.author asc, c.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, author@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-           :   TantivyDecodeExec: decode=[author]
-           :     TantivyFetchExec: fetch=[author]
-           :       SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[c, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(handle@1, post_id@1)], projection=[ctid_0@2, author@4, id@5, ctid_1@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=2, dynamic_filters=2, query="all"
-(18 rows)
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.handle
+   Limit: 5
+   Order By: c.author asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, author@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   TantivyDecodeExec: decode=[author]
+     :     TantivyFetchExec: fetch=[author]
+     :       SegmentedTopKExec: expr=[author@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[p, c]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(handle@0, post_id@1)], projection=[ctid_0@1, id@2, author@4, ctid_1@5]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=2, dynamic_filters=2, query="all"
+(16 rows)
 
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
@@ -468,26 +466,24 @@ FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id
 WHERE p.bio @@@ 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: c.id, c.author
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: c.id, c.author
-         Relation Tree: c INNER p
-         Join Cond: p.id = c.post_id
-         Limit: 5
-         Order By: c.author asc, c.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, author@1 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-           :   TantivyDecodeExec: decode=[author]
-           :     SegmentedTopKExec: expr=[author@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=5, visibility_checks=[c, p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, post_id@1)], projection=[ctid_0@2, author@4, id@5, ctid_1@0]
-           :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=2, query="all"
-(17 rows)
+   Relation Tree: p INNER c
+   Join Cond: c.post_id = p.id
+   Limit: 5
+   Order By: c.author asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, author@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   TantivyDecodeExec: decode=[author]
+     :     SegmentedTopKExec: expr=[author@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[p, c]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@1)], projection=[ctid_0@1, id@2, author@4, ctid_1@5]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=2, fetch=[author], dynamic_filters=2, query="all"
+(15 rows)
 
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id

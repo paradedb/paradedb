@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789299057467,
+  "lastUpdate": 1789299066346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -339906,6 +339906,90 @@ window.BENCHMARK_DATA = {
             "value": 610.7019069716806,
             "unit": "median tps",
             "extra": "avg tps: 607.956873748082, max tps: 681.0908259856877, count: 55330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e87c7e2f935b1c855d076b0559881d39f28d7568",
+          "message": "feat: remove the key_field requirement from search indexes (#6221)\n\n# Ticket(s) Closed\n\n- Part of #6198. Documentation and ORM guidance remain in #6303.\n- Consolidates the implementation stack #6222–#6228 into this PR. The\nbroad test-fixture cleanup remains separate in #6304.\n\n## What\n\nRemove the dependency on a designated `key_field` throughout BM25 index\ncreation and search execution. New indexes can contain only the fields\nbeing searched, without a primary key, unique first column, or\n`key_field` option:\n\n```sql\nCREATE INDEX products_search ON products USING paradedb (description, category);\nSELECT * FROM products AS p WHERE p @@@ 'shoes';\n```\n\nExisting indexes remain usable after an extension upgrade without\nrebuilding. The `key_field` option remains accepted for compatibility\nbut has no effect on new indexes; fields follow their ordinary\nconfiguration rules.\n\n## Why\n\nSearch evaluation, index-only scans, projections, and aggregates\npreviously relied on assumptions about a special key column. Those\nassumptions prevented ordinary nullable or duplicate-valued columns from\nbehaving consistently and produced incorrect matches in some\nsequential-scan and RLS cases.\n\n## How\n\n- Use PostgreSQL row identity and visibility when evaluating indexed\nsearch predicates during sequential scans. Fall back to inline row\nevaluation for prospective RLS rows, rows outside a partial index, and\nother cases the index cannot answer.\n- Allow index-only scans over eligible fast fields and apply the same\nfield eligibility rules to custom scans. Restrict document-count\nshortcuts to actual document counts.\n- Treat whole-row queries as unfielded searches. A field-specific\nbuilder such as `pdb.term()` requires an indexed column on the left-hand\nside; it no longer implicitly binds to a key field.\n- Bind more-like-this source-document lookups to the field on the\nleft-hand side. The changed overload returns `pdb.query`; upgrade SQL\nrecreates it without cascading through dependent objects, which must be\nmigrated explicitly.\n- Include the SQL upgrade fragments and retain legacy key-field upgrade\nfixtures. The broad removal of obsolete `key_field` options from\nregression, integration, stress, benchmark, and snippet-test fixtures is\nisolated in #6304.\n\n## Tests\n\n- All source PRs passed CI before consolidation, including PostgreSQL\n15–18 integration tests, PG18 regression tests, upgrade tests from\n`0.21.0` and `0.25.9`, schema checks, Rust lint, and applicable\ndocumentation checks.\n- Published `0.26.0-rc.1` from the implementation head and smoke-tested\nthe Docker image on arm64: upgraded five `0.25.9` databases, verified\nlegacy indexes without rebuilding, compared upgraded and fresh extension\nschemas, and tested keyless indexes with NULLs, duplicates, searches,\nwrites, rollback, vacuum, reindex, and restart persistence.\n- Runtime code matches #6228 at `4405076dc`, which passed CI and was\nused to cut the beta. Migration fragments are grouped under #6221 so\nSchemaBot validates the full schema change against `main`; its validator\nfinds all 13 required statements, and fragment lint passes. The\ntest-fixture cleanup is stacked separately in #6304.\n\nThe related docs PR remains separate while the ORM clients are updated.",
+          "timestamp": "2026-09-13T13:11:13+02:00",
+          "tree_id": "c95893209d706d93992857f5edae9e4e5350376f",
+          "url": "https://github.com/paradedb/paradedb/commit/e87c7e2f935b1c855d076b0559881d39f28d7568"
+        },
+        "date": 1789299013950,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 198.664128449039,
+            "unit": "median tps",
+            "extra": "avg tps: 198.53432510086645, max tps: 217.81094917102988, count: 55195"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 202.26586716713902,
+            "unit": "median tps",
+            "extra": "avg tps: 201.79925003188055, max tps: 221.70547731899873, count: 55195"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 159.95051751151908,
+            "unit": "median tps",
+            "extra": "avg tps: 159.72430599555966, max tps: 178.4767075224837, count: 55195"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 491.30843467127283,
+            "unit": "median tps",
+            "extra": "avg tps: 490.85297650253403, max tps: 669.9500112779385, count: 55195"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 350.3558299742016,
+            "unit": "median tps",
+            "extra": "avg tps: 350.0986185091554, max tps: 436.4168909541148, count: 55195"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.823084999480438,
+            "unit": "median tps",
+            "extra": "avg tps: 14.852087586257536, max tps: 15.55022720441454, count: 55195"
+          },
+          {
+            "name": "Postgres Index Only Scan Fallback - Subscriber - tps",
+            "value": 671.1711961420688,
+            "unit": "median tps",
+            "extra": "avg tps: 667.7179800541554, max tps: 791.7527432563663, count: 55195"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 679.4616005537181,
+            "unit": "median tps",
+            "extra": "avg tps: 675.875656760084, max tps: 843.1741779094704, count: 55195"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 277.66037787769375,
+            "unit": "median tps",
+            "extra": "avg tps: 277.21043423304235, max tps: 336.79615144262465, count: 55195"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 593.514891706692,
+            "unit": "median tps",
+            "extra": "avg tps: 590.829908470826, max tps: 684.3599451303438, count: 55195"
           }
         ]
       }

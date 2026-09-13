@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789309404343,
+  "lastUpdate": 1789309413376,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -143632,6 +143632,108 @@ window.BENCHMARK_DATA = {
             "value": 100.33203125,
             "unit": "median mem",
             "extra": "avg mem: 99.81011511497299, max mem: 104.7734375, count: 59427"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22e7bfde11ed98ab7f595f57a601166cf9ce18b5",
+          "message": "chore: Render a repro script for planning-assertion failures in proptests. (#6319)\n\n## What\n\nWhen `generated_joins_small` fails on a planning assertion, render a\nrepro script.\n\n## Why\n\nCurrently we do not get repro scripts for planning assertions. For\nexample, see:\nhttps://github.com/paradedb/paradedb/actions/runs/34754450217/job/103716348530?pr=6304",
+          "timestamp": "2026-09-13T06:41:23-07:00",
+          "tree_id": "55cc50a5542a8e821690a4e3417a087b6ef41560",
+          "url": "https://github.com/paradedb/paradedb/commit/22e7bfde11ed98ab7f595f57a601166cf9ce18b5"
+        },
+        "date": 1789309409578,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05960755275823769, max background_merging: 2.0, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.712813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.75056651708359, max cpu: 9.7165985, count: 59422"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 20.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.08263702048484, max mem: 20.140625, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.717445,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.894688300347069, max cpu: 9.599999, count: 59422"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 33.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.89547142682845, max mem: 33.99609375, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64401,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64083.33450573862, max block_count: 64401.0, count: 59422"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 66.16917976507018, max segment_count: 106.0, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.59882,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.149126201865354, max cpu: 33.922264, count: 59422"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 84.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.86853662942598, max mem: 85.06640625, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.698972,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.379640195490421, max cpu: 32.925037, count: 59422"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 100.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 100.03873913754586, max mem: 104.77734375, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.876635479523488, max cpu: 28.290766, count: 59422"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 47.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.660398295244185, max mem: 51.03125, count: 59422"
           }
         ]
       }

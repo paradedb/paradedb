@@ -114,7 +114,6 @@ impl PhysicalOptimizerRule for DeferredPlacementRule {
             fetch_auto: gucs::defer_column_fetch() == DeferredPlacement::Auto,
             decode_auto: gucs::defer_string_decode() == DeferredPlacement::Auto,
             unique_fields: HashMap::default(),
-            key_fields: HashMap::default(),
             decisions: HashMap::default(),
         };
         if !ctx.fetch_auto && !ctx.decode_auto {
@@ -230,8 +229,6 @@ struct Context {
     decode_auto: bool,
     /// Per index, since every join key asks the same question of the same scan.
     unique_fields: HashMap<u32, HashSet<String>>,
-    /// Key field per index, or `None` when the index cannot be opened (a placeholder scan).
-    key_fields: HashMap<u32, Option<String>>,
     /// Per column of per scan, since each one has its own consumer and its own path, so its
     /// own point to stop at.
     decisions: HashMap<DeferredSource, Decision>,
@@ -740,7 +737,6 @@ mod tests {
             fetch_auto,
             decode_auto,
             unique_fields: HashMap::default(),
-            key_fields: HashMap::default(),
             decisions: HashMap::default(),
         }
     }

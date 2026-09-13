@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789308108694,
+  "lastUpdate": 1789333877611,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3418,6 +3418,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.274,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "50290838+devdattatalele@users.noreply.github.com",
+            "name": "Devdatta Talele",
+            "username": "devdattatalele"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "740e1a9feb40d942beb8ee1f747edc0f8c7f1455",
+          "message": "feat: combine multiple index bitmaps with BitmapAnd (#6144)\n\n# Ticket(s) Closed\n\n- Closes #6089\n\n## What\n\n`build_bitmap_path` kept only the best net candidate, so a predicate\ncovered by a second index stayed a heap filter. It now scores every\ncandidate, sorts by descending net, and keeps adding while the next\nbitmap's incremental net stays positive, then combines them with\n`create_bitmap_and_path`.\n\n## Why\n\nFollow-up to #6088. A second bitmap only rejects rows the first one\nkept, so when it still pays for itself the scan skips those heap fetches\nand their filter evaluation.\n\n## How\n\n`ledger` takes the rows that reach a bitmap, so one function scores both\nthe standalone case and the incremental one. An index covering no clause\nthe accepted set already covers is skipped, since a multicolumn index\nand a single column one over a shared key match the same clause and\nmultiplying their selectivities would count it twice.\n\n`accept()`, the query rewrite, `MultiExecProcNode` and `index_names()`\nalready handled a BitmapAnd child, so this is planner only.\n\n## Tests\n\nNew supported case: two indexable predicates on a wide row table.\nEXPLAIN shows BitmapAnd over both leaves, both filters move to recheck,\nand results match the same query with the indexes dropped. A lateral\nrescan covers freeing and re-seeding the bitmap per outer row.\n\nThe `TODO BitmapAnd` shape does not flip. Both its predicates take the\n0.005 default selectivity and `providers` is narrow, so the first bitmap\nis modeled as cutting 1000 rows to 5 and the second one's incremental\nnet is -5.84. That is the cost gate working rather than missing\ncoverage, so it moved to the rejected section.\n\n`cargo pgrx regress pg18` 332/332.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-09-13T13:50:59-07:00",
+          "tree_id": "ffd3f92e2ca493d1eca04566c2a5bc89c4c21483",
+          "url": "https://github.com/paradedb/paradedb/commit/740e1a9feb40d942beb8ee1f747edc0f8c7f1455"
+        },
+        "date": 1789333873083,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7040885822263014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.629,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.136,
             "unit": "ms"
           }
         ]

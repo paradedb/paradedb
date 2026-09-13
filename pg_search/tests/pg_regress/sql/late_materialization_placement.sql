@@ -167,7 +167,8 @@ WHERE p.body @@@ 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
--- Two scans of one index share one decision.
+-- Two scans of one index share a placement decision, but mixed-alias string
+-- ORDER BY cannot use SegmentedTopK (ordinals are per scan). Decode, then SortExec.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.author, b.author
 FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
@@ -286,6 +287,7 @@ LIMIT 5;
 -- answer. The build side comes back out of doc order, so it resolves its
 -- ordinals in the scan. The probe side joins on the build side's primary key, so
 -- its rows arrive in doc order and at most once, and both halves stay deferred.
+-- Mixed-alias string ORDER BY still cannot use SegmentedTopK; decode, then SortExec.
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

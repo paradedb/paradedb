@@ -65,8 +65,8 @@ struct SegmentCache {
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
 pub struct FFHelper(
-    // `None` only for the `empty()`/`Default` placeholders, which are never used for column
-    // access; `with_fields` always builds the full inner state.
+    // `None` only for the `Default` placeholder, which is never used for column access;
+    // `with_fields` always builds the full inner state.
     Option<FFInner>,
 );
 
@@ -81,10 +81,6 @@ struct FFInner {
 }
 
 impl FFHelper {
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         Self(Some(FFInner {
             searcher: reader.searcher().clone(),
@@ -105,7 +101,7 @@ impl FFHelper {
     fn inner(&self) -> &FFInner {
         self.0
             .as_ref()
-            .expect("FFHelper::empty() must not be used for column access")
+            .expect("placeholder FFHelper must not be used for column access")
     }
 
     fn searcher(&self) -> &Searcher {

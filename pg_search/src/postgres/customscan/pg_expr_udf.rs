@@ -42,9 +42,27 @@ use serde::{Deserialize, Serialize};
 
 use super::expr_eval::{InputVarInfo, PreparedPgExpr};
 use crate::postgres::types_arrow;
+use crate::schema::SearchFieldType;
 
 /// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
 pub const PG_EXPR_UDF_PREFIX: &str = "pdb_eval_expr_";
+
+/// How one UDF input column converts to a Datum when populating the
+/// evaluation slot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InputDecode {
+    /// Plain by-type conversion driven by the input var's `type_oid`.
+    Plain,
+    /// A storage-encoded column: a window-aggregate value (joinscan sentinel
+    /// input) or a NUMERIC fast-field column. Values arrive in the storage
+    /// encoding — native Int64/Float64, scaled i64, decimal bytes, or the
+    /// numeric AVG count+sum blob — and route through
+    /// `datafusion_agg_to_datum` instead of the plain conversion.
+    StorageEncoded {
+        is_avg: bool,
+        field_type: Option<SearchFieldType>,
+    },
+}
 
 /// A DataFusion ScalarUDF that wraps PostgreSQL's ExecEvalExpr.
 #[derive(Serialize, Deserialize)]
@@ -54,6 +72,8 @@ pub struct PgExprUdf {
     pg_expr_string: String,
     /// Input variable metadata with resolved type info from planning time
     input_vars: Vec<InputVarInfo>,
+    /// Per-input conversion, aligned with `input_vars`.
+    input_decodes: Vec<InputDecode>,
     /// PostgreSQL result type OID
     result_type_oid: pg_sys::Oid,
     /// Arrow return type for UDF OUTPUT (preserves PG expression result type)
@@ -167,35 +187,50 @@ impl PgExprUdf {
         format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")
     }
 
-    /// Rebuild derived fields after deserialization.
-    pub fn fixup_after_deserialize(&mut self) {
-        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
-        let input_types: Vec<DataType> = self
-            .input_vars
+    /// Compute the DataFusion signature for the given inputs.
+    ///
+    /// A storage-encoded input's Arrow type is its encoding, not what
+    /// `pg_type_to_tantivy_arrow` derives from the PG type (e.g. a numeric
+    /// AVG blob is Binary and a scaled NUMERIC column is Int64 while their
+    /// `type_oid` is NUMERIC, which the plain mapping would coerce to
+    /// Utf8), so any such input switches the signature to variadic_any —
+    /// the per-input decode in `populate_slot` handles the actual types.
+    fn compute_signature(input_vars: &[InputVarInfo], input_decodes: &[InputDecode]) -> Signature {
+        if input_decodes
+            .iter()
+            .any(|d| matches!(d, InputDecode::StorageEncoded { .. }))
+        {
+            return Signature::variadic_any(Volatility::Immutable);
+        }
+        let input_types: Vec<DataType> = input_vars
             .iter()
             .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
             .collect();
-        self.signature = Signature::exact(input_types, Volatility::Immutable);
+        Signature::exact(input_types, Volatility::Immutable)
+    }
+
+    /// Rebuild derived fields after deserialization.
+    pub fn fixup_after_deserialize(&mut self) {
+        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
+        self.signature = Self::compute_signature(&self.input_vars, &self.input_decodes);
     }
 
     pub fn new(
         name: String,
         pg_expr_string: String,
         input_vars: Vec<InputVarInfo>,
+        input_decodes: Vec<InputDecode>,
         result_type_oid: pg_sys::Oid,
     ) -> Self {
+        debug_assert_eq!(input_vars.len(), input_decodes.len());
         let return_type = types_arrow::pg_type_to_arrow(result_type_oid);
-
-        let input_types: Vec<DataType> = input_vars
-            .iter()
-            .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
-            .collect();
-        let signature = Signature::exact(input_types, Volatility::Immutable);
+        let signature = Self::compute_signature(&input_vars, &input_decodes);
 
         Self {
             name,
             pg_expr_string,
             input_vars,
+            input_decodes,
             result_type_oid,
             return_type,
             signature,
@@ -243,17 +278,54 @@ unsafe fn populate_slot(
     pg_state: &PgExprState,
     args: &[ColumnarValue],
     input_vars: &[InputVarInfo],
+    input_decodes: &[InputDecode],
     row_idx: usize,
 ) -> Result<()> {
     pg_sys::ExecClearTuple(pg_state.slot);
     for (col_idx, arg) in args.iter().enumerate() {
-        let (val, null) = arrow_value_to_datum(arg, row_idx, input_vars[col_idx].type_oid)?;
+        let (val, null) = match &input_decodes[col_idx] {
+            InputDecode::Plain => arrow_value_to_datum(arg, row_idx, input_vars[col_idx].type_oid)?,
+            InputDecode::StorageEncoded { is_avg, field_type } => storage_value_to_datum(
+                arg,
+                row_idx,
+                *is_avg,
+                field_type.as_ref(),
+                input_vars[col_idx].type_oid,
+            )?,
+        };
         (*pg_state.slot).tts_values.add(col_idx).write(val);
         (*pg_state.slot).tts_isnull.add(col_idx).write(null);
     }
     (*pg_state.slot).tts_nvalid = args.len() as i16;
     pg_sys::ExecStoreVirtualTuple(pg_state.slot);
     Ok(())
+}
+
+/// Convert one row of a storage-encoded input column to a Datum of its PG
+/// type, using the same decode as the scan's direct aggregate-output path.
+unsafe fn storage_value_to_datum(
+    arg: &ColumnarValue,
+    row_idx: usize,
+    is_avg: bool,
+    field_type: Option<&SearchFieldType>,
+    type_oid: pg_sys::Oid,
+) -> Result<(pg_sys::Datum, bool)> {
+    use crate::postgres::customscan::aggregatescan::datafusion_project::datafusion_agg_to_datum;
+
+    let maybe_datum = match arg {
+        ColumnarValue::Array(array) => {
+            datafusion_agg_to_datum(is_avg, field_type, type_oid, array.as_ref(), row_idx)
+        }
+        ColumnarValue::Scalar(scalar) => {
+            let array = scalar.to_array()?;
+            datafusion_agg_to_datum(is_avg, field_type, type_oid, array.as_ref(), 0)
+        }
+    }
+    .map_err(|e| DataFusionError::Internal(format!("storage-encoded input decode failed: {e}")))?;
+    Ok(match maybe_datum {
+        Some(datum) => (datum, false),
+        None => (pg_sys::Datum::null(), true),
+    })
 }
 
 /// Single-pass Datum→Arrow conversion: evaluate the PG expression for each row
@@ -274,7 +346,13 @@ macro_rules! eval_expr_to_arrow {
                     let mut builder = $builder_init;
                     for row_idx in 0..$num_rows {
                         unsafe {
-                            populate_slot($pg_state, $args, $input_vars, row_idx)?;
+                            populate_slot(
+                                $pg_state,
+                                $args,
+                                $input_vars,
+                                &$self_.input_decodes,
+                                row_idx,
+                            )?;
                             let mut is_null = false;
                             let datum = pg_sys::ExecEvalExpr(
                                 $pg_state.expr_state,

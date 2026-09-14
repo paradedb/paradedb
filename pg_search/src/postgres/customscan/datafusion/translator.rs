@@ -35,6 +35,21 @@ use crate::scan::ScanMode;
 pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
+
+    /// UDF-input resolution for storage-encoded values: the column plus its
+    /// decode metadata when `(varno, varattno)` is a window-aggregate
+    /// sentinel or a NUMERIC fast-field column, `None` for ordinary
+    /// columns. Unlike `map_var`, this succeeds for storage-encoded values —
+    /// inside a `PgExprUdf` they are decoded per input, whereas native
+    /// DataFusion math over them would be wrong (which is why `map_var`
+    /// refuses them).
+    fn udf_input(
+        &self,
+        _varno: pg_sys::Index,
+        _varattno: pg_sys::AttrNumber,
+    ) -> Option<(Expr, crate::postgres::customscan::pg_expr_udf::InputDecode)> {
+        None
+    }
 }
 
 /// Human-readable PG type name (e.g. `"integer"`, `"jsonb"`) for debug
@@ -792,7 +807,9 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::Expression | OutputColumnInfo::Pruned => return None,
+                OutputColumnInfo::WindowAgg { .. }
+                | OutputColumnInfo::Expression
+                | OutputColumnInfo::Pruned => return None,
             }
         } else {
             (varno, varattno, false, None)

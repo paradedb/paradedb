@@ -63,7 +63,7 @@ jobs:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=c7gd.metal # Cheapest known metal instance (as of September 2026), chosen for its performance and consistency across hosts
+      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
       - image=ubuntu24-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance

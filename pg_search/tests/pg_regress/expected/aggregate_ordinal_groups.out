@@ -27,15 +27,14 @@ CREATE TABLE aog_notes (
 -- which is the case grouping on ordinals is for.
 CREATE INDEX aog_products_idx ON aog_products
 USING bm25 (id, description, category, brand, price)
-WITH (key_field='id',
-      text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
+WITH (text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
       numeric_fields='{"price": {"fast": true}}');
 CREATE INDEX aog_reviews_idx ON aog_reviews
 USING bm25 (id, product_id, stars)
-WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
+WITH (numeric_fields='{"product_id": {"fast": true}, "stars": {"fast": true}}');
 CREATE INDEX aog_notes_idx ON aog_notes
 USING bm25 (id, product_id, note)
-WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
+WITH (numeric_fields='{"product_id": {"fast": true}}', text_fields='{"note": {"fast": true}}');
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO aog_products (description, category, brand, price)
 SELECT CASE WHEN i % 10 = 0 THEN 'gadget ' ELSE 'widget ' END || i,

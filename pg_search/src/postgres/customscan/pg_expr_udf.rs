@@ -171,30 +171,40 @@ impl PgExprUdf {
         }
     }
 
-    /// Build a deterministic, EXPLAIN-stable UDF name from a short node-tag
-    /// label and the serialized expression. Two subtrees with the same
-    /// serialized form collide on the same name — semantically correct,
-    /// since they're the same expression.
+    /// Hash the expression structure and constant values separately so UDF names
+    /// do not depend on how PostgreSQL prints Datum bytes on this platform.
     ///
-    /// Uses `FxHasher` (from `rustc-hash`) rather than `std`'s
-    /// `DefaultHasher`: the FxHash algorithm is documented and stable across
-    /// Rust releases, whereas `DefaultHasher`'s output is explicitly not.
-    pub fn stable_name(tag: &str, pg_expr_string: &str) -> String {
+    /// # Safety
+    /// `expr` must be a valid, non-null PostgreSQL expression tree.
+    pub unsafe fn stable_name(tag: &str, expr: *mut pg_sys::Node) -> String {
         use std::hash::{Hash, Hasher};
-        static DATUM_BYTES: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-            regex::Regex::new(r"(:constvalue [0-9]+ \[ )((?:-?[0-9]+ )*)\]").unwrap()
-        });
-        // outDatum prints C char values, which may be signed or unsigned depending on the build.
-        let canonical =
-            DATUM_BYTES.replace_all(pg_expr_string, |captures: &regex::Captures<'_>| {
-                let bytes = captures[2]
-                    .split_whitespace()
-                    .map(|byte| format!("{} ", byte.parse::<i16>().unwrap() as i8))
-                    .collect::<String>();
-                format!("{}{bytes}]", &captures[1])
-            });
+
+        #[pgrx::pg_guard]
+        unsafe extern "C-unwind" fn hash_constants(
+            node: *mut pg_sys::Node,
+            context: *mut core::ffi::c_void,
+        ) -> bool {
+            if let Some(constant) = crate::nodecast!(Const, T_Const, node) {
+                let constant = &mut *constant;
+                let hasher = &mut *context.cast::<rustc_hash::FxHasher>();
+                constant.constisnull.hash(hasher);
+                if !constant.constisnull {
+                    pg_sys::datum_image_hash(
+                        constant.constvalue,
+                        constant.constbyval,
+                        constant.constlen,
+                    )
+                    .hash(hasher);
+                    constant.constisnull = true;
+                }
+            }
+            pg_sys::expression_tree_walker(node, Some(hash_constants), context)
+        }
+
         let mut hasher = rustc_hash::FxHasher::default();
-        canonical.hash(&mut hasher);
+        let expr = pg_sys::copyObjectImpl(expr.cast()).cast::<pg_sys::Node>();
+        hash_constants(expr, std::ptr::from_mut(&mut hasher).cast());
+        crate::postgres::deparse::node_to_string_owned(expr).hash(&mut hasher);
         let short_hash = hasher.finish() as u32;
         format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")
     }
@@ -522,49 +532,5 @@ unsafe fn arrow_value_to_datum(
                 Ok((datum, false))
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PgExprUdf;
-
-    #[test]
-    fn stable_name_normalizes_datum_byte_signedness() {
-        let signed = (0..=255)
-            .map(|byte| format!("{} ", byte as u8 as i8))
-            .collect::<String>();
-        let unsigned = (0..=255).map(|byte| format!("{byte} ")).collect::<String>();
-        let signed = format!("{{CONST :constvalue 256 [ {signed}]}}");
-        let unsigned = format!("{{CONST :constvalue 256 [ {unsigned}]}}");
-        assert_eq!(
-            PgExprUdf::stable_name("const", &signed),
-            PgExprUdf::stable_name("const", &unsigned)
-        );
-        assert_ne!(
-            PgExprUdf::stable_name("const", &signed),
-            PgExprUdf::stable_name("const", &signed.replace("127 ", "126 "))
-        );
-        assert_ne!(
-            PgExprUdf::stable_name("var", "{VAR :varattno 255}"),
-            PgExprUdf::stable_name("var", "{VAR :varattno -1}")
-        );
-    }
-
-    #[test]
-    fn stable_name_uuid_ci_reproduction() {
-        let signed = r#"{OPEXPR :opno 2973 :opfuncid 2959 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 2 :vartype 2950 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 2 :location -1} {CONST :consttype 2950 :consttypmod -1 :constcollid 0 :constlen 16 :constbyval false :constisnull false :location -1 :constvalue 16 [ 85 14 -124 0 -30 -101 65 -44 -89 22 68 102 85 68 0 0 ]}) :location -1}"#;
-        let unsigned = signed.replace(
-            "85 14 -124 0 -30 -101 65 -44 -89 22 68 102 85 68 0 0",
-            "85 14 132 0 226 155 65 212 167 22 68 102 85 68 0 0",
-        );
-        assert_eq!(
-            PgExprUdf::stable_name("opexpr", signed),
-            "pdb_eval_expr_opexpr_f560a0b2"
-        );
-        assert_eq!(
-            PgExprUdf::stable_name("opexpr", &unsigned),
-            "pdb_eval_expr_opexpr_f560a0b2"
-        );
     }
 }

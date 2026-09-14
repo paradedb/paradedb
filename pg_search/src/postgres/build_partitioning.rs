@@ -46,7 +46,8 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BorrowedBuffer;
 use crate::postgres::utils::{
-    resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum, FieldSource,
+    item_pointer_to_u64, resolve_field_value, scalar_datum_to_tantivy_value, unwrap_alias_datum,
+    FieldSource,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -144,9 +145,72 @@ pub(crate) fn normalized_dims(schema: &Schema, dims: &[FieldName]) -> Vec<FieldN
 
 /// Where a `partition_by` field's value comes from for a heap tuple, plus what it takes to
 /// turn that datum into the value the index stores.
-struct SampledField {
-    field: SearchField,
-    categorized: CategorizedFieldData,
+#[derive(Clone)]
+pub(crate) struct CategorizedPartitionField {
+    pub(crate) field: SearchField,
+    pub(crate) categorized: CategorizedFieldData,
+}
+
+impl CategorizedPartitionField {
+    pub(crate) unsafe fn datum_to_value(
+        &self,
+        datum: pg_sys::Datum,
+        is_null: bool,
+        created_by_version: Option<Version>,
+    ) -> anyhow::Result<PdbOwnedValue> {
+        if is_null {
+            return Ok(PdbOwnedValue::Null);
+        }
+        let datum = unsafe { unwrap_alias_datum(datum, self.categorized.pg_type) };
+        let value = unsafe {
+            scalar_datum_to_tantivy_value(
+                datum,
+                self.field.field_type(),
+                self.categorized.base_oid,
+                created_by_version,
+            )
+        }
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "could not project partition_by field `{}`: {e}",
+                self.field.field_name()
+            )
+        })?;
+        Ok(value.0)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum PartitionField {
+    Ctid,
+    Categorized(Box<CategorizedPartitionField>),
+}
+
+impl PartitionField {
+    pub(crate) fn resolve_dims(
+        dims: &[FieldName],
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+    ) -> anyhow::Result<Vec<Self>> {
+        dims.iter()
+            .map(|dim| {
+                if dim.is_ctid() {
+                    Ok(Self::Ctid)
+                } else {
+                    categorized_fields
+                        .iter()
+                        .find(|(field, _)| field.field_name() == dim)
+                        .cloned()
+                        .map(|(field, categorized)| {
+                            Self::Categorized(Box::new(CategorizedPartitionField {
+                                field,
+                                categorized,
+                            }))
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("partition_by field `{dim}` is not indexed"))
+                }
+            })
+            .collect()
+    }
 }
 
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
@@ -159,19 +223,7 @@ unsafe fn sample_partition_fields(
 ) -> anyhow::Result<Vec<Point>> {
     let schema = indexrel.schema()?;
     let categorized_fields = schema.categorized_fields();
-    let fields = partition_by
-        .iter()
-        .map(|name| {
-            categorized_fields
-                .iter()
-                .find(|(field, _)| field.field_name() == name)
-                .map(|(field, categorized)| SampledField {
-                    field: field.clone(),
-                    categorized: categorized.clone(),
-                })
-                .ok_or_else(|| anyhow::anyhow!("partition_by field `{name}` is not indexed"))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let fields = PartitionField::resolve_dims(partition_by, &categorized_fields)?;
     drop(categorized_fields);
 
     let nblocks = unsafe {
@@ -199,9 +251,12 @@ unsafe fn sample_partition_fields(
         }
     };
 
-    let needs_expressions = fields
-        .iter()
-        .any(|f| !matches!(f.categorized.source, FieldSource::Heap { .. }));
+    let needs_expressions = fields.iter().any(|f| match f {
+        PartitionField::Ctid => false,
+        PartitionField::Categorized(categorized) => {
+            !matches!(categorized.categorized.source, FieldSource::Heap { .. })
+        }
+    });
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
     let mut sampler = unsafe {
@@ -297,8 +352,17 @@ unsafe fn sample_partition_fields(
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
 
-                    let point =
-                        project_row(&fields, values, isnull, &expr_results, created_by_version);
+                    // The sample uses the tuple's own physical ctid, whereas `build_callback`
+                    // routes the HOT root.
+                    let ctid_u64 = item_pointer_to_u64(t_self);
+                    let point = project_row(
+                        &fields,
+                        values,
+                        isnull,
+                        ctid_u64,
+                        &expr_results,
+                        created_by_version,
+                    );
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
@@ -329,57 +393,46 @@ unsafe fn sample_partition_fields(
 /// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
 /// fields, converting each datum the same way the index writer does.
 unsafe fn project_row(
-    fields: &[SampledField],
+    fields: &[PartitionField],
     values: &[pg_sys::Datum],
     isnull: &[bool],
+    ctid: u64,
     expr_results: &[(pg_sys::Datum, bool)],
     created_by_version: Option<Version>,
 ) -> anyhow::Result<Point> {
     let unpacked_composites = unsafe {
-        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| {
-            if let FieldSource::CompositeField {
-                expression_idx,
-                composite_type_oid,
-                ..
-            } = f.categorized.source
-            {
-                let (datum, is_null) = expr_results[expression_idx];
-                Some((expression_idx, datum, is_null, composite_type_oid))
-            } else {
-                None
+        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| match f {
+            PartitionField::Categorized(categorized) => {
+                if let FieldSource::CompositeField {
+                    expression_idx,
+                    composite_type_oid,
+                    ..
+                } = categorized.categorized.source
+                {
+                    let (datum, is_null) = expr_results[expression_idx];
+                    Some((expression_idx, datum, is_null, composite_type_oid))
+                } else {
+                    None
+                }
             }
+            PartitionField::Ctid => None,
         }))
     };
 
     fields
         .iter()
-        .map(|f| {
-            let (datum, is_null) = resolve_field_value(
-                &f.categorized.source,
-                values,
-                isnull,
-                expr_results,
-                &unpacked_composites,
-            );
-            if is_null {
-                return Ok(PdbOwnedValue::Null);
+        .map(|f| match f {
+            PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+            PartitionField::Categorized(categorized) => {
+                let (datum, is_null) = resolve_field_value(
+                    &categorized.categorized.source,
+                    values,
+                    isnull,
+                    expr_results,
+                    &unpacked_composites,
+                );
+                unsafe { categorized.datum_to_value(datum, is_null, created_by_version) }
             }
-            let datum = unsafe { unwrap_alias_datum(datum, f.categorized.pg_type) };
-            let value = unsafe {
-                scalar_datum_to_tantivy_value(
-                    datum,
-                    f.field.field_type(),
-                    f.categorized.base_oid,
-                    created_by_version,
-                )
-            }
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "could not sample partition_by field `{}`: {e}",
-                    f.field.field_name()
-                )
-            })?;
-            Ok(value.0)
         })
         .collect()
 }
@@ -624,5 +677,51 @@ mod tests {
             saw_label_split,
             "expected at least one label split value: {tree}"
         );
+    }
+
+    #[pg_test]
+    fn boundaries_from_heap_sample_with_ctid() {
+        Spi::run(
+            r#"
+            CREATE TABLE sample_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_ctid (tenant_id, name)
+            SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_ctid_idx ON sample_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'ctid');
+
+            CREATE TABLE sample_multi_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_multi_ctid (tenant_id, name)
+            SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_multi_ctid_idx ON sample_multi_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id, ctid');
+            "#,
+        )
+        .unwrap();
+
+        let (heaprel, indexrel) = open_rels("sample_ctid", "sample_ctid_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+
+        let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(
+            tree.dims(),
+            &[FieldName::from("tenant_id"), FieldName::from("ctid")]
+        );
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+
+        // Both declared fields end up cutting the space.
+        let bounded_dims = (0..4)
+            .flat_map(|p| tree.partition_bounds(p).unwrap())
+            .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
+            .count();
+        assert!(bounded_dims > 4, "{tree}");
     }
 }

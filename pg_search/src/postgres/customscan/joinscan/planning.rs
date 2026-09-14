@@ -1599,8 +1599,9 @@ pub(super) unsafe fn collect_required_fields(
         }
     }
 
-    // Ensure expression input vars are included so Tantivy emits the columns
-    // that DISTINCT expressions depend on (e.g., `DISTINCT upper(name)` needs `name`).
+    // Ensure columns required by target list expressions and DISTINCT projections are
+    // included in the scan schema. Plain columns for non-DISTINCT queries are omitted so
+    // that they remain deferred to PostgreSQL heap fetch via CTID.
     if let Some(projections) = &join_clause.output_projection {
         for proj in projections {
             match proj {
@@ -1646,6 +1647,14 @@ pub(super) unsafe fn collect_required_fields(
                             break;
                         }
                     }
+                }
+                super::build::ChildProjection::Column { rti, attno }
+                    if join_clause.has_distinct =>
+                {
+                    // Ensure plain columns in DISTINCT projections are present in the scan schema
+                    // even if omitted from `order_by` (e.g. when columns are equated in WHERE/JOIN
+                    // and merged into a single EquivalenceClass, or when constant-filtered).
+                    ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
                 }
                 _ => {}
             }

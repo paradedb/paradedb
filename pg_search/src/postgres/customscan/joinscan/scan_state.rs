@@ -1484,8 +1484,10 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, columns referenced by DISTINCT projections
-        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
+        // When DISTINCT is present, indexed expression projections and ORDER BY must be
+        // available early for DataFusion's AggregateExec and SortExec. Plain DISTINCT columns
+        // remain deferred, as DataFusion's LateMaterializationRule anchors a decode below
+        // the AggregateExec (after the join).
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {

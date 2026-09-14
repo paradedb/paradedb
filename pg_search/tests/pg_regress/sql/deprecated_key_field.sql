@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- The deprecated key_field option is accepted but ignored.
+-- The deprecated key_field option warns but is otherwise ignored.
 CREATE TABLE deprecated_key_field (id integer, description text);
 INSERT INTO deprecated_key_field VALUES (NULL, 'keyboard'), (1, 'keyboard');
 
@@ -15,6 +15,10 @@ CREATE INDEX deprecated_key_field_idx ON deprecated_key_field
 USING paradedb (description) WITH (key_field = 'nonexistent');
 
 INSERT INTO deprecated_key_field VALUES (NULL, 'keyboard');
+SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
+
+DROP INDEX deprecated_key_field_idx;
+CREATE INDEX deprecated_key_field_idx ON deprecated_key_field USING paradedb (description);
 SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
 RESET enable_seqscan;
 

@@ -87,11 +87,11 @@ LIMIT 5;
    Limit: 5
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
      :     TantivyFetchExec: fetch=[title]
-     :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :           CooperativeExec
@@ -128,11 +128,11 @@ LIMIT 4;
    Limit: 4
    Order By: f.title desc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
      :     TantivyFetchExec: fetch=[title]
-     :       SegmentedTopKExec: expr=[title@2 DESC, id@1 ASC NULLS LAST], k=4, visibility_checks=[d, f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :       SegmentedTopKExec: expr=[title@2 DESC, id@3 ASC NULLS LAST], k=4, visibility_checks=[d, f]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :           CooperativeExec
@@ -168,11 +168,11 @@ LIMIT 5;
    Limit: 5
    Order By: f.title desc, f.content asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
+     : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title, content]
      :     TantivyFetchExec: fetch=[title, content]
      :       SegmentedTopKExec: expr=[title@2 DESC, content@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, content@5, ctid_1@6]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, content@5]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :           CooperativeExec
@@ -209,11 +209,11 @@ LIMIT 7;
    Limit: 7
    Order By: f.price asc nulls first, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, price@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, price@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[price]
      :     TantivyFetchExec: fetch=[price]
-     :       SegmentedTopKExec: expr=[price@2 ASC, id@1 ASC NULLS LAST], k=7, visibility_checks=[d, f]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, price@4, ctid_1@5]
+     :       SegmentedTopKExec: expr=[price@2 ASC, id@3 ASC NULLS LAST], k=7, visibility_checks=[d, f]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, price@4, id@5]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :           CooperativeExec
@@ -253,13 +253,13 @@ LIMIT 5;
    Limit: 5
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     TantivyDecodeExec: decode=[title]
      :       TantivyFetchExec: fetch=[title]
      :         VisibilityFilterExec: tables=[d, f]
      :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :               CooperativeExec
      :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :               CooperativeExec
@@ -310,7 +310,7 @@ LIMIT 5;
                  :       TantivyFetchExec: fetch=[title]
                  :         VisibilityFilterExec: tables=[d, f]
                  :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@0)], projection=[title@3, ctid_0@1, ctid_1@4]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@2, ctid_0@1, ctid_1@4]
                  :               CooperativeExec
                  :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
                  :               CooperativeExec
@@ -352,10 +352,10 @@ LIMIT 5;
    Limit: 5
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :         CooperativeExec
@@ -391,10 +391,10 @@ LIMIT 4;
    Limit: 4
    Order By: f.title desc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@2 DESC, id@1 ASC NULLS LAST], k=4, visibility_checks=[d, f]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[title@2 DESC, id@3 ASC NULLS LAST], k=4, visibility_checks=[d, f]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :         CooperativeExec
@@ -429,10 +429,10 @@ LIMIT 5;
    Limit: 5
    Order By: f.title desc, f.content asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
+     : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[title, content]
      :     SegmentedTopKExec: expr=[title@2 DESC, content@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, content@5, ctid_1@6]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, content@5]
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"GAMMA_DIVISION","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :         CooperativeExec
@@ -469,10 +469,10 @@ LIMIT 7;
    Limit: 7
    Order By: f.price asc nulls first, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, price@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[id@3 as col_1, price@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      :   TantivyDecodeExec: decode=[price]
-     :     SegmentedTopKExec: expr=[price@2 ASC, id@1 ASC NULLS LAST], k=7, visibility_checks=[d, f]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, price@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[price@2 ASC, id@3 ASC NULLS LAST], k=7, visibility_checks=[d, f]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, price@4, id@5]
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :         CooperativeExec
@@ -511,12 +511,12 @@ LIMIT 5;
    Limit: 5
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     TantivyDecodeExec: decode=[title]
      :       VisibilityFilterExec: tables=[d, f]
      :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :             CooperativeExec
@@ -565,7 +565,7 @@ LIMIT 5;
                  :     TantivyDecodeExec: decode=[title]
                  :       VisibilityFilterExec: tables=[d, f]
                  :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@0)], projection=[title@3, ctid_0@1, ctid_1@4]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@2, ctid_0@1, ctid_1@4]
                  :             CooperativeExec
                  :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
                  :             CooperativeExec
@@ -612,15 +612,15 @@ LIMIT 5;
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], fetch=5
+     : │ ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], fetch=5
      : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=6
      :   │ LocalLimitExec: fetch=5
      :   │   TantivyDecodeExec: decode=[title]
-     :   │     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :   │     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
+     :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
      :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
@@ -666,16 +666,16 @@ LIMIT 5;
    Order By: f.title asc, f.id asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[id@1 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], fetch=5
+     : │ ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], fetch=5
      : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=6
      :   │ LocalLimitExec: fetch=5
      :   │   TantivyDecodeExec: decode=[title]
      :   │     TantivyFetchExec: fetch=[title]
-     :   │       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=5, visibility_checks=[d, f]
-     :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@1, id@2, title@4, ctid_1@5]
+     :   │       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
+     :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :   │           CoalescePartitionsExec
      :   │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
      :   │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1

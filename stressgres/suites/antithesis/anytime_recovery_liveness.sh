@@ -29,8 +29,8 @@ RECOVER_SECONDS=50
 # exactly the faults this test exists to inject. Fire on a small fraction of
 # invocations so most of the run is spent under chaos.
 TRIGGER_PERCENT=10
-sample=$(od -An -N2 -tu2 < /dev/urandom | tr -d '[:space:]')
-(( sample % 100 < TRIGGER_PERCENT )) || exit 0
+sample=$(od -An -N2 -tu2 </dev/urandom | tr -d '[:space:]')
+((sample % 100 < TRIGGER_PERCENT)) || exit 0
 
 # Antithesis fires anytime commands concurrently (the drivers can't overlap — only one
 # singleton runs per timeline — but these can). Overlapping quiet periods merge into the
@@ -51,7 +51,7 @@ flock -n 9 || exit 0
 # restores whatever `--reconnect-grace` the driver was started with, so the baseline
 # lives in exactly one place.
 poke() {
-  printf '%s' "$1" > "${GRACE_FILE}.tmp"
+  printf '%s' "$1" >"${GRACE_FILE}.tmp"
   mv "${GRACE_FILE}.tmp" "${GRACE_FILE}"
 }
 restore() { rm -f "${GRACE_FILE}" "${GRACE_FILE}.tmp"; }
@@ -66,7 +66,7 @@ trap restore EXIT
 echo "Recovery liveness: pausing faults for ${QUIET_SECONDS}s; Stressgres must recover within ${RECOVER_SECONDS}s"
 "${ANTITHESIS_STOP_FAULTS}" "${QUIET_SECONDS}"
 
-poke "$(( RECOVER_SECONDS * 1000 ))"
+poke "$((RECOVER_SECONDS * 1000))"
 sleep "${RECOVER_SECONDS}"
 restore
 

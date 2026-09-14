@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        uses: paradedb/actions/apt-install@v11
+        uses: paradedb/actions/apt-install@v12
         with:
           packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
@@ -401,7 +401,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v10
+        uses: paradedb/actions/slack-alert@v12
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

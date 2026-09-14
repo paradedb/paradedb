@@ -74,7 +74,7 @@ use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceCh
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFType;
-use crate::scan::deferred_encode::deferred_data_type;
+use crate::scan::deferred_encode::{deferred_data_type, is_deferred_field};
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::deferred_placement_rule::same_columns;
 use crate::scan::execution_plan::PgSearchScanPlan;
@@ -190,6 +190,12 @@ pub(crate) fn ordinal_group_keys(
 /// on either join key, DataFusion estimates an equi-join's output as its smaller input, so a
 /// join between a search-filtered side and a whole table reads as a handful of rows and every
 /// key of the large side reads as "no reduction", however small its dictionary is.
+///
+/// The same estimate hides a fan-out. A join above the scan can multiply the rows the
+/// partial aggregate sees, and a key that reads as one row per term here would reduce well
+/// after it, but nothing on the join says by how much.
+// TODO(paradedb/paradedb#6341): take the floor at the aggregate's input once join
+// statistics can size the fan-out.
 fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Option<usize> {
     let mut scans = Vec::new();
     collect_scans(decode.children()[0], field.heap_rti, &mut scans);
@@ -278,6 +284,21 @@ fn collect_scans<'a>(
 /// only gets the decode lifted over it.
 fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let Some(decode) = agg.input().downcast_ref::<TantivyDecodeExec>() else {
+        // A deferred column reaches an aggregate only through the decode the logical rule
+        // anchors directly under it, so an ordinal arriving any other way means an earlier
+        // rule moved that decode.
+        if agg
+            .input()
+            .schema()
+            .fields()
+            .iter()
+            .any(|f| is_deferred_field(f))
+        {
+            return internal_err!(
+                "DeferredAggregate: {} reads a deferred column without a decode below it",
+                agg.name()
+            );
+        }
         return Ok(None);
     };
     let lifted = ordinal_group_keys(agg, decode)?;
@@ -408,6 +429,7 @@ mod tests {
     use datafusion::functions_aggregate::count::count_udaf;
     use datafusion::physical_expr::aggregate::{AggregateExprBuilder, AggregateFunctionExpr};
     use datafusion::physical_expr::expressions::Literal;
+    use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
     use datafusion::physical_plan::union::UnionExec;
     use pgrx::prelude::*;
 
@@ -603,6 +625,16 @@ mod tests {
         let single = group_by_category(Arc::clone(&unresolved), vec![count_star(&unresolved)]);
         let err = rewrite(single).expect_err("an unresolved key is a planning error");
         assert!(err.to_string().contains("doc addresses"), "{err}");
+    }
+
+    /// An ordinal that reaches an aggregate through anything but its decode means an earlier
+    /// rule moved that decode, so the rule fails instead of grouping on nothing.
+    #[pg_test]
+    fn an_ordinal_reaching_an_aggregate_without_its_decode_is_a_planning_error() {
+        let input: Arc<dyn ExecutionPlan> = Arc::new(CoalescePartitionsExec::new(scan(1, true)));
+        let single = group_by_category(Arc::clone(&input), vec![count_star(&input)]);
+        let err = rewrite(single).expect_err("an undecoded ordinal is a planning error");
+        assert!(err.to_string().contains("without a decode"), "{err}");
     }
 
     #[pg_test]

@@ -448,6 +448,11 @@ impl SolvePostgresExpressions for JoinScanState {
 /// projection above it is trimmed) would be lost to an anchor planted on the first pass.
 /// When an anchor is planted, the session's rules get a last pass over it, as they would
 /// have had in the next pass of one loop; when nothing is planted, the plan stays as it was.
+/// The one way to optimize a logical plan here. `LateMaterializationRule` is not on the
+/// session, so `SessionState::optimize` on its own plants no deferred column: the rule has
+/// to run once the session's rules have settled, since a join DataFusion turns into a semi
+/// join on a later pass would otherwise find the extension node in its way, and the
+/// visibility rule has to see the ctid columns before that. New callers go through here.
 pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
     let (state, plan) = df.into_parts();
     let plan = state.optimize(&plan)?;

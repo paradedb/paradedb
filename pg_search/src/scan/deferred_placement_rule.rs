@@ -62,7 +62,7 @@ use std::sync::Arc;
 
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::Transformed;
-use datafusion::common::{JoinType, Result};
+use datafusion::common::{JoinType, Result, internal_err};
 use datafusion::physical_expr::LexOrdering;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -340,8 +340,14 @@ fn grouped_columns(
     decode: &TantivyDecodeExec,
 ) -> Result<HashSet<usize>> {
     let Some(agg) = agg.downcast_ref::<AggregateExec>() else {
-        return Ok(HashSet::default());
+        return internal_err!(
+            "DeferredPlacement: an aggregate bound holds a {}",
+            agg.name()
+        );
     };
+    // The group expressions index the aggregate's own input. With a node between the two, a
+    // projection that reads the strings say, they name that node's columns, and what the
+    // aggregate groups on is no longer an ordinal of this decode.
     if !Arc::ptr_eq(agg.input(), decode_node) {
         return Ok(HashSet::default());
     }

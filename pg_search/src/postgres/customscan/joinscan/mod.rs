@@ -177,7 +177,9 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::{query_allows_parallel_mode, warn_if_spilled};
+use crate::postgres::customscan::mpp::glue::{
+    query_allows_parallel_mode, record_worker_spill, warn_if_spilled,
+};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -1055,7 +1057,12 @@ impl JoinScan {
             cs.physical_plan = None;
             cs.runtime = None;
         }
-        if let Some(finish) = finish {
+        if let Some(mut finish) = finish {
+            // Join first: a producer can still spill while it winds down, and the join
+            // is what orders its store before this load. `recv` is idempotent, so the
+            // one inside `wait_for_finish` returns at once.
+            let _ = finish.recv();
+            record_worker_spill(&state.custom_state().spilled, &finish);
             finish.wait_for_finish();
         }
     }

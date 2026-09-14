@@ -402,11 +402,6 @@ impl JoinScanState {
         self.output_batch_col_indices.clear();
         self.launch_timing = None;
         self.stream_built_at = None;
-        // A rescan re-executes the plan from scratch, so whether the *previous* run spilled
-        // shouldn't carry over into the warning decision for this one.
-        self.spilled
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-
         // base_join_clause is only populated (in create_custom_scan_state) when the plan
         // actually has parameters/postgres expressions; None means there's nothing to
         // restore, so the compiler-enforced match replaces the old "left at default and

@@ -40,7 +40,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use crate::postgres::catalog::is_ltree_oid;
 
@@ -985,19 +985,15 @@ impl CustomScan for AggregateScan {
             unsafe { bitmap_exec.rescan() };
         }
         state.custom_state_mut().state = ExecutionState::NotStarted;
-        // Reset DataFusion state so rescan rebuilds the plan and stream.
-        // physical_plan is cleared before runtime -- not because the old plan would
-        // otherwise leak (rescan reassigns physical_plan before it's read again), but
-        // so it drops before runtime instead of after.
+        // Reset DataFusion state so rescan rebuilds the plan and stream. The stream
+        // goes before the runtime (tokio). `spilled` stays: the warning covers the
+        // whole `ExecutorRun`, and a rescan is part of it.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
             df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
-            // A rescan re-executes the plan from scratch, so whether the *previous* run
-            // spilled shouldn't carry over into the warning decision for this one.
-            df_state.spilled.store(false, Ordering::Relaxed);
             df_state.runtime = None;
         }
     }
@@ -1065,15 +1061,10 @@ impl CustomScan for AggregateScan {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
-            // Drop order matters here for two independent reasons:
-            //
-            // 1. The physical plan and session hold a mesh reference, and both must be
-            //    dropped before the DSM is destroyed below.
-            // 2. Anything holding a BufFile-backed spill Arc (see datafusion/spill.rs) must
-            //    be freed before `runtime` drops. `stream` and `physical_plan` are the two
-            //    fields that can reach a spill Arc, so both are cleared explicitly here
-            //    rather than left to `drop(df_state)` -- struct field order alone isn't a
-            //    safe thing to rely on for this.
+            // Drop order: the physical plan and session hold a mesh reference, so both
+            // must go before the DSM is destroyed below, and the stream must go before
+            // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
+            // to `drop(df_state)` so the order doesn't depend on struct field order.
             df_state.stream = None;
             df_state.physical_plan = None;
             df_state.current_batch = None;

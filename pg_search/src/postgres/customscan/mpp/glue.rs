@@ -478,7 +478,7 @@ pub fn drain_worker_metrics(
 
 /// Whether any backend (leader or a worker) spilled a DataFusion operator to disk this query.
 /// Reads the `ParallelScanState` slot the leader populated at launch.
-pub fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
+fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     match finish
         .state_manager()
         .slice_mut::<u8>(crate::postgres::customscan::mpp::launch::SCAN_IDX)
@@ -499,11 +499,20 @@ pub fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     }
 }
 
-/// Emits the once-per-query spill warning. `spilled_locally` is the leader's own flag; the
-/// worker flag lives in the DSM behind `finish`, so this must run after the workers are
-/// joined. Before the join a worker can still be executing (an early-terminated `LIMIT`
-/// query, for one) and spill after the load, and the join is also what orders a worker's
-/// relaxed store before this relaxed load.
+/// Folds the workers' DSM spill flag into the leader's own flag. Call it before the
+/// leader finishes (and so destroys) a launch whose flag `warn_if_spilled` will not see,
+/// such as a relaunch on rescan.
+pub fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
+    if mpp_did_spill(finish) {
+        spilled.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Emits the spill warning, once per scan node per `ExecutorRun`. `spilled_locally` is
+/// the leader's own flag, sticky across rescans; the worker flag lives in the DSM behind
+/// `finish`, so this must run after the workers are joined. Before the join a worker can
+/// still be executing (an early-terminated `LIMIT` query, for one) and spill after the
+/// load, and the join is also what orders a worker's relaxed store before this load.
 pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
     if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
         pgrx::warning!(

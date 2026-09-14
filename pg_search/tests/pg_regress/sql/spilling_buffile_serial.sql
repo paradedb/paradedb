@@ -1,8 +1,8 @@
 -- =====================================================================
 -- Spill regression test for ParadeDB Aggregate Scan (serial path).
 --
--- 20k distinct groups, forced to a SERIAL AggregateExec (mode=Single) via
--- max_parallel_workers_per_gather=0, work_mem=1.25MB. Spilling is proven
+-- 20k distinct groups, a SERIAL AggregateExec (mode=Single; common_setup.sql
+-- sets max_parallel_workers_per_gather=0), work_mem=1.25MB. Spilling is proven
 -- via a boolean check on AggregateExec's spill_count metric, and
 -- correctness is checked directly against size_bytes = (g * 17) % 4096,
 -- one page per file.
@@ -137,6 +137,39 @@ FROM (
     WHERE f.content @@@ 'Section'
     GROUP BY f.id, f.title
 ) q;
+
+-- A spill that hits temp_file_limit must fail as a normal error. The write raises
+-- inside the spill, so the file's Drop runs while that error unwinds and must not
+-- flush again (a second raise there would abort the backend).
+SET work_mem = '1.25MB';
+SET temp_file_limit = '100kB';
+-- The message names the GUC differently across PG versions; the SQLSTATE does not.
+\set VERBOSITY sqlstate
+SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+FROM spill_small_files f
+JOIN spill_small_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.id, f.title;
+\set VERBOSITY default
+
+-- The same failure under SPI: a subtransaction abort releases the resource owner's
+-- files before it frees the scan state, so the Drop must not close a released file.
+CREATE TABLE spill_limit_outcome (msg text);
+DO $$
+BEGIN
+    PERFORM f.id, f.title, COUNT(*), SUM(p.size_bytes)
+    FROM spill_small_files f
+    JOIN spill_small_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY f.id, f.title;
+    INSERT INTO spill_limit_outcome VALUES ('unexpected success under temp_file_limit');
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO spill_limit_outcome VALUES ('caught: ' || SQLSTATE);
+END$$;
+SELECT msg FROM spill_limit_outcome;
+SELECT 1 AS backend_alive;
+DROP TABLE spill_limit_outcome;
+RESET temp_file_limit;
 
 RESET work_mem;
 RESET paradedb.spill_to_disk;

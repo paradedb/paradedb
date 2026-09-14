@@ -716,8 +716,8 @@ pub struct ParallelScanState {
     /// Condition variable for waiting on the bitmap build.
     bitmap_cv: ConditionVariable,
 
-    /// Set by any worker (or the leader itself) that spills a DataFusion operator to disk
-    /// read by only one consumer (the leader, once, at `shutdown_custom_scan`).
+    /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
+    /// once, after joining the workers, and folds it into its own sticky flag.
     spilled: AtomicU32,
 
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct

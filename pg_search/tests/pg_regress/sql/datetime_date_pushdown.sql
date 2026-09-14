@@ -29,8 +29,7 @@ INSERT INTO events_nn (created_at) VALUES
     ('2024-01-03 12:00:00'),
     ('2024-01-05 18:00:00');
 
-CREATE INDEX events_nn_idx ON events_nn USING paradedb (id, created_at)
-WITH (key_field = 'id');
+CREATE INDEX events_nn_idx ON events_nn USING paradedb (id, created_at);
 
 -- =====================================================================
 -- Test 1: basic GROUP BY DATE(timestamp)
@@ -87,7 +86,7 @@ INSERT INTO events_nullable (created_at, region, amount) VALUES
 
 CREATE INDEX events_nullable_idx ON events_nullable
 USING paradedb (id, created_at, region, amount)
-WITH (key_field = 'id', text_fields = '{"region": {"fast": true}}');
+WITH (text_fields = '{"region": {"fast": true}}');
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(created_at), COUNT(*), SUM(amount)
@@ -178,8 +177,7 @@ INSERT INTO events_boundaries (created_at) VALUES
     ('infinity'),
     ('-infinity');
 
-CREATE INDEX events_boundaries_idx ON events_boundaries USING paradedb (id, created_at)
-WITH (key_field = 'id');
+CREATE INDEX events_boundaries_idx ON events_boundaries USING paradedb (id, created_at);
 
 SELECT DATE(created_at) AS day, COUNT(*) AS cnt
 FROM events_boundaries
@@ -207,8 +205,7 @@ INSERT INTO events_tz (created_at) VALUES
     ('2024-01-02 05:00:00+00'),
     ('2024-01-02 20:00:00+00');
 
-CREATE INDEX events_tz_idx ON events_tz USING paradedb (id, created_at)
-WITH (key_field = 'id');
+CREATE INDEX events_tz_idx ON events_tz USING paradedb (id, created_at);
 
 SET TIME ZONE 'America/Los_Angeles';
 

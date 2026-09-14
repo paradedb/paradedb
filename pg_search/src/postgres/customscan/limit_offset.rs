@@ -104,12 +104,23 @@ impl LimitOffset {
     /// planning time and as the chained call after `resolve_mut` to read the
     /// now-static sum.
     pub fn static_fetch(&self) -> Option<usize> {
-        let limit = *self.limit.static_value()? as usize;
-        let offset = match &self.offset {
-            None => 0,
-            Some(o) => *o.static_value()? as usize,
-        };
+        let limit = self.static_limit()?;
+        let offset = self.static_offset()?;
         Some(limit.saturating_add(offset))
+    }
+
+    /// Returns `LIMIT` only when statically known.
+    pub fn static_limit(&self) -> Option<usize> {
+        let limit = *self.limit.static_value()?;
+        Some(limit.max(0) as usize)
+    }
+
+    /// Returns `OFFSET` only when statically known (including `Some(0)` when no offset was specified).
+    pub fn static_offset(&self) -> Option<usize> {
+        match &self.offset {
+            None => Some(0),
+            Some(o) => o.static_value().map(|v| (*v).max(0) as usize),
+        }
     }
 
     /// Planning-time row estimate. Uses static values when available, falls

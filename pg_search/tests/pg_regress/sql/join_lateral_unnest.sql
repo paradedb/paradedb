@@ -74,16 +74,13 @@ INSERT INTO jlu_stores (brand_id, store_name, regions) VALUES
 -- =====================================================================
 
 CREATE INDEX jlu_products_idx ON jlu_products
-USING paradedb (id, title, (categories::pdb.literal), price)
-WITH (key_field='id');
+USING paradedb (id, title, (categories::pdb.literal), price);
 
 CREATE INDEX jlu_brands_idx ON jlu_brands
-USING paradedb (id, product_id, brand_name, (tags::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, product_id, brand_name, (tags::pdb.literal));
 
 CREATE INDEX jlu_stores_idx ON jlu_stores
-USING paradedb (id, brand_id, store_name, (regions::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, brand_id, store_name, (regions::pdb.literal));
 
 -- =====================================================================
 -- TEST 1: Basic 2-table INNER JOIN with CROSS JOIN LATERAL unnest + LIMIT
@@ -409,6 +406,30 @@ LEFT JOIN LATERAL unnest(b.tags) AS t ON true
 WHERE p.title @@@ 'Smart' AND b.product_id IS NULL
 ORDER BY p.id, t
 LIMIT 5;
+
+-- =====================================================================
+-- TEST 11: SELECT DISTINCT with CROSS JOIN LATERAL unnest + LIMIT
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
+
+SELECT DISTINCT
+    p.id,
+    c AS category
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+CROSS JOIN LATERAL unnest(p.categories) AS c
+WHERE p.title @@@ 'Smart' OR b.brand_name @@@ 'Electronics'
+ORDER BY p.id, c
+LIMIT 10;
 
 -- =====================================================================
 -- Cleanup

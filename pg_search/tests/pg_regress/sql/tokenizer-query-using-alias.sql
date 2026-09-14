@@ -15,7 +15,7 @@ INSERT INTO use_alias (t) VALUES ('This is a TEST');
 CREATE INDEX idxuse_alias ON use_alias USING paradedb (
     id,
     (t::pdb.alias(nope))
-) WITH (key_field = 'id');
+);
 
 CREATE INDEX idxuse_alias ON use_alias USING paradedb (
     id,
@@ -24,7 +24,7 @@ CREATE INDEX idxuse_alias ON use_alias USING paradedb (
     (t::pdb.simple('alias=simple')),
     (t::pdb.ngram(2, 3, 'alias=ngram_2_3')),
     (t::pdb.ngram(3, 5, 'alias=ngram_3_5'))
-) WITH (key_field = 'id');
+);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t @@@ 'this is a test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM use_alias WHERE t::pdb.alias(literal) @@@ 'this is a test';

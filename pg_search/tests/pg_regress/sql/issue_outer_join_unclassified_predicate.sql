@@ -26,7 +26,6 @@ INSERT INTO organisations VALUES
 CREATE INDEX researchers_idx ON researchers
 USING bm25 (super_researcher_id, super_organisation_id, country)
 WITH (
-    key_field = 'super_researcher_id',
     numeric_fields = '{"super_organisation_id": {"fast": true}}',
     text_fields = '{"country": {"fast": true, "tokenizer": {"type": "keyword"}}}'
 );
@@ -34,7 +33,6 @@ WITH (
 CREATE INDEX organisations_idx ON organisations
 USING bm25 (super_organisation_id, super_organisation_name)
 WITH (
-    key_field = 'super_organisation_id',
     text_fields = '{"super_organisation_name": {"fast": true, "tokenizer": {"type": "keyword"}}}'
 );
 

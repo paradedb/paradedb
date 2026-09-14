@@ -51,7 +51,6 @@ SET paradedb.global_mutable_segment_rows = 0;
 CREATE INDEX jsd_par_items_idx ON jsd_par_items
 USING paradedb (id, name, alt_name, category)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "name": {"fast": true, "tokenizer": {"type": "keyword"}},
         "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
@@ -64,7 +63,6 @@ WITH (
 CREATE INDEX jsd_par_exclusions_idx ON jsd_par_exclusions
 USING paradedb (id, pattern)
 WITH (
-    key_field = 'id',
     text_fields = '{
         "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
     }',

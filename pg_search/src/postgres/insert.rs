@@ -17,11 +17,10 @@
 
 use std::panic::{catch_unwind, resume_unwind};
 
-use crate::api::FieldName;
 use crate::api::version::Version;
 use crate::gucs::WorkMem;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
+use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::IsLogicalWorker;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{MergeStyle, do_merge};
@@ -64,8 +63,6 @@ impl InsertModeImmutable {
 
 pub struct InsertModeMutable {
     ctids: Vec<u64>,
-    key_field_name: FieldName,
-    key_field_attno: usize,
     row_limit: usize,
 }
 
@@ -103,20 +100,8 @@ impl InsertState {
         );
 
         let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
-            let (key_field_name, key_field_attno) = indexrel
-                .schema()?
-                .categorized_fields()
-                .iter()
-                .find(|(_, categorized_field)| categorized_field.is_key_field)
-                .map(|(search_field, categorized_field)| {
-                    (search_field.field_name().clone(), categorized_field.attno)
-                })
-                .expect("No key field defined.");
-
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
-                key_field_name,
-                key_field_attno,
                 row_limit: row_limit.into(),
             })
         } else {
@@ -303,8 +288,7 @@ unsafe fn insert(
                 }),
                 &mut search_document,
                 state.index_created_by_version,
-            )
-            .unwrap_or_else(|err| panic!("{err}"));
+            );
             mode.writer
                 .insert(search_document, ctid, || {})
                 .expect("insertion into index should succeed");
@@ -312,10 +296,6 @@ unsafe fn insert(
             cxt.reset();
         }),
         InsertMode::Mutable(mode) => {
-            if *isnull.add(mode.key_field_attno) {
-                panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
-            }
-
             if mode.ctids.len() < mode.row_limit {
                 mode.ctids.push(ctid);
                 return;
@@ -461,8 +441,7 @@ mod tests {
             r#"
             SET paradedb.global_mutable_segment_rows = 0;
             CREATE TABLE subxact_frame (id BIGINT PRIMARY KEY, body TEXT);
-            CREATE INDEX subxact_frame_idx ON subxact_frame USING bm25 (id, body)
-                WITH (key_field = 'id');
+            CREATE INDEX subxact_frame_idx ON subxact_frame USING bm25 (id, body);
             INSERT INTO subxact_frame VALUES (1, 'seed');
             DO $$
             BEGIN

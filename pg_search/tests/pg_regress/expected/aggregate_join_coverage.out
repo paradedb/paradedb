@@ -40,14 +40,12 @@ INSERT INTO cov_items (order_id, item_name, unit_price) VALUES
 CREATE INDEX cov_orders_idx ON cov_orders
 USING paradedb (id, description, customer, quantity, amount)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "customer": {"fast": true}}',
     numeric_fields='{"quantity": {"fast": true}, "amount": {"fast": true}}'
 );
 CREATE INDEX cov_items_idx ON cov_items
 USING paradedb (id, order_id, item_name, unit_price)
 WITH (
-    key_field='id',
     numeric_fields='{"order_id": {"fast": true}, "unit_price": {"fast": true}}',
     text_fields='{"item_name": {"fast": true}}'
 );
@@ -181,7 +179,6 @@ JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
 GROUP BY o.customer
 ORDER BY o.customer;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
  customer  | count | sum | min | max 
 -----------+-------+-----+-----+-----
  Acme Corp |     3 |  21 |  49 | 999
@@ -215,7 +212,6 @@ SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
  count | sum |  sum  |         avg         
 -------+-----+-------+---------------------
      5 | 121 | 29995 | 24.2000000000000000
@@ -274,14 +270,12 @@ INSERT INTO cov_logs (sensor_id, log_type) VALUES
 CREATE INDEX cov_sensors_idx ON cov_sensors
 USING paradedb (id, description, reading, priority)
 WITH (
-    key_field='id',
     text_fields='{"description": {}}',
     numeric_fields='{"reading": {"fast": true}, "priority": {"fast": true}}'
 );
 CREATE INDEX cov_logs_idx ON cov_logs
 USING paradedb (id, sensor_id, log_type)
 WITH (
-    key_field='id',
     numeric_fields='{"sensor_id": {"fast": true}}',
     text_fields='{"log_type": {"fast": true}}'
 );
@@ -311,7 +305,6 @@ SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
 WHERE s.description @@@ 'temperature';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: l, s)
  count |  sum  | min | max  
 -------+-------+-----+------
      3 | 229.2 |  32 | 98.6
@@ -354,14 +347,12 @@ INSERT INTO cov_big_tags (big_id, tag) VALUES
 CREATE INDEX cov_big_idx ON cov_big
 USING paradedb (id, description, qty)
 WITH (
-    key_field='id',
     text_fields='{"description": {}}',
     numeric_fields='{"qty": {"fast": true}}'
 );
 CREATE INDEX cov_big_tags_idx ON cov_big_tags
 USING paradedb (id, big_id, tag)
 WITH (
-    key_field='id',
     numeric_fields='{"big_id": {"fast": true}}',
     text_fields='{"tag": {"fast": true}}'
 );
@@ -382,7 +373,6 @@ SELECT SUM(b.qty)
 FROM cov_big b
 JOIN cov_big_tags t ON b.id = t.big_id
 WHERE b.description @@@ 'laptop OR phone';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: b, t)
  sum 
 -----
  300

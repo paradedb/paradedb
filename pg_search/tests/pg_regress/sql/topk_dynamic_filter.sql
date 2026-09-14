@@ -54,9 +54,8 @@ SELECT
 FROM generate_series(1, 30) AS i;
 
 CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, region)
-WITH (key_field = 'id');
+WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, region);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -286,10 +285,10 @@ SELECT
 FROM generate_series(1, 200) AS i;
 
 CREATE INDEX bench_documents_bm25_idx ON bench_documents USING paradedb (id, category, title)
-WITH (key_field = 'id');
+WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 
 CREATE INDEX bench_files_bm25_idx ON bench_files USING paradedb (id, document_id, title, content)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+WITH (text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 
 -- ----- TEST 8a: Wide-range build side -----
 -- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.

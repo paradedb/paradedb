@@ -93,14 +93,13 @@ INSERT INTO tags (article_id, tag_name) VALUES
     (15, 'graphql'), (15, 'api'), (15, 'technology');
 -- Create BM25 indexes with fast field for sorting
 CREATE INDEX articles_bm25_idx ON articles USING paradedb (id, title, content, created_at) WITH (
-    key_field = 'id',
     text_fields = '{
         "title": { "fast": true, "tokenizer": {"type": "default"} },
         "content": { "tokenizer": {"type": "default"} }
     }'
 );
-CREATE INDEX comments_bm25_idx ON comments USING paradedb (id, content) WITH (key_field = 'id');
-CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, expertise) WITH (key_field = 'id');
+CREATE INDEX comments_bm25_idx ON comments USING paradedb (id, content);
+CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, expertise);
 -- =============================================================================
 -- TEST 1: Basic LEFT JOIN LATERAL with Top K optimization (should use Top K)
 -- =============================================================================
@@ -744,6 +743,7 @@ WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
+WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources (tables: a, au)
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -791,6 +791,7 @@ WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
+WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources (tables: a, au)
  id |              title               | author_name | comment_count 
 ----+----------------------------------+-------------+---------------
   4 | Database Security Best Practices | Alice Brown |            20
@@ -832,6 +833,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
+WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -884,6 +886,7 @@ LEFT JOIN LATERAL (
 WHERE a.content @@@ 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
+WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
  id |              title               | author_name | total_activity 
 ----+----------------------------------+-------------+----------------
   4 | Database Security Best Practices | Alice Brown |              3

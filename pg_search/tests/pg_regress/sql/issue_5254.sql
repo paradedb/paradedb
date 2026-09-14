@@ -10,8 +10,7 @@ CREATE TABLE issue_5254 (
 INSERT INTO issue_5254 (bar) VALUES ('alpha'), ('beta'), ('gamma');
 
 CREATE INDEX issue_5254_idx ON issue_5254
-    USING paradedb (id, (bar::pdb.literal), (bar::pdb.literal_normalized('alias=bar_lower')))
-    WITH (key_field = id);
+    USING paradedb (id, (bar::pdb.literal), (bar::pdb.literal_normalized('alias=bar_lower')));
 
 -- Before the fix, this failed with:
 -- ERROR: cannot execute INSERT in a read-only transaction

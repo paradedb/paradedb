@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -24,10 +24,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::operator::keyset::KeySet;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
@@ -36,8 +35,10 @@ use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::scan::info::RowEstimate;
@@ -58,7 +59,7 @@ use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, Executor, IndexReader, ReloadPolicy, Score, Searcher,
-    SegmentOrdinal, SegmentReader, TantivyDocument, query::Query, schema::OwnedValue,
+    SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
@@ -440,7 +441,7 @@ pub(crate) mod test_support {
         let mut sql = format!(
             "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
              CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
-             WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
         for batch in 0..immutable_batches {
@@ -812,18 +813,43 @@ impl SearchIndexReader {
         &self.schema
     }
 
-    /// Collect the key-field value of every matching document into a memory-bounded [`KeySet`],
-    /// which spills to a temporary file once it would exceed `work_mem`.
-    pub fn collect_keyset(&self) -> KeySet {
-        let key_ff_helper = FFHelper::with_fields(
-            self,
-            &[(self.schema.key_field_name(), self.schema.key_field_type()).into()],
-        );
+    /// Collect the visible CTID of every matching document into a memory-bounded [`KeySet`],
+    /// resolving HOT chains against the active snapshot before building the set.
+    pub fn collect_ctidset(&self, visibility: &mut VisibilityChecker) -> KeySet {
+        const VISIBILITY_BATCH_SIZE: usize = 1024;
 
-        KeySet::build_from(self.search().map(|(_, doc_address)| {
-            key_ff_helper
-                .value(0, doc_address)
-                .expect("key_field value should not be null")
+        let mut search_results = self.search();
+        let mut ctid_cache: Option<(SegmentOrdinal, FFType)> = None;
+        let mut visible_ctids = Vec::new().into_iter();
+
+        KeySet::build_from(std::iter::from_fn(move || {
+            loop {
+                if let Some(ctid) = visible_ctids.next() {
+                    return Some(
+                        TantivyValue::try_from(ctid)
+                            .expect("ctid should convert to a Tantivy value"),
+                    );
+                }
+
+                let ctids: Vec<_> = search_results
+                    .by_ref()
+                    .take(VISIBILITY_BATCH_SIZE)
+                    .map(|(_, doc_address)| {
+                        Some(resolve_ctid(&mut ctid_cache, self.searcher(), doc_address))
+                    })
+                    .collect();
+                if ctids.is_empty() {
+                    return None;
+                }
+
+                let mut resolved = vec![None; ctids.len()];
+                visibility.resolve_batch(&ctids, &mut resolved);
+                visible_ctids = resolved
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .into_iter();
+            }
         }))
     }
 
@@ -1574,6 +1600,9 @@ impl SearchIndexReader {
             count = scorer.count_including_deleted() as usize;
             cost = cost.max(count as u64);
         }
+        if let Some(shortest_posting_list) = self.shortest_posting_list(largest_reader) {
+            cost = cost.max(shortest_posting_list);
+        }
 
         // When the caller's total is unknown or 0 we can't use the heap
         // proportion, so fall back to the index's own doc count. Either way the
@@ -1589,6 +1618,53 @@ impl SearchIndexReader {
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
         }
+    }
+
+    /// The length of the shortest posting list this query walks for its positional terms, or
+    /// `None` when it has none. Lengths come from the term dictionary, so no postings are decoded.
+    ///
+    /// This floors what driving a phrase costs. Tantivy derives a phrase's cost from an
+    /// intersection estimate that assumes the terms are independent, and the words of a phrase are
+    /// anything but. The estimate shrinks with every term added while the scan keeps walking the
+    /// same posting list, until a top-K over a common phrase looks cheap enough to leave serial.
+    /// The scan still advances its cheapest list end to end and seeks the others in step, so it
+    /// can never touch fewer documents than that list holds.
+    ///
+    /// A leaf that exposes no positional terms, a range or a plain term for one, never lowers the
+    /// floor. A filter selective enough to drive a phrase scan itself therefore reads as more work
+    /// than it is, costing one parallel setup. The under-count it replaces costs a whole-docset
+    /// scan on a single core.
+    fn shortest_posting_list(&self, segment_reader: &SegmentReader) -> Option<u64> {
+        /// Past this many terms a query is a set union, not a conjunction, and a union already
+        /// costs more than any one of its lists. Reading the rest would only spend plan time.
+        const MAX_TERMS_INSPECTED: usize = 64;
+
+        // Only the queries that need positions cost what they do because of the intersection
+        // estimate, so only they need the floor. Everything else already reports the driving list
+        // and would pay for a dictionary lookup that cannot change the answer.
+        //
+        // Each query reports the terms it holds whatever field it is asked about, so one pass
+        // collects them. Asking per field would re-walk the tree once per column, and a proximity
+        // clause would re-expand its regex every time.
+        let (any_field, _) = self.schema.fields().next()?;
+        let mut terms: HashSet<Term> = HashSet::new();
+        self.query.query_terms(
+            any_field,
+            segment_reader,
+            &mut |term: &Term, needs_positions| {
+                if needs_positions && terms.len() < MAX_TERMS_INSPECTED {
+                    terms.insert(term.clone());
+                }
+            },
+        );
+
+        terms
+            .iter()
+            .filter_map(|term| {
+                let inverted_index = segment_reader.inverted_index(term.field()).ok()?;
+                inverted_index.doc_freq(term).ok().map(u64::from)
+            })
+            .min()
     }
 
     /// Build a query tree with recursive estimates for EXPLAIN output.

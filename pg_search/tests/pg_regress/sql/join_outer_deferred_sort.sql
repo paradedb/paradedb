@@ -22,16 +22,16 @@ CREATE TABLE oj_ref (id INT PRIMARY KEY, k INT, tag OID);
 
 CREATE INDEX oj_dim_idx ON oj_dim
 USING paradedb (id, k, txt, tag, amt)
-WITH (key_field='id', numeric_fields='{"k":{"fast":true},"amt":{"fast":true}}', text_fields='{"txt":{"fast":true},"tag":{"fast":true}}', mutable_segment_rows = 5);
+WITH (numeric_fields='{"k":{"fast":true},"amt":{"fast":true}}', text_fields='{"txt":{"fast":true},"tag":{"fast":true}}', mutable_segment_rows = 5);
 CREATE INDEX oj_fact_idx ON oj_fact
 USING paradedb (id, k, txt)
-WITH (key_field='id', numeric_fields='{"k":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+WITH (numeric_fields='{"k":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
 CREATE INDEX oj_side_idx ON oj_side
 USING paradedb (id, txt)
-WITH (key_field='id', text_fields='{"txt":{"fast":true}}');
+WITH (text_fields='{"txt":{"fast":true}}');
 CREATE INDEX oj_ref_idx ON oj_ref
 USING paradedb (id, k, tag)
-WITH (key_field='id', numeric_fields='{"k":{"fast":true},"tag":{"fast":true}}');
+WITH (numeric_fields='{"k":{"fast":true},"tag":{"fast":true}}');
 
 -- One insert of twenty rows lands in more than one segment. Rows 16..20 have a NULL `amt`.
 INSERT INTO oj_dim

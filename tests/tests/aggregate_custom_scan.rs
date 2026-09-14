@@ -88,7 +88,7 @@ fn test_coalesce_default_precision(
             (3, NULL, '{}'),
             (4, NULL, NULL);
         CREATE INDEX ON coalesce_defaults USING paradedb (id, value, metadata)
-            WITH (key_field = 'id', json_fields = '{"metadata": {"fast": true}}');
+            WITH (json_fields = '{"metadata": {"fast": true}}');
     "#
     .execute(&mut conn);
 
@@ -261,7 +261,7 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         (NULL),
         (NULL);
     CREATE INDEX date_pushdown_events_idx ON date_pushdown_events
-        USING paradedb (id, created_at) WITH (key_field = 'id');
+        USING paradedb (id, created_at);
     "#
     .execute(&mut conn);
 
@@ -342,7 +342,7 @@ fn test_group_by_date_null_group_metrics(mut conn: PgConnection) {
         (NULL, 100),
         (NULL, 200);
     CREATE INDEX date_pushdown_metrics_id ON date_pushdown_metrics
-        USING paradedb (id, created_at, amount) WITH (key_field = 'id');
+        USING paradedb (id, created_at, amount);
     "#
     .execute(&mut conn);
 
@@ -396,7 +396,7 @@ fn test_group_by_date_with_filter(mut conn: PgConnection) {
         (NULL, 100),
         (NULL, 200);
     CREATE INDEX date_pushdown_filter_idx ON date_pushdown_filter
-        USING paradedb (id, created_at, amount) WITH (key_field = 'id');
+        USING paradedb (id, created_at, amount);
     "#
     .execute(&mut conn);
 
@@ -450,7 +450,7 @@ fn test_group_by_date_multi_column(mut conn: PgConnection) {
         (NULL, 'west');
     CREATE INDEX date_pushdown_multi_idx ON date_pushdown_multi
         USING paradedb (id, created_at, region)
-        WITH (key_field = 'id', text_fields = '{"region": {"fast": true}}');
+        WITH (text_fields = '{"region": {"fast": true}}');
     "#
     .execute(&mut conn);
 
@@ -517,7 +517,7 @@ fn test_group_by_date_over_cast_falls_back(mut conn: PgConnection) {
           (NULL);
       CREATE INDEX date_pushdown_cast_idx ON date_pushdown_cast
           USING paradedb (id, timestamp_text)
-          WITH (key_field = 'id', text_fields = '{"timestamp_text": {"fast": true}}');
+          WITH (text_fields = '{"timestamp_text": {"fast": true}}');
       "#
     .execute(&mut conn);
 

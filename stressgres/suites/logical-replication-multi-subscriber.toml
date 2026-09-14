@@ -29,7 +29,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
 CREATE SUBSCRIPTION stressgres_sub_a CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
-CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+CREATE INDEX events_idx ON events USING paradedb (id, message);
 """
 [server.teardown]
 sql = ""
@@ -51,7 +51,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 CREATE TABLE events (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL);
 CREATE SUBSCRIPTION stressgres_sub_b CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
-CREATE INDEX events_idx ON events USING paradedb (id, message) WITH (key_field = 'id');
+CREATE INDEX events_idx ON events USING paradedb (id, message);
 """
 [server.teardown]
 sql = ""

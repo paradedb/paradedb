@@ -314,11 +314,6 @@ fn generated_queries_setup_inner(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let key_field = columns_def
-        .iter()
-        .find(|c| c.is_primary_key)
-        .map(|c| c.name)
-        .expect("At least one column must be a primary key");
 
     // Only include columns without index_expression in text_fields (v1 syntax)
     let text_fields = columns_def
@@ -428,7 +423,6 @@ CREATE TABLE {tname} (
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',
     json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
@@ -939,6 +933,60 @@ where
     }
 }
 
+/// Runs an EXPLAIN check on `bm25_query` under `gucs`, retrying transient faults, and asserts
+/// that the resulting plan contains at least one of `expected_any`.
+pub fn compare_plan_retrying(
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    pool: &MutexObjectPool<PgConnection>,
+    setup: &SetupScript,
+    expected_any: &[&str],
+) -> CaseOutcome {
+    use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
+
+    let fail = |msg: String| {
+        CaseOutcome::Failure(handle_compare_error(
+            TestCaseError::fail(msg),
+            pg_query,
+            bm25_query,
+            gucs,
+            setup,
+        ))
+    };
+
+    let outcome = retry_transient(pool, "qgen plan check", |conn| {
+        sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
+            format!("EXPLAIN (FORMAT JSON) {bm25_query}")
+                .fetch_one_result::<(serde_json::Value,)>(conn)
+        }))
+    });
+
+    let plan = match outcome {
+        Ok(Ok(plan)) => plan,
+        Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{bm25_query}'")),
+        Err(RetryError::TimedOutUnderPause(e)) => {
+            return fail(format!(
+                "EXPLAIN timed out while faults were paused, for '{bm25_query}': {e}"
+            ));
+        }
+        Err(RetryError::GraceExpired(reason)) => return fail(reason),
+    };
+
+    let plan_str = format!("{:#?}", plan.0);
+    if !expected_any
+        .iter()
+        .any(|expected| plan_str.contains(expected))
+    {
+        let expected_desc = expected_any.join(" or ");
+        return fail(format!(
+            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+        ));
+    }
+
+    CaseOutcome::Match
+}
+
 fn compare_outcome_inner<R, F>(
     sides: &Sides,
     pg_query: &str,
@@ -1067,7 +1115,12 @@ pub fn handle_compare_error(
     setup: &SetupScript,
 ) -> TestCaseError {
     let error_msg = error.to_string();
-    let failure_type = if error_msg.contains("error returned from database")
+    let failure_type = if error_msg.contains("Query should use")
+        || error_msg.contains("EXPLAIN failed")
+        || error_msg.contains("EXPLAIN timed out")
+    {
+        "PLANNING FAILURE"
+    } else if error_msg.contains("error returned from database")
         || error_msg.contains("SQL execution error")
         || error_msg.contains("syntax error")
         || error_msg.contains("Panic")
@@ -1115,6 +1168,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Set GUCs to match the failing test case
 {gucs_sql}
 --
+-- ParadeDB explain:
+EXPLAIN
+{bm25_query};
+--
 -- ParadeDB query:
 {bm25_query};
 --
@@ -1144,10 +1201,10 @@ Original error:
 
     TestCaseError::fail(format!(
         "{}\n{repro_script}",
-        if failure_type == "QUERY EXECUTION FAILURE" {
-            "Query execution failed"
-        } else {
-            "Results differ between PostgreSQL and ParadeDB"
+        match failure_type {
+            "QUERY EXECUTION FAILURE" => "Query execution failed",
+            "PLANNING FAILURE" => "Query plan did not match expectations",
+            _ => "Results differ between PostgreSQL and ParadeDB",
         }
     ))
 }

@@ -23,7 +23,6 @@ INSERT INTO events (description, occurred_at, occurred_at_tz) VALUES
 CREATE INDEX events_idx ON events
 USING paradedb (id, description, occurred_at, occurred_at_tz)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}}'
 );
 -- =====================================================================
@@ -174,8 +173,9 @@ LIMIT 3;
          Scores: false
             TopK Order By: occurred_at asc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(9 rows)
+(10 rows)
 
 -- =====================================================================
 -- 9. date_histogram with a nested sub-agg — sub-bucket structure preserved

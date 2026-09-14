@@ -33,6 +33,7 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -663,6 +664,24 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<DocsEstimate> {
+    // A partitioned index has no storage of its own (#4643), so estimate each leaf
+    // partition and aggregate. A predicate above an Append covers every partition, which
+    // makes the summed counts the estimate for the whole tree.
+    if is_partitioned_index(indexrel.oid()) {
+        let mut aggregate = DocsEstimate {
+            matching_docs: 0,
+            total_docs: 0,
+            query_cost: 0,
+        };
+        for partition in leaf_partition_indexes(indexrel) {
+            let estimate = open_and_estimate_docs(&partition, search_query_input.clone())?;
+            aggregate.matching_docs += estimate.matching_docs;
+            aggregate.total_docs += estimate.total_docs;
+            aggregate.query_cost += estimate.query_cost;
+        }
+        return Some(aggregate);
+    }
+
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");

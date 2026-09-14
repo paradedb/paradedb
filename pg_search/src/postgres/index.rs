@@ -17,7 +17,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::{Result, anyhow};
-use pgrx::{Spi, pg_sys};
+use pgrx::{PgList, Spi, pg_sys};
 
 pub enum IndexKind {
     Index(PgSearchRelation),
@@ -69,4 +69,45 @@ impl IndexKind {
             Self::PartitionedIndex(rel) => Box::new(rel.into_iter()),
         }
     }
+}
+
+unsafe extern "C" {
+    /// Raw bindings to core partition catalog walkers (`catalog/pg_inherits.h` and
+    /// `catalog/partition.h`) that pgrx does not cover.
+    fn find_all_inheritors(
+        parent_rel_id: pg_sys::Oid,
+        lockmode: pg_sys::LOCKMODE,
+        numparents: *mut *mut pg_sys::List,
+    ) -> *mut pg_sys::List;
+}
+
+/// Whether `index_oid` names a partitioned index, which has no storage of its own.
+pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
+    (unsafe { pg_sys::get_rel_relkind(index_oid) as u8 }) == pg_sys::RELKIND_PARTITIONED_INDEX
+}
+
+/// The leaf partitions of a partitioned index, at any nesting depth. The parent itself and
+/// any intermediate partitioned indexes have no storage of their own, so only the leaves
+/// are returned. Unlike [`IndexKind`], this reads the catalog directly rather than through
+/// SPI, which both planning and per row execution need, and it descends past an
+/// intermediate parent rather than stopping at the first level.
+pub fn leaf_partition_indexes(
+    parent: &PgSearchRelation,
+) -> impl Iterator<Item = PgSearchRelation> + use<> {
+    let inheritors = unsafe {
+        PgList::<pg_sys::Oid>::from_pg(find_all_inheritors(
+            parent.oid(),
+            pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            std::ptr::null_mut(),
+        ))
+    };
+    inheritors
+        .iter_oid()
+        .filter(|&oid| {
+            (unsafe { pg_sys::get_rel_relkind(oid) as u8 }) == pg_sys::RELKIND_INDEX
+                && unsafe { pg_sys::get_index_isvalid(oid) }
+        })
+        .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+        .collect::<Vec<_>>()
+        .into_iter()
 }

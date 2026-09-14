@@ -33,13 +33,21 @@ use super::build::{
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::resolve_fast_field;
+<<<<<<< HEAD
 use crate::postgres::customscan::qual_inspect::{
     contains_exec_param, extract_quals, PlannerContext, QualExtractState,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+=======
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::node::NodeExt;
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel_get_bm25_index;
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
@@ -364,7 +372,7 @@ pub unsafe fn transform_to_search_expr(
     let has_search_op = expr_contains_any_operator(node, &[search_op]);
 
     // Check which tables this expression references
-    let rtis = expr_collect_rtis(node);
+    let rtis = node.collect_rtis();
     let mut referenced_source_indices = Vec::new();
 
     for (i, source) in sources.iter().enumerate() {
@@ -698,7 +706,7 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
     sources: &[&JoinSource],
     plan: Option<&crate::postgres::customscan::joinscan::build::RelNode>,
 ) -> bool {
-    let vars = expr_collect_vars(node, false);
+    let vars = node.collect_var_refs(false);
 
     for var_ref in vars {
         let mut source_found = false;
@@ -800,7 +808,7 @@ pub unsafe fn resolve_join_conditions(
             continue;
         }
         if clause.is_null()
-            || contains_exec_param(clause.cast())
+            || clause.contains_exec_param()
             || !all_vars_are_fast_fields_recursive(clause.cast(), sources, None)
             || !PredicateTranslator::can_translate(Some(root), sources, clause.cast(), None)
         {
@@ -876,10 +884,7 @@ pub unsafe fn resolve_join_conditions(
         }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
-            !clause.is_null()
-                && crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
-                    clause.cast(),
-                )
+            !clause.is_null() && clause.has_unsupported_collation()
         }) {
             return Err(super::JoinDeclineReason::new(
                 "JoinScan not used: join conditions on a nondeterministic collation are not supported",

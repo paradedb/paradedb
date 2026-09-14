@@ -28,16 +28,26 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
+<<<<<<< HEAD
 use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::basescan::BaseScan;
+=======
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
+<<<<<<< HEAD
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+=======
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
 use pgrx::{pg_sys, PgList};
@@ -47,7 +57,7 @@ use pgrx::{pg_sys, PgList};
 /// If an expression contains variables from other relations, it cannot be evaluated
 /// by the current scan and must be evaluated by an upper node.
 unsafe fn can_scan_evaluate_expr(rti: pg_sys::Index, expr: *mut pg_sys::Expr) -> bool {
-    let vars = find_vars(expr as *mut pg_sys::Node);
+    let vars = expr.collect_nodes::<pg_sys::Var>();
     // It is evaluatable by the scan if ALL vars belong to this scan (rti).
     // Note: Constants (no vars) are also considered evaluatable by the scan (locally).
     vars.iter().all(|var| (**var).varno as pg_sys::Index == rti)
@@ -90,7 +100,11 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
     if node.is_null() {
         return;
     }
+<<<<<<< HEAD
     if let Some(var) = nodecast!(Var, T_Var, node) {
+=======
+    for var in node.collect_nodes::<pg_sys::Var>() {
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
         if (*var).varno as i32 == old_varno {
             (*var).varno = new_varno as _;
         }
@@ -118,6 +132,23 @@ pub(crate) unsafe fn find_matching_fast_field(
     schema: SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
+<<<<<<< HEAD
+=======
+    if node.is_null() {
+        return None;
+    }
+
+    // In PostgreSQL 17+, `Var` nodes on the nullable side of an outer join carry
+    // `varnullingrels` tracking outer-join relids. Base table index expressions
+    // always have `varnullingrels == NULL`. Clone the candidate query expression
+    // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
+    let node_copy = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
+    #[cfg(not(feature = "pg15"))]
+    for var in node_copy.collect_nodes::<pg_sys::Var>() {
+        (*var).varnullingrels = std::ptr::null_mut();
+    }
+
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
     let categorized_fields = schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {
@@ -219,7 +250,7 @@ pub unsafe fn pullup_fast_fields(
         }
 
         let maybe_var = if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
-            if let Some(var) = find_one_var((*te).expr.cast()) {
+            if let Some(var) = (*te).expr.find_single_node::<pg_sys::Var>() {
                 if (*var).varno as i32 != rti as i32 {
                     // We expect all Vars in the target list to be from the same range table as the
                     // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -267,7 +298,10 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
+        if (*te)
+            .expr
+            .contains_score_for_relation(score_funcoids(), rti)
+        {
             // we can only pull up a score if the score is:
             // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
             // 2. a call to `pdb.score` inside of an expression which will be solved by a

@@ -33,16 +33,24 @@ use super::predicate::{
 use super::privdat::{OutputColumnInfo, PrivateData};
 use super::JoinDeclineReason;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::node::NodeExt;
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
+<<<<<<< HEAD
 use crate::postgres::customscan::basescan::projections::score::{
     expr_contains_any_score, is_score_func,
 };
 use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
+=======
+use crate::postgres::customscan::CustomScan;
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
+use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
@@ -53,9 +61,13 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+<<<<<<< HEAD
 use crate::postgres::utils::{
     expr_collect_vars, expr_contains_any_operator, missing_partial_index_predicate, strip_wrappers,
 };
+=======
+use crate::postgres::utils::{missing_partial_index_predicate, strip_wrappers};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
@@ -68,6 +80,7 @@ const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
+<<<<<<< HEAD
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
     node: *mut pg_sys::Node,
@@ -121,6 +134,8 @@ pub(super) unsafe fn expr_uses_scores_from_source(
     data.found
 }
 
+=======
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 pub(super) struct JoinConditions {
     /// Equi-join keys with type info for composite key extraction.
     pub equi_keys: Vec<JoinKeyPair>,
@@ -403,7 +418,7 @@ pub unsafe fn wrap_with_semi_anti(
         // `nodeSubplan` executes correlated SubPlans correctly per outer
         // row; declining here lets PG handle them.
         //
-        // See also `qual_inspect::contains_correlated_param` for the
+        // See also `NodeExt::contains_correlated_param` for the
         // expression-tree-walk variant of correlation detection used
         // elsewhere in the codebase.
         let par_param_len = PgList::<i32>::from_pg((*subplan).parParam).len();
@@ -1514,7 +1529,7 @@ pub(super) unsafe fn collect_required_fields(
 
     let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
     for expr_node in expr_list.iter_ptr() {
-        let vars = expr_collect_vars(expr_node, true);
+        let vars = expr_node.collect_var_refs(true);
         for var in vars {
             if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
                 let idx = (var.attno - 1) as usize;
@@ -1975,7 +1990,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     continue 'pathkey;
                 }
 
-                if expr_contains_any_score(expr.cast()) {
+                if expr.contains_score() {
                     candidate_decline = Some(JoinDeclineReason::new(
                         "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
                     ));
@@ -2410,7 +2425,7 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            if expr_uses_scores_from_source(expr.cast(), source) {
+            if source.contains_score(expr.cast()) {
                 return true;
             }
         }

@@ -17,9 +17,13 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
+<<<<<<< HEAD
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
 use std::ptr::addr_of_mut;
+=======
+use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_sys};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 
 #[pgrx::pg_schema]
 mod pdb {
@@ -57,6 +61,7 @@ extension_sql!(
     requires = [paradedb_score_from_relation, placeholder_support]
 );
 
+<<<<<<< HEAD
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
     score_funcoids: [pg_sys::Oid; 2],
@@ -100,6 +105,8 @@ pub unsafe fn uses_scores(
     walker(node, addr_of_mut!(data).cast())
 }
 
+=======
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if score_funcoids().contains(&(*funcexpr).funcid) {
@@ -115,6 +122,7 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool
 
     false
 }
+<<<<<<< HEAD
 
 /// Check if an expression tree contains any `pdb.score()` or `paradedb.score()` function calls.
 pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
@@ -138,3 +146,5 @@ pub unsafe fn expr_contains_any_score(node: *mut pg_sys::Node) -> bool {
 
     walker(node, std::ptr::null_mut())
 }
+=======
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))

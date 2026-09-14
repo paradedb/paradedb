@@ -30,8 +30,13 @@ use super::privdat::FilterExpr;
 use crate::api::{pdb_agg_spec, HashMap, SortDirection};
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
+<<<<<<< HEAD
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
+=======
+use crate::postgres::node::NodeExt;
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::schema::SearchFieldType;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
@@ -464,7 +469,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 output_index: idx,
                 numeric_scale,
             });
-        } else if let Some(aggref) = unsafe { find_one_aggref(expr as *mut pg_sys::Node) } {
+        } else if let Some(aggref) = expr.find_node::<pg_sys::Aggref>() {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
@@ -605,8 +610,13 @@ pub unsafe fn pdb_agg_route(
     let sources = collect_join_agg_sources(args.root, input_rel);
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs);
     let mut requests = HashMap::default();
+<<<<<<< HEAD
     for (idx, expr) in target_exprs.iter_ptr().enumerate() {
         let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) else {
+=======
+    for (idx, expr) in shape.target_exprs().iter_ptr().enumerate() {
+        let Some(aggref) = expr.find_node::<pg_sys::Aggref>() else {
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
             continue;
         };
         if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
@@ -709,7 +719,7 @@ unsafe fn extract_aggref_field_refs(
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
-        // Reject complex expressions like COALESCE(score, 0) - find_one_var
+        // Reject complex expressions like COALESCE(score, 0) - find_single_node
         // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
         // instead of the intended SUM(COALESCE(score, 0)).
         let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(

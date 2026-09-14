@@ -18,14 +18,19 @@
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
-use crate::nodecast;
+use crate::postgres::node::NodeExt;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
+<<<<<<< HEAD
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
 use pgrx::{AnyNumeric, PgOid};
+=======
+use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
+use pgrx::{AnyNumeric, PgOid};
+use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_sys};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use std::ffi::CStr;
-use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
 /// Operator OIDs
@@ -230,9 +235,9 @@ pub(crate) unsafe fn resolve_rte_group_var(
 
     let group_exprs = PgList::<pg_sys::Node>::from_pg((*rte).groupexprs);
     let group_expr = group_exprs.get_ptr(varattno as usize - 1)?;
-    // find_one_var returns None if the expression contains multiple Vars (e.g., "a + b"),
+    // find_single_node returns None for multiple Vars (e.g., "a + b"),
     // which is correct: we can only resolve single-column GROUP BY references here.
-    let group_var = find_one_var(group_expr)?;
+    let group_var = group_expr.find_single_node::<pg_sys::Var>()?;
 
     Some(group_var)
 }
@@ -446,6 +451,7 @@ pub unsafe fn find_var_relation(
     }
 }
 
+<<<<<<< HEAD
 /// Find all the Vars referenced in the specified node
 pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
     #[pg_guard]
@@ -473,6 +479,34 @@ pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
 
     walker(node, addr_of_mut!(data).cast());
     data.vars
+=======
+unsafe fn find_targetlist_relation(
+    targetlist: &PgList<pg_sys::TargetEntry>,
+    varattno: pg_sys::AttrNumber,
+) -> (pg_sys::Oid, pg_sys::AttrNumber) {
+    if varattno != 0 {
+        return pg_sys::get_tle_by_resno(targetlist.as_ptr(), varattno)
+            .as_ref()
+            .map(|entry| (entry.resorigtbl, entry.resorigcol))
+            .unwrap_or((pg_sys::InvalidOid, varattno));
+    }
+
+    let mut source = None;
+    for entry in targetlist.iter_ptr() {
+        if (*entry).resjunk || (*entry).resorigtbl == pg_sys::InvalidOid {
+            continue;
+        }
+        let Some(var) = (*entry).expr.find_single_node::<pg_sys::Var>() else {
+            return (pg_sys::InvalidOid, 0);
+        };
+        let origin = ((*entry).resorigtbl, (*var).varno, (*var).varlevelsup);
+        if source.is_some_and(|source| source != origin) {
+            return (pg_sys::InvalidOid, 0);
+        }
+        source = Some(origin);
+    }
+    (source.map_or(pg_sys::InvalidOid, |source| source.0), 0)
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 }
 
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
@@ -499,51 +533,6 @@ pub unsafe fn fieldname_from_var(
     }
 }
 
-/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
-///
-/// If there is not exactly one Var in the node, then this function will return `None`.
-pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    let mut vars = find_vars(node);
-    if vars.len() == 1 {
-        Some(vars.pop().unwrap())
-    } else {
-        None
-    }
-}
-
-/// Find an `Aggref` node in an expression tree using Postgres's `expression_tree_walker`
-/// for robust traversal through all wrapper types (RelabelType, CoerceViaIO, FuncExpr, etc.).
-pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            (*(data as *mut Data)).found = node as *mut pg_sys::Aggref;
-            return true;
-        }
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        found: *mut pg_sys::Aggref,
-    }
-
-    let mut data = Data {
-        found: std::ptr::null_mut(),
-    };
-    walker(node, addr_of_mut!(data).cast());
-    if data.found.is_null() {
-        None
-    } else {
-        Some(data.found)
-    }
-}
-
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
 ///
@@ -559,14 +548,14 @@ pub unsafe fn find_one_var_and_fieldname(
             .get_or_init(|| initialize_json_operator_lookup())
             .contains(&(*opexpr).opno)
         {
-            let var = find_one_var(node)?;
+            let var = node.find_single_node::<pg_sys::Var>()?;
             let path = find_json_path(&context, node);
             return Some((var, path.join(".").into()));
         }
         None
     } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
         // Handle PostgreSQL 14+ bracket notation: json['key']
-        let var = find_one_var(node)?;
+        let var = node.find_single_node::<pg_sys::Var>()?;
         let path = find_json_path(&context, node);
         Some((var, path.join(".").into()))
     } else if is_a(node, T_Var) {

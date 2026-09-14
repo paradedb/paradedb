@@ -21,15 +21,28 @@ use crate::api::{fieldname_typoid, FieldName};
 use crate::nodecast;
 use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
+<<<<<<< HEAD
 use crate::postgres::customscan::opexpr::{lookup_operator, OpExpr, TantivyOperatorExt};
 use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
+=======
+use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+<<<<<<< HEAD
 use crate::postgres::var::{find_json_path, find_vars, VarContext};
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
 use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgOid};
+=======
+use crate::postgres::var::{VarContext, find_json_path};
+use crate::schema::{SearchField, SearchFieldType};
+use pgrx::pg_sys::NodeTag::T_Const;
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -198,7 +211,7 @@ impl PushdownField {
             let search_field = schema.search_field(field_name.root())?;
             // an indexed expression could have more than one var, but we only need to check the first one
             // since they all come from the same relation and we use `varno` to determine if the field is in the same rti
-            let vars = find_vars(var);
+            let vars = var.collect_nodes::<pg_sys::Var>();
             if vars.is_empty() {
                 return None;
             }
@@ -266,8 +279,13 @@ pub unsafe fn try_build_pushdown_qual(
     //
     // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
     // are evaluated in BeginCustomScan.
+<<<<<<< HEAD
     if let Some(root) = context.planner_info() {
         if contains_correlated_param(root, rhs) {
+=======
+    if let Some(root) = context.planner_info()
+        && rhs.contains_correlated_param(root) {
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
             return None;
         }
     }
@@ -331,7 +349,7 @@ pub unsafe fn try_build_pushdown_qual(
                     field_is_array,
                 )?;
                 // It's in this RTI, so we can use it directly.
-                if !is_complex(pushed_down_funcexpr.cast()) {
+                if !pushed_down_funcexpr.is_complex() {
                     Some(Qual::PushdownExpr { funcexpr: pushed_down_funcexpr })
                 } else {
                     Some(Qual::Expr {
@@ -385,7 +403,7 @@ unsafe fn try_pushdown_jsonb_exists(
     }
 
     // Check if field belongs to this relation or is from a join
-    let varno = (**find_vars(lhs).first()?).varno as pg_sys::Index;
+    let varno = (**lhs.collect_nodes::<pg_sys::Var>().first()?).varno as pg_sys::Index;
     if varno != rti {
         return Some(Qual::ExternalVar);
     }
@@ -401,7 +419,7 @@ unsafe fn try_pushdown_jsonb_exists(
 
 /// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
 unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
-    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || node.is_complex() {
         return None;
     }
 
@@ -503,23 +521,4 @@ unsafe fn make_opexpr(
     };
 
     Some(paradedb_funcexpr)
-}
-
-pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        nodecast!(Var, T_Var, node).is_some()
-            || nodecast!(Param, T_Param, node).is_some()
-            || pg_sys::contain_volatile_functions(node)
-            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::null_mut())
 }

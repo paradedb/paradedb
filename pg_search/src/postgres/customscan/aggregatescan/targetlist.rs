@@ -23,11 +23,16 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
+<<<<<<< HEAD
 use crate::postgres::customscan::CustomScan;
+=======
+use crate::postgres::node::NodeExt;
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
+<<<<<<< HEAD
 use pgrx::PgList;
 use std::ptr::addr_of_mut;
 
@@ -76,6 +81,8 @@ pub(super) unsafe fn find_single_aggref_in_expr(
         None
     }
 }
+=======
+>>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -222,7 +229,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                             format!("Field '{}' is not a grouping column", field_name).into()
                         );
                     }
-                } else if let Some(aggref) = find_single_aggref_in_expr(expr as *mut pg_sys::Node) {
+                } else if let Some(aggref) = expr.find_single_node::<pg_sys::Aggref>() {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                     // TODO: Support DISTINCT
                     if !(*aggref).aggdistinct.is_null() {

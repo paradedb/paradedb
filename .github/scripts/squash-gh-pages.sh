@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
       DO_FETCH=false
       shift
       ;;
-    -h|--help)
+    -h | --help)
       show_help
       exit 0
       ;;

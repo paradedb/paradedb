@@ -25,8 +25,8 @@ COOLDOWN_FILE=/tmp/qgen-recovery-liveness.last
 
 # Fire on a small fraction of invocations so most of the run is spent under chaos.
 TRIGGER_PERCENT="${QGEN_LIVENESS_TRIGGER_PERCENT:-10}"
-sample=$(od -An -N2 -tu2 < /dev/urandom | tr -d '[:space:]')
-(( sample % 100 < TRIGGER_PERCENT )) || exit 0
+sample=$(od -An -N2 -tu2 </dev/urandom | tr -d '[:space:]')
+((sample % 100 < TRIGGER_PERCENT)) || exit 0
 
 # Overlapping pokes would race: the first to finish would restore the baseline while the second is
 # still counting down, silently disarming the check. Check for flock(1) separately from taking the
@@ -44,8 +44,8 @@ flock -n 9 || exit 0
 # negative, firing early rather than never.
 last=$(stat -c %Y "${COOLDOWN_FILE}" 2>/dev/null || echo 0)
 now=$(date +%s)
-elapsed=$(( now - last ))
-if (( elapsed >= 0 && elapsed < COOLDOWN_SECONDS )); then
+elapsed=$((now - last))
+if ((elapsed >= 0 && elapsed < COOLDOWN_SECONDS)); then
   echo "qgen recovery liveness: ${elapsed}s since the last pause, under the ${COOLDOWN_SECONDS}s cooldown; leaving faults alone"
   exit 0
 fi
@@ -55,7 +55,7 @@ touch "${COOLDOWN_FILE}"
 # '<unpause_epoch_ms> <window_ms>' (parsed by fault_grace.rs; the deadline makes a stranded file
 # self-voiding). Removing the file restores retry-forever.
 poke() {
-  printf '%s %s' "$1" "$2" > "${GRACE_FILE}.tmp"
+  printf '%s %s' "$1" "$2" >"${GRACE_FILE}.tmp"
   mv "${GRACE_FILE}.tmp" "${GRACE_FILE}"
 }
 restore() { rm -f "${GRACE_FILE}" "${GRACE_FILE}.tmp"; }
@@ -67,8 +67,8 @@ trap restore EXIT
 echo "qgen recovery liveness: pausing faults for ${QUIET_SECONDS}s; qgen must finish a case within ${RECOVER_SECONDS}s"
 "${ANTITHESIS_STOP_FAULTS}" "${QUIET_SECONDS}"
 
-UNPAUSE_AT_MS=$(( ($(date +%s) + QUIET_SECONDS) * 1000 ))
-poke "${UNPAUSE_AT_MS}" "$(( RECOVER_SECONDS * 1000 ))"
+UNPAUSE_AT_MS=$((($(date +%s) + QUIET_SECONDS) * 1000))
+poke "${UNPAUSE_AT_MS}" "$((RECOVER_SECONDS * 1000))"
 sleep "${RECOVER_SECONDS}"
 restore
 

@@ -43,7 +43,7 @@ EOF
 # unreachable at the deadline is itself a recovery-liveness failure worth reporting.
 DEADLINE=$((SECONDS + 300))
 output=""
-while (( SECONDS < DEADLINE )); do
+while ((SECONDS < DEADLINE)); do
   if output=$(psql "${CONN}" -X -qAt -v ON_ERROR_STOP=1 -c "${SQL}" 2>&1); then
     exit 0
   fi

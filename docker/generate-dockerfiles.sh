@@ -30,7 +30,7 @@ PG_SEARCH_VERSION="${1}"
 # Optionally restrict which PG majors to generate (space-separated), e.g. "18" for beta releases that
 # only ship a PG 18 Docker image. Defaults to all supported majors.
 if [[ -n "${2:-}" ]]; then
-  read -r -a versions <<< "${2}"
+  read -r -a versions <<<"${2}"
 else
   versions=("${all_versions[@]}")
 fi
@@ -61,7 +61,7 @@ render() {
     -v pg_search_version="$PG_SEARCH_VERSION" \
     -v pg_search_deb_amd64_sha256="$pg_search_deb_amd64_sha256" \
     -v pg_search_deb_arm64_sha256="$pg_search_deb_arm64_sha256" \
-  -v flavor="$flavor" '
+    -v flavor="$flavor" '
       BEGIN { include = 1 }
       /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
       /^# %%BARMAN_BEGIN%%$/ { include = flavor != "official"; next }
@@ -76,7 +76,7 @@ render() {
         gsub(/@@PG_SEARCH_DEB_ARM64_SHA256@@/, pg_search_deb_arm64_sha256)
         print
       }
-    ' "${script_dir}/Dockerfile.template" > "$output"
+    ' "${script_dir}/Dockerfile.template" >"$output"
 }
 
 for pg_version in "${versions[@]}"; do

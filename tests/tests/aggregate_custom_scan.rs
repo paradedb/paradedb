@@ -56,7 +56,7 @@ fn test_count(mut conn: PgConnection) {
     for enabled in [true, false] {
         format!("SET paradedb.enable_aggregate_custom_scan TO {enabled};").execute(&mut conn);
 
-        let query = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description @@@ 'keyboard'";
+        let query = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'keyboard'";
 
         assert_uses_custom_scan(&mut conn, enabled, query);
 
@@ -87,8 +87,7 @@ fn test_coalesce_default_precision(
             (2, NULL, '{"value": null}'),
             (3, NULL, '{}'),
             (4, NULL, NULL);
-        CREATE INDEX ON coalesce_defaults USING paradedb (id, value, metadata)
-            WITH (json_fields = '{"metadata": {"fast": true}}');
+        CREATE INDEX ON coalesce_defaults USING paradedb (id, value, (metadata::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -126,7 +125,7 @@ fn test_count_with_group_by(mut conn: PgConnection) {
 
     // Test COUNT(*) with WHERE clause (like the working test)
     let count_with_where =
-        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description @@@ 'keyboard'";
+        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'keyboard'";
     eprintln!("\nTesting COUNT(*) with WHERE clause");
     let (plan,) =
         format!("EXPLAIN (FORMAT JSON) {count_with_where}").fetch_one::<(Value,)>(&mut conn);
@@ -156,7 +155,7 @@ fn test_count_with_group_by(mut conn: PgConnection) {
     let query = r#"
         SELECT rating, COUNT(*) 
         FROM paradedb.bm25_search 
-        WHERE description @@@ 'shoes' 
+        WHERE description ||| 'shoes'
         GROUP BY rating 
         ORDER BY rating
     "#;
@@ -185,7 +184,7 @@ fn test_group_by(mut conn: PgConnection) {
         r#"
         SELECT rating, COUNT(*)
         FROM paradedb.bm25_search WHERE
-        description @@@ 'keyboard'
+        description ||| 'keyboard'
         GROUP BY rating
         ORDER BY rating
         "#,
@@ -204,7 +203,7 @@ fn test_group_by_null_bucket(mut conn: PgConnection) {
         r#"
         SELECT rating, COUNT(*)
         FROM paradedb.bm25_search
-        WHERE description @@@ 'keyboard'
+        WHERE description ||| 'keyboard'
         GROUP BY rating
         ORDER BY rating NULLS FIRST
     "#,
@@ -236,7 +235,7 @@ fn test_other_aggregates(mut conn: PgConnection) {
                 r#"
                 SELECT {aggregate_func}
                 FROM paradedb.bm25_search WHERE
-                description @@@ 'keyboard'
+                description ||| 'keyboard'
                 "#
             ),
         );
@@ -452,8 +451,7 @@ fn test_group_by_date_multi_column(mut conn: PgConnection) {
         (NULL, 'east'),
         (NULL, 'west');
     CREATE INDEX date_pushdown_multi_idx ON date_pushdown_multi
-        USING paradedb (id, created_at, region)
-        WITH (text_fields = '{"region": {"fast": true}}');
+        USING paradedb (id, created_at, (region::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -519,8 +517,7 @@ fn test_group_by_date_over_cast_falls_back(mut conn: PgConnection) {
           ('2024-01-02 09:00:00'),
           (NULL);
       CREATE INDEX date_pushdown_cast_idx ON date_pushdown_cast
-          USING paradedb (id, timestamp_text)
-          WITH (text_fields = '{"timestamp_text": {"fast": true}}');
+          USING paradedb (id, (timestamp_text::pdb.unicode_words('columnar=true')));
       "#
     .execute(&mut conn);
 

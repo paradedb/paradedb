@@ -34,7 +34,7 @@ ORDER BY id;
 
 SELECT id
 FROM deprecated_dt
-WHERE ts @@@ '[2024-01-02T00:00:00Z TO 2024-01-03T00:00:00Z]'
+WHERE ts @@@ pdb.parse_with_field('[2024-01-02T00:00:00Z TO 2024-01-03T00:00:00Z]')
 ORDER BY id;
  id 
 ----

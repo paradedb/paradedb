@@ -28,7 +28,7 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
 
     // Verify initial search works
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -37,7 +37,7 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
 
     // Verify search still works after reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -51,7 +51,7 @@ async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
 
     // Verify initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -60,7 +60,7 @@ async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
 
     // Verify search still works after concurrent reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -74,7 +74,7 @@ async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 
     // Initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -85,7 +85,7 @@ async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 
     // Verify updates are searchable
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 42]);
 
@@ -94,7 +94,7 @@ async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 
     // Verify all updates are still searchable after reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 42]);
 
@@ -108,7 +108,7 @@ async fn reindex_with_deletes(mut conn: PgConnection) -> Result<()> {
 
     // Initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -117,7 +117,7 @@ async fn reindex_with_deletes(mut conn: PgConnection) -> Result<()> {
 
     // Verify delete is reflected in search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
@@ -126,7 +126,7 @@ async fn reindex_with_deletes(mut conn: PgConnection) -> Result<()> {
 
     // Verify deleted records are still not searchable after reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
@@ -171,7 +171,7 @@ async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
 
     // Initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -180,7 +180,7 @@ async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
 
     // Verify partial index still works correctly after reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -194,7 +194,7 @@ async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 
     // Initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -208,7 +208,7 @@ async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
 
     // Verify all updates are searchable after concurrent reindex
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 42]);
 
@@ -222,7 +222,7 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
 
     // Initial search
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -231,7 +231,7 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
 
     // Verify search still works
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -245,20 +245,11 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
 
     // Create a second index concurrently
     r#"CREATE INDEX CONCURRENTLY bm25_search_bm25_index_2 ON paradedb.bm25_search
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date)
-    WITH (
-        text_fields='{
-            "description": {"tokenizer": {"type": "default"}},
-            "category": {}
-        }',
-        numeric_fields='{"rating": {}}',
-        boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}'
-    )"#.execute(&mut conn);
+    USING paradedb (id, (description::pdb.simple), category, rating, in_stock, metadata, created_at, last_updated_date)"#.execute(&mut conn);
 
     // Query using the new index
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -267,7 +258,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
 
     // Verify the new index still works
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 

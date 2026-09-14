@@ -98,7 +98,7 @@ fn parallel_with_subselect(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    "PREPARE foo AS SELECT count(*) FROM test WHERE value @@@ (select $1);".execute(&mut conn);
+    "PREPARE foo AS SELECT count(*) FROM test WHERE value ||| (select $1);".execute(&mut conn);
     let (count,) = "EXECUTE foo('contains')".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 11);
 
@@ -644,9 +644,7 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
     SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
     FROM generate_series(1, 100) AS i;
     CREATE INDEX agg_param_idx ON agg_param_test
-    USING paradedb (id, content, category) WITH (
-        text_fields = '{"category": {"fast": true}}'
-    );
+    USING paradedb (id, content, (category::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -719,8 +717,7 @@ fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
     SELECT (g % 200) + 1, 'Page text for page ' || g, (g * 17) % 4096
     FROM generate_series(1, 1000) AS g;
 
-    CREATE INDEX bsp_files_idx ON bsp_files USING paradedb (id, title, content)
-    WITH (text_fields = '{"title": {"fast": true}, "content": {}}');
+    CREATE INDEX bsp_files_idx ON bsp_files USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
     ANALYZE bsp_files;
     ANALYZE bsp_pages;
@@ -735,7 +732,7 @@ fn parallel_with_initplan_param_in_heap_filter(mut conn: PgConnection) {
     "SET max_parallel_workers_per_gather TO 4".execute(&mut conn);
 
     let query = "SELECT count(*) FROM bsp_files f JOIN bsp_pages p ON f.id = p.file_id \
-                 WHERE f.content @@@ 'Section' \
+                 WHERE f.content ||| 'Section' \
                    AND length(f.title) > (SELECT min(length(title)) + 1 FROM bsp_files)";
 
     "SET parallel_leader_participation TO on".execute(&mut conn);

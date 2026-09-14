@@ -6,7 +6,7 @@
 -- and the subtraction underflows. `intersect_scorers` calls `cost()` (which
 -- calls `size_hint`) to sort sub-scorers by cost, so any intersection that
 -- involves an empty `TermSetDocSet` blows up. The shrunken qgen case is a
--- 2-way join with `(products.name @@@ 'bob') AND (users.id @@@ '4')`; the
+-- 2-way join with `(products.name ||| 'bob') AND (users.id @@@ pdb.term(4))`; the
 -- seeded random data here is what proptest landed on.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET seed TO 0.19026813280682608;
@@ -28,20 +28,7 @@ literal_normalized TEXT,
 metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idxusers ON users USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-"name": { "tokenizer": { "type": "keyword" }, "fast": true },
-"color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true },
-"quantity": { "fast": true },
-"price": { "fast": true },
-"small_numeric": { "fast": true },
-"int_numeric": { "fast": true },
-"high_scale": { "fast": true },
-"big_numeric": { "fast": true } }',
-    json_fields = '{ "metadata": { "fast": true } }',
-    sort_by = 'age DESC NULLS LAST'
-);
+CREATE INDEX idxusers ON users USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), (metadata::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'age DESC NULLS LAST');
 INSERT into users (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) VALUES ('550e8400-e29b-41d4-a716-446655440000', 'bob', 'blue', '20', '7', '99.99', '12.34', '12345', '123.456789', '12345.67890', '4', 'electronics', 'Hello World', '{"brand": "apple", "rating": 4}');
 INSERT into users (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) SELECT rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid,
       (ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int],
@@ -93,20 +80,7 @@ literal_normalized TEXT,
 metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-"name": { "tokenizer": { "type": "keyword" }, "fast": true },
-"color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true },
-"quantity": { "fast": true },
-"price": { "fast": true },
-"small_numeric": { "fast": true },
-"int_numeric": { "fast": true },
-"high_scale": { "fast": true },
-"big_numeric": { "fast": true } }',
-    json_fields = '{ "metadata": { "fast": true } }',
-    sort_by = 'age DESC NULLS LAST'
-);
+CREATE INDEX idxproducts ON products USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), (metadata::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'age DESC NULLS LAST');
 INSERT into products (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) VALUES ('550e8400-e29b-41d4-a716-446655440000', 'bob', 'blue', '20', '7', '99.99', '12.34', '12345', '123.456789', '12345.67890', '4', 'electronics', 'Hello World', '{"brand": "apple", "rating": 4}');
 INSERT into products (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) SELECT rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid,
       (ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int],
@@ -158,20 +132,7 @@ literal_normalized TEXT,
 metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idxorders ON orders USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-"name": { "tokenizer": { "type": "keyword" }, "fast": true },
-"color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true },
-"quantity": { "fast": true },
-"price": { "fast": true },
-"small_numeric": { "fast": true },
-"int_numeric": { "fast": true },
-"high_scale": { "fast": true },
-"big_numeric": { "fast": true } }',
-    json_fields = '{ "metadata": { "fast": true } }',
-    sort_by = 'age DESC NULLS LAST'
-);
+CREATE INDEX idxorders ON orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), (metadata::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'age DESC NULLS LAST');
 INSERT into orders (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) VALUES ('550e8400-e29b-41d4-a716-446655440000', 'bob', 'blue', '20', '7', '99.99', '12.34', '12345', '123.456789', '12345.67890', '4', 'electronics', 'Hello World', '{"brand": "apple", "rating": 4}');
 INSERT into orders (uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, rating, category, literal_normalized, metadata) SELECT rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid,
       (ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int],
@@ -245,7 +206,7 @@ SET paradedb.add_doc_count_to_aggs TO true;
 SET paradedb.enable_columnar_exec TO false;
 SET statement_timeout TO 60000;
 SELECT COUNT(*) FROM users JOIN products ON users.id = products.id
-WHERE (products.name @@@ 'bob') AND (users.id @@@ '4');
+WHERE (products.name ||| 'bob') AND (users.id @@@ pdb.term(4));
  count 
 -------
      0

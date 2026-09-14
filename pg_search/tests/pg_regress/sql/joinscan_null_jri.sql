@@ -29,33 +29,21 @@ SELECT (ARRAY['alice','bob','cloe']::text[])[((i % 3) + 1)],
        ((i % 100) + 1),
        md5(i::text)::uuid
 FROM generate_series(1, 100) AS i;
-CREATE INDEX idxusers ON users USING paradedb (id, name, age, uuid)
-  WITH (
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
-                        "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-        numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal), age, (uuid::pdb.literal));
 CREATE INDEX idxusers_age ON users (age);
 CREATE INDEX idxusers_uuid ON users (uuid);
 ANALYZE users;
 
 CREATE TABLE products (id BIGSERIAL PRIMARY KEY, name TEXT, age INTEGER, uuid UUID);
 INSERT INTO products (name, age, uuid) SELECT name, age, uuid FROM users;
-CREATE INDEX idxproducts ON products USING paradedb (id, name, age, uuid)
-  WITH (
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
-                        "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-        numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), age, (uuid::pdb.literal));
 CREATE INDEX idxproducts_age ON products (age);
 CREATE INDEX idxproducts_uuid ON products (uuid);
 ANALYZE products;
 
 CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, name TEXT, age INTEGER, uuid UUID);
 INSERT INTO orders (name, age, uuid) SELECT name, age, uuid FROM users;
-CREATE INDEX idxorders ON orders USING paradedb (id, name, age, uuid)
-  WITH (
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true},
-                        "uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-        numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxorders ON orders USING paradedb (id, (name::pdb.literal), age, (uuid::pdb.literal));
 CREATE INDEX idxorders_age ON orders (age);
 CREATE INDEX idxorders_uuid ON orders (uuid);
 ANALYZE orders;
@@ -71,14 +59,14 @@ SELECT users.id, users.name
 FROM users
 JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
-WHERE users.name @@@ 'bob'
+WHERE users.name ||| 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
 
 SELECT users.id, users.name
 FROM users
 JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
-WHERE users.name @@@ 'bob'
+WHERE users.name ||| 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
 
 DROP TABLE users CASCADE;

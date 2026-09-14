@@ -159,17 +159,10 @@ INSERT INTO expr_suppliers (id, product_id, name, contact_info) VALUES
 
 -- BM25 indexes with fast fields and an indexed expression: upper(name)
 CREATE INDEX expr_products_bm25 ON expr_products
-    USING paradedb (id, description, category, (upper(name)::pdb.literal))
-    WITH (
-    text_fields = '{"category": {"fast": true}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), (upper(name)::pdb.literal));
 
 CREATE INDEX expr_suppliers_bm25 ON expr_suppliers
-    USING paradedb (id, product_id, name, contact_info)
-    WITH (
-    text_fields = '{"name": {"fast": true}}',
-    numeric_fields = '{"product_id": {"fast": true}}'
-    );
+    USING paradedb (id, product_id, (name::pdb.unicode_words('columnar=true')), contact_info);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -180,14 +173,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
 
@@ -198,14 +191,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
 
@@ -216,14 +209,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
 

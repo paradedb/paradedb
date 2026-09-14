@@ -37,24 +37,24 @@ RESET enable_indexscan;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 -- A non-first fast field is returnable without a configured key field.
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
 -- Multiple fast fields are populated in index tuple order, including NULL values.
-SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
 SELECT id, tenant_id, score, active
 FROM index_only_scan
-WHERE body @@@ 'needle'
+WHERE body ||| 'needle'
 ORDER BY tenant_id;
  id | tenant_id | score | active 
 ----+-----------+-------+--------
@@ -64,57 +64,57 @@ ORDER BY tenant_id;
 (3 rows)
 
 -- A tokenized-only field is not losslessly returnable.
-SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
 -- Residual filters need returnable columns too.
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' AND body LIKE '%two%'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
    Filter: (body ~~ '%two%'::text)
 (3 rows)
 
-SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%';
+SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' AND body LIKE '%two%';
  tenant_id 
 -----------
         10
 (1 row)
 
 -- CTIDs and whole rows requested by the query still require the heap.
-SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' FOR UPDATE$$);
-                                                                                       explain_index_only                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' FOR UPDATE$$);
+                                                                                                              explain_index_only                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  LockRows
    ->  Index Scan using index_only_scan_idx on index_only_scan
-         Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (3 rows)
 
 SET enable_indexonlyscan = off;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
 RESET enable_indexonlyscan;
@@ -126,36 +126,36 @@ INSERT INTO index_only_anchor VALUES
     ('other', 20, 3, 'other');
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
  tenant_id 
 -----------
         10
           
 (2 rows)
 
-SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' AND body LIKE '%two%'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
    Filter: (body ~~ '%two%'::text)
 (3 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%';
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' AND body LIKE '%two%';
  tenant_id 
 -----------
           
@@ -164,16 +164,16 @@ SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%
 SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = on;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                                                                                                                                                                     explain_index_only                                                                                                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                                                                                                                                                                           explain_index_only                                                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Bitmap Heap Scan on index_only_anchor
-   Filter: paradedb.search_with_query_input_ctid_or_row(tenant_id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[index_only_anchor.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[index_only_anchor.*])::record[] ELSE '{}'::record[] END, ROW())
+   Filter: paradedb.search_with_query_input_ctid_or_row(tenant_id, '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput, ctid, CASE WHEN (paradedb.ctid_is_valid(ctid) IS NOT TRUE) THEN (ARRAY[index_only_anchor.*])::record[] WHEN (paradedb.xmin_is_visible(xmin, tableoid, ctid) IS NOT TRUE) THEN (ARRAY[index_only_anchor.*])::record[] ELSE '{}'::record[] END, ROW())
    ->  Bitmap Index Scan on index_only_anchor_idx
-         Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (4 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  tenant_id 
@@ -184,7 +184,7 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 
 SET enable_bitmapscan = off;
 SET enable_seqscan = on;
-SELECT row_id, body @@@ 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
+SELECT row_id, body ||| 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
 FROM index_only_anchor ORDER BY row_id;
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
@@ -201,14 +201,14 @@ SET enable_seqscan = off;
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (tenant_id, body, row_id, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
  tenant_id 
 -----------
         10
@@ -217,42 +217,41 @@ SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_
 
 -- Numeric columns with fast fields disabled are not eligible anchors either.
 DROP INDEX index_only_anchor_idx;
-CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note)
-WITH (numeric_fields = '{"row_id": {"fast": false}}');
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                             explain_index_only                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (row_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
  tenant_id 
 -----------
         10
           
 (2 rows)
 
-SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Index Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                             explain_index_only                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Only Scan using index_only_anchor_idx on index_only_anchor
+   Index Cond: (row_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note)
 WHERE row_id <= 2;
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body ||| 'needle'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body ||| 'needle' ORDER BY tenant_id;
  tenant_id 
 -----------
         10
@@ -291,14 +290,14 @@ RESET enable_indexonlyscan;
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
-                                                                                     explain_index_only                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body ||| 'needle'$$);
+                                                                                                            explain_index_only                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Scan using index_only_anchor_idx on index_only_anchor
-   Index Cond: (body @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (body @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT body FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY body;
+SELECT body FROM index_only_anchor WHERE body ||| 'needle' ORDER BY body;
     body    
 ------------
  needle one
@@ -362,7 +361,7 @@ BEGIN
     INSERT INTO index_only_max_keys (text_1, last_value)
     VALUES ('needle', 42), ('needle', NULL), ('other', 7);
     EXECUTE format(
-        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING bm25 (%s, last_value)',
+        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING paradedb (%s, last_value)',
         index_columns
     );
 END;
@@ -376,14 +375,14 @@ FROM generate_series(1, current_setting('max_index_keys')::int) i;
  t
 (1 row)
 
-SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle'$$);
-                                                                                         explain_index_only                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 ||| 'needle'$$);
+                                                                                                                explain_index_only                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_max_keys_idx on index_only_max_keys
-   Index Cond: (last_value @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"text_1","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (last_value @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"text_1","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle' ORDER BY last_value;
+SELECT last_value FROM index_only_max_keys WHERE text_1 ||| 'needle' ORDER BY last_value;
  last_value 
 ------------
          42
@@ -396,14 +395,14 @@ DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
 USING paradedb (id, tenant_id, score, active, body) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-                                                                                    explain_index_only                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+                                                                                                           explain_index_only                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
  tenant_id 
 -----------
         10
@@ -414,14 +413,14 @@ DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
 USING paradedb (tenant_id, id, score, active, body) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-                                                                                        explain_index_only                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+                                                                                                              explain_index_only                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Index Only Scan using index_only_scan_idx on index_only_scan
-   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"body","query_string":"needle","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+   Index Cond: (tenant_id @@@ '{"with_index":{"oid":N,"query":{"match":{"field":"body","value":"needle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}'::paradedb.searchqueryinput)
 (2 rows)
 
-SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
  tenant_id | score 
 -----------+-------
         10 |   1.5
@@ -498,7 +497,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| ''needle'''
     INTO plan;
     IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
         OR (plan #>> '{0,Plan,Heap Fetches}')::int IS DISTINCT FROM 0
@@ -521,8 +520,8 @@ DECLARE
     query text;
 BEGIN
     FOREACH query IN ARRAY ARRAY[
-        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term',
-        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id'
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term',
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.id > t.min_id'
     ] LOOP
         EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || query INTO plan;
         IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Nested Loop'
@@ -539,7 +538,7 @@ $$;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: d, t)
 SELECT t.term, count(*), sum(d.id)
-FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id
+FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.id > t.min_id
 GROUP BY t.term ORDER BY t.term;
   term  | count |    sum    
 --------+-------+-----------
@@ -551,7 +550,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.body LIKE t.pattern'
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.body LIKE t.pattern'
     INTO plan;
     IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan'
         OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 0
@@ -567,7 +566,7 @@ DECLARE
     projection text;
 BEGIN
     FOREACH projection IN ARRAY ARRAY['d.ctid', 'd.xmin', 'd'] LOOP
-        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT ' || projection || ' FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term'
+        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT ' || projection || ' FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term'
         INTO plan;
         IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan' THEN
             RAISE EXCEPTION 'expected a heap scan for an explicit system column or whole row: %', plan;
@@ -593,7 +592,7 @@ DECLARE
 BEGIN
     FOREACH heap_threshold IN ARRAY ARRAY['0', '1GB'] LOOP
         PERFORM set_config('min_parallel_table_scan_size', heap_threshold, true);
-        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| ''needle'''
         INTO plan;
         IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Gather'
             OR (plan #>> '{0,Plan,Workers Planned}')::int <= 0
@@ -608,7 +607,7 @@ BEGIN
 END;
 $$;
 SELECT count(*), sum(id), count(DISTINCT uuid), count(nullable_uuid)
-FROM index_only_lifetime WHERE body @@@ 'needle';
+FROM index_only_lifetime WHERE body ||| 'needle';
  count |    sum    | count | count 
 -------+-----------+-------+-------
  20000 | 200010000 | 20000 | 10000
@@ -619,7 +618,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM index_only_lifetime WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM index_only_lifetime WHERE body ||| ''needle'''
     INTO plan;
     IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
         OR (plan #>> '{0,Plan,Parallel Aware}')::boolean IS DISTINCT FROM false
@@ -636,7 +635,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- UUID datums must survive caller resets without accumulating across rows.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| 'needle';
     row_data record;
     rows_seen int := 0;
     warm_bytes bigint;
@@ -678,7 +677,7 @@ $$;
 -- Closing an unfinished cursor must release its tuple and temporary datums too.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body ||| 'needle';
     value uuid;
 BEGIN
     FOR i IN 1..100 LOOP
@@ -694,7 +693,7 @@ $$;
 -- Error cleanup deletes child contexts before dropping the Rust scan state.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body ||| 'needle';
     row_data record;
 BEGIN
     BEGIN
@@ -727,7 +726,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body ||| ''needle'''
     INTO plan;
     IF (plan #>> '{0,Plan,Plans,0,Node Type}') IS DISTINCT FROM 'Bitmap Heap Scan'
         OR COALESCE((plan #>> '{0,Plan,Plans,0,Lossy Heap Blocks}')::int, 0) = 0
@@ -737,7 +736,7 @@ BEGIN
     END IF;
 END;
 $$;
-SELECT count(*) FROM index_only_bitmap WHERE body @@@ 'needle';
+SELECT count(*) FROM index_only_bitmap WHERE body ||| 'needle';
  count 
 -------
  15000

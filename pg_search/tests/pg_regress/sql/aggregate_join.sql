@@ -41,18 +41,10 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES
     (5, 'tech'), (5, 'kids');
 
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 CREATE INDEX agg_join_tags_idx ON agg_join_tags
-USING paradedb (id, product_id, tag_name)
-WITH (
-    numeric_fields='{"product_id": {"fast": true}}',
-    text_fields='{"tag_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 
 -- =====================================================================
 -- SECTION 1: Scalar Aggregates on JOIN (no GROUP BY)
@@ -63,42 +55,42 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 1.2: Multiple aggregates (COUNT, SUM, AVG)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 1.3: MIN/MAX
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 1.4: All five aggregate functions together
 SELECT COUNT(*), SUM(p.price), AVG(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- =====================================================================
 -- SECTION 2: Empty Result Sets
@@ -108,19 +100,19 @@ WHERE p.description @@@ 'laptop';
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent_term_xyz';
+WHERE p.description ||| 'nonexistent_term_xyz';
 
 -- Test 2.2: SUM/AVG on empty result — should return NULL
 SELECT SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent_term_xyz';
+WHERE p.description ||| 'nonexistent_term_xyz';
 
 -- Test 2.3: MIN/MAX on empty result — should return NULL
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent_term_xyz';
+WHERE p.description ||| 'nonexistent_term_xyz';
 
 -- =====================================================================
 -- SECTION 3: Broader search predicates
@@ -130,19 +122,19 @@ WHERE p.description @@@ 'nonexistent_term_xyz';
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'toy');
 
 -- Test 3.2: COUNT of a specific column (not COUNT(*))
 SELECT COUNT(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 3.3: Filter on non-search column (@@@ combined with scalar predicate)
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
+WHERE p.description ||| 'laptop' AND p.price > 500;
 
 -- =====================================================================
 -- SECTION 4: GROUP BY on JOIN (requires custom_scan_tlist for scanrelid=0)
@@ -153,14 +145,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -168,7 +160,7 @@ ORDER BY p.category;
 SELECT p.category, COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -176,7 +168,7 @@ ORDER BY p.category;
 SELECT p.category, t.tag_name, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category, t.tag_name
 ORDER BY p.category, t.tag_name;
 
@@ -185,7 +177,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -193,7 +185,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -210,13 +202,13 @@ VALUES ('Orphan product no tags', 'Misc', NULL, NULL);
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR orphan';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'orphan');
 
 -- SUM/AVG on nullable columns — the orphan is excluded by INNER JOIN
 SELECT SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR orphan';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'orphan');
 
 -- Clean up the orphan
 DELETE FROM agg_join_products WHERE description = 'Orphan product no tags';
@@ -230,14 +222,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -246,7 +238,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -257,14 +249,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t.tag_name, COUNT(DISTINCT p.category)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
 SELECT t.tag_name, COUNT(DISTINCT p.category)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
@@ -273,7 +265,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT t.tag_name, COUNT(DISTINCT p.category)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
@@ -288,13 +280,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(t.tag_name)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 SELECT p.category, COUNT(t.tag_name)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 -- Test 7.2: LEFT JOIN parity — DataFusion vs Postgres native
@@ -302,7 +294,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(t.tag_name), SUM(p.price)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -310,7 +302,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(t.tag_name), SUM(p.price)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -321,14 +313,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t.tag_name, COUNT(p.category)
 FROM agg_join_products p
 RIGHT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE t.tag_name @@@ 'tech OR orphan_tag'
+WHERE (t.tag_name ||| 'tech' OR t.tag_name ||| 'orphan_tag')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
 SELECT t.tag_name, COUNT(p.category)
 FROM agg_join_products p
 RIGHT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE t.tag_name @@@ 'tech OR orphan_tag'
+WHERE (t.tag_name ||| 'tech' OR t.tag_name ||| 'orphan_tag')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
@@ -337,7 +329,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT t.tag_name, COUNT(p.category)
 FROM agg_join_products p
 RIGHT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE t.tag_name @@@ 'tech OR orphan_tag'
+WHERE (t.tag_name ||| 'tech' OR t.tag_name ||| 'orphan_tag')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
@@ -345,7 +337,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT t.tag_name, COUNT(p.category)
 FROM agg_join_products p
 RIGHT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE t.tag_name @@@ 'tech OR orphan_tag'
+WHERE (t.tag_name ||| 'tech' OR t.tag_name ||| 'orphan_tag')
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
@@ -362,27 +354,27 @@ CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
 CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
 INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
 INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
-CREATE INDEX idx_comp_a ON comp_a USING paradedb (id,description,x,y) WITH (text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
-CREATE INDEX idx_comp_b ON comp_b USING paradedb (id,name,x,y) WITH (text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_a ON comp_a USING paradedb (id, description, x, y);
+CREATE INDEX idx_comp_b ON comp_b USING paradedb (id, name, x, y);
 
 -- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
-WHERE a.description @@@ 'laptop OR shoes';
+WHERE (a.description ||| 'laptop' OR a.description ||| 'shoes');
 
 SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
-WHERE a.description @@@ 'laptop OR shoes';
+WHERE (a.description ||| 'laptop' OR a.description ||| 'shoes');
 
 -- Test 8.2: Parity check for composite ON
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
-WHERE a.description @@@ 'laptop OR shoes';
+WHERE (a.description ||| 'laptop' OR a.description ||| 'shoes');
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 DROP TABLE comp_a;
@@ -394,9 +386,9 @@ DROP TABLE comp_b;
 
 -- Test 9.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
+SELECT COUNT(*) FROM agg_join_products WHERE description ||| 'laptop';
 
-SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
+SELECT COUNT(*) FROM agg_join_products WHERE description ||| 'laptop';
 
 -- =====================================================================
 -- SECTION 10: Correctness parity — compare DataFusion vs Postgres default
@@ -408,12 +400,12 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Restore
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -426,14 +418,14 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT STDDEV(p.price), VARIANCE(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 10.2: STDDEV_POP and VAR_POP on join with GROUP BY
 -- Uses p.price (not p.rating) so Electronics has actual variance (999.99 vs 1299.99)
 SELECT p.category, STDDEV_POP(p.price), VAR_POP(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 -- Test 10.3: STDDEV parity — DataFusion vs Postgres native
@@ -441,13 +433,13 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT STDDEV(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT STDDEV(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- =====================================================================
 -- SECTION 11: Date/Timestamp aggregates on JOIN
@@ -477,29 +469,22 @@ INSERT INTO ts_items (order_id, item_name) VALUES
     (3, 'shoes'), (3, 'socks');
 
 CREATE INDEX ts_orders_idx ON ts_orders
-USING paradedb (id, description, category, created_at)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), created_at);
 
 CREATE INDEX ts_items_idx ON ts_items
-USING paradedb (id, order_id, item_name)
-WITH (
-    numeric_fields='{"order_id": {"fast": true}}',
-    text_fields='{"item_name": {"fast": true}}'
-);
+USING paradedb (id, order_id, (item_name::pdb.unicode_words('columnar=true')));
 
 -- Test 10.1: MIN/MAX on timestamp column via join
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order';
+WHERE o.description ||| 'order';
 
 -- Test 10.2: GROUP BY with timestamp aggregate
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category;
 
 -- Parity check for TIMESTAMP (no TZ)
@@ -507,14 +492,14 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category;
 
 DROP TABLE ts_items;
@@ -549,29 +534,22 @@ INSERT INTO tstz_items (order_id, item_name) VALUES
     (5, 'jacket');
 
 CREATE INDEX tstz_orders_idx ON tstz_orders
-USING paradedb (id, description, category, created_at)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), created_at);
 
 CREATE INDEX tstz_items_idx ON tstz_items
-USING paradedb (id, order_id, item_name)
-WITH (
-    numeric_fields='{"order_id": {"fast": true}}',
-    text_fields='{"item_name": {"fast": true}}'
-);
+USING paradedb (id, order_id, (item_name::pdb.unicode_words('columnar=true')));
 
 -- MIN/MAX on TIMESTAMPTZ
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order';
+WHERE o.description ||| 'order';
 
 -- GROUP BY with TIMESTAMPTZ aggregate
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category;
 
 -- Parity check: TIMESTAMPTZ results must match native PG
@@ -579,13 +557,13 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order';
+WHERE o.description ||| 'order';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order';
+WHERE o.description ||| 'order';
 
 -- Parity check: TIMESTAMPTZ GROUP BY results must match native PG.
 -- The source data uses mixed timezones (+05:30, -04:00, UTC, America/New_York,
@@ -594,14 +572,14 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category
 ORDER BY o.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
-WHERE o.description @@@ 'order'
+WHERE o.description ||| 'order'
 GROUP BY o.category
 ORDER BY o.category;
 
@@ -626,17 +604,13 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
 -- Rebuild the BM25 index so the new rows are visible
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- Test 11.1: DESC NULLS LAST — non-NULL rows should come first
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
@@ -646,7 +620,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
@@ -656,7 +630,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
@@ -666,7 +640,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
@@ -677,7 +651,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
@@ -687,7 +661,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, SUM(t.product_id)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nullsort'
+WHERE p.description ||| 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
@@ -707,7 +681,7 @@ EXPLAIN (COSTS OFF)
 SELECT p.category, SUM(DISTINCT t.product_id)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 -- AVG(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
@@ -715,7 +689,7 @@ EXPLAIN (COSTS OFF)
 SELECT p.category, AVG(DISTINCT t.product_id)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 -- COUNT(DISTINCT) should still show AggregateScan (this still works)
@@ -723,7 +697,7 @@ EXPLAIN (COSTS OFF)
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 -- =====================================================================
@@ -737,26 +711,26 @@ GROUP BY p.category;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+WHERE (t.id = 1 OR p.id = 1) AND p.description ||| 'laptop';
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+WHERE (t.id = 1 OR p.id = 1) AND p.description ||| 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- Test 13.2: Cross-table OR with @@@ on both sides
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+WHERE (t.id @@@ pdb.term(1) OR p.id @@@ pdb.term(1)) AND p.description ||| 'laptop';
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+WHERE (t.id @@@ pdb.term(1) OR p.id @@@ pdb.term(1)) AND p.description ||| 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
@@ -770,19 +744,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
+WHERE p.description ||| 'laptop' AND p.price > 500;
 
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
+WHERE p.description ||| 'laptop' AND p.price > 500;
 
 -- Test 12.2: Post-join filter parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
+WHERE p.description ||| 'laptop' AND p.price > 500;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -794,7 +768,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
@@ -804,7 +778,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
@@ -814,7 +788,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
@@ -824,7 +798,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
@@ -841,25 +815,20 @@ UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
 -- We need fast field access for in_stock; recreate BM25 index
 DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, category, price, rating, in_stock)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating, in_stock);
 
 -- Test 14.1: BOOL_AND on join
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, BOOL_AND(p.in_stock)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'toy')
 GROUP BY p.category;
 
 SELECT p.category, BOOL_AND(p.in_stock)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'toy')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -867,7 +836,7 @@ ORDER BY p.category;
 SELECT p.category, BOOL_OR(p.in_stock)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'toy')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -876,13 +845,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -891,7 +860,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'toy')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -899,7 +868,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'toy')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -907,7 +876,7 @@ ORDER BY p.category;
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -916,7 +885,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, ARRAY_AGG(t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -926,11 +895,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP INDEX agg_join_products_idx;
 ALTER TABLE agg_join_products DROP COLUMN in_stock;
 CREATE INDEX agg_join_products_idx ON agg_join_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- =====================================================================
 -- SECTION 15: FULL OUTER JOIN aggregates
@@ -941,18 +906,18 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 15.2: FULL OUTER JOIN with GROUP BY
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -961,7 +926,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -969,7 +934,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -982,13 +947,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -997,7 +962,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1006,7 +971,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name DESC)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1015,13 +980,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category;
 
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1030,7 +995,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1039,7 +1004,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name DESC)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1067,16 +1032,10 @@ INSERT INTO agg_json_orders (item_id, qty) VALUES
     (1, 10), (1, 5), (2, 3), (3, 7);
 
 CREATE INDEX agg_json_items_idx ON agg_json_items
-USING paradedb (id, metadata)
-WITH (
-    json_fields='{"metadata": {"fast": true}}'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX agg_json_orders_idx ON agg_json_orders
-USING paradedb (id, item_id, qty)
-WITH (
-    numeric_fields='{"item_id": {"fast": true}, "qty": {"fast": true}}'
-);
+USING paradedb (id, item_id, qty);
 
 -- Test 17.1: GROUP BY JSON sub-field on join — EXPLAIN shows DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -1118,7 +1077,7 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE p.price > 100) AS expensive
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category;
 
 -- Test 17.2: COUNT with FILTER — results
@@ -1127,7 +1086,7 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE p.price > 100) AS expensive
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1138,7 +1097,7 @@ SELECT p.category,
        COUNT(*) FILTER (WHERE p.price > 100) AS expensive
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1149,7 +1108,7 @@ SELECT p.category,
        SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -1160,7 +1119,7 @@ SELECT p.category,
        SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -1172,7 +1131,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- =====================================================================
 -- Clean up

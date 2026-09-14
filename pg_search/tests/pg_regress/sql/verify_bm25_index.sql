@@ -69,9 +69,9 @@ SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexe
 
 -- Test 7: Verify that the index can still be used for searches after verification
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM verify_test WHERE content @@@ 'test' LIMIT 5;
+SELECT id, content FROM verify_test WHERE content ||| 'test' LIMIT 5;
 
-SELECT id, content FROM verify_test WHERE content @@@ 'test' ORDER BY id LIMIT 5;
+SELECT id, content FROM verify_test WHERE content ||| 'test' ORDER BY id LIMIT 5;
 
 -- Cleanup
 DROP TABLE verify_test CASCADE;

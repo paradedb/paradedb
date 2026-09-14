@@ -10,10 +10,10 @@ SELECT d.id, d.title, d.parents,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
 
 -- Test with subquery
@@ -21,10 +21,10 @@ SELECT d.id, d.title, d.parents,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
 
 SELECT d.id, d.title, d.parents,

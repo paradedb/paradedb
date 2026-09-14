@@ -349,7 +349,7 @@ fn ltree_null_handling(mut conn: PgConnection) {
     // Ensure NULL ltree values don't cause issues
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE path @@@ 'A.B'
+    WHERE path @@@ pdb.term('A.B')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);

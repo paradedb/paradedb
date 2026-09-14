@@ -58,32 +58,16 @@ INSERT INTO mt_suppliers (product_id, supplier_name) VALUES
     (1, 'TechCorp'), (2, 'GameInc'), (3, 'SportCo'), (4, 'WearIt');
 
 CREATE INDEX mt_products_idx ON mt_products
-USING paradedb (id, description, category, price, in_stock)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}}',
-    boolean_fields='{"in_stock": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, in_stock);
 
 CREATE INDEX mt_tags_idx ON mt_tags
-USING paradedb (id, product_id, tag_name)
-WITH (
-    numeric_fields='{"product_id": {"fast": true}}',
-    text_fields='{"tag_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX mt_reviews_idx ON mt_reviews
-USING paradedb (id, product_id, rating)
-WITH (
-    numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, product_id, rating);
 
 CREATE INDEX mt_suppliers_idx ON mt_suppliers
-USING paradedb (id, product_id, supplier_name)
-WITH (
-    numeric_fields='{"product_id": {"fast": true}}',
-    text_fields='{"supplier_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (supplier_name::pdb.unicode_words('columnar=true')));
 
 -- =====================================================================
 -- Section 1: 3-table INNER JOIN with COUNT/SUM/AVG
@@ -93,14 +77,14 @@ SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category;
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -110,7 +94,7 @@ SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -124,7 +108,7 @@ FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
 JOIN mt_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category;
 
 SELECT p.category, COUNT(*), SUM(r.rating)
@@ -132,7 +116,7 @@ FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
 JOIN mt_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -143,7 +127,7 @@ FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
 JOIN mt_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -155,7 +139,7 @@ SELECT COUNT(*), SUM(r.rating), MIN(r.rating), MAX(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- =====================================================================
 -- Section 4: 3-table with mixed join types (INNER + LEFT)
@@ -164,7 +148,7 @@ SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 LEFT JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR kids'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'kids')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -175,7 +159,7 @@ SELECT p.category, t.tag_name, COUNT(*), SUM(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category, t.tag_name
 ORDER BY p.category, t.tag_name;
 
@@ -186,7 +170,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 HAVING COUNT(*) > 2
 ORDER BY p.category;
@@ -198,7 +182,7 @@ SELECT p.category, COUNT(*) AS cnt, SUM(r.rating) AS total
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY cnt DESC
 LIMIT 2;
@@ -210,7 +194,7 @@ SELECT p.category, SUM(DISTINCT r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -220,7 +204,7 @@ SELECT p.category, SUM(DISTINCT r.rating)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -233,7 +217,7 @@ SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -244,7 +228,7 @@ SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 

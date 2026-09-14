@@ -45,11 +45,11 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
    Limit: 8
    Order By: b.id asc nulls first, a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=8), expr=[id@2 ASC, id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@3 ASC, id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], projection=[id@2, ctid_0@4, id@0, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :           CooperativeExec
@@ -83,11 +83,11 @@ SELECT a.id, paradedb.score(b.id) FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id 
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, pdb.score()@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, pdb.score()@2 as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], projection=[id@3, ctid_0@5, pdb.score()@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@2, dim_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :           CooperativeExec
@@ -122,12 +122,12 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id WHERE a.t
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         FilterExec: __a_0_tag_0@2 OR __b_1_tag_0@5, projection=[id@0, ctid_0@1, id@3, ctid_1@4]
-     :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], projection=[id@3, ctid_0@5, __a_0_tag_0@6, id@0, ctid_1@1, __b_1_tag_0@2]
+     :         FilterExec: __a_0_tag_0@2 OR __b_1_tag_0@5, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@3, id@5, __a_0_tag_0@6, ctid_1@0, id@1, __b_1_tag_0@2]
      :             CooperativeExec
      :               PgSearchScan: table=b, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
@@ -162,11 +162,11 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND b.pri
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], projection=[id@2, ctid_0@4, id@0, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, visibility=eager, query={"range":{"field":"price","lower_bound":{"excluded":100},"upper_bound":null}}
      :           CooperativeExec
@@ -201,11 +201,11 @@ SELECT a.id, b.id FROM oj_fact a LEFT JOIN oj_dim b ON a.dim_id = b.id AND a.id 
    Limit: 8
    Order By: a.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], filter=id@0 < price@1, projection=[id@3, ctid_0@5, id@0, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], filter=id@0 < price@1, projection=[ctid_0@3, id@5, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :           CooperativeExec
@@ -241,9 +241,9 @@ SELECT f.id, b.id FROM (SELECT * FROM oj_fact WHERE txt ||| 'alpha') f FULL JOIN
    Limit: 12
    Order By: oj_fact.id asc nulls first, b.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=12), expr=[id@0 ASC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
-     :     HashJoinExec: mode=CollectLeft, join_type=Full, on=[(id@0, dim_id@1)], projection=[id@2, ctid_0@4, id@0, ctid_1@1]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=12), expr=[id@1 ASC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     HashJoinExec: mode=CollectLeft, join_type=Full, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :       CooperativeExec
      :         PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :       CooperativeExec
@@ -297,15 +297,15 @@ LIMIT 8;
    Limit: 8
    Order By: a.id asc, b.id asc, s.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, id@2 as col_2, id@4 as col_3, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1, ctid_2@5 as ctid_2]
-     :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST, id@2 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, id@5 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   SortExec: TopK(fetch=8), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[a]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         FilterExec: val@5 IS NULL, projection=[id@0, ctid_0@1, id@2, ctid_1@3, id@4, ctid_2@6]
-     :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(dim_id@1, id@2)], projection=[id@4, ctid_0@5, id@6, ctid_1@7, id@0, val@2, ctid_2@3]
+     :         FilterExec: val@5 IS NULL, projection=[ctid_0@0, id@1, ctid_1@2, id@3, ctid_2@4, id@6]
+     :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(dim_id@1, id@3)], projection=[ctid_0@4, id@5, ctid_1@6, id@7, ctid_2@0, val@2, id@3]
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, visibility=eager, query="all"
-     :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, dim_id@1)], projection=[id@2, ctid_0@4, id@0, ctid_1@1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, dim_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
      :               CooperativeExec
      :                 PgSearchScan: table=b, segments=1, visibility=eager, query="all"
      :               CooperativeExec

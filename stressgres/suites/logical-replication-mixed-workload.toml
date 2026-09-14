@@ -96,7 +96,9 @@ CREATE INDEX idxcategories ON categories USING paradedb (id, name) WITH (
     text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 
-ANALYZE test;
+-- Populate the subscriber's visibility map before asserting the index-only scan plan.
+-- Do not rely on autovacuum finishing before the workload starts.
+VACUUM (ANALYZE) test;
 ANALYZE categories;
 
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$

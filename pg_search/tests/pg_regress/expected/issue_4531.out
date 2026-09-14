@@ -89,11 +89,11 @@ ORDER BY p.id DESC LIMIT 10;
    Limit: 10
    Order By: p.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[id@0, ctid_0@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :           CooperativeExec

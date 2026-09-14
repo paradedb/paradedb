@@ -69,11 +69,11 @@ LIMIT 3;
    Limit: 3
    Order By: f.title asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, title@1 as col_2, ctid_0@2 as ctid_0]
+     : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[title]
      :     TantivyFetchExec: fetch=[title]
      :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, visibility_checks=[f]
-     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[id@0, title@2, ctid_0@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2]
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec

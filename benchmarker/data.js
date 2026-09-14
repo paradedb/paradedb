@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789412801859,
+  "lastUpdate": 1789418405130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3859,6 +3859,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.08,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "614011267d075ad9cb24b20549d9094614546a8e",
+          "message": "feat: Support global window functions (OVER ()) over joins (#6313)\n\n# Ticket(s) Closed\n\n- Closes #5637 \n\n## What\nAdd support for global window functions of the form `SUM(_) OVER ()`\nover joins. The aggregate functions `min(_), max(_), sum(_), avg(_),\ncount(_), count(*)` are supported.\n\n## Why\nAllow faceting over joinds\n\n## How\n- During planning, find `WindowNode`s, validate that they are a\nsupported function, and bare. Stash the relevant info on `JoinCSClause`.\n- During execution, add a datafusion `Window` pass that executes all\nwindow functions.\n- Remove join flag from `basecan/projections/window_agg.rs` and reject\nall queries with two or more tables, as joinscan now handles all of the\nwindow function logic.\n- tweak UDF support to allow for wrapped window functions. (for instance\n`(SUM(c) OVER ())::float8`)\n\n## Tests\n- Add a regress case\n- Added a few integration tests\n- Add coverage for this to the `generate_small_join` property test.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-14T14:18:42-06:00",
+          "tree_id": "e0e3ba76db1785d6be10559bdf7fa7cf6fe2de5c",
+          "url": "https://github.com/paradedb/paradedb/commit/614011267d075ad9cb24b20549d9094614546a8e"
+        },
+        "date": 1789418400264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6427485370431694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.579,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.91,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.969,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.05,
             "unit": "ms"
           }
         ]

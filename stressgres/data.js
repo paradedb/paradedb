@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789344143334,
+  "lastUpdate": 1789344151722,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -316154,6 +316154,162 @@ window.BENCHMARK_DATA = {
             "value": 17.76171875,
             "unit": "median mem",
             "extra": "avg mem: 17.65856236284605, max mem: 17.88671875, count: 59240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a",
+          "message": "test: remove key_field from test fixtures (#6304)\n\n# Ticket(s) Closed\n\n- Stacked on #6221 (`codex/keyless-01-sequential-ctids`); part of #6198.\n\n## What\n\nRemove `key_field` from current-version test fixtures throughout the\nrepository: regression SQL and shared setup, expected output, Rust\nintegration and property tests, the remaining extension unit-test\nfixture, stress suites, benchmark datasets, and documentation\nsnippet-test indexes. Indexed columns and other index options are\npreserved.\n\n## Why\n\nThe stack makes `key_field` an ignored compatibility option. The test\nfixtures should exercise index creation without it.\n\n## How\n\nRemove the option and empty `WITH` clauses, remove the query generator's\nunused primary-key lookup, and update obsolete fixture descriptions.\n\nThe six declarations in four legacy upgrade `setup.sql` files are\nintentionally retained: those files execute on released versions that\nrequire `key_field`, and the tokenizer case verifies writes to legacy\nindexes after upgrading. The current-version assertion in\n`key_field_tokenizers/queries.sql` also passes `key_field` explicitly\nand verifies that normal field tokenization is preserved.\n\nRegression output changes are limited to echoed index definitions and\nfixture descriptions. Regenerated `tokenizer-typmod.out` also resizes\nthe `pg_indexes.indexdef` table header/separator for the shorter\ndefinition. **No execution plans, errors, warnings, query results, or\nrow ordering changed** in the paired PostgreSQL 18.3 runs against the\nparent and this PR.\n\nThe raw-array error in `whole_row_search` uses terse verbosity for that\nstatement only, so CI-enabled Rust backtraces do not enter the snapshot.\nDefault verbosity is restored immediately to retain the other error-hint\nassertions.\n\n## Tests\n\n- Parent: all 358 regression cases passed. PR: 357 passed immediately;\nthe remaining case passed after regenerating the index-definition table\nwidth. Compared all 358 outputs against the parent, accounting for the\ndocumented text/formatting changes.\n- Integration and tokenizer suites: 745 passed, 0 failed, 5 ignored;\nreplication/ephemeral tests excluded using the pgrx CI filters (4 tests\nfiltered out). Includes all 16 generated-query tests.\n- Stressgres SQL scanner test, snippet-index setup, and the updated\nsubtransaction fixture's SQL assertion passed.\n- All repository pre-commit checks passed, including workspace Clippy\nwith warnings denied, compilation, formatting, and documentation with\nwarnings denied.\n\n\n- Reproduced the whole-row regression failure locally with\n`RUST_BACKTRACE=short`, then verified `setup` and `whole_row_search`\npass with the same setting after the verbosity fix.",
+          "timestamp": "2026-09-14T01:43:03+02:00",
+          "tree_id": "c24b82a2396f5ffa64b0db615c4cfb4a3364f37e",
+          "url": "https://github.com/paradedb/paradedb/commit/21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a"
+        },
+        "date": 1789344147776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.776018935811198, max cpu: 42.87841, count: 59248"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 49.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.88123794790541, max mem: 63.20703125, count: 59248"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.635301387738039, max cpu: 4.685212, count: 59248"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 17.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 17.306350794541586, max mem: 17.35546875, count: 59248"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.678913793386792, max cpu: 9.388753, count: 59248"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 22.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.15529578793799, max mem: 22.16796875, count: 59248"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 11835,
+            "unit": "median pages",
+            "extra": "avg pages: 11428.363911018094, max pages: 36883.0, count: 59248"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 92.4609375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 89.28409331855083, max relation_size:MB: 288.1484375, count: 59248"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 64,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 64.9326897110451, max segment_count: 127.0, count: 59248"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7861448211867996, max cpu: 4.703577, count: 59248"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 17.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.295816288102554, max mem: 17.3203125, count: 59248"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 23.244553,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.97222801615271, max cpu: 42.87841, count: 59248"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 49.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.31407923315977, max mem: 63.9921875, count: 59248"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 23.199614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.66868881428347, max cpu: 42.87841, count: 59248"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 48.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.92127826308483, max mem: 60.2421875, count: 59248"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 107.89012908935547,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 197.43553480521234, max replication_lag:MB: 869.8660736083984, count: 59248"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 23.244553,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.9781806420747, max cpu: 42.1875, count: 59248"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 49.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.96054936717273, max mem: 60.85546875, count: 59248"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.732046179014317, max cpu: 32.74854, count: 59248"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 17.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 17.675313473134114, max mem: 17.91015625, count: 59248"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.253012,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.735941044243328, max cpu: 32.925037, count: 59248"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 17.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 17.686795005211145, max mem: 17.9140625, count: 59248"
           }
         ]
       }

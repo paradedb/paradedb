@@ -53,7 +53,6 @@ INSERT INTO dex_suppliers (id, name, info, country) VALUES
 CREATE INDEX dex_products_bm25 ON dex_products
     USING paradedb (id, name, description, category, supplier_id)
     WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
     numeric_fields = '{"supplier_id": {"fast": true}}'
     );
@@ -61,7 +60,6 @@ CREATE INDEX dex_products_bm25 ON dex_products
 CREATE INDEX dex_suppliers_bm25 ON dex_suppliers
     USING paradedb (id, name, info, country)
     WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true}}'
     );
 
@@ -494,6 +492,34 @@ FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST 11: DISTINCT expression in both SELECT and ORDER BY
+-- =============================================================================
+
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
+    LIMIT 10;
+
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
 

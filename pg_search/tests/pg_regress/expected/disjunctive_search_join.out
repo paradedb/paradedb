@@ -46,9 +46,9 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (4, 'DigitalGadgets', 'Distributor of consumer electronics, mobile accessories, and gadgets', 'China', 3),
 (5, 'PowerWave', 'Provider of energy solutions, power adapters, and desktop accessories', 'USA', 4);
 CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
+WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
-WITH (key_field = 'id', numeric_fields = '{"rating": {"fast": true}}');
+WITH (numeric_fields = '{"rating": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.enable_aggregate_custom_scan = on;
 -- =============================================================================
@@ -62,28 +62,26 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'display')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -109,28 +107,26 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'keyboard OR microphone' OR s.description @@@ 'acoustic')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, id@5]
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"acoustic","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR microphone","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -157,28 +153,26 @@ WHERE p.price < 100.00
   AND (p.description @@@ 'mouse' OR s.description @@@ 'energy')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name, s.rating
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.name, p.price, s.name, s.rating
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"energy","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name, s.rating
 FROM products p
@@ -205,28 +199,26 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless OR bluetooth OR microphone' OR s.description @@@ 'hardware')
 ORDER BY p.price DESC
 LIMIT 4;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                             QUERY PLAN                                                                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.name, p.price, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}})
-         Limit: 4
-         Order By: p.price desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=4), expr=[price@2 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[s, p]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_1_tag_0@1 OR __s_0_tag_0@0, projection=[ctid_0@0, ctid_1@3, price@5]
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}})
+   Limit: 4
+   Order By: p.price desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=4), expr=[price@1 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, price@5, ctid_1@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hardware","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR bluetooth OR microphone","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -291,12 +283,11 @@ INSERT INTO work_items (id, title, abstract, researcher_id, year) VALUES
 (308, 'Geo-Replicated State Machines', 'Causal consistency with bounded staleness for planetary-scale applications', 204, 2023),
 (309, 'Graph-Augmented Language Models', 'Retrieval augmented generation over dynamic enterprise knowledge graphs', 205, 2025),
 (310, 'Prompt Optimization via Gradient Guidance', 'Discrete prompt optimization for domain-adapted foundation models', 205, 2024);
-CREATE INDEX organisations_bm25_idx ON organisations USING paradedb (id, name, location, field)
-WITH (key_field = 'id');
+CREATE INDEX organisations_bm25_idx ON organisations USING paradedb (id, name, location, field);
 CREATE INDEX researchers_bm25_idx ON researchers USING paradedb (id, name, bio, org_id, citations)
-WITH (key_field = 'id', numeric_fields = '{"org_id": {"fast": true}, "citations": {"fast": true}}');
+WITH (numeric_fields = '{"org_id": {"fast": true}, "citations": {"fast": true}}');
 CREATE INDEX work_items_bm25_idx ON work_items USING paradedb (id, title, abstract, researcher_id, year)
-WITH (key_field = 'id', numeric_fields = '{"researcher_id": {"fast": true}, "year": {"fast": true}}');
+WITH (numeric_fields = '{"researcher_id": {"fast": true}, "year": {"fast": true}}');
 -- =============================================================================
 -- TEST 5: 3-table transitive disjunctive search join (O -> R -> W)
 -- Matches:
@@ -312,31 +303,29 @@ JOIN organisations o ON r.org_id = o.id
 WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Munich')
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, r.name, o.name
-         Relation Tree: w INNER (r INNER o)
-         Join Cond: w.researcher_id = r.id, r.org_id = o.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
-           :             CooperativeExec
-           :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   Relation Tree: (w INNER r) INNER o
+   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"compaction","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -366,31 +355,29 @@ WHERE (w.title @@@ 'quantum' OR r.name @@@ 'Carol' OR o.name @@@ 'Stanford')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, w.year, r.name, o.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, w.year, r.name, o.name
-         Relation Tree: w INNER (r INNER o)
-         Join Cond: w.researcher_id = r.id, r.org_id = o.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@6]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], projection=[ctid_0@0, id@2, __w_0_tag_0@3, ctid_1@4, org_id@6, __r_1_tag_0@7]
-           :             CooperativeExec
-           :               PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=o, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   Relation Tree: (w INNER r) INNER o
+   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(org_id@4, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@0, id@1, ctid_1@3, ctid_2@6]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@2)], projection=[ctid_0@0, id@2, __w_0_tag_0@3, ctid_1@4, org_id@5, __r_1_tag_0@7]
+     :             CooperativeExec
+     :               PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Stanford","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -421,31 +408,29 @@ JOIN organisations o ON r.org_id = o.id
 WHERE (w.abstract @@@ 'consensus' OR r.bio @@@ 'distributed' OR o.field @@@ 'Cloud')
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, r.name, o.name
-         Relation Tree: w INNER (r INNER o)
-         Join Cond: w.researcher_id = r.id, r.org_id = o.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}}
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
-           :             CooperativeExec
-           :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   Relation Tree: (w INNER r) INNER o
+   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"field","query_string":"Cloud","lenient":null,"conjunction_mode":null}}}}
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"distributed","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"abstract","query_string":"consensus","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -481,7 +466,7 @@ WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Mu
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, org_id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[]
      :     CooperativeExec
      :       PgSearchScan: table=o, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"location","query_string":"Munich","lenient":null,"conjunction_mode":null}}}}
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, researcher_id@0)], projection=[__w_0_tag_0@4, org_id@1, __r_1_tag_0@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@0)], projection=[__w_0_tag_0@4, org_id@0, __r_1_tag_0@2]
      :       CooperativeExec
      :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
@@ -510,28 +495,26 @@ WHERE (w.title @@@ 'nonexistent_quantum_xyz' OR r.name @@@ 'Carol')
   AND w.year >= 2024
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                        QUERY PLAN                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                     QUERY PLAN                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, w.year, r.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, w.year, r.name
-         Relation Tree: r INNER w
-         Join Cond: w.researcher_id = r.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[r, w]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: w INNER r
+   Join Cond: w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"range":{"field":"year","lower_bound":{"included":2024},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"nonexistent_quantum_xyz","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Carol","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w
@@ -557,31 +540,29 @@ JOIN organisations o ON r.org_id = o.id
 WHERE (w.title @@@ 'NonExistentTitle' OR r.name @@@ 'Alice' OR o.name @@@ 'NonExistentOrg')
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, r.name, o.name
-         Relation Tree: w INNER (r INNER o)
-         Join Cond: w.researcher_id = r.id, r.org_id = o.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[w, r, o]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}}
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@2, __r_1_tag_0@3]
-           :             CooperativeExec
-           :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}}
-           :             CooperativeExec
-           :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   Relation Tree: (w INNER r) INNER o
+   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}} OR o:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r, o]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"NonExistentOrg","lenient":null,"conjunction_mode":null}}}}
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Alice","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"NonExistentTitle","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
 FROM work_items w
@@ -608,28 +589,26 @@ WHERE (w.title @@@ 'quantum' OR r.bio @@@ 'compiler')
   AND w.year = 2024
 ORDER BY w.id
 LIMIT 10;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                                                        QUERY PLAN                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, w.year, r.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: w.id, w.title, w.year, r.name
-         Relation Tree: r INNER w
-         Join Cond: w.researcher_id = r.id
-         Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-         Order By: w.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[r, w]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_1_tag_0@1 OR __r_0_tag_0@0, projection=[ctid_0@4, ctid_1@0, id@2]
-           :           CooperativeExec
-           :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   Relation Tree: w INNER r
+   Join Cond: w.researcher_id = r.id
+   Join Predicate: (w:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}} OR r:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: w.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[w, r]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(researcher_id@1, id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=w, segments=1, dynamic_filters=1, query={"term":{"field":"year","value":2024}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"quantum","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"compiler","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT w.id, w.title, w.year, r.name AS researcher_name
 FROM work_items w

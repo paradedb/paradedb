@@ -4,7 +4,7 @@ CREATE TABLE unicode_words(
     t text
 );
 INSERT INTO unicode_words(t) VALUES ('it''s Paul''s birthday today!  🎂🚨👀🥜');
-CREATE INDEX idxunicode_words ON unicode_words USING paradedb (id, (t::pdb.unicode_words)) WITH (key_field = 'id');
+CREATE INDEX idxunicode_words ON unicode_words USING paradedb (id, (t::pdb.unicode_words));
 
 SELECT * FROM unicode_words WHERE t @@@ '🚨';
 

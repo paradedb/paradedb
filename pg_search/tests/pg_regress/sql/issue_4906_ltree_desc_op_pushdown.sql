@@ -58,8 +58,7 @@ VALUES
 
 CREATE INDEX issue_4906_ltree_idx
 ON issue_4906_ltree
-USING paradedb (id, category, title)
-WITH (key_field = 'id');
+USING paradedb (id, category, title);
 
 ANALYZE issue_4906_ltree;
 
@@ -337,7 +336,6 @@ VALUES
 CREATE INDEX issue_4906_ltree_partial_idx
 ON issue_4906_ltree_partial
 USING paradedb (id, category, title)
-WITH (key_field = 'id')
 WHERE is_indexed;
 
 ANALYZE issue_4906_ltree_partial;

@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashSet;
+use crate::api::{CTID_FIELD_NAME, FieldName, HashSet};
 use crate::customscan::operator_oid;
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::identity_ops::IdentityOp;
@@ -291,13 +290,7 @@ impl VarContext {
                     if !subquery.is_null() {
                         let targetlist =
                             PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
-                        if varattno > 0
-                            && (varattno as usize) <= targetlist.len()
-                            && let Some(te) = targetlist.get_ptr(varattno as usize - 1)
-                            && (*te).resorigtbl != pg_sys::InvalidOid
-                        {
-                            return ((*te).resorigtbl, (*te).resorigcol);
-                        }
+                        return find_targetlist_relation(&targetlist, varattno);
                     }
                 }
 
@@ -362,13 +355,11 @@ pub unsafe fn find_var_relation(
         // table it comes from along with its original column AttributeNumber
         pg_sys::RTEKind::RTE_SUBQUERY => {
             if (*rte).subquery.is_null() {
-                panic!("unable to determine Var relation as it belongs to a NULL subquery");
+                return (pg_sys::InvalidOid, 0, None);
             }
             let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*rte).subquery).targetList);
-            let te = targetlist
-                .get_ptr((*var).varattno as usize - 1)
-                .expect("var should exist in subquery TargetList");
-            ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
+            let (relation, attribute) = find_targetlist_relation(&targetlist, (*var).varattno);
+            (relation, attribute, Some(targetlist))
         }
 
         // the Var comes from a CTE, so lookup that CTE and find it in the CTE's target list
@@ -415,11 +406,8 @@ pub unsafe fn find_var_relation(
             } else {
                 PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList)
             };
-            let te = targetlist
-                .get_ptr((*var).varattno as usize - 1)
-                .expect("var should exist in cte TargetList");
-
-            ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
+            let (relation, attribute) = find_targetlist_relation(&targetlist, (*var).varattno);
+            (relation, attribute, Some(targetlist))
         }
 
         // Custom scans involving named tuple stores (such as those created by `pg_ivm`) are not
@@ -445,6 +433,34 @@ pub unsafe fn find_var_relation(
     }
 }
 
+unsafe fn find_targetlist_relation(
+    targetlist: &PgList<pg_sys::TargetEntry>,
+    varattno: pg_sys::AttrNumber,
+) -> (pg_sys::Oid, pg_sys::AttrNumber) {
+    if varattno != 0 {
+        return pg_sys::get_tle_by_resno(targetlist.as_ptr(), varattno)
+            .as_ref()
+            .map(|entry| (entry.resorigtbl, entry.resorigcol))
+            .unwrap_or((pg_sys::InvalidOid, varattno));
+    }
+
+    let mut source = None;
+    for entry in targetlist.iter_ptr() {
+        if (*entry).resjunk || (*entry).resorigtbl == pg_sys::InvalidOid {
+            continue;
+        }
+        let Some(var) = (*entry).expr.find_single_node::<pg_sys::Var>() else {
+            return (pg_sys::InvalidOid, 0);
+        };
+        let origin = ((*entry).resorigtbl, (*var).varno, (*var).varlevelsup);
+        if source.is_some_and(|source| source != origin) {
+            return (pg_sys::InvalidOid, 0);
+        }
+        source = Some(origin);
+    }
+    (source.map_or(pg_sys::InvalidOid, |source| source.0), 0)
+}
+
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
 pub unsafe fn fieldname_from_var(
     heaprelid: pg_sys::Oid,
@@ -461,7 +477,7 @@ pub unsafe fn fieldname_from_var(
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
     if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
-        Some("ctid".into())
+        Some(CTID_FIELD_NAME.into())
     } else {
         tupdesc
             .get(varattno as usize - 1)

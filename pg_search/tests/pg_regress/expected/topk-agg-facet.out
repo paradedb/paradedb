@@ -25,7 +25,6 @@ INSERT INTO products (name, description, category, brand, price, rating, in_stoc
 CREATE INDEX products_idx ON products
 USING paradedb (id, name, description, category, brand, price, rating, in_stock, sales)
 WITH (
-    key_field='id',
     text_fields='{
         "name": {},
         "description": {},
@@ -1732,8 +1731,7 @@ CREATE TABLE product_categories (
 INSERT INTO product_categories VALUES 
 ('Laptops', 'Portable computing devices', 1);
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority)
-WITH (key_field='name');
+USING paradedb (name, description, priority);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     p.id,
@@ -1746,7 +1744,6 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1783,7 +1780,6 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: p, pc)
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
   1 | MacBook Pro |    4.8 | Portable computing devices |           4

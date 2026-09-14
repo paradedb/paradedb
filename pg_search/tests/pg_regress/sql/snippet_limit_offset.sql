@@ -15,8 +15,6 @@ INSERT INTO snippet_test (content) VALUES
 CREATE INDEX ON snippet_test USING paradedb (
     id,
     content
-) WITH (
-    key_field = 'id'
 );
 
 SELECT pdb.snippet(content), pdb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';

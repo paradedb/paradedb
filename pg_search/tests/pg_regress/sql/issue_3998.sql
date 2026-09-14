@@ -12,8 +12,7 @@ INSERT INTO fieldnorms_test VALUES
 
 CREATE INDEX fieldnorms_test_idx
 ON fieldnorms_test
-USING paradedb (content)
-WITH (key_field = 'id');
+USING paradedb (content);
 
 SELECT
     id,

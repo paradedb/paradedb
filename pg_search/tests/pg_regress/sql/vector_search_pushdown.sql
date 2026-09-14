@@ -33,8 +33,7 @@ INSERT INTO vsp VALUES
 -- vector_l2_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_l2_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_l2_ops);
 
 -- match: <-> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -58,8 +57,7 @@ DROP INDEX vsp_idx;
 -- vector_cosine_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_cosine_ops);
 
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -83,8 +81,7 @@ DROP INDEX vsp_idx;
 -- vector_ip_ops
 -- ============================================================
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_ip_ops);
 
 -- mismatch: <-> falls back, planner warns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -111,8 +108,7 @@ DROP INDEX vsp_idx;
 -- down through TopK (evaluated once at execution start), and must reflect the
 -- GUC's current value rather than a stale plan-time fold.
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_cosine_ops);
 
 SET vsp.q = '[1,0,0]';
 
@@ -140,8 +136,7 @@ DROP INDEX vsp_idx;
 -- Param unfolded in the plan; a custom plan would inline it as a Const and
 -- never exercise this path.
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_cosine_ops);
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE vsp_p(vector) AS
@@ -168,8 +163,7 @@ DROP INDEX vsp_idx;
 -- Opclasses are declared per access method: the `paradedb` AM accepts the
 -- same three opclasses as `bm25`, with vector_l2_ops as its DEFAULT too.
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_cosine_ops);
 
 -- match: <=> pushes down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -179,14 +173,12 @@ SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
 DROP INDEX vsp_idx;
 
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_ip_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_ip_ops);
 DROP INDEX vsp_idx;
 
 -- a bare vector column resolves to vector_l2_ops, the AM default
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec);
 
 SELECT opc.opcname
 FROM pg_index i
@@ -209,8 +201,7 @@ DROP INDEX vsp_idx;
 -- combined with a vector ORDER BY must still push down through TopK,
 -- ranking only the rows the predicate matches.
 CREATE INDEX vsp_idx ON vsp
-    USING paradedb (id, label, vec vector_cosine_ops)
-    WITH (key_field = id);
+    USING paradedb (id, label, vec vector_cosine_ops);
 
 -- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -256,8 +247,7 @@ INSERT INTO vsp_tie VALUES
     (6, 'y', '[0,0.9,0.1]');
 
 CREATE INDEX vsp_tie_idx ON vsp_tie
-    USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops)
-    WITH (key_field = id);
+    USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops);
 
 -- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

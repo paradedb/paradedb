@@ -36,10 +36,8 @@ INSERT INTO items (id, name, content, category_id, rating) VALUES
     (106, 'Jacket', 'wireless heated outerwear', 3, 5);
 -- v2 API: numeric fields (id, category_id, rating) are columnar/fast by default,
 -- so no per-field options are needed for the aggregate/join/TopK paths.
-CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating)
-    WITH (key_field = 'id');
-CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name)
-    WITH (key_field = 'id');
+CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating);
+CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name);
 -- The index really is built with the `paradedb` access method.
 SELECT am.amname
 FROM pg_class c
@@ -130,27 +128,25 @@ JOIN categories c ON i.category_id = c.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: i.id, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: i.id, c.name
-         Relation Tree: c INNER i
-         Join Cond: i.category_id = c.id
-         Limit: 10
-         Order By: i.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[c, i]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=c, segments=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: table=i, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+   Relation Tree: i INNER c
+   Join Cond: i.category_id = c.id
+   Limit: 10
+   Order By: i.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, c]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
+     :           CooperativeExec
+     :             PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT i.id, c.name
 FROM items i
@@ -172,11 +168,11 @@ DROP TABLE categories CASCADE;
 -- already present, creating a `paradedb` index non-concurrently is rejected...
 CREATE TABLE guard_test (id INTEGER PRIMARY KEY, content TEXT);
 INSERT INTO guard_test (id, content) VALUES (1, 'wireless keyboard'), (2, 'wired mouse');
-CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content) WITH (key_field = 'id');
-CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
+CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content);
+CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content);
 ERROR:  a relation may only have one ParadeDB index
 -- ...but CREATE INDEX CONCURRENTLY bypasses the guard, so the two coexist.
-CREATE INDEX CONCURRENTLY guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
+CREATE INDEX CONCURRENTLY guard_paradedb_idx ON guard_test USING paradedb (id, content);
 SELECT c.relname, am.amname
 FROM pg_class c
 JOIN pg_am am ON c.relam = am.oid

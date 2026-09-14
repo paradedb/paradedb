@@ -35,21 +35,18 @@ INSERT INTO fb_reviews (product_id, rating) VALUES
 CREATE INDEX fb_products_idx ON fb_products
 USING paradedb (id, description, category, price)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}}'
 );
 CREATE INDEX fb_tags_idx ON fb_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
 CREATE INDEX fb_reviews_idx ON fb_reviews
 USING paradedb (id, product_id, rating)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
 );
 -- =====================================================================
@@ -114,7 +111,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, t)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   4
@@ -141,8 +137,8 @@ GROUP BY p.category;
    Aggregates: COUNT(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) as agg_1, avg(r_2.rating) as agg_2, min(r_2.rating) as agg_3, max(r_2.rating) as agg_4]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, category@1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0, id@1]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
@@ -210,8 +206,8 @@ GROUP BY p.category;
    Aggregates: COUNT(*), COUNT(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_2.rating) as agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[category@1, rating@3]
-     :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, product_id@0)], projection=[id@0, category@1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, rating@2]
+     :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@0)], projection=[category@0, id@1]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
@@ -287,7 +283,7 @@ HAVING COUNT(*) > 0;
    DataFusion Physical Plan: 
      : FilterExec: agg_0@1 > 0
      :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)], projection=[category@0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
      :       CooperativeExec
@@ -316,7 +312,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Clothing    |     1

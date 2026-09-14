@@ -32,7 +32,6 @@ metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idxusers ON users USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    key_field = 'id',
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
 "name": { "tokenizer": { "type": "keyword" }, "fast": true },
 "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
@@ -103,7 +102,6 @@ metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    key_field = 'id',
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
 "name": { "tokenizer": { "type": "keyword" }, "fast": true },
 "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
@@ -174,7 +172,6 @@ metadata JSONB
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idxorders ON orders USING paradedb (id, uuid, name, color, age, quantity, price, small_numeric, int_numeric, high_scale, big_numeric, (upper(category)::pdb.literal), (literal_normalized::pdb.literal_normalized), metadata) WITH (
-    key_field = 'id',
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
 "name": { "tokenizer": { "type": "keyword" }, "fast": true },
 "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',

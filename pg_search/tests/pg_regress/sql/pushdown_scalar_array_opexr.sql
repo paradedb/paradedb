@@ -26,7 +26,6 @@ FROM generate_series(1, 1000) i;
 CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
     id, uuid_col, text_col, int_col, date_col, ts_col
 ) WITH (
-    key_field = 'id',
     text_fields = '{"uuid_col": { "tokenizer": {"type": "whitespace"} } }'
 );
 
@@ -48,7 +47,6 @@ DROP INDEX scalar_array_pushdown_idx;
 CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
     id, uuid_col, text_col, int_col, date_col, ts_col
 ) WITH (
-    key_field = 'id',
     text_fields = '{"text_col": { "tokenizer": {"type": "keyword"} } }'
 );
 

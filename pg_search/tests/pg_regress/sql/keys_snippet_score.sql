@@ -1,15 +1,15 @@
--- Test various PostgreSQL data types as key_field types in BM25 indexes
+-- Test various PostgreSQL data types as primary key types in BM25 indexes
 -- This test mimics the key.rs test in the Rust test suite
 
-\echo 'Testing different PostgreSQL data types as key fields'
+\echo 'Testing different PostgreSQL data types as primary keys'
 
 -- Clean up any existing tables/indexes
 DROP TABLE IF EXISTS bigint_test;
 DROP TABLE IF EXISTS uuid_test;
 DROP TABLE IF EXISTS timestamp_test;
 
--- Test 1: BIGINT (i64) as key field
-\echo 'Test: BIGINT as key field'
+-- Test 1: BIGINT (i64) as primary key
+\echo 'Test: BIGINT as primary key'
 CREATE TABLE bigint_test (
     id BIGINT,
     value TEXT
@@ -27,7 +27,7 @@ INSERT INTO bigint_test (id, value) VALUES (9, 'blue skies');
 INSERT INTO bigint_test (id, value) VALUES (10, 'rainbow');
 
 CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, value)
-WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for BIGINT key'
@@ -46,8 +46,8 @@ UNION
 SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
--- Test 2: UUID as key field
-\echo 'Test: UUID as key field'
+-- Test 2: UUID as primary key
+\echo 'Test: UUID as primary key'
 CREATE TABLE uuid_test (
     id UUID,
     value TEXT
@@ -65,7 +65,7 @@ INSERT INTO uuid_test (id, value) VALUES ('40bc9216-66d0-4ae8-87ee-ddb02e3e1b33'
 INSERT INTO uuid_test (id, value) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'rainbow');
 
 CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, value)
-WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for UUID key'
@@ -84,8 +84,8 @@ UNION
 SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
--- Test 3: TIMESTAMPTZ as key field
-\echo 'Test: TIMESTAMP WITH TIME ZONE as key field'
+-- Test 3: TIMESTAMPTZ as primary key
+\echo 'Test: TIMESTAMP WITH TIME ZONE as primary key'
 CREATE TABLE timestamp_test (
     id TIMESTAMP WITH TIME ZONE,
     value TEXT
@@ -103,7 +103,7 @@ INSERT INTO timestamp_test (id, value) VALUES ('2023-05-11 16:17:18 EST', 'blue 
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-12 17:18:19 PST', 'rainbow');
 
 CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, value)
-WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
 
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for TIMESTAMPTZ key'

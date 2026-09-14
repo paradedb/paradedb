@@ -19,9 +19,8 @@ mod anyenum;
 mod config;
 pub mod range;
 
-use crate::api::FieldName;
-use crate::api::HashMap;
 use crate::api::version::{Version, VersionInfo};
+use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
@@ -36,6 +35,7 @@ pub use config::*;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::LazyLock;
 use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{Typmod, type_is_alias, type_is_tokenizer};
@@ -43,7 +43,7 @@ use crate::index::utils::load_index_schema;
 use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
-use crate::query::QueryError;
+use crate::query::{QueryError, SearchQueryInput, pdb_query::pdb};
 use anyhow::Result;
 use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
 use pgrx::{PgBuiltInOids, PgOid, pg_sys};
@@ -402,7 +402,6 @@ pub struct CategorizedFieldData {
     pub source: FieldSource,
     pub pg_type: PgOid,  // Original PostgreSQL type OID (e.g., pdb.alias)
     pub base_oid: PgOid, // Resolved base type OID (e.g., integer)
-    pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
 }
@@ -441,16 +440,8 @@ impl SearchIndexSchema {
 
     pub fn ctid_field(&self) -> Field {
         self.schema
-            .get_field("ctid")
+            .get_field(CTID_FIELD_NAME)
             .expect("ctid field should be present in the index")
-    }
-
-    pub fn key_field_name(&self) -> FieldName {
-        self.bm25_options.key_field_name()
-    }
-
-    pub fn key_field_type(&self) -> SearchFieldType {
-        self.bm25_options.key_field_type()
     }
 
     pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -536,6 +527,44 @@ impl SearchIndexSchema {
         }
     }
 
+    /// Returns an additional existence check without replacing the original query.
+    ///
+    /// For a scalar fast field, `color @@@ 'blue'` gets an `exists(color)` guard.
+    /// Both 'red' and NULL fail to match 'blue', but the guard distinguishes them:
+    /// 'red' exists, so the predicate returns FALSE; NULL is missing, so it returns NULL.
+    ///
+    /// A compound search query such as `exists(color) AND NOT term(color, 'red')`
+    /// gets no guard: a missing color makes that whole query FALSE, not NULL.
+    pub fn null_guard(&self, query: &SearchQueryInput) -> Option<SearchQueryInput> {
+        let field = match query {
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. } => return self.null_guard(query),
+            SearchQueryInput::FieldedQuery { field, .. } if !query.is_exists() => field,
+            _ => return None,
+        };
+        let search_field = self.search_field(field)?;
+        if !search_field.is_fast() {
+            return None;
+        }
+
+        // Empty arrays and JSON can have no indexed values without being SQL NULL.
+        let root = search_field.field_name().root();
+        if self
+            .categorized_fields()
+            .iter()
+            .find(|(field, _)| field.field_name().root() == root)
+            .is_some_and(|(_, data)| data.is_array || data.is_json)
+        {
+            return None;
+        }
+
+        Some(SearchQueryInput::FieldedQuery {
+            field: field.root().into(),
+            query: pdb::Query::Exists,
+        })
+    }
+
     /// Check if a field supports aggregate pushdown on the Tantivy backend.
     ///
     /// Returns `false` for NUMERIC fields: Tantivy aggregations compute in f64
@@ -601,7 +630,6 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
-            let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
             for (
@@ -635,7 +663,6 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
-                    let is_key_field = key_field_name == *search_field.field_name();
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
@@ -647,7 +674,6 @@ impl SearchIndexSchema {
                             source: *source,
                             pg_type: *pg_type,
                             base_oid,
-                            is_key_field,
                             is_array,
                             is_json,
                         },
@@ -687,7 +713,8 @@ impl SearchField {
     pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
-        let field_config = options.field_config_or_default(&field_name);
+        let mut field_config = options.field_config_or_default(&field_name);
+        restore_legacy_key_field_tokenizer(&field_entry, &mut field_config);
 
         // Derive field type from the tantivy schema, using PostgreSQL metadata for OID/scale.
         // This ensures backwards compatibility with legacy indexes.
@@ -923,6 +950,46 @@ impl SearchField {
                 value,
                 self.field_entry().field_type()
             ),
+        }
+    }
+}
+
+/// Legacy key-field tokenizers were implicit in options, but persisted in the index schema.
+fn restore_legacy_key_field_tokenizer(
+    field_entry: &FieldEntry,
+    field_config: &mut SearchFieldConfig,
+) {
+    #[allow(deprecated)]
+    static LEGACY_KEY_FIELD_TOKENIZERS: LazyLock<[(String, SearchTokenizer); 3]> =
+        LazyLock::new(|| {
+            let text_or_uuid_key = SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone());
+            let pre_019_text_or_uuid_key =
+                SearchTokenizer::Raw(SearchTokenizerFilters::keyword_deprecated().clone());
+            let json_key = SearchTokenizer::Raw(SearchTokenizerFilters::default());
+            [
+                (text_or_uuid_key.name(), text_or_uuid_key.clone()),
+                (pre_019_text_or_uuid_key.name(), text_or_uuid_key),
+                (json_key.name(), json_key),
+            ]
+        });
+
+    let (indexing, tokenizer) = match (field_entry.field_type(), field_config) {
+        (FieldType::Str(options), SearchFieldConfig::Text { tokenizer, .. }) => {
+            (options.get_indexing_options(), tokenizer)
+        }
+        (FieldType::JsonObject(options), SearchFieldConfig::Json { tokenizer, .. }) => {
+            (options.get_text_indexing_options(), tokenizer)
+        }
+        _ => return,
+    };
+    let Some(indexing) = indexing else {
+        return;
+    };
+
+    for (name, key_field_tokenizer) in LEGACY_KEY_FIELD_TOKENIZERS.iter() {
+        if indexing.tokenizer() == name {
+            *tokenizer = key_field_tokenizer.clone();
+            return;
         }
     }
 }

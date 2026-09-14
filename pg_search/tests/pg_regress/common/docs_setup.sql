@@ -403,8 +403,8 @@ USING paradedb (
     "createdAt"
 )
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "fileId": {
             "tokenizer": {"type": "keyword"}, "fast": true
         },
@@ -431,8 +431,8 @@ USING paradedb (
     "createdAt"
 )
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "documentId": {
             "tokenizer": {"type": "keyword"}, "fast": true
         },
@@ -457,8 +457,8 @@ USING paradedb (
     "createdAt"
 )
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {
             "tokenizer": {"type": "default"}, "fast": true
         },

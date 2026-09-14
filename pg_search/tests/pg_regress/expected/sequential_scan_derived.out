@@ -1,0 +1,191 @@
+BEGIN;
+SET LOCAL client_min_messages = error;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL enable_indexscan = off;
+SET LOCAL enable_indexonlyscan = off;
+SET LOCAL enable_bitmapscan = off;
+SET LOCAL max_parallel_workers_per_gather = 0;
+CREATE TABLE sequential_scan_derived (
+    id int NOT NULL, discarded text, body text, other text, enabled boolean
+);
+ALTER TABLE sequential_scan_derived DROP COLUMN discarded;
+INSERT INTO sequential_scan_derived VALUES
+    (1, 'alpha', 'beta', true),
+    (2, 'beta', 'alpha', false),
+    (3, NULL, NULL, false);
+CREATE INDEX sequential_scan_derived_idx ON sequential_scan_derived
+USING paradedb (
+    id, (body::pdb.literal), (other::pdb.literal),
+    (lower(body)::pdb.literal('alias=lower_body')),
+    ((body || other)::pdb.literal('alias=combined'))
+) WHERE enabled;
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT id, body FROM sequential_scan_derived ORDER BY id LIMIT 2) s
+WHERE body === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT id, body FROM sequential_scan_derived ORDER BY id DESC LIMIT 2) s
+WHERE body === 'alpha';
+ array_agg 
+-----------
+ 
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT DISTINCT body, id FROM sequential_scan_derived) s
+WHERE body === 'beta';
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (
+    SELECT body, id, row_number() OVER (ORDER BY id DESC) AS n
+    FROM sequential_scan_derived
+) s WHERE body === 'alpha' AND n < 3;
+ array_agg 
+-----------
+ 
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (
+    SELECT body, id, row_number() OVER (ORDER BY id) AS n
+    FROM sequential_scan_derived
+) s WHERE body === 'alpha' AND n < 3;
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+WITH c AS MATERIALIZED (SELECT body, id FROM sequential_scan_derived)
+SELECT array_agg(id ORDER BY id) FROM c WHERE body === 'beta';
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+WITH c (renamed, id) AS MATERIALIZED (SELECT body, id FROM sequential_scan_derived)
+SELECT array_agg(id ORDER BY id) FROM c WHERE renamed === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT body AS renamed, id FROM sequential_scan_derived OFFSET 0) s
+WHERE renamed === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT other AS body, body AS other, id FROM sequential_scan_derived OFFSET 0) s
+WHERE other === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (
+    SELECT a.id AS aid, a.body AS abody, b.id, b.body
+    FROM sequential_scan_derived a CROSS JOIN sequential_scan_derived b
+    WHERE a.id = 2 OFFSET 0
+) s WHERE body === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (
+    SELECT * FROM (
+        SELECT a.id AS aid, a.body AS abody, b.id, b.body
+        FROM sequential_scan_derived a CROSS JOIN sequential_scan_derived b
+        WHERE a.id = 2 OFFSET 0
+    ) s OFFSET 0
+) s WHERE body === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s
+WHERE lower(body) === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT other, body, id FROM sequential_scan_derived OFFSET 0) s
+WHERE (body || other) === 'betaalpha';
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+SELECT id, body === 'alpha' AS matches, NOT (body === 'alpha') AS inverted,
+       id @@@ paradedb.all() AS all_match
+FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s ORDER BY id;
+ id | matches | inverted | all_match 
+----+---------+----------+-----------
+  1 | t       | f        | t
+  2 | f       | t        | t
+  3 |         |          | t
+(3 rows)
+
+SELECT v.id, s.body === 'alpha' AS matches, s.id @@@ paradedb.all() AS all_match
+FROM (VALUES (1), (3), (4)) v(id)
+LEFT JOIN (SELECT body, id FROM sequential_scan_derived OFFSET 0) s USING (id)
+ORDER BY v.id;
+ id | matches | all_match 
+----+---------+-----------
+  1 | t       | t
+  3 |         | t
+  4 |         | 
+(3 rows)
+
+SET LOCAL plan_cache_mode = force_generic_plan;
+PREPARE sequential_scan_derived_query(text) AS
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s WHERE id @@@ $1;
+EXECUTE sequential_scan_derived_query('body:alpha');
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+EXECUTE sequential_scan_derived_query('lower_body:beta');
+ array_agg 
+-----------
+ {2}
+(1 row)
+
+EXECUTE sequential_scan_derived_query('*');
+ array_agg 
+-----------
+ {1,2,3}
+(1 row)
+
+DEALLOCATE sequential_scan_derived_query;
+DROP INDEX sequential_scan_derived_idx;
+CREATE INDEX sequential_scan_derived_idx ON sequential_scan_derived
+USING paradedb ((lower(body)::pdb.literal('alias=lower_body')), id, other);
+SELECT array_agg(id ORDER BY id)
+FROM (SELECT body, id FROM sequential_scan_derived OFFSET 0) s
+WHERE lower(body) === 'alpha';
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+ROLLBACK;

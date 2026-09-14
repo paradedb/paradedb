@@ -34,7 +34,6 @@ INSERT INTO transactions (organization_id, live_mode, discarded_at, internal_acc
 CREATE INDEX transactions_search_index ON transactions
 USING paradedb (id, organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',
     boolean_fields='{"live_mode": {"fast": true}}',
     numeric_fields='{"unledgered_amount": {"fast": true}}'

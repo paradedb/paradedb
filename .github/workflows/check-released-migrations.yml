@@ -41,7 +41,7 @@ jobs:
         run: |
           fail=0
           for f in $(git diff --name-only --diff-filter=AMD \
-              "${{ github.event.pull_request.base.sha }}...HEAD" \
+              "HEAD^1...HEAD" \
               -- 'pg_search/sql/pg_search--*--*.sql'); do
             target="${f##*--}"; target="${target%.sql}"
             if git rev-parse -q --verify "refs/tags/v$target" >/dev/null; then
@@ -57,4 +57,4 @@ jobs:
         run: |
           ./scripts/release.sh lint-fragments \
             --base-ref "${{ github.base_ref }}" \
-            --base-sha "${{ github.event.pull_request.base.sha }}"
+            --base-sha "$(git rev-parse HEAD^1)"

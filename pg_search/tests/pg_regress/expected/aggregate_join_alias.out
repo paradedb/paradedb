@@ -35,9 +35,9 @@ USING paradedb (
     company_id,
     (lower(company_domain)::pdb.literal_normalized('ascii_folding=true')),
     (company_name::pdb.simple('alias=company_name_words', 'columnar=true'))
-) WITH (key_field=company_id);
+);
 CREATE INDEX repro_ti_idx ON repro_ti
-USING paradedb (company_id) WITH (key_field=company_id);
+USING paradedb (company_id);
 -- =====================================================================
 -- Test 1: GROUP BY on the aliased column
 -- Previously crashed with "No field named cccf_0.company_name".
@@ -59,7 +59,7 @@ ORDER BY company_name;
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[company_name_words@0 as company_name_words], aggr=[count(1) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@0)], projection=[company_name_words@0]
            :     CooperativeExec
            :       PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
            :     CooperativeExec
@@ -108,7 +108,7 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    Aggregates: COUNT(DISTINCT)(company_name_words)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(DISTINCT cccf_0.company_name_words) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@0)], projection=[company_name_words@0]
      :     CooperativeExec
      :       PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
      :     CooperativeExec
@@ -151,7 +151,7 @@ JOIN repro_ti ti ON cccf.company_id = ti.company_id;
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[string_agg(cccf_0.company_name_words, ,) ORDER BY [cccf_0.company_name_words ASC NULLS LAST] as agg_0]
      :   SortExec: expr=[company_name_words@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@0, company_id@0)], projection=[company_name_words@1]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, company_id@0)], projection=[company_name_words@0]
      :       CooperativeExec
      :         PgSearchScan: table=cccf, segments=1, visibility=eager, query="all"
      :       CooperativeExec

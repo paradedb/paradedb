@@ -1084,6 +1084,14 @@ impl SegmentedTopKState {
                 // another keeps that column's segment for the final decode; a
                 // row with no segment is NULL in every deferred column and
                 // needs no dictionary.
+                if self.row_to_seg_scratch[row_idx].is_none() {
+                    debug_assert!(
+                        self.sort_arrays_scratch
+                            .iter()
+                            .any(|arr| arr.is_null(row_idx)),
+                        "pass-through row without resolved segment must have at least one NULL sort column"
+                    );
+                }
                 self.pass_through_rows.push(PassThroughRow {
                     batch_idx,
                     row_idx,
@@ -2037,7 +2045,6 @@ mod tests {
             CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
             USING paradedb (id, name, sort_col) 
             WITH (
-                key_field = 'id', 
                 target_segment_count = 4, 
                 text_fields = '{"sort_col": {"fast": true}}'
             );

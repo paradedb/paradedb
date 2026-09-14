@@ -42,11 +42,9 @@ SELECT g,
        '2024-01-01 00:00:00+00'::timestamptz + (g || ' hours')::interval
 FROM generate_series(1, 10) g;
 CREATE INDEX repro_5525_parent_idx ON repro_5525_parent
-USING paradedb (id, child_id, (owner::pdb.literal), updated_at)
-WITH (key_field='id');
+USING paradedb (id, child_id, (owner::pdb.literal), updated_at);
 CREATE INDEX repro_5525_child_idx ON repro_5525_child
-USING paradedb (id, (state::pdb.literal))
-WITH (key_field='id');
+USING paradedb (id, (state::pdb.literal));
 ANALYZE repro_5525_parent;
 ANALYZE repro_5525_child;
 -- =====================================================================
@@ -126,25 +124,24 @@ WHERE "Parent"."owner" = 'user-1'
   AND "Child"."id" @@@ paradedb.term('state', 'active'::text)
 ORDER BY "Parent"."updated_at" DESC
 LIMIT 12;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: Child INNER Parent
-         Join Cond: Parent.child_id = Child.id
-         Limit: 12
-         Order By: Parent.updated_at desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, updated_at@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=12), expr=[updated_at@2 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[Child, Parent]
-           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, child_id@1)], projection=[ctid_0@0, ctid_1@2, updated_at@4]
-           :           CooperativeExec
-           :             PgSearchScan: table=Child, segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=Parent, segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
-(16 rows)
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: Parent INNER Child
+   Join Cond: Parent.child_id = Child.id
+   Limit: 12
+   Order By: Parent.updated_at desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, updated_at@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=12), expr=[updated_at@1 DESC], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[Parent, Child]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, child_id@1)], projection=[ctid_0@2, updated_at@4, ctid_1@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=Child, segments=1, query={"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=Parent, segments=1, dynamic_filters=2, query={"term":{"field":"owner","value":"user-1"}}
+(15 rows)
 
 SELECT "Parent"."id"
 FROM repro_5525_parent AS "Parent"
@@ -268,8 +265,8 @@ LIMIT 5;
                Aggregates: COUNT(id)
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[owner@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[owner@1 as owner], aggr=[count(_123_0.id) as agg_0]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@1)], projection=[id@1, owner@3]
+                 :   AggregateExec: mode=Single, gby=[owner@0 as owner], aggr=[count(_123_0.id) as agg_0]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, child_id@2)], projection=[owner@1, id@2]
                  :       CooperativeExec
                  :         PgSearchScan: table=456, segments=1, visibility=eager, query={"term":{"field":"state","value":"active"}}
                  :       CooperativeExec

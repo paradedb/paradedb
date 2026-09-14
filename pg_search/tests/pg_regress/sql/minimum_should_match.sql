@@ -19,8 +19,7 @@ INSERT INTO docs (title, body) VALUES
     ('unrelated document',    'no match');
 
 CREATE INDEX docs_idx ON docs
-USING paradedb (id, title, body)
-WITH (key_field = 'id');
+USING paradedb (id, title, body);
 
 -- Test 1: minimum_should_match => 2 with 3 should clauses
 -- Only docs matching at least 2 of: apple, banana, cherry

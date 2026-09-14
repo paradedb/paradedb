@@ -19,8 +19,7 @@ CALL paradedb.create_paradedb_test_table(
 -- Test 1: FuncExpr - upper() indexed expression gets TopN scan
 -- We search on category (separate column) and sort by upper(description).
 CREATE INDEX upper_idx ON mock_items
-    USING paradedb (id, category, (upper(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (upper(description)::pdb.literal), rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
@@ -55,8 +54,7 @@ ORDER BY upper(description) DESC
 DROP INDEX upper_idx;
 -- Test 2: FuncExpr - trim() to verify it's not just upper() that works
 CREATE INDEX trim_idx ON mock_items
-    USING paradedb (id, category, (trim(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (trim(description)::pdb.literal), rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
@@ -91,8 +89,7 @@ ORDER BY trim(description) DESC
 DROP INDEX trim_idx;
 -- Test 3: Negative test - expression NOT in index should NOT use TopN
 CREATE INDEX plain_idx ON mock_items
-    USING paradedb (id, description, rating)
-    WITH (key_field='id');
+    USING paradedb (id, description, rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
@@ -115,8 +112,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 DROP INDEX plain_idx;
 -- Test 4: lower() still works as before (regression test)
 CREATE INDEX lower_idx ON mock_items
-    USING paradedb (id, (lower(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, (lower(description)::pdb.literal), rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
@@ -147,8 +143,7 @@ ORDER BY lower(description) DESC
 DROP INDEX lower_idx;
 -- Test 5: Mixed expression types - lower() + rating
 CREATE INDEX mixed_idx ON mock_items
-    USING paradedb (id, (lower(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, (lower(description)::pdb.literal), rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
@@ -179,8 +174,7 @@ ORDER BY lower(description) ASC, rating DESC
 DROP INDEX mixed_idx;
 -- Test 6: Mixed - indexed expression + plain column
 CREATE INDEX mixed_expr_idx ON mock_items
-    USING paradedb (id, category, (upper(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (upper(description)::pdb.literal), rating);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
@@ -256,13 +250,11 @@ INSERT INTO expr_suppliers (id, product_id, name, contact_info) VALUES
 CREATE INDEX expr_products_bm25 ON expr_products
     USING paradedb (id, description, category, (upper(name)::pdb.literal))
     WITH (
-    key_field = 'id',
     text_fields = '{"category": {"fast": true}}'
     );
 CREATE INDEX expr_suppliers_bm25 ON expr_suppliers
     USING paradedb (id, product_id, name, contact_info)
     WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true}}',
     numeric_fields = '{"product_id": {"fast": true}}'
     );
@@ -279,27 +271,22 @@ ORDER BY upper(p.name) ASC
     LIMIT 5;
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+ Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name, (upper(p.name))
-   ->  Result
-         Output: p.name, s.name, upper(p.name)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.name, s.name
-               Relation Tree: s INNER p
-               Join Cond: p.id = s.product_id
-               Limit: 5
-               Order By: name asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   TantivyDecodeExec: decode=[name]
-                 :     TantivyFetchExec: fetch=[name]
-                 :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[s, p]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@3, ctid_1@0, name@2]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(20 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.id = s.product_id
+   Limit: 5
+   Order By: name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, name@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   TantivyDecodeExec: decode=[name]
+     :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -326,27 +313,25 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.id = s.product_id
-         Limit: 5
-         Order By: s.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyDecodeExec: decode=[name]
-           :     TantivyFetchExec: fetch=[name]
-           :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
-           :           CooperativeExec
-           :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
-(18 rows)
+   Relation Tree: p INNER s
+   Join Cond: p.id = s.product_id
+   Limit: 5
+   Order By: s.name asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, name@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+     :   TantivyDecodeExec: decode=[name]
+     :     TantivyFetchExec: fetch=[name]
+     :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5, visibility_checks=[p, s]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
+(16 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p

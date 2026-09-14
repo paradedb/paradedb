@@ -24,7 +24,7 @@ use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use serde::{Deserialize, Serialize};
 
-pub const SCORE_COL_NAME: &str = "score";
+pub const SCORE_COL_NAME: &str = "pdb.score()";
 
 /// Describes how a single output column of the JoinScan CustomScan is produced.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +46,8 @@ pub enum OutputColumnInfo {
         source_rti: SourceRti,
         field_name: String,
     },
+    /// An expression evaluated by DataFusion (e.g. via PgExprUdf in DISTINCT).
+    Expression,
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
     /// Always emits NULL at execution time.
     Pruned,
@@ -72,7 +74,9 @@ impl From<&OutputColumnInfo> for ChildProjection {
                 source_rti: *source_rti,
                 field_name: field_name.clone(),
             },
-            OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
+            OutputColumnInfo::Expression | OutputColumnInfo::Pruned => {
+                ChildProjection::Column { rti: 0, attno: 0 }
+            }
         }
     }
 }

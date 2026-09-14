@@ -20,11 +20,9 @@ INSERT INTO typmod_products VALUES
     (3, 'Gizmo',   'A neat gizmo',   2);
 -- Index using typmod syntax — the field IS fast (verified below)
 CREATE INDEX typmod_products_idx ON typmod_products
-    USING paradedb (id, ((name)::pdb.literal_normalized), description, supplier_id)
-    WITH (key_field = 'id');
+    USING paradedb (id, ((name)::pdb.literal_normalized), description, supplier_id);
 CREATE INDEX typmod_suppliers_idx ON typmod_suppliers
-    USING paradedb (id, ((name)::pdb.literal_normalized))
-    WITH (key_field = 'id');
+    USING paradedb (id, ((name)::pdb.literal_normalized));
 SET paradedb.enable_join_custom_scan = on;
 SELECT name, fast FROM paradedb.schema('typmod_products_idx') WHERE name = 'name';
  name | fast 
@@ -45,27 +43,25 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Unique
-         ->  Custom Scan (ParadeDB Join Scan)
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 10
-               Distinct: true
-               Order By: s.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@1 as col_1], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@2, name@4, ctid_1@0]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(18 rows)
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: s.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@2 as col_1], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT DISTINCT s.name
 FROM typmod_products p
@@ -88,11 +84,9 @@ DROP INDEX typmod_suppliers_idx;
 -- Re-index with lower() expression — the fast field stores lowered values,
 -- so pulling up raw 'name' from it would return wrong data.
 CREATE INDEX typmod_products_idx ON typmod_products
-    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')), description, supplier_id)
-    WITH (key_field = 'id');
+    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')), description, supplier_id);
 CREATE INDEX typmod_suppliers_idx ON typmod_suppliers
-    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')))
-    WITH (key_field = 'id');
+    USING paradedb (id, ((lower(name))::pdb.literal('alias=name_lower')));
 -- JoinScan must NOT activate here — 'name' is not a direct fast field,
 -- and the expression index stores lower(name) which differs from name.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -102,7 +96,6 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
                                                      QUERY PLAN                                                      
 ---------------------------------------------------------------------------------------------------------------------
@@ -129,7 +122,6 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column s.name is not columnar indexed (table: join)
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
  name  
 -------

@@ -117,7 +117,6 @@ DROP INDEX IF EXISTS reviews_idx;
 CREATE INDEX products_idx ON products
 USING paradedb (id, name, description, price, stock_count, is_available)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
     boolean_fields = '{"is_available": {"fast": true}}'
@@ -126,7 +125,6 @@ WITH (
 CREATE INDEX categories_idx ON categories
 USING paradedb (id, name, description, product_count, is_active)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"product_count": {"fast": true}}',
     boolean_fields = '{"is_active": {"fast": true}}'
@@ -135,7 +133,6 @@ WITH (
 CREATE INDEX reviews_idx ON reviews
 USING paradedb (id, reviewer_name, content, rating, helpful_votes)
 WITH (
-    key_field = 'id',
     text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
     numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
 );

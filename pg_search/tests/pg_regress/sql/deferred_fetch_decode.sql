@@ -1,7 +1,7 @@
 -- A late-materialized string column is looked up in two steps: a fast-field fetch
 -- (doc address to term ordinal, TantivyFetchExec) and a dictionary decode (term
--- ordinal to string, TantivyDecodeExec). By default the scan emits doc addresses and
--- both nodes sit next to each other at the decode point. With
+-- ordinal to string, TantivyDecodeExec). With deferred fetch and decode enabled,
+-- the scan emits doc addresses and both nodes sit at the decode point. With
 -- paradedb.defer_column_fetch = off the scan resolves the ordinals itself, in doc
 -- order, and only the decode node is needed above. Both placements must return the
 -- same rows.
@@ -43,11 +43,12 @@ CREATE TABLE dfd_files (
     price NUMERIC
 );
 
-CREATE INDEX dfd_documents_idx ON dfd_documents USING bm25 (id, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX dfd_documents_idx ON dfd_documents USING paradedb
+((id::pdb.literal), (category::pdb.simple('columnar=true')));
 
-CREATE INDEX dfd_files_idx ON dfd_files USING bm25 (id, document_id, title, content, price)
-WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', numeric_fields = '{"price": {"fast": true}}');
+CREATE INDEX dfd_files_idx ON dfd_files USING paradedb
+(id, (document_id::pdb.literal), (title::pdb.simple('columnar=true')),
+ (content::pdb.simple('columnar=true')), price);
 
 -- Two insert batches after the index exists give the files index two segments, so a
 -- batch above the join mixes rows whose ordinals live in different dictionaries.
@@ -72,9 +73,11 @@ FROM generate_series(51, 100) AS i;
 RESET paradedb.global_mutable_segment_rows;
 
 -- =============================================================================
--- Default: the fetch is deferred next to the decode
+-- Forced deferred fetch: the fetch stays next to the decode
 -- =============================================================================
 
+SET paradedb.defer_column_fetch = on;
+SET paradedb.defer_string_decode = on;
 SHOW paradedb.defer_column_fetch;
 
 -- Top K on the deferred column: the SegmentedTopKExec goes under the fetch, so the
@@ -82,13 +85,13 @@ SHOW paradedb.defer_column_fetch;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
@@ -96,13 +99,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
 
@@ -110,13 +113,13 @@ LIMIT 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
 
@@ -124,13 +127,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
 
@@ -140,13 +143,13 @@ SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
@@ -158,14 +161,14 @@ SET paradedb.enable_aggregate_late_materialization = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
@@ -181,39 +184,39 @@ SET paradedb.defer_column_fetch = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 ORDER BY f.title DESC NULLS FIRST, f.id ASC
 LIMIT 4;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
 
 SELECT f.id, f.title, f.content
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'GAMMA_DIVISION'
+WHERE d.category &&& 'GAMMA_DIVISION'
 ORDER BY f.title DESC NULLS FIRST, f.content ASC
 LIMIT 5;
 
@@ -221,13 +224,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
 
 SELECT f.id, f.price
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.price ASC NULLS FIRST, f.id ASC
 LIMIT 7;
 
@@ -236,13 +239,13 @@ SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
@@ -253,14 +256,14 @@ SET paradedb.enable_aggregate_late_materialization = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'BETA_GROUP'
+WHERE d.category &&& 'BETA_GROUP'
 GROUP BY f.title
 ORDER BY f.title NULLS LAST
 LIMIT 5;
@@ -280,30 +283,33 @@ SET parallel_tuple_cost TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
-RESET paradedb.defer_column_fetch;
+SET paradedb.defer_column_fetch = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
-WHERE d.category @@@ 'PROJECT_ALPHA'
+WHERE d.category &&& 'PROJECT_ALPHA'
 ORDER BY f.title ASC, f.id ASC
 LIMIT 5;
 
 DROP TABLE dfd_files;
 DROP TABLE dfd_documents;
+
+RESET paradedb.defer_column_fetch;
+RESET paradedb.defer_string_decode;

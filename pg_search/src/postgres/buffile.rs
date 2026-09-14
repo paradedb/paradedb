@@ -15,16 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Spills DataFusion's sorts/aggregates/joins to Postgres's `BufFile` temp-file
-//! mechanism, instead of DataFusion's default bare-OS-tempfile `DiskManager`.
-//!
-//! Routing through `BufFile` (rather than `tempfile`/`NamedTempFile`, DataFusion's
-//! default) means spill files are counted against `temp_file_limit`, land in the
-//! configured `temp_tablespaces`, and are guaranteed to be cleaned up by Postgres's
-//! resource-owner machinery even if the query is cancelled or the backend crashes —
-//! none of which DataFusion's OS-tempdir path provides.
-//!
-//! Shared BufFile FFI Module
+//! Wraps Postgres's `BufFile*` C API. Some of these signatures differ across supported PG
+//! versions (see `buffile_write`, `buffile_read_exact`); the rest are thin safety
+//! wrappers over the same underlying calls.
 use pgrx::pg_sys;
 use std::os::raw::c_int;
 pub unsafe fn buffile_tell(file: *mut pg_sys::BufFile) -> (c_int, pg_sys::off_t) {

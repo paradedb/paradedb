@@ -219,9 +219,6 @@ impl SpillFile for BufFileSpillFile {
                         buffile::buffile_seek(file.get(), position.fileno, position.offset, 0)
                     }
                     .map_err(|e| exec_datafusion_err!("failed to seek BufFile spill file: {e}"))?;
-                    // [`SpillFile::read_stream`]'s `poll_fn`, reusing one scratch buffer across the whole
-                    // pass — see the module-level `# BufFile FFI` note for why this isn't dispatched to a
-                    // blocking pool.
                     match unsafe { buffile::buffile_read(file.get(), &mut scratch) } {
                         0 => Ok(None),
                         n => {

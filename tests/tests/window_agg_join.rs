@@ -65,47 +65,100 @@ fn explain(conn: &mut PgConnection, query: &str) -> String {
     lines.join("\n")
 }
 
+#[derive(Debug, Clone, Copy)]
+enum WindowJoinCase {
+    /// Every SQL-native aggregate that window_func.rs can convert, as one
+    /// bare column each (one WindowFunc per target entry).
+    Bare,
+    /// Window aggregates embedded in target list expressions: a
+    /// constant-arithmetic wrapper (native DataFusion path), a function+cast
+    /// wrapper (PgExprUdf path with a window input), a source column mixed
+    /// with a window value in one expression, and two window functions in a
+    /// single entry.
+    InExpressions,
+}
+
 #[rstest]
-fn global_window_aggregates_over_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+#[case::bare(WindowJoinCase::Bare)]
+#[case::in_expressions(WindowJoinCase::InExpressions)]
+fn global_window_aggregates_over_join(
+    mut conn: PgConnection,
+    #[case] case: WindowJoinCase,
+) -> Result<(), sqlx::Error> {
     setup(&mut conn);
 
-    // Every SQL-native aggregate that window_agg.rs can convert, as one column
-    // each (one WindowFunc per target entry is the supported shape).
-    let query = r#"
-        SELECT p.id,
-               r.score,
-               COUNT(*) OVER () AS total_count,
-               SUM(r.score) OVER () AS total_score,
-               AVG(r.score) OVER ()::float8 AS avg_score,
-               MIN(r.score) OVER () AS min_score,
-               MAX(r.score) OVER () AS max_score
-        FROM wj_products p
-        JOIN wj_reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
-        ORDER BY r.score DESC
-        LIMIT 3
-    "#;
+    match case {
+        WindowJoinCase::Bare => {
+            let query = r#"
+                SELECT p.id,
+                       r.score,
+                       COUNT(*) OVER () AS total_count,
+                       SUM(r.score) OVER () AS total_score,
+                       AVG(r.score) OVER ()::float8 AS avg_score,
+                       MIN(r.score) OVER () AS min_score,
+                       MAX(r.score) OVER () AS max_score
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description @@@ 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3
+            "#;
 
-    // Desired #5637 behavior: the custom scans absorb the global window
-    // aggregates, so the JoinScan engages and no WindowAgg node remains,
-    // while a WindowAggExec now exists
-    let plan = explain(&mut conn, query);
-    assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg "), "{plan}");
-    assert!(plan.contains("WindowAggExec"), "{plan}");
+            // The custom scans absorb the global window aggregates (#5637),
+            // so the JoinScan engages and no WindowAgg node remains, while a
+            // WindowAggExec now exists.
+            let plan = explain(&mut conn, query);
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+            assert!(plan.contains("WindowAggExec"), "{plan}");
 
-    let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i32, i32)>(&mut conn)?;
-    assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
-        vec![(999, 1999), (997, 1997), (995, 1995)]
-    );
-    for (_, _, total_count, total_score, avg_score, min_score, max_score) in &rows {
-        assert_eq!(*total_count, 1000);
-        assert_eq!(*total_score, 1_000_000);
-        assert_eq!(*avg_score, 1000.0);
-        assert_eq!(*min_score, 1);
-        assert_eq!(*max_score, 1999);
+            let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i32, i32)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+                vec![(999, 1999), (997, 1997), (995, 1995)]
+            );
+            for (_, _, total_count, total_score, avg_score, min_score, max_score) in &rows {
+                assert_eq!(*total_count, 1000);
+                assert_eq!(*total_score, 1_000_000);
+                assert_eq!(*avg_score, 1000.0);
+                assert_eq!(*min_score, 1);
+                assert_eq!(*max_score, 1999);
+            }
+        }
+        WindowJoinCase::InExpressions => {
+            let query = r#"
+                SELECT p.id,
+                       r.score,
+                       COUNT(*) OVER () + 1 AS count_plus_one,
+                       r.score + COUNT(*) OVER () AS score_plus_count,
+                       round(AVG(r.score) OVER (), 2)::float8 AS avg_rounded,
+                       COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+                FROM wj_products p
+                JOIN wj_reviews r ON p.id = r.product_id
+                WHERE p.description @@@ 'laptop'
+                ORDER BY r.score DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+            assert!(plan.contains("WindowAggExec"), "{plan}");
+
+            let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+                vec![(999, 1999), (997, 1997), (995, 1995)]
+            );
+            for (_, score, count_plus_one, score_plus_count, avg_rounded, count_plus_sum) in &rows {
+                assert_eq!(*count_plus_one, 1001);
+                assert_eq!(*score_plus_count, (*score as i64) + 1000);
+                assert_eq!(*avg_rounded, 1000.0);
+                assert_eq!(*count_plus_sum, 1_001_000);
+            }
+        }
     }
 
     Ok(())
@@ -146,127 +199,91 @@ fn setup_numeric(conn: &mut PgConnection) {
     .execute(conn);
 }
 
-#[rstest]
-fn global_window_aggregates_over_join_numeric(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup_numeric(&mut conn);
-
-    // The float8 casts wrap the WindowFuncs, so every aggregate exercises
-    // the expression path: sentinel rewrite, PgExprUdf evaluation, and the
-    // storage-encoded input decode (scaled i64 for SUM/MIN/MAX, the
-    // count+sum blob for AVG) — while keeping the value assertions exact f64
-    // comparisons.
-    let query = r#"
-        SELECT p.id,
-               r.price::float8,
-               COUNT(*) OVER () AS total_count,
-               SUM(r.price) OVER ()::float8 AS total_price,
-               AVG(r.price) OVER ()::float8 AS avg_price,
-               MIN(r.price) OVER ()::float8 AS min_price,
-               MAX(r.price) OVER ()::float8 AS max_price
-        FROM wjn_products p
-        JOIN wjn_reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
-        ORDER BY r.id DESC
-        LIMIT 3
-    "#;
-
-    let plan = explain(&mut conn, query);
-    assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg "), "{plan}");
-    assert!(plan.contains("WindowAggExec"), "{plan}");
-
-    let rows = query.fetch_result::<(i32, f64, i64, f64, f64, f64, f64)>(&mut conn)?;
-    assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
-        vec![(999, 499.75), (997, 499.25), (995, 498.75)]
-    );
-    for (_, _, total_count, total_price, avg_price, min_price, max_price) in &rows {
-        assert_eq!(*total_count, 1000);
-        assert_eq!(*total_price, 250_000.0);
-        assert_eq!(*avg_price, 250.0);
-        assert_eq!(*min_price, 0.25);
-        assert_eq!(*max_price, 499.75);
-    }
-
-    Ok(())
+#[derive(Debug, Clone, Copy)]
+enum NumericWindowJoinCase {
+    /// The float8 casts wrap the WindowFuncs, so every aggregate exercises
+    /// the expression path: sentinel rewrite, PgExprUdf evaluation, and the
+    /// storage-encoded input decode (scaled i64 for SUM/MIN/MAX, the
+    /// count+sum blob for AVG) — while keeping the value assertions exact
+    /// f64 comparisons.
+    Wrapped,
+    /// An expression whose result type is NUMERIC is not Arrow-convertible,
+    /// so the entry cannot be evaluated by the scan: JoinScan must decline
+    /// (falling back to PostgreSQL's WindowAgg) rather than erroring at
+    /// execution.
+    NumericResultDeclines,
 }
 
-// Window aggregates embedded in target list expressions rather than standing
-// alone: a constant-arithmetic wrapper (native DataFusion path), a
-// function+cast wrapper (PgExprUdf path with a window input), a source column
-// mixed with a window value in one expression, and two window functions in a
-// single entry.
 #[rstest]
-fn global_window_aggregates_in_expressions(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    setup(&mut conn);
-
-    let query = r#"
-        SELECT p.id,
-               r.score,
-               COUNT(*) OVER () + 1 AS count_plus_one,
-               r.score + COUNT(*) OVER () AS score_plus_count,
-               round(AVG(r.score) OVER (), 2)::float8 AS avg_rounded,
-               COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
-        FROM wj_products p
-        JOIN wj_reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
-        ORDER BY r.score DESC
-        LIMIT 3
-    "#;
-
-    let plan = explain(&mut conn, query);
-    assert!(plan.contains(JOIN_SCAN), "{plan}");
-    assert!(!plan.contains("WindowAgg "), "{plan}");
-    assert!(plan.contains("WindowAggExec"), "{plan}");
-
-    let rows = query.fetch_result::<(i32, i32, i64, i64, f64, i64)>(&mut conn)?;
-    assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
-        vec![(999, 1999), (997, 1997), (995, 1995)]
-    );
-    for (_, score, count_plus_one, score_plus_count, avg_rounded, count_plus_sum) in &rows {
-        assert_eq!(*count_plus_one, 1001);
-        assert_eq!(*score_plus_count, (*score as i64) + 1000);
-        assert_eq!(*avg_rounded, 1000.0);
-        assert_eq!(*count_plus_sum, 1_001_000);
-    }
-
-    Ok(())
-}
-
-// An expression whose result type is NUMERIC is not Arrow-convertible, so the
-// entry cannot be evaluated by the scan: JoinScan must decline (falling back
-// to PostgreSQL's WindowAgg) rather than erroring at execution.
-#[rstest]
-fn window_aggregate_numeric_result_expression_declines(
+#[case::wrapped(NumericWindowJoinCase::Wrapped)]
+#[case::numeric_result_declines(NumericWindowJoinCase::NumericResultDeclines)]
+fn global_window_aggregates_over_join_numeric(
     mut conn: PgConnection,
+    #[case] case: NumericWindowJoinCase,
 ) -> Result<(), sqlx::Error> {
     setup_numeric(&mut conn);
 
-    let query = r#"
-        SELECT p.id, SUM(r.price) OVER () * 2 AS doubled_total
-        FROM wjn_products p
-        JOIN wjn_reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
-        ORDER BY r.id DESC
-        LIMIT 3
-    "#;
+    match case {
+        NumericWindowJoinCase::Wrapped => {
+            let query = r#"
+                SELECT p.id,
+                       r.price::float8,
+                       COUNT(*) OVER () AS total_count,
+                       SUM(r.price) OVER ()::float8 AS total_price,
+                       AVG(r.price) OVER ()::float8 AS avg_price,
+                       MIN(r.price) OVER ()::float8 AS min_price,
+                       MAX(r.price) OVER ()::float8 AS max_price
+                FROM wjn_products p
+                JOIN wjn_reviews r ON p.id = r.product_id
+                WHERE p.description @@@ 'laptop'
+                ORDER BY r.id DESC
+                LIMIT 3
+            "#;
 
-    let plan = explain(&mut conn, query);
-    assert!(!plan.contains(JOIN_SCAN), "{plan}");
-    assert!(plan.contains("WindowAgg"), "{plan}");
+            let plan = explain(&mut conn, query);
+            assert!(plan.contains(JOIN_SCAN), "{plan}");
+            assert!(!plan.contains("WindowAgg "), "{plan}");
+            assert!(plan.contains("WindowAggExec"), "{plan}");
 
-    let rows = query.fetch_result::<(i32, bigdecimal::BigDecimal)>(&mut conn)?;
-    assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows.iter().map(|r| r.0).collect::<Vec<_>>(),
-        vec![999, 997, 995]
-    );
-    let expected: bigdecimal::BigDecimal = "500000.00".parse().unwrap();
-    for (_, doubled_total) in &rows {
-        assert_eq!(*doubled_total, expected);
+            let rows = query.fetch_result::<(i32, f64, i64, f64, f64, f64, f64)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(),
+                vec![(999, 499.75), (997, 499.25), (995, 498.75)]
+            );
+            for (_, _, total_count, total_price, avg_price, min_price, max_price) in &rows {
+                assert_eq!(*total_count, 1000);
+                assert_eq!(*total_price, 250_000.0);
+                assert_eq!(*avg_price, 250.0);
+                assert_eq!(*min_price, 0.25);
+                assert_eq!(*max_price, 499.75);
+            }
+        }
+        NumericWindowJoinCase::NumericResultDeclines => {
+            let query = r#"
+                SELECT p.id, SUM(r.price) OVER () * 2 AS doubled_total
+                FROM wjn_products p
+                JOIN wjn_reviews r ON p.id = r.product_id
+                WHERE p.description @@@ 'laptop'
+                ORDER BY r.id DESC
+                LIMIT 3
+            "#;
+
+            let plan = explain(&mut conn, query);
+            assert!(!plan.contains(JOIN_SCAN), "{plan}");
+            assert!(plan.contains("WindowAgg"), "{plan}");
+
+            let rows = query.fetch_result::<(i32, bigdecimal::BigDecimal)>(&mut conn)?;
+            assert_eq!(rows.len(), 3);
+            assert_eq!(
+                rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+                vec![999, 997, 995]
+            );
+            let expected: bigdecimal::BigDecimal = "500000.00".parse().unwrap();
+            for (_, doubled_total) in &rows {
+                assert_eq!(*doubled_total, expected);
+            }
+        }
     }
 
     Ok(())

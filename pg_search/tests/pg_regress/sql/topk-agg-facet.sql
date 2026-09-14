@@ -916,7 +916,7 @@ HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
 
--- Test 27: Window function with JOIN (This is supported. Joinscan shouuld engage)
+-- Test 27: Window function with JOIN (This is supported. Joinscan should engage)
 
 -- Create a second table for JOIN testing
 CREATE TABLE product_categories (

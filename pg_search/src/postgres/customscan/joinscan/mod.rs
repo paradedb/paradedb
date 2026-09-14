@@ -1808,12 +1808,12 @@ impl CustomScan for JoinScan {
                                 schema.index_of(field_name).ok()
                             }
                         }
-                        privdat::OutputColumnInfo::Expression => {
+                        privdat::OutputColumnInfo::Expression
+                        | privdat::OutputColumnInfo::WindowAgg { .. } => {
                             let col_alias = format!("col_{}", out_idx + 1);
                             schema.index_of(&col_alias).ok()
                         }
                         privdat::OutputColumnInfo::Var { .. }
-                        | privdat::OutputColumnInfo::WindowAgg { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
                     .collect();
@@ -2555,7 +2555,17 @@ impl JoinScan {
                         .window_aggs
                         .get(*agg_index)
                         .expect("A window agg output column should always have a valid index");
-                    let agg_col = batch.column(i);
+                    let Some(col_idx) = state
+                        .custom_state()
+                        .output_batch_col_indices
+                        .get(i)
+                        .copied()
+                        .flatten()
+                    else {
+                        *nulls.add(i) = true;
+                        continue;
+                    };
+                    let agg_col = batch.column(col_idx);
                     let numeric = match numeric_window_field(
                         window_agg.agg_type,
                         window_agg.arg_field_type(),

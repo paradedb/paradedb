@@ -295,6 +295,24 @@ pub fn extract_window_agg(
                     return Err("arguments to window aggregate must be fast fields".to_string());
                 };
 
+                // Unbounded NUMERIC has no declared scale to decode the
+                // storage encoding with; reject at planning rather than
+                // letting the DataFusion plan bake fail. COUNT never reads
+                // the value, so it stays absorbable.
+                if !matches!(
+                    agg_type,
+                    SupportedWindowAggType::Count | SupportedWindowAggType::CountStar
+                ) && ff
+                    .field_type()
+                    .is_some_and(|ft| ft.is_numeric() && ft.numeric_scale().is_none())
+                {
+                    return Err(
+                        "window aggregates on an unbounded NUMERIC column are not supported; \
+                         declare a precision and scale"
+                            .to_string(),
+                    );
+                }
+
                 Some(ColumnInfo::new(
                     var.varno as pg_sys::Index,
                     var.varattno,

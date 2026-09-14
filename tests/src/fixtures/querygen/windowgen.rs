@@ -28,11 +28,21 @@ use proptest::prelude::*;
 /// null-skipping aggregation on both sides).
 const INT_ARG_COLUMNS: &[&str] = &["age", "quantity"];
 
-/// NUMERIC-typed argument columns, spanning Numeric64 storages and scales.
-/// `big_numeric` (unbounded NUMERIC) is deliberately excluded: non-COUNT
-/// window aggregates over it raise a planning error inside the scan
-/// ("declare a precision and scale") rather than declining.
-const NUMERIC_ARG_COLUMNS: &[&str] = &["price", "small_numeric", "int_numeric", "high_scale"];
+/// NUMERIC-typed argument columns, spanning Numeric64 storages and scales,
+/// plus the unbounded `big_numeric`: non-COUNT window aggregates over an
+/// unbounded NUMERIC decline at planning (there is no declared scale to
+/// decode the storage encoding with), exercising the fallback comparison.
+const NUMERIC_ARG_COLUMNS: &[&str] = &[
+    "price",
+    "small_numeric",
+    "int_numeric",
+    "high_scale",
+    "big_numeric",
+];
+
+/// See [`NUMERIC_ARG_COLUMNS`]: the one argument column whose non-COUNT
+/// window aggregates decline.
+const UNBOUNDED_NUMERIC_COLUMN: &str = "big_numeric";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowAggKind {
@@ -76,6 +86,7 @@ pub struct WindowTarget {
     /// Qualified argument column; `None` for `COUNT(*)`.
     pub arg: Option<String>,
     arg_is_numeric: bool,
+    arg_is_unbounded_numeric: bool,
     pub wrapper: WindowWrapper,
 }
 
@@ -114,6 +125,12 @@ impl WindowTarget {
     /// produce a NUMERIC expression, which is not Arrow-convertible and
     /// declines the whole path (falling back to PostgreSQL's WindowAgg).
     pub fn is_absorbable(&self) -> bool {
+        // Non-COUNT aggregates over an unbounded NUMERIC decline at
+        // planning; COUNT never reads the value. (CountStar has no
+        // argument, so the flag is always false for it.)
+        if self.arg_is_unbounded_numeric && !matches!(self.kind, WindowAggKind::Count) {
+            return false;
+        }
         match &self.wrapper {
             WindowWrapper::Bare | WindowWrapper::CastFloat8 | WindowWrapper::RoundCastFloat8 => {
                 true
@@ -142,19 +159,23 @@ fn arb_window_target(tables: Vec<String>) -> BoxedStrategy<WindowTarget> {
         .prop_map(
             move |(kind, table_sel, column_sel, wrapper_sel, numeric_arg)| {
                 let table = table_sel.get(&tables);
-                let (arg, arg_is_numeric) = if kind == WindowAggKind::CountStar {
-                    (None, false)
-                } else if numeric_arg {
-                    (
-                        Some(format!("{table}.{}", column_sel.get(NUMERIC_ARG_COLUMNS))),
-                        true,
-                    )
-                } else {
-                    (
-                        Some(format!("{table}.{}", column_sel.get(INT_ARG_COLUMNS))),
-                        false,
-                    )
-                };
+                let (arg, arg_is_numeric, arg_is_unbounded_numeric) =
+                    if kind == WindowAggKind::CountStar {
+                        (None, false, false)
+                    } else if numeric_arg {
+                        let column = *column_sel.get(NUMERIC_ARG_COLUMNS);
+                        (
+                            Some(format!("{table}.{column}")),
+                            true,
+                            column == UNBOUNDED_NUMERIC_COLUMN,
+                        )
+                    } else {
+                        (
+                            Some(format!("{table}.{}", column_sel.get(INT_ARG_COLUMNS))),
+                            false,
+                            false,
+                        )
+                    };
                 let wrapper = match wrapper_sel {
                     0 => WindowWrapper::Bare,
                     1 => WindowWrapper::CastFloat8,
@@ -166,6 +187,7 @@ fn arb_window_target(tables: Vec<String>) -> BoxedStrategy<WindowTarget> {
                     kind,
                     arg,
                     arg_is_numeric,
+                    arg_is_unbounded_numeric,
                     wrapper,
                 }
             },

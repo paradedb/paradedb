@@ -132,7 +132,7 @@ impl ReturnedNodePointer {
             .iter_ptr()
             .last()
             .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
-            .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
+            .and_then(|row| record_field(row, c"original_lhs"));
         let lhs = original_lhs.unwrap_or(lhs);
         let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
             return Self::unsupported();
@@ -1178,6 +1178,22 @@ unsafe fn resolve_lhs_var_for_group(
     }
 
     var
+}
+
+/// The field of the trailing record argument carrying `name`, e.g. the preserved
+/// original LHS or the partition identity (#4643). The names distinguish the fields, so
+/// one is never misread as another.
+unsafe fn record_field(
+    row: *mut pg_sys::RowExpr,
+    name: &core::ffi::CStr,
+) -> Option<*mut pg_sys::Node> {
+    unsafe {
+        let names = PgList::<pg_sys::String>::from_pg((*row).colnames);
+        let position = names.iter_ptr().position(|colname| {
+            !(*colname).sval.is_null() && core::ffi::CStr::from_ptr((*colname).sval) == name
+        })?;
+        PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(position)
+    }
 }
 
 /// A Var for one of `base_var`'s relation's system columns, e.g. `ctid` or `tableoid`.

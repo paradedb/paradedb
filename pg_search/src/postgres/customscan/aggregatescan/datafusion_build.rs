@@ -63,6 +63,8 @@ type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
 /// Result type for `build_search_filter`: the filter expression and raw PG Expr clause pointers.
 type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
+use std::sync::OnceLock;
+
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
 pub struct JoinAggSource {
@@ -70,14 +72,10 @@ pub struct JoinAggSource {
     pub relid: pg_sys::Oid,
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
-    /// Eagerly populated attno -> fast-field mapping for this relation.
-    /// Built once in [`collect_join_agg_sources`] and flowed through to the
-    /// `JoinSourceCandidate` in [`build_scan_node`], so both
-    /// [`JoinAggSource::column_name`] and the downstream
-    /// [`JoinSource::column_name`] / `build_source_df` paths agree on the
-    /// BM25-registered field name for every heap attno. Empty when the
+    /// Lazily populated attno -> fast-field mapping for this relation.
+    /// Filled on first access by [`JoinAggSource::column_name`]. Empty when the
     /// relation has no ParadeDB index.
-    pub fields: Vec<FieldInfo>,
+    fields: OnceLock<Vec<FieldInfo>>,
 }
 
 impl JoinAggSource {
@@ -93,13 +91,18 @@ impl JoinAggSource {
     /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
     /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
-        self.fields
+        self.fields()
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
                 WhichFastField::Score | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        self.fields
+            .get_or_init(|| unsafe { collect_source_fields(self.relid, self.bm25_index.as_ref()) })
     }
 }
 
@@ -248,13 +251,12 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
-        let fields = collect_source_fields(relid, bm25_index.as_ref());
         sources.push(JoinAggSource {
             rti,
             relid,
             alias,
             bm25_index,
-            fields,
+            fields: OnceLock::new(),
         });
     }
 
@@ -557,16 +559,10 @@ unsafe fn build_scan_node(
     })?;
 
     // Build a JoinSourceCandidate progressively. `with_index` attaches index metadata
-    // and `partition_by` so RangePartitioningRule can co-partition equi-joins
-    // under AggregateScan (matches JoinScan planning).
+    // and `partition_by` so RangePartitioningRule can co-partition equi-joins.
     let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
         .with_heaprelid(source.relid)
         .with_index(bm25_index);
-
-    // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
-    // (and everything built on it - AggregateIndexVarMapper, build_source_df)
-    // agrees with JoinAggSource::column_name on alias-aware field names.
-    candidate.fields = source.fields.clone();
 
     if let Some(ref alias) = source.alias {
         candidate = candidate.with_alias(alias.clone());

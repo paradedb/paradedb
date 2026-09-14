@@ -90,12 +90,10 @@ drop_snippet_indexes() {
 
 python3 "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
-
 sql_pass_count=0
 sql_fail_count=0
 if [[ $ORMS =~ "sql" ]]; then
   run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
-
 
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
@@ -146,8 +144,7 @@ if [[ $ORMS =~ "django" ]]; then
 # Source: $rel_snippet
 PY
       cat "$snippet_file"
-    } | "$PYTHON_BIN" - >/dev/null
-    then
+    } | "$PYTHON_BIN" - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       django_pass_count=$((django_pass_count + 1))
     else
@@ -185,9 +182,9 @@ if [[ $ORMS =~ "rails" ]]; then
 RUBY
       cat "$snippet_file"
     } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
-        GEM_HOME="$RUBY_GEM_HOME" \
-        GEM_PATH="$RUBY_GEM_HOME" \
-        ruby - >/dev/null; then
+      GEM_HOME="$RUBY_GEM_HOME" \
+      GEM_PATH="$RUBY_GEM_HOME" \
+      ruby - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       rails_pass_count=$((rails_pass_count + 1))
     else
@@ -197,7 +194,6 @@ RUBY
     fi
   done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
 fi
-
 
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0

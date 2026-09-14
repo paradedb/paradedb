@@ -197,11 +197,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@3, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -291,12 +291,12 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@0 as col_4, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@0)], projection=[id@0, ctid_0@2, ctid_1@3, ctid_2@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], projection=[id@0, category_id@2, ctid_0@3, ctid_1@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, ctid_2@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[ctid_0@0, category_id@1, id@3, ctid_1@4]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
      :             CooperativeExec
@@ -337,12 +337,12 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@0 as col_4, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@0)], projection=[id@0, ctid_0@2, ctid_1@3, ctid_2@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[id@2, category_id@4, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3, ctid_2@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@2, category_id@3, id@5, ctid_1@0]
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
      :             CooperativeExec
@@ -388,8 +388,8 @@ LIMIT 5;
      :   SortExec: TopK(fetch=5), expr=[pdb.score()@0 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@0, id@0)], projection=[pdb.score()@1, ctid_0@2, ctid_1@3, ctid_2@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@0, id@0)], projection=[category_id@1, pdb.score()@2, ctid_0@3, ctid_1@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, ctid_1@3, ctid_2@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@3, id@1)], projection=[pdb.score()@0, ctid_0@1, category_id@2, ctid_1@4]
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
      :             CooperativeExec
@@ -433,8 +433,8 @@ LIMIT 5;
      :   SortExec: TopK(fetch=5), expr=[pdb.score()@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s, c]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@0, id@0)], projection=[ctid_0@1, pdb.score()@2, ctid_1@3, ctid_2@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@0)], projection=[category_id@4, ctid_0@5, pdb.score()@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_0@0, pdb.score()@2, ctid_1@3, ctid_2@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[ctid_0@3, category_id@4, pdb.score()@0, ctid_1@1]
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
      :             CooperativeExec
@@ -499,15 +499,15 @@ LIMIT 5;
    Limit: 5
    Order By: l1.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@0 as col_5, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
-     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@1 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2, ctid_3]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, l4_id@3)], projection=[id@2, ctid_0@3, ctid_1@4, ctid_2@6, ctid_3@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@4)], projection=[ctid_0@2, id@3, ctid_1@4, ctid_2@5, ctid_3@0]
      :           CooperativeExec
      :             PgSearchScan: table=l4, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@2, id@0)], projection=[id@0, ctid_0@1, ctid_1@3, l4_id@5, ctid_2@6]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@0)], projection=[id@0, ctid_0@2, l3_id@4, ctid_1@5]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@2)], projection=[ctid_0@0, id@2, ctid_1@3, l3_id@4]
      :               CooperativeExec
      :                 PgSearchScan: table=l1, segments=1, dynamic_filters=1, query="all"
      :               CooperativeExec
@@ -551,13 +551,13 @@ LIMIT 5;
    Limit: 5
    Order By: l1.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
-     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2, ctid_3]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@3, id@0)], projection=[id@0, ctid_0@1, ctid_1@2, ctid_2@4, ctid_3@6]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@2, id@0)], projection=[id@0, ctid_0@1, ctid_1@3, l4_id@5, ctid_2@6]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@0)], projection=[id@0, ctid_0@2, l3_id@4, ctid_1@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@4, id@1)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@3, ctid_3@5]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@2)], projection=[ctid_0@0, id@2, ctid_1@3, l3_id@4]
      :               CooperativeExec
      :                 PgSearchScan: table=l1, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
      :               CooperativeExec
@@ -600,13 +600,13 @@ LIMIT 5;
    Limit: 5
    Order By: l1.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
-     :   SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[l1, l2, l3, l4]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2, ctid_3]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@3, id@0)], projection=[id@0, ctid_0@1, ctid_1@2, ctid_2@4, ctid_3@6]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@2, id@0)], projection=[id@0, ctid_0@1, ctid_1@3, l4_id@5, ctid_2@6]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, l2_id@1)], projection=[id@3, ctid_0@5, l3_id@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@4, id@1)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@3, ctid_3@5]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l2_id@1)], projection=[ctid_0@3, id@5, ctid_1@0, l3_id@1]
      :               CooperativeExec
      :                 PgSearchScan: table=l2, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
      :               CooperativeExec

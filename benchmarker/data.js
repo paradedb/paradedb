@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789410124602,
+  "lastUpdate": 1789411650252,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3761,6 +3761,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0764352d1b9f58497e303fcbc3791dd4657f446d",
+          "message": "ci: use shared organization lint and check actions (#6305)\n\nReplace duplicated CI steps with the shared composite actions in\nparadedb/actions#22, referenced by the `v12` release tag. Migrates:\ncheck-typo, lint-bash, lint-docker, lint-format, lint-markdown,\nlint-pr-title, lint-yaml.\n\nWorkflow triggers, job names, permissions, runners, concurrency, and\ncheckout settings are preserved. Repository-specific exclusions,\nconfiguration files, and validation commands remain in this repository.\nPrettier/markdownlint versions are pinned directly in the shared install\nsteps; repository dependencies are not installed for these checks.\nSpelling uses pinned Python codespell instead of the Docker wrapper, so\nthe check no longer needs Docker Hub credentials. Bash checks use shfmt\nwith two-space indentation and indented case branches on all tracked\nshell scripts, including hidden scripts. Existing pre-commit\nconfigurations use the same formatter settings. Shell scripts are\nreformatted accordingly.\n\nDepends on https://github.com/paradedb/actions/pull/22; merge the\nshared-actions PR and publish `v12` first. The tag does not exist yet,\nso consumer action resolution is expected to remain blocked until that\nrelease is published.\n\nValidation: workflow/job-envelope and action-input checks, actionlint\nwith ShellCheck, Prettier formatting, and git diff --check passed\nlocally. All tracked shell scripts in this repository pass the shared\nformatting, shebang, strict-mode, and ShellCheck steps locally; Bash\nsyntax checks also pass. Repository CI results are tracked separately.\n\nPart of paradedb/paradedb#5477.\n\nThe migrated checks passed against the tested implementation SHA before\nswitching to the requested release tag. Rerun CI after `v12` is\npublished.",
+          "timestamp": "2026-09-14T11:26:10-07:00",
+          "tree_id": "26040438ec4e83568dd9db1699c26f07698a15df",
+          "url": "https://github.com/paradedb/paradedb/commit/0764352d1b9f58497e303fcbc3791dd4657f446d"
+        },
+        "date": 1789411646362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6705280444668933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.972,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.214,
             "unit": "ms"
           }
         ]

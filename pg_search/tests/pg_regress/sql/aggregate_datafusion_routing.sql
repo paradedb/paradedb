@@ -22,7 +22,7 @@ SELECT g,
 FROM generate_series(1, 100000) g;
 
 CREATE INDEX routing_test_idx ON routing_test
-USING paradedb (id, (cat::pdb.literal), (sub::pdb.literal)) WITH (key_field='id');
+USING paradedb (id, (cat::pdb.literal), (sub::pdb.literal));
 
 ANALYZE routing_test;
 

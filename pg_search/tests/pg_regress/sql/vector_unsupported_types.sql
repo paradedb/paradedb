@@ -15,10 +15,10 @@ CREATE TABLE unsupported_vec_types (
 );
 
 -- halfvec: halfvec_l2_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, hv halfvec_l2_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, hv halfvec_l2_ops);
 -- sparsevec: sparsevec_l2_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, sv sparsevec_l2_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, sv sparsevec_l2_ops);
 -- bit: bit_hamming_ops is an hnsw/ivfflat opclass, not a paradedb one
-CREATE INDEX ON unsupported_vec_types USING paradedb (id, bv bit_hamming_ops) WITH (key_field = id);
+CREATE INDEX ON unsupported_vec_types USING paradedb (id, bv bit_hamming_ops);
 
 DROP TABLE unsupported_vec_types;

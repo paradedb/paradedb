@@ -27,7 +27,6 @@ INSERT INTO json_test (metadata_json) VALUES
 CREATE INDEX json_test_idx ON json_test
 USING paradedb (id, metadata_json)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
 );
 

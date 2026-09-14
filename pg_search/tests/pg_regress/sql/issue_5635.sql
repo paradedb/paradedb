@@ -50,14 +50,14 @@ CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
 USING paradedb (
     id,
     (category::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id');
+) WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 
 CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
 USING paradedb (
     id,
     (document_id::pdb.literal),
     (title::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id');
+);
 
 SET paradedb.enable_join_custom_scan = on;
 

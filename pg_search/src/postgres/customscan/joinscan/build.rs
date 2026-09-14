@@ -902,14 +902,11 @@ pub struct JoinNode {
     /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
     /// from, if any.  Set for Semi/Anti/LeftMark joins created by
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
-    /// that come from the normal join-hook path or path reconstruction.
+    /// that come from UPPERREL_FINAL or path reconstruction.
     pub subplan_id: Option<i32>,
     /// Cross-table `@@@` predicates that PG placed on this sub-join's
     /// `joinrestrictinfo`. The reconstruction in
-    /// `collect_join_sources_join_rel` parks them here because no
-    /// `JoinCSClause` exists yet to receive interned `plan_position`s;
-    /// `lower_absorbed_search_clauses` drains the field once one does, so
-    /// the vector is empty by the time the outer hook returns.
+    /// `collect_join_sources_join_rel` parks them here.
     /// `#[serde(skip)]` because the pointers are valid only within this
     /// planning pass and never reach the serialized plan.
     #[serde(skip)]
@@ -1267,41 +1264,6 @@ impl RelNode {
             }
         }
     }
-
-    /// Returns true if `rtis` contains at least one relation from both sides of this join or unnest.
-    /// Clauses that touch only one side belong to a child relation and should not be absorbed at this level.
-    pub fn spans_both_sides<'a>(
-        &self,
-        rtis: impl IntoIterator<Item = &'a pg_sys::Index> + Copy,
-    ) -> bool {
-        match self {
-            Self::Join(j) => {
-                rtis.into_iter().any(|&rti| j.left.contains_rti(rti))
-                    && rtis.into_iter().any(|&rti| j.right.contains_rti(rti))
-            }
-            Self::Unnest(u) => {
-                rtis.into_iter().any(|&rti| u.input.contains_rti(rti))
-                    && rtis.into_iter().any(|&rti| {
-                        rti == u.unnest_info.source_rti.0 || rti == u.unnest_info.function_rti.0
-                    })
-            }
-            Self::Filter(f) => f.input.spans_both_sides(rtis),
-            Self::Scan(_) => false,
-        }
-    }
-
-    pub fn has_absorbed_search_clauses(&self) -> bool {
-        self.exists(|node| {
-            let has = match node {
-                RelNode::Join(j) => !j.absorbed_search_clauses.is_empty(),
-                RelNode::Unnest(u) => !u.absorbed_clauses.is_empty(),
-                _ => false,
-            };
-            Ok(has)
-        })
-        .unwrap_or(false)
-    }
-
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
     }
@@ -1605,6 +1567,20 @@ impl RelNode {
         }
     }
 
+    /// Prune redundant const equi-keys throughout the plan tree.
+    pub unsafe fn prune_redundant_const_equi_keys(&mut self, root: *mut pg_sys::PlannerInfo) {
+        match self {
+            RelNode::Join(join_node) => {
+                join_node.left.prune_redundant_const_equi_keys(root);
+                join_node.right.prune_redundant_const_equi_keys(root);
+                prune_redundant_const_equi_keys(root, &mut join_node.equi_keys);
+            }
+            RelNode::Filter(filter) => filter.input.prune_redundant_const_equi_keys(root),
+            RelNode::Unnest(unnest) => unnest.input.prune_redundant_const_equi_keys(root),
+            RelNode::Scan(_) => {}
+        }
+    }
+
     /// Find metadata for a LATERAL unnest function RTI if present in this plan tree.
     pub fn find_lateral_unnest(&self, function_rti: pg_sys::Index) -> Option<&LateralUnnestInfo> {
         match self {
@@ -1882,29 +1858,6 @@ impl Default for RelNode {
     }
 }
 
-/// Controls whether `SELECT DISTINCT` is executed inside JoinScan or deferred to PostgreSQL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum DistinctMode {
-    #[default]
-    None,
-    /// DISTINCT is executed by JoinScan (via DataFusion GROUP BY).
-    /// Used when each DISTINCT expression maps 1-to-1 to an output column in `reltarget`.
-    Active,
-    /// DISTINCT is deferred to PostgreSQL's upper Unique/HashAggregate node.
-    ///
-    /// This happens when `parse->distinctClause` contains expressions derived from base columns
-    /// (e.g. `col IS NULL`, or function calls alongside the base column `col`). In that case,
-    /// PostgreSQL strips the derived expressions from the scan's `reltarget`, asking the scan
-    /// for only the base column `col`, and plans an upper `Result` node to evaluate `col IS NULL`.
-    ///
-    /// Because a CustomScan's output tuple must conform to `reltarget`, JoinScan lacks output
-    /// slots to emit those upper expressions and cannot perform the full DISTINCT deduplication.
-    /// In turn, pushing down LIMIT below PostgreSQL's upper deduplication node is unsound (an
-    /// early LIMIT could return fewer distinct rows than requested), so top-level queries with
-    /// `Deferred` DISTINCT decline JoinScan.
-    Deferred,
-}
-
 /// The clause information for a Join Custom Scan.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JoinCSClause {
@@ -1918,8 +1871,8 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
-    /// Distinct mode for this join: absent, executed by JoinScan, or deferred to parent.
-    pub distinct: DistinctMode,
+    /// Whether the join has DISTINCT specified.
+    pub has_distinct: bool,
 }
 
 impl JoinCSClause {
@@ -1929,7 +1882,7 @@ impl JoinCSClause {
             limit_offset: None,
             order_by: Vec::new(),
             output_projection: None,
-            distinct: DistinctMode::None,
+            has_distinct: false,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1947,17 +1900,9 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_distinct(mut self, distinct: DistinctMode) -> Self {
-        self.distinct = distinct;
+    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
+        self.has_distinct = has_distinct;
         self
-    }
-
-    pub fn has_distinct(&self) -> bool {
-        self.distinct == DistinctMode::Active
-    }
-
-    pub fn is_distinct_deferred(&self) -> bool {
-        self.distinct == DistinctMode::Deferred
     }
 
     pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {
@@ -2205,6 +2150,114 @@ pub unsafe fn try_extract_equi_key(
         typlen,
         typbyval,
     })
+}
+
+/// Check if a given `(rti, attno)` participates in an `EquivalenceClass` that has a constant.
+///
+/// When an equivalence class contains a constant (`ec_has_const == true`), PostgreSQL's
+/// optimizer generates a `var = const` restriction for the base relation, pushing it down
+/// to the scan level (see `generate_base_implied_equalities_const` in `equivclass.c`).
+pub unsafe fn var_in_const_ec(
+    root: *mut pg_sys::PlannerInfo,
+    target_rti: pg_sys::Index,
+    target_attno: pg_sys::AttrNumber,
+) -> Option<(*mut pg_sys::EquivalenceClass, *mut pg_sys::Node)> {
+    if root.is_null() || (*root).eq_classes.is_null() {
+        return None;
+    }
+    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    for eqc in eq_classes.iter_ptr() {
+        let mut canonical = eqc;
+        while !canonical.is_null() && !(*canonical).ec_merged.is_null() {
+            canonical = (*canonical).ec_merged;
+        }
+        if canonical.is_null() || (*canonical).ec_broken || !(*canonical).ec_has_const {
+            continue;
+        }
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members);
+        let mut var_matched = false;
+        let mut const_expr: *mut pg_sys::Node = std::ptr::null_mut();
+        for member in members.iter_ptr() {
+            if (*member).em_is_child {
+                continue;
+            }
+            if (*member).em_is_const && const_expr.is_null() {
+                const_expr = (*member).em_expr.cast();
+            }
+            let node = strip_node_wrappers((*member).em_expr.cast());
+            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+                continue;
+            }
+            let var = node as *mut pg_sys::Var;
+            if (*var).varno as pg_sys::Index == target_rti && (*var).varattno == target_attno {
+                var_matched = true;
+            }
+        }
+        if var_matched && !const_expr.is_null() {
+            return Some((canonical, const_expr));
+        }
+    }
+    None
+}
+
+/// Returns true if both sides of the equi-join key participate in an `EquivalenceClass` that has
+/// a constant (`ec_has_const == true`), and both sides are constrained to the same constant value.
+///
+/// # Strategy
+/// When an EquivalenceClass contains a constant, PostgreSQL's equivalence class machinery pushes
+/// down `col = const` restrictions to the base scan level of each member relation
+/// (`generate_base_implied_equalities_const` in `equivclass.c`). As a result, all tuples surviving
+/// the scan on both sides are already constrained to the constant value, making the join-level
+/// equality condition `outer.col = inner.col` mathematically redundant.
+///
+/// Core PostgreSQL explicitly skips generating or enforcing merge join clauses for such equivalence
+/// classes (`EC_MUST_BE_REDUNDANT`, `equivclass.c:1608`, `joinpath.c:2589`). In ParadeDB, we prune
+/// such redundant equi-join keys when other valid equi-keys exist, preventing columns without columnar
+/// fast fields from triggering unnecessary JoinScan / AggregateScan declines.
+///
+/// If both sides belong to the same canonical equivalence class, or if each side belongs to an
+/// equivalence class (such as across an outer/anti join domain boundary) that carries the identical
+/// constant value, the equality condition is redundant.
+pub unsafe fn is_equi_key_redundant_const(
+    root: *mut pg_sys::PlannerInfo,
+    key: &JoinKeyPair,
+) -> bool {
+    match (
+        var_in_const_ec(root, key.outer_rti, key.outer_attno),
+        var_in_const_ec(root, key.inner_rti, key.inner_attno),
+    ) {
+        (Some((outer_ec, outer_const)), Some((inner_ec, inner_const))) => {
+            if outer_ec == inner_ec {
+                return true;
+            }
+            if pg_sys::equal(outer_const.cast(), inner_const.cast()) {
+                return true;
+            }
+            let stripped_outer = strip_node_wrappers(outer_const);
+            let stripped_inner = strip_node_wrappers(inner_const);
+            !stripped_outer.is_null()
+                && !stripped_inner.is_null()
+                && pg_sys::equal(stripped_outer.cast(), stripped_inner.cast())
+        }
+        _ => false,
+    }
+}
+
+/// When multiple equi-join keys exist and some are redundant because both sides
+/// are already constrained to a constant in the same equivalence class,
+/// prune the redundant keys so they do not mandate columnar fast fields or
+/// induce redundant hash table lookups (matching PostgreSQL's `EC_MUST_BE_REDUNDANT`).
+pub unsafe fn prune_redundant_const_equi_keys(
+    root: *mut pg_sys::PlannerInfo,
+    equi_keys: &mut Vec<JoinKeyPair>,
+) {
+    if equi_keys.len() > 1
+        && equi_keys
+            .iter()
+            .any(|k| !is_equi_key_redundant_const(root, k))
+    {
+        equi_keys.retain(|k| !is_equi_key_redundant_const(root, k));
+    }
 }
 
 /// Look up base-relation metadata for a given RTI: relid, alias, and ParadeDB index.

@@ -59,7 +59,6 @@ DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
 USING paradedb (id, name, parent_id, description, level, item_count, is_active)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"parent_id": {"fast": true}, "level": {"fast": true}, "item_count": {"fast": true}}',
     boolean_fields = '{"is_active": {"fast": true}}'

@@ -22,7 +22,6 @@ INSERT INTO deprecated_dt (ts, tstz) VALUES
 CREATE INDEX deprecated_dt_idx ON deprecated_dt
 USING paradedb (id, ts, tstz)
 WITH (
-    key_field = 'id',
     datetime_fields = '{"ts": {"fast": true}, "tstz": {"fast": true}}'
 );
 

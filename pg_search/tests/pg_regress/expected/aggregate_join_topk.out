@@ -47,14 +47,12 @@ INSERT INTO topk_tags (product_id, tag_name) VALUES
 CREATE INDEX topk_products_idx ON topk_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
 CREATE INDEX topk_tags_idx ON topk_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
@@ -236,7 +234,6 @@ JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
 GROUP BY p.category
 ORDER BY COUNT(*) DESC;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |        sum         
 -------------+-------+--------------------
  Electronics |     4 |            4599.96
@@ -365,7 +362,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -502,7 +498,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Books       |     1
@@ -536,7 +531,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category | count 
 ----------+-------
  Toys     |     4
@@ -604,7 +598,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category |  min  |  max   
 ----------+-------+--------
  Toys     | 19.99 | 499.99

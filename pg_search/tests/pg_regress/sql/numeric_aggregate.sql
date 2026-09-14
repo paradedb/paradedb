@@ -36,7 +36,7 @@ CREATE INDEX numagg_idx ON numagg USING paradedb (
     (description::pdb.unicode_words),
     (category::pdb.literal),
     price, weight, amount, free
-) WITH (key_field = 'id');
+);
 
 -- Deterministic worker selection in fallback EXPLAINs
 ANALYZE numagg;
@@ -235,7 +235,7 @@ INSERT INTO numagg_lines (numagg_id, note) VALUES
 
 CREATE INDEX numagg_lines_idx ON numagg_lines USING paradedb (
     id, numagg_id, (note::pdb.unicode_words)
-) WITH (key_field = 'id');
+);
 ANALYZE numagg_lines;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

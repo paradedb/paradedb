@@ -19,7 +19,7 @@ CREATE TABLE test_metadata_scale (
 -- Create BM25 index on pages
 CREATE INDEX test_pages_scale_idx ON test_pages_scale
 USING paradedb (id, content)
-WITH (key_field = 'id');
+WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 
 -- Insert larger dataset (10,000 rows to simulate scale)
 -- This generates page IDs like 'page-0000001' through 'page-0010000'
@@ -71,4 +71,3 @@ LIMIT 100;
 -- Cleanup
 DROP TABLE test_pages_scale CASCADE;
 DROP TABLE test_metadata_scale CASCADE;
-

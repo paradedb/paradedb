@@ -18,8 +18,7 @@ INSERT INTO products (rating)
 VALUES (null);
 
 CREATE INDEX products_idx ON products
-USING paradedb (id, rating)
-WITH (key_field='id');
+USING paradedb (id, rating);
 
 -- These should not be pushed down
 

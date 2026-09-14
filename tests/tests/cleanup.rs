@@ -72,7 +72,6 @@ fn bulk_insert_segments_behavior(mut conn: PgConnection) {
         CREATE INDEX idxtest_table ON public.test_table
         USING paradedb (id, value)
         WITH (
-            key_field = 'id',
             mutable_segment_rows = {mutable_segment_rows}
         );
     "#

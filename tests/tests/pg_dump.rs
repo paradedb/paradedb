@@ -79,8 +79,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
           (description::pdb.ngram(3,5)),
           (metadata::pdb.literal),
           (metadata::pdb.unicode_words('alias=metadata_words'))
-        )
-        WITH (key_field=id);
+        );
     "#
     .execute(&mut conn);
 

@@ -53,8 +53,7 @@ VALUES
     (19, NULL,                                                      NULL,                                                      'null category');
 CREATE INDEX issue_4906_ltree_idx
 ON issue_4906_ltree
-USING paradedb (id, category, title)
-WITH (key_field = 'id');
+USING paradedb (id, category, title);
 ANALYZE issue_4906_ltree;
 -- Force the planner to choose Custom Scan when we ask for it via `pdb.all()`.
 -- enable_custom_scan_without_operator stays OFF throughout, so the only thing
@@ -405,7 +404,6 @@ VALUES
 CREATE INDEX issue_4906_ltree_partial_idx
 ON issue_4906_ltree_partial
 USING paradedb (id, category, title)
-WITH (key_field = 'id')
 WHERE is_indexed;
 ANALYZE issue_4906_ltree_partial;
 SET enable_seqscan = off;

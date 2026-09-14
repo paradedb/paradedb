@@ -97,8 +97,8 @@ INSERT INTO pages (id, "fileId", content, title) VALUES
 CREATE INDEX pages_bm25 ON pages
 USING paradedb (id, content, title, "fileId")
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "fileId": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true}
@@ -108,8 +108,8 @@ WITH (
 CREATE INDEX files_bm25 ON files
 USING paradedb (id, content, "documentId", title)
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "documentId": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true}
@@ -119,8 +119,8 @@ WITH (
 CREATE INDEX documents_bm25 ON documents
 USING paradedb (id, content, title, parents)
 WITH (
-    key_field = 'id',
     text_fields = '{
+        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
         "content": {"tokenizer": {"type": "default"}, "fast": true},
         "title": {"tokenizer": {"type": "default"}, "fast": true},
         "parents": {"tokenizer": {"type": "default"}, "fast": true}

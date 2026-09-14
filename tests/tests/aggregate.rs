@@ -27,7 +27,6 @@ fn test_aggregate_with_mvcc(mut conn: PgConnection) {
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
     USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (
-        key_field='id',
         text_fields='{
             "category": {"fast": true, "normalizer": "raw"}
         }',
@@ -76,7 +75,6 @@ fn test_aggregate_without_mvcc(mut conn: PgConnection) {
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
     USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (
-        key_field='id',
         text_fields='{
             "description": {},
             "category": {"fast": true, "normalizer": "raw"}

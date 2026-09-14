@@ -36,14 +36,12 @@ INSERT INTO agg_join_tags (product_id, tag_name) VALUES
 CREATE INDEX agg_join_products_idx ON agg_join_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
 CREATE INDEX agg_join_tags_idx ON agg_join_tags
 USING paradedb (id, product_id, tag_name)
 WITH (
-    key_field='id',
     numeric_fields='{"product_id": {"fast": true}}',
     text_fields='{"tag_name": {"fast": true}}'
 );
@@ -300,7 +298,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -401,7 +398,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     3
@@ -460,7 +456,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  tag_name | count 
 ----------+-------
  computer |     1
@@ -518,7 +513,6 @@ LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -587,7 +581,6 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -618,8 +611,8 @@ CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
 CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
 INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
 INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
-CREATE INDEX idx_comp_a ON comp_a USING paradedb (id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
-CREATE INDEX idx_comp_b ON comp_b USING paradedb (id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_a ON comp_a USING paradedb (id,description,x,y) WITH (text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_b ON comp_b USING paradedb (id,name,x,y) WITH (text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
 -- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
@@ -656,7 +649,6 @@ SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
 WHERE a.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: a, b)
  count 
 -------
      3
@@ -695,7 +687,6 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  count 
 -------
      6
@@ -705,7 +696,6 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  count |   sum   |        avg         |  min   |   max   
 -------+---------+--------------------+--------+---------
      6 | 5599.94 | 4.0000000000000000 | 499.99 | 1299.99
@@ -746,7 +736,6 @@ SELECT STDDEV(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
       stddev       
 -------------------
  495.7173733950771
@@ -787,13 +776,11 @@ INSERT INTO ts_items (order_id, item_name) VALUES
 CREATE INDEX ts_orders_idx ON ts_orders
 USING paradedb (id, description, category, created_at)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}'
 );
 CREATE INDEX ts_items_idx ON ts_items
 USING paradedb (id, order_id, item_name)
 WITH (
-    key_field='id',
     numeric_fields='{"order_id": {"fast": true}}',
     text_fields='{"item_name": {"fast": true}}'
 );
@@ -826,7 +813,6 @@ FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -874,13 +860,11 @@ INSERT INTO tstz_items (order_id, item_name) VALUES
 CREATE INDEX tstz_orders_idx ON tstz_orders
 USING paradedb (id, description, category, created_at)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}'
 );
 CREATE INDEX tstz_items_idx ON tstz_items
 USING paradedb (id, order_id, item_name)
 WITH (
-    key_field='id',
     numeric_fields='{"order_id": {"fast": true}}',
     text_fields='{"item_name": {"fast": true}}'
 );
@@ -912,7 +896,6 @@ SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
              min              |             max              
 ------------------------------+------------------------------
  Sun Jan 14 21:00:00 2024 PST | Tue Dec 24 07:00:00 2024 PST
@@ -938,7 +921,6 @@ JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category
 ORDER BY o.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
   category   |             min              |             max              
 -------------+------------------------------+------------------------------
  Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
@@ -978,7 +960,6 @@ DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
@@ -1005,7 +986,6 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortB | 19804
@@ -1036,7 +1016,6 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1068,7 +1047,6 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1173,7 +1151,6 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  count 
 -------
      2
@@ -1195,7 +1172,8 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  count 
 -------
      2
@@ -1244,7 +1222,6 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  count |   sum   
 -------+---------
      4 | 4599.96
@@ -1278,7 +1255,6 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -1311,7 +1287,6 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1331,7 +1306,6 @@ DROP INDEX agg_join_products_idx;
 CREATE INDEX agg_join_products_idx ON agg_join_products
 USING paradedb (id, description, category, price, rating, in_stock)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}',
     boolean_fields='{"in_stock": {"fast": true}}'
@@ -1432,7 +1406,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | bool_and | bool_or 
 -------------+----------+---------
  Electronics | t        | t
@@ -1476,7 +1449,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {tech,computer,tech,gaming}
@@ -1491,7 +1463,6 @@ ALTER TABLE agg_join_products DROP COLUMN in_stock;
 CREATE INDEX agg_join_products_idx ON agg_join_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
 );
@@ -1551,7 +1522,6 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1622,7 +1592,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | computer, gaming, tech, tech
@@ -1691,7 +1660,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {computer,gaming,tech,tech}
@@ -1735,13 +1703,11 @@ INSERT INTO agg_json_orders (item_id, qty) VALUES
 CREATE INDEX agg_json_items_idx ON agg_json_items
 USING paradedb (id, metadata)
 WITH (
-    key_field='id',
     json_fields='{"metadata": {"fast": true}}'
 );
 CREATE INDEX agg_json_orders_idx ON agg_json_orders
 USING paradedb (id, item_id, qty)
 WITH (
-    key_field='id',
     numeric_fields='{"item_id": {"fast": true}, "qty": {"fast": true}}'
 );
 -- Test 17.1: GROUP BY JSON sub-field on join — EXPLAIN shows DataFusion
@@ -1789,7 +1755,6 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: i, o)
   category   | count | sum 
 -------------+-------+-----
  Electronics |     3 |  18
@@ -1855,7 +1820,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | total | expensive 
 -------------+-------+-----------
  Clothing    |     1 |         1
@@ -1892,7 +1856,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | total_price | high_rated_price 
 -------------+-------------+------------------
  Clothing    |      129.99 |                 

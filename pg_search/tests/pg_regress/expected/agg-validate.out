@@ -36,7 +36,6 @@ INSERT INTO mock_items (description, rating, created_at) VALUES
 CREATE INDEX mock_items_idx ON mock_items
 USING paradedb (id, description, rating, created_at)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}}',
     numeric_fields = '{"rating": {"fast": true}}'
 );
@@ -137,8 +136,9 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(12 rows)
+(13 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM mock_items

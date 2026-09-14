@@ -15,7 +15,6 @@ CALL paradedb.create_paradedb_test_table(
 CREATE INDEX products_base_idx ON test_products
 USING paradedb (id, description, category, rating)
 WITH (
-    key_field='id',
     text_fields='{
         "category": {"fast": true, "tokenizer": {"type": "raw"}},
         "description": {"fast": false}
@@ -51,7 +50,6 @@ DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
 USING paradedb (id, description, category, rating, created_at, last_updated_date)
 WITH (
-    key_field='id',
     text_fields='{
         "category": {"tokenizer": {"type": "keyword"}, "fast": true},
         "description": {"tokenizer": {"type": "keyword"}, "fast": true}
@@ -68,10 +66,7 @@ LIMIT 10;
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;
 CREATE INDEX products_lower_idx ON test_products
-USING paradedb (id, description, (lower(category)::pdb.literal), rating)
-WITH (
-    key_field='id'
-);
+USING paradedb (id, description, (lower(category)::pdb.literal), rating);
 
 \echo 'Test 5a: ORDER BY with lower() - should use Top K (no warning)'
 SELECT id, category FROM test_products

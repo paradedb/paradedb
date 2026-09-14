@@ -35,7 +35,7 @@ VALUES
 
 CREATE INDEX amounts_idx ON amounts USING bm25 (
     id, (direction::pdb.literal), amt_18, amt_78, amt_any, amt_scaled, discarded_at
-) WITH (key_field = 'id') WHERE (discarded_at IS NULL);
+) WHERE (discarded_at IS NULL);
 
 -- TopN ascending: the numeric(18,0) column is the reference ordering.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -187,7 +187,7 @@ CREATE TABLE prices (
 
 INSERT INTO prices (price) VALUES (1.23), (4.56), (1.00), (4.00), (-1.23);
 
-CREATE INDEX prices_idx ON prices USING bm25 (id, price) WITH (key_field = 'id');
+CREATE INDEX prices_idx ON prices USING bm25 (id, price);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM prices
@@ -213,7 +213,7 @@ INSERT INTO spans (span) VALUES
     ('[-0.51, -0.5)'),
     ('[-0.5, 0.5]');
 
-CREATE INDEX spans_idx ON spans USING bm25 (id, span) WITH (key_field = 'id');
+CREATE INDEX spans_idx ON spans USING bm25 (id, span);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, span FROM spans

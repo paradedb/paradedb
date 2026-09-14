@@ -35,11 +35,9 @@ SELECT
 FROM generate_series(1, 20000) i;
 -- Create BM25 indexes
 CREATE INDEX idx_parade_core ON core
-USING paradedb (dwf_doid, author)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, author);
 CREATE INDEX idx_parade_document_text ON document_text
-USING paradedb (dwf_doid, full_text)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, full_text);
 -- Enable parallel workers
 SET max_parallel_workers_per_gather = 2;
 -- Keep the join cases on their original parallel lower-plan path. AggregateScan
@@ -62,42 +60,36 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 SET plan_cache_mode = force_custom_plan;
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122
@@ -105,7 +97,6 @@ WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enabl
 
 -- Try with different parameters
 EXECUTE test_parallel_join('ea', '2024-06-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
     72
@@ -124,7 +115,6 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.created_at::date <= $3::date;
 -- These should all return consistent results
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
-WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: c, dt)
  count 
 -------
    122

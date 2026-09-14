@@ -51,7 +51,6 @@ CREATE INDEX records_no_fast_idx ON data_records
 USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
-    key_field = 'id',
     text_fields = '{
         "title": { "tokenizer": {"type": "default"} },
         "category": { "fast": true, "tokenizer": {"type": "keyword"} },
@@ -131,7 +130,6 @@ CREATE INDEX records_with_fast_idx ON data_records
 USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
-    key_field = 'id',
     text_fields = '{
         "title": { "tokenizer": {"type": "default"} },
         "category": { "fast": true, "tokenizer": {"type": "keyword"} },
@@ -189,7 +187,6 @@ CREATE INDEX records_with_fast_idx ON data_records
 USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
 ) WITH (
-    key_field = 'id',
     text_fields = '{
         "title": { "tokenizer": {"type": "default"} },
         "category": { "fast": true, "tokenizer": {"type": "keyword"} },

@@ -19,7 +19,7 @@ FROM generate_series(1, 10000) x;
 
 CREATE INDEX idx_card_mvcc ON card_mvcc
 USING bm25 (id, val, num)
-WITH (key_field = 'id', numeric_fields = '{"num": {"fast": true}}');
+WITH (numeric_fields = '{"num": {"fast": true}}');
 
 -- the aggregate form runs on the aggregate custom scan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -93,7 +93,6 @@ CREATE TABLE card_mvcc_seg (
 CREATE INDEX idx_card_mvcc_seg ON card_mvcc_seg
 USING bm25 (id, val, batch)
 WITH (
-    key_field = 'id',
     text_fields = '{"val": {"fast": true}}',
     numeric_fields = '{"batch": {"fast": true}}',
     mutable_segment_rows = 2,

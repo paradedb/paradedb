@@ -27,8 +27,7 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING paradedb
      (t::pdb.simple('stemmer=english', 'alias=stemmed')),
      (t::pdb.whitespace('alias=whitespace')),
      (t::pdb.source_code('alias=source_code'))
-        )
-    WITH (key_field = 'id');
+        );
 
 SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
 

@@ -41,9 +41,9 @@ INSERT INTO numeric64_dynamic_build VALUES
     (3, 106.25, 'wanted');
 
 CREATE INDEX numeric64_dynamic_probe_idx ON numeric64_dynamic_probe
-USING paradedb (id, amount, body) WITH (key_field = 'id');
+USING paradedb (id, amount, body);
 CREATE INDEX numeric64_dynamic_build_idx ON numeric64_dynamic_build
-USING paradedb (id, amount, body) WITH (key_field = 'id');
+USING paradedb (id, amount, body);
 ANALYZE numeric64_dynamic_probe;
 ANALYZE numeric64_dynamic_build;
 
@@ -151,9 +151,9 @@ INSERT INTO numeric64_edge_build VALUES
     (13, -0.01, -1, 'wanted');
 
 CREATE INDEX numeric64_edge_probe_idx ON numeric64_edge_probe
-USING paradedb (id, amount, whole, body) WITH (key_field = 'id');
+USING paradedb (id, amount, whole, body);
 CREATE INDEX numeric64_edge_build_idx ON numeric64_edge_build
-USING paradedb (id, amount, whole, body) WITH (key_field = 'id');
+USING paradedb (id, amount, whole, body);
 ANALYZE numeric64_edge_probe;
 ANALYZE numeric64_edge_build;
 

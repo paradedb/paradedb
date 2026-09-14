@@ -16,9 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFHelper, FFType, resolve_ctid};
+use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::postgres::index_only::IndexOnlyScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{ParallelScanState, ScanStrategy, parallel};
@@ -28,11 +29,9 @@ use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
 
 pub struct Bm25ScanState {
-    fast_fields: FFHelper,
     reader: SearchIndexReader,
     results: Option<MultiSegmentSearchResults>,
-    itup: (Vec<pg_sys::Datum>, Vec<bool>),
-    key_field_oid: PgOid,
+    index_only: Option<IndexOnlyScanState>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
@@ -72,6 +71,24 @@ pub extern "C-unwind" fn amrescan(
         let is_array = (key.sk_flags as u32 & pg_sys::SK_SEARCHARRAY) != 0;
 
         match strategy {
+            ScanStrategy::TextQuery if key.sk_attno != 1 => {
+                // Fielded searches must be rewritten before reaching the index AM.
+                let query = unsafe {
+                    if is_array {
+                        format!(
+                            "{:?}",
+                            Vec::<String>::from_datum(key.sk_argument, false)
+                                .expect("text array argument should not be NULL")
+                        )
+                    } else {
+                        String::from_datum(key.sk_argument, false)
+                            .expect("text argument should not be NULL")
+                    }
+                };
+                panic!(
+                    "query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`"
+                )
+            }
             ScanStrategy::TextQuery => {
                 if is_array {
                     let strings = unsafe {
@@ -126,27 +143,27 @@ pub extern "C-unwind" fn amrescan(
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
         assert!(!(*scan).indexRelation.is_null());
-        assert!(!keys.is_null());
-        assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
+        assert!(nkeys >= 0);
 
-        // Clean up any previous scan state before creating a new one.
-        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
-        // without calling amendscan in between.
-        if !(*scan).opaque.is_null() {
-            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-            drop(old_state);
-            (*scan).opaque = std::ptr::null_mut();
-        }
+        amendscan(scan);
 
         let indexrel = (*scan).indexRelation;
-        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
+        let keys = if nkeys == 0 {
+            &[]
+        } else {
+            assert!(!keys.is_null());
+            std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+        };
 
         ((PgSearchRelation::from_pg(indexrel)), keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_query_input = key_to_search_query_input(&keys[0]);
-    for key in &keys[1..] {
+    let mut search_query_input = keys
+        .first()
+        .map(key_to_search_query_input)
+        .unwrap_or(SearchQueryInput::All);
+    for key in keys.iter().skip(1) {
         let key = key_to_search_query_input(key);
 
         search_query_input = SearchQueryInput::Boolean {
@@ -220,39 +237,17 @@ pub extern "C-unwind" fn amrescan(
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
-        let scan_state = if (*scan).xs_want_itup {
-            let schema = indexrel.schema().expect("indexrel should have a schema");
-            Bm25ScanState {
-                fast_fields: FFHelper::with_fields(
-                    &search_reader,
-                    &[(schema.key_field_name(), schema.key_field_type()).into()],
-                ),
-                reader: search_reader,
-                results,
-                itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: PgOid::from({
-                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                    {
-                        (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
-                    }
-                    #[cfg(feature = "pg18")]
-                    {
-                        (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
-                    }
-                }),
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
+        let index_only = if (*scan).xs_want_itup {
+            Some(IndexOnlyScanState::new(&search_reader, &indexrel, natts))
         } else {
-            Bm25ScanState {
-                fast_fields: FFHelper::empty(),
-                reader: search_reader,
-                results,
-                itup: (vec![], vec![]),
-                key_field_oid: PgOid::Invalid,
-                ambulkdelete_epoch,
-                ctid_cache: None,
-            }
+            None
+        };
+        let scan_state = Bm25ScanState {
+            reader: search_reader,
+            results,
+            index_only,
+            ambulkdelete_epoch,
+            ctid_cache: None,
         };
 
         (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
@@ -266,11 +261,20 @@ pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
         // Safety check: opaque might be NULL if amrescan was never called
         // This can happen in parallel workers that are terminated early
-        if scan.is_null() || (*scan).opaque.is_null() {
+        if scan.is_null() {
+            return;
+        }
+        (*scan).xs_hitup = std::ptr::null_mut();
+        if (*scan).opaque.is_null() {
             return;
         }
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
-        drop(scan_state);
+        (*scan).opaque = std::ptr::null_mut();
+        if let Some(mut state) = scan_state
+            && let Some(index_only) = state.index_only.take()
+        {
+            index_only.delete();
+        }
     }
 }
 
@@ -288,6 +292,10 @@ pub unsafe extern "C-unwind" fn amgettuple(
     };
 
     (*scan).xs_recheck = false;
+    (*scan).xs_hitup = std::ptr::null_mut();
+    if let Some(index_only) = &mut state.index_only {
+        index_only.reset();
+    }
 
     loop {
         // Extract the next result first so the temporary mutable borrow on
@@ -312,68 +320,8 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
 
-                if (*scan).xs_want_itup {
-                    let key = state
-                        .fast_fields
-                        .value(0, doc_address)
-                        .expect("key_field should be a fast_field");
-                    match key
-                        .try_into_datum(state.key_field_oid)
-                        .expect("key_field value should convert to a Datum")
-                    {
-                        // got a valid Datum
-                        Some(key_field_datum) => {
-                            state.itup.0[0] = key_field_datum;
-                            state.itup.1[0] = false;
-                        }
-
-                        // we got a NULL for the key_field.  Highly unlikely but definitely possible
-                        None => {
-                            state.itup.0[0] = pg_sys::Datum::null();
-                            state.itup.1[0] = true;
-                        }
-                    }
-
-                    let values = state.itup.0.as_mut_ptr();
-                    let nulls = state.itup.1.as_mut_ptr();
-
-                    if (*scan).xs_hitup.is_null() {
-                        (*scan).xs_hitup =
-                            pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
-                    } else {
-                        pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                            unsafe extern "C-unwind" {
-                                fn heap_compute_data_size(
-                                    tupleDesc: pg_sys::TupleDesc,
-                                    values: *mut pg_sys::Datum,
-                                    isnull: *mut bool,
-                                ) -> pg_sys::Size;
-                                fn heap_fill_tuple(
-                                    tupleDesc: pg_sys::TupleDesc,
-                                    values: *mut pg_sys::Datum,
-                                    isnull: *mut bool,
-                                    data: *mut ::core::ffi::c_char,
-                                    data_size: pg_sys::Size,
-                                    infomask: *mut pg_sys::uint16,
-                                    bit: *mut pg_sys::bits8,
-                                );
-                            }
-                            let data_len =
-                                heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
-                            let td = (*(*scan).xs_hitup).t_data;
-
-                            // TODO:  seems like this could crash with a varlena "key_field" of varying sizes per row
-                            heap_fill_tuple(
-                                (*scan).xs_hitupdesc,
-                                values,
-                                nulls,
-                                td.cast::<std::ffi::c_char>().add((*td).t_hoff as usize),
-                                data_len,
-                                &mut (*td).t_infomask,
-                                (*td).t_bits.as_mut_ptr(),
-                            );
-                        });
-                    }
+                if let Some(index_only) = &mut state.index_only {
+                    (*scan).xs_hitup = index_only.form_tuple((*scan).xs_hitupdesc, doc_address);
                 }
 
                 return true;
@@ -472,35 +420,4 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
         return true;
     }
     false
-}
-
-#[pg_guard]
-pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
-    if attno != 1 {
-        // currently, we only support returning the "key_field", which will always be the first
-        // index attribute
-        return false;
-    }
-
-    unsafe {
-        assert!(!indexrel.is_null());
-        assert!(!(*indexrel).rd_att.is_null());
-        let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
-
-        let att = tupdesc
-            .get((attno - 1) as usize)
-            .expect("attno should exist in index tupledesc");
-
-        // we can only return a field if it's one of the below types -- basically pass-by-value (non tokenized) data types
-        [
-            pg_sys::INT4OID,
-            pg_sys::INT8OID,
-            pg_sys::FLOAT4OID,
-            pg_sys::FLOAT8OID,
-            pg_sys::BOOLOID,
-            // we index UUID as strings, but it's beneficial to support returning due to Parallel Index Only Scans
-            pg_sys::UUIDOID,
-        ]
-        .contains(&att.atttypid)
-    }
 }

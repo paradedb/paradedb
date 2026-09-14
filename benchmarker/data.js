@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789418405130,
+  "lastUpdate": 1789423635422,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3908,6 +3908,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.05,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8ce3d5ea8b9f72a3420db290f88025e49d8e342d",
+          "message": "refactor: centralize expression inspection in NodeExt (#6244)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nMove expression inspection onto `NodeExt`, so callers use methods such\nas `node.contains_unnest()`, `node.contains_exec_param()`,\n`node.contains_score()`, and `node.collect_rtis()`. Remove the\ncorresponding free functions and update their callers.\n\n## Why\n\nExpression checks and collection were scattered across modules, with\nrepeated PostgreSQL walker callbacks and context structs. Keeping both\ntraversal and the named operations on node pointers makes these checks\neasier to find and reuse.\n\n## How\n\nAdd one guarded expression walker supporting early exit, full visits,\nand subtree pruning. Build typed lookup, collection, and named\npredicates on it. Preserve traversal order, duplicate occurrences,\nexisting relation-index filtering, parameter classification, and\nmutation behavior. Keep query recursion, node-replacing mutators, and\nthe two specialized walkers with their existing traversal rules.\n\nThis PR is based directly on `main` and has no dependency on the\nsequential-scan changes in #6221.\n\n## Tests\n\n- Eight focused PostgreSQL tests covering traversal, callback errors,\nUNNEST, parameter kinds and init plans, and relation references.\n- All 41 selected SQL regression suites passed, covering operators,\nprepared plans, RLS, joins, scoring, snippets, aggregates, windows, and\ncollations.\n- PostgreSQL 15 compilation passed.\n- Repository commit hooks: formatting, full-workspace Clippy and\ncompilation, and documentation.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-14T14:46:28-07:00",
+          "tree_id": "caca0464c0f7c20add245e8858e8dbd8994e5cd6",
+          "url": "https://github.com/paradedb/paradedb/commit/8ce3d5ea8b9f72a3420db290f88025e49d8e342d"
+        },
+        "date": 1789423631296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6447266596650418,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.563,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.945,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.122,
             "unit": "ms"
           }
         ]

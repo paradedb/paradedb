@@ -528,13 +528,13 @@ impl JoinSource {
     pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
         let funcoids = score_funcoids();
         node.any(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && funcoids.contains(&(*funcexpr).funcid)
-            {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                return args.len() == 1
-                    && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                        .is_some_and(|var| self.contains_rti((*var).varno as pg_sys::Index));
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+                if funcoids.contains(&(*funcexpr).funcid) {
+                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                    return args.len() == 1
+                        && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                            .is_some_and(|var| self.contains_rti((*var).varno as pg_sys::Index));
+                }
             }
             false
         })

@@ -19,10 +19,10 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids,
 };
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
-use pgrx::{PgList, pg_sys};
+use pgrx::{pg_sys, PgList};
 
 pub(crate) trait CustomScanNodeExt: NodeExt {
     unsafe fn contains_score(self) -> bool {
@@ -38,13 +38,13 @@ pub(crate) trait CustomScanNodeExt: NodeExt {
         rti: pg_sys::Index,
     ) -> bool {
         self.any(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && score_funcoids.contains(&(*funcexpr).funcid)
-            {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                assert!(args.len() == 1, "score function must have 1 argument");
-                return nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                    .is_some_and(|var| (*var).varno == rti as i32);
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+                if score_funcoids.contains(&(*funcexpr).funcid) {
+                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                    assert!(args.len() == 1, "score function must have 1 argument");
+                    return nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                        .is_some_and(|var| (*var).varno == rti as i32);
+                }
             }
             false
         })

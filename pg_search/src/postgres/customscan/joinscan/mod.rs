@@ -149,15 +149,10 @@ pub mod visibility_filter;
 pub use self::build::CtidColumn;
 use self::build::{DistinctMode, JoinCSClause, RelNode, RelationAlias};
 use self::planning::{
-<<<<<<< HEAD
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
-    ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
+    ensure_score_bubbling, extract_join_conditions, extract_orderby,
     extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
     order_by_sort_clause_is_fast_fields, pathkey_uses_scores_from_source,
-=======
-    collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 };
 use self::predicate::{extract_join_level_conditions, resolve_join_conditions};
 use self::privdat::PrivateData;
@@ -204,11 +199,7 @@ use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedExt;
-<<<<<<< HEAD
-use pgrx::{pg_guard, pg_sys, PgList};
-=======
-use pgrx::{PgList, pg_sys};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
 use std::sync::Arc;
 
@@ -2028,7 +2019,7 @@ unsafe fn build_output_projection(
                     .iter()
                     .any(|v| v.rti == var_rti && v.attno == var_attno),
                 planning::ResolvedExpr::IndexedExpression { rti, .. } if *rti == var_rti => {
-                    let vars = crate::postgres::utils::expr_collect_vars(*parse_expr, true);
+                    let vars = (*parse_expr).collect_var_refs(true);
                     vars.iter()
                         .any(|v| v.rti == var_rti && v.attno == var_attno)
                 }

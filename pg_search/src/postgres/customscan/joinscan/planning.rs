@@ -41,16 +41,8 @@ use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
-<<<<<<< HEAD
-use crate::postgres::customscan::basescan::projections::score::{
-    expr_contains_any_score, is_score_func,
-};
-use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
-=======
-use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
@@ -61,13 +53,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-<<<<<<< HEAD
-use crate::postgres::utils::{
-    expr_collect_vars, expr_contains_any_operator, missing_partial_index_predicate, strip_wrappers,
-};
-=======
 use crate::postgres::utils::{missing_partial_index_predicate, strip_wrappers};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
@@ -80,62 +66,6 @@ const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
-<<<<<<< HEAD
-/// Check if an expression uses paradedb.score() for any relation in the JoinSource.
-pub(super) unsafe fn expr_uses_scores_from_source(
-    node: *mut pg_sys::Node,
-    source: &JoinSource,
-) -> bool {
-    // We use a walker to find score functions
-    use pgrx::pg_sys::expression_tree_walker;
-    use std::ptr::addr_of_mut;
-
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = context.cast::<Data>();
-            if (*data).funcoids.contains(&(*funcexpr).funcid) {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if args.len() == 1 {
-                    if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                        let varno = (*var).varno as pg_sys::Index;
-                        if (*data).source.contains_rti(varno) {
-                            (*data).found = true;
-                            return true; // Abort traversal, found it
-                        }
-                    }
-                }
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), context)
-    }
-
-    struct Data<'a> {
-        source: &'a JoinSource,
-        funcoids: [pg_sys::Oid; 2],
-        found: bool,
-    }
-
-    let mut data = Data {
-        source,
-        funcoids: score_funcoids(),
-        found: false,
-    };
-
-    walker(node, addr_of_mut!(data).cast());
-    data.found
-}
-
-=======
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 pub(super) struct JoinConditions {
     /// Equi-join keys with type info for composite key extraction.
     pub equi_keys: Vec<JoinKeyPair>,
@@ -812,7 +742,7 @@ unsafe fn collect_join_sources_join_rel(
             if clause.is_null() {
                 continue;
             }
-            if expr_contains_any_operator(clause.cast(), &[search_op])
+            if clause.contains_operators(&[search_op])
                 || (all_vars_are_fast_fields_recursive(clause.cast(), &all_sources, None)
                     && PredicateTranslator::can_translate(
                         Some(root),
@@ -1438,7 +1368,7 @@ unsafe fn extract_join_conditions_from_list(
             }
         }
 
-        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        let has_search_op = clause.contains_operators(&[search_op]);
         if has_search_op {
             result.has_search_predicate = true;
         }
@@ -2053,7 +1983,7 @@ pub(super) unsafe fn order_by_sort_clause_is_fast_fields(
             JoinSortExprKind::Resolved(_) => continue,
             JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
             JoinSortExprKind::NoMatch => {
-                if expr_contains_any_score(check_expr.cast()) {
+                if check_expr.contains_score() {
                     return Err(JoinDeclineReason::new(
                         "JoinScan not used: unsupported ORDER BY expression shape containing pdb.score(); only standalone pdb.score() or sums of pdb.score() across tables ('pdb.score(a) + pdb.score(b)') are supported",
                     ));

@@ -18,8 +18,28 @@
 use crate::api::operator::is_paradedb_search_operator;
 use crate::nodecast;
 use crate::postgres::utils::is_unnest_func;
-use pgrx::{PgList, pg_guard, pg_sys};
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::collections::HashSet;
+
+pub(crate) trait TaggedNode: pg_sys::PgNode {
+    const TAG: pg_sys::NodeTag;
+}
+
+impl TaggedNode for pg_sys::Var {
+    const TAG: pg_sys::NodeTag = pg_sys::NodeTag::T_Var;
+}
+
+impl TaggedNode for pg_sys::Aggref {
+    const TAG: pg_sys::NodeTag = pg_sys::NodeTag::T_Aggref;
+}
+
+impl TaggedNode for pg_sys::WindowFunc {
+    const TAG: pg_sys::NodeTag = pg_sys::NodeTag::T_WindowFunc;
+}
+
+impl TaggedNode for pg_sys::BoolExpr {
+    const TAG: pg_sys::NodeTag = pg_sys::NodeTag::T_BoolExpr;
+}
 
 /// A Var reference with its range table index and attribute number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,10 +84,10 @@ pub(crate) trait NodeExt: Copy {
         });
     }
 
-    unsafe fn find_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
+    unsafe fn find_node<T: TaggedNode>(self) -> Option<*mut T> {
         let mut found = None;
         self.any(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::TAG == (*node).type_ {
                 found = Some(node.cast());
                 true
             } else {
@@ -77,10 +97,10 @@ pub(crate) trait NodeExt: Copy {
         found
     }
 
-    unsafe fn find_single_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
+    unsafe fn find_single_node<T: TaggedNode>(self) -> Option<*mut T> {
         let mut found = None;
         let multiple = self.walk(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::TAG == (*node).type_ {
                 if found.is_some() {
                     return WalkControl::Break;
                 }
@@ -88,13 +108,17 @@ pub(crate) trait NodeExt: Copy {
             }
             WalkControl::Continue
         });
-        if multiple { None } else { found }
+        if multiple {
+            None
+        } else {
+            found
+        }
     }
 
-    unsafe fn collect_nodes<T: pg_sys::PgNode>(self) -> Vec<*mut T> {
+    unsafe fn collect_nodes<T: TaggedNode>(self) -> Vec<*mut T> {
         let mut nodes = Vec::new();
         self.visit(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::TAG == (*node).type_ {
                 nodes.push(node.cast());
             }
         });
@@ -261,8 +285,8 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use pgrx::PgList;
     use pgrx::prelude::*;
+    use pgrx::PgList;
 
     unsafe fn expression_tree() -> (*mut pg_sys::Expr, [*mut pg_sys::Var; 3]) {
         let vars = [1, 2, 3]
@@ -327,10 +351,10 @@ mod tests {
             let (tree, vars) = expression_tree();
             let mut visited = Vec::new();
             assert!(!tree.walk(|node| {
-                if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node)
-                    && (*expr).boolop == pg_sys::BoolExprType::OR_EXPR
-                {
-                    return WalkControl::SkipChildren;
+                if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
+                    if (*expr).boolop == pg_sys::BoolExprType::OR_EXPR {
+                        return WalkControl::SkipChildren;
+                    }
                 }
                 if let Some(var) = nodecast!(Var, T_Var, node) {
                     visited.push(var);

@@ -29,12 +29,8 @@ use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-<<<<<<< HEAD
 use crate::postgres::customscan::collation_semantics::{collation_supports, CollationOperation};
-=======
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{

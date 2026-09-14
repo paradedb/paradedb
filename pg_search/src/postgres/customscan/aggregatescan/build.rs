@@ -23,25 +23,16 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
-<<<<<<< HEAD
-use crate::postgres::customscan::aggregatescan::targetlist::{
-    find_single_aggref_in_expr, TargetList, TargetListEntry,
-};
-=======
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
-<<<<<<< HEAD
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
-=======
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;

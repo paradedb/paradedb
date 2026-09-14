@@ -23,66 +23,13 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
-<<<<<<< HEAD
 use crate::postgres::customscan::CustomScan;
-=======
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
-<<<<<<< HEAD
 use pgrx::PgList;
-use std::ptr::addr_of_mut;
-
-/// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
-/// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
-/// Expressions like COUNT(*) + SUM(x) will return None since we can't handle multiple aggregates.
-pub(super) unsafe fn find_single_aggref_in_expr(
-    expr: *mut pg_sys::Node,
-) -> Option<*mut pg_sys::Aggref> {
-    use pgrx::pg_guard;
-
-    struct WalkerContext {
-        aggrefs: Vec<*mut pg_sys::Aggref>,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn aggref_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = &mut *(context as *mut WalkerContext);
-
-        // Check if this node is an Aggref
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            ctx.aggrefs.push(node as *mut pg_sys::Aggref);
-            // Continue walking to find any other Aggrefs (don't stop early)
-        }
-
-        // Continue walking into child nodes
-        pg_sys::expression_tree_walker(node, Some(aggref_walker), context)
-    }
-
-    let mut context = WalkerContext {
-        aggrefs: Vec::new(),
-    };
-    aggref_walker(expr, addr_of_mut!(context).cast());
-
-    // Only return an Aggref if exactly one was found
-    if context.aggrefs.len() == 1 {
-        context.aggrefs.into_iter().next()
-    } else {
-        None
-    }
-}
-=======
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -15,12 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-<<<<<<< HEAD
-use crate::api::operator::{anyelement_search_opoids, is_paradedb_search_operator};
-=======
-use crate::api::agg_funcoids;
 use crate::api::operator::anyelement_search_opoids;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid};
 use crate::gucs;
@@ -31,16 +26,11 @@ use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
-<<<<<<< HEAD
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
-=======
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
-use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::pg_search_extension_installed;
@@ -743,44 +733,6 @@ pub(crate) unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> boo
     false
 }
 
-<<<<<<< HEAD
-/// Recursively check if an expression tree contains any ParadeDB search operator.
-/// Uses expression tree walker to examine all OpExpr nodes.
-unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
-    struct WalkerContext {
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check if this is an OpExpr
-        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
-            if is_paradedb_search_operator((*opexpr).opno) {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext { found: false };
-    walker(node, &mut context as *mut _ as *mut core::ffi::c_void);
-    context.found
-}
-
-=======
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)
 ///
 /// Parameters:
@@ -797,66 +749,9 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
 pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oid = agg_funcoid().to_u32();
     let paradedb_agg_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
+    let paradedb_agg_oids = [paradedb_agg_oid, paradedb_agg_mvcc_oid];
     let window_agg_proc_oid = window_agg_oid();
 
-<<<<<<< HEAD
-    struct WalkerContext {
-        paradedb_agg_oid: u32,
-        paradedb_agg_mvcc_oid: u32,
-        window_agg_proc_oid: pg_sys::Oid,
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check for window function usage (before planner hook replacement)
-        if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            let oid = (*window_func).winfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
-        }
-
-        // Check for aggregate function usage (GROUP BY context)
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
-            let oid = (*aggref).aggfnoid.to_u32();
-            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
-                (*ctx).found = true;
-                return true; // Stop walking
-            }
-        }
-
-        // Check for window_agg() placeholder (after planner hook replacement)
-        // This allows detection even after WindowFunc → window_agg() replacement
-        if (*ctx).window_agg_proc_oid != pg_sys::InvalidOid {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-                if (*funcexpr).funcid == (*ctx).window_agg_proc_oid {
-                    (*ctx).found = true;
-                    return true; // Stop walking
-                }
-            }
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext {
-        paradedb_agg_oid,
-        paradedb_agg_mvcc_oid,
-        window_agg_proc_oid,
-        found: false,
-=======
     let contains_agg = |node: *mut pg_sys::Node| {
         node.any(|node| {
             nodecast!(WindowFunc, T_WindowFunc, node)
@@ -867,7 +762,6 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
                     && nodecast!(FuncExpr, T_FuncExpr, node)
                         .is_some_and(|expr| (*expr).funcid == window_agg_proc_oid))
         })
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
     };
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
     if target_list

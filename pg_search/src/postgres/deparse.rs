@@ -19,12 +19,8 @@
 //! into human-readable SQL strings for EXPLAIN output.
 
 use crate::nodecast;
-<<<<<<< HEAD
-use crate::postgres::customscan::qual_inspect::{contains_exec_param, PlannerContext};
-=======
 use crate::postgres::customscan::qual_inspect::PlannerContext;
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::rel::PgSearchRelation;
 
 use pgrx::pg_sys;
@@ -219,12 +215,12 @@ unsafe fn deparse_with_single_relation(
 /// The expression should be cloned before calling this function.
 unsafe fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
     node.visit(|node| {
-        if let Some(param) = nodecast!(Param, T_Param, node)
-            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
-        {
-            (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
-            // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
-            (*param).paramid += 1;
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+                // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
+                (*param).paramid += 1;
+            }
         }
     });
 }

@@ -21,12 +21,7 @@ use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::node::NodeExt;
 
 use pgrx::{
-<<<<<<< HEAD
-    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    IntoDatum, PgList,
-=======
-    AnyElement, IntoDatum, PgList, default, direct_function_call, extension_sql, pg_extern, pg_sys,
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+    default, direct_function_call, extension_sql, pg_extern, pg_sys, AnyElement, IntoDatum, PgList,
 };
 use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};

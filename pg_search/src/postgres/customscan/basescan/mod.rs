@@ -1951,38 +1951,6 @@ unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
 /// Returns true if every window function in `parse` derives solely from a row's position in the
 /// window ordering (`row_number`, `rank`, `dense_rank`).
 unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
-<<<<<<< HEAD
-    use pgrx::pg_guard;
-
-    struct Context {
-        position_only: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let ctx = context.cast::<Context>();
-
-        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            if !matches!(
-                (*wfunc).winfnoid.to_u32(),
-                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
-            ) {
-                (*ctx).position_only = false;
-                return true;
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-=======
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
     let Some(parse) = parse.as_ref() else {
         return false;
     };

@@ -19,17 +19,10 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
-<<<<<<< HEAD
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
-use crate::postgres::customscan::qual_inspect::{
-    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
-};
+use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::CustomScan;
-=======
-use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;

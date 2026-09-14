@@ -28,12 +28,8 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-<<<<<<< HEAD
-use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
-use crate::postgres::customscan::basescan::BaseScan;
-=======
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::node::CustomScanNodeExt;
@@ -43,11 +39,7 @@ use crate::postgres::node::NodeExt;
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
-<<<<<<< HEAD
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
-=======
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
 use pgrx::{pg_sys, PgList};
@@ -100,11 +92,7 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
     if node.is_null() {
         return;
     }
-<<<<<<< HEAD
     if let Some(var) = nodecast!(Var, T_Var, node) {
-=======
-    for var in node.collect_nodes::<pg_sys::Var>() {
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
         if (*var).varno as i32 == old_varno {
             (*var).varno = new_varno as _;
         }
@@ -132,23 +120,6 @@ pub(crate) unsafe fn find_matching_fast_field(
     schema: SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
-<<<<<<< HEAD
-=======
-    if node.is_null() {
-        return None;
-    }
-
-    // In PostgreSQL 17+, `Var` nodes on the nullable side of an outer join carry
-    // `varnullingrels` tracking outer-join relids. Base table index expressions
-    // always have `varnullingrels == NULL`. Clone the candidate query expression
-    // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
-    let node_copy = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
-    #[cfg(not(feature = "pg15"))]
-    for var in node_copy.collect_nodes::<pg_sys::Var>() {
-        (*var).varnullingrels = std::ptr::null_mut();
-    }
-
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
     let categorized_fields = schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {

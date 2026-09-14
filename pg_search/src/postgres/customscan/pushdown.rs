@@ -21,28 +21,16 @@ use crate::api::{fieldname_typoid, FieldName};
 use crate::nodecast;
 use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
-<<<<<<< HEAD
 use crate::postgres::customscan::opexpr::{lookup_operator, OpExpr, TantivyOperatorExt};
-use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
-=======
-use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-<<<<<<< HEAD
-use crate::postgres::var::{find_json_path, find_vars, VarContext};
+use crate::postgres::var::{find_json_path, VarContext};
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgOid};
-=======
-use crate::postgres::var::{VarContext, find_json_path};
-use crate::schema::{SearchField, SearchFieldType};
-use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use pgrx::{direct_function_call, is_a, pg_sys, FromDatum, IntoDatum, PgList, PgOid};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -279,13 +267,8 @@ pub unsafe fn try_build_pushdown_qual(
     //
     // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
     // are evaluated in BeginCustomScan.
-<<<<<<< HEAD
     if let Some(root) = context.planner_info() {
-        if contains_correlated_param(root, rhs) {
-=======
-    if let Some(root) = context.planner_info()
-        && rhs.contains_correlated_param(root) {
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+        if rhs.contains_correlated_param(root) {
             return None;
         }
     }

@@ -21,15 +21,9 @@ use crate::customscan::operator_oid;
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
-<<<<<<< HEAD
-use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
-use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
-use pgrx::{AnyNumeric, PgOid};
-=======
 use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
+use pgrx::{is_a, pg_sys, FromDatum, PgList, PgRelation};
 use pgrx::{AnyNumeric, PgOid};
-use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_sys};
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -449,64 +443,6 @@ pub unsafe fn find_var_relation(
             (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
         }
     }
-}
-
-<<<<<<< HEAD
-/// Find all the Vars referenced in the specified node
-pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let data = data.cast::<Data>();
-            (*data).vars.push(var);
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        vars: Vec<*mut pg_sys::Var>,
-    }
-
-    let mut data = Data { vars: Vec::new() };
-
-    walker(node, addr_of_mut!(data).cast());
-    data.vars
-=======
-unsafe fn find_targetlist_relation(
-    targetlist: &PgList<pg_sys::TargetEntry>,
-    varattno: pg_sys::AttrNumber,
-) -> (pg_sys::Oid, pg_sys::AttrNumber) {
-    if varattno != 0 {
-        return pg_sys::get_tle_by_resno(targetlist.as_ptr(), varattno)
-            .as_ref()
-            .map(|entry| (entry.resorigtbl, entry.resorigcol))
-            .unwrap_or((pg_sys::InvalidOid, varattno));
-    }
-
-    let mut source = None;
-    for entry in targetlist.iter_ptr() {
-        if (*entry).resjunk || (*entry).resorigtbl == pg_sys::InvalidOid {
-            continue;
-        }
-        let Some(var) = (*entry).expr.find_single_node::<pg_sys::Var>() else {
-            return (pg_sys::InvalidOid, 0);
-        };
-        let origin = ((*entry).resorigtbl, (*var).varno, (*var).varlevelsup);
-        if source.is_some_and(|source| source != origin) {
-            return (pg_sys::InvalidOid, 0);
-        }
-        source = Some(origin);
-    }
-    (source.map_or(pg_sys::InvalidOid, |source| source.0), 0)
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 }
 
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.

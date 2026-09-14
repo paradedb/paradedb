@@ -50,14 +50,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-<<<<<<< HEAD
-use crate::postgres::var::{
-    find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
-};
-=======
-use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
-use crate::query::SearchQueryInput;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use crate::postgres::var::{find_json_path, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -83,253 +76,6 @@ enum RHSValue {
 #[repr(transparent)]
 pub struct ReturnedNodePointer(pub Option<NonNull<pg_sys::Node>>);
 
-<<<<<<< HEAD
-=======
-impl ReturnedNodePointer {
-    pub(crate) fn unsupported() -> Self {
-        Self(None)
-    }
-
-    pub(crate) fn from_node(node: *mut pg_sys::Node) -> Self {
-        Self(NonNull::new(node))
-    }
-
-    unsafe fn for_support_operator(arg: Internal, operator: SearchOperator) -> Self {
-        Self::for_support_simplify(
-            arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
-            SimplifyRhs::Rewrite(operator),
-        )
-    }
-
-    unsafe fn for_support_simplify(arg: *mut pg_sys::Node, rhs_rewrite: SimplifyRhs) -> Self {
-        // Other support request types are handled by their corresponding methods.
-        let Some(request) = nodecast!(SupportRequestSimplify, T_SupportRequestSimplify, arg) else {
-            return Self::unsupported();
-        };
-
-        // Index and field resolution require planner context.
-        if (*request).root.is_null() {
-            return Self::unsupported();
-        }
-
-        let input_args = PgList::<pg_sys::Node>::from_pg((*(*request).fcall).args);
-        // A malformed search call has no predicate to simplify.
-        let (Some(lhs), Some(rhs)) = (input_args.get_ptr(0), input_args.get_ptr(1)) else {
-            return Self::unsupported();
-        };
-
-        let original_lhs = input_args
-            .iter_ptr()
-            .last()
-            .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
-            .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
-        let lhs = original_lhs.unwrap_or(lhs);
-        let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
-            return Self::unsupported();
-        };
-        // Retain the field binding while EXISTS conversion or subquery pushdown can
-        // change the original LHS's relation context.
-        let derived = find_node_relation(lhs, (*request).root).2.is_some();
-        let keep_original_lhs = ((*(*(*request).root).parse).hasSubLinks || derived)
-            && (original_lhs.is_some()
-                || matches!(rhs_rewrite, SimplifyRhs::Rewrite(_))
-                    && get_expr_result_type(rhs) != searchqueryinput_typoid());
-
-        // The LHS must identify a ParadeDB index, optionally with a specific field.
-        let Some((indexrel, field)) = tantivy_field_name_from_node((*request).root, lhs) else {
-            return Self::unsupported();
-        };
-
-        let inferred_field = original_lhs.and_then(|_| field.clone());
-        let search_query_input_typoid = searchqueryinput_typoid();
-        let rhs = match rhs_rewrite {
-            SimplifyRhs::SearchQueryInput => {
-                // The canonical search function only accepts an already typed RHS.
-                if get_expr_result_type(rhs) != search_query_input_typoid {
-                    return Self::unsupported();
-                }
-                rhs
-            }
-            SimplifyRhs::Rewrite(operator) => rewrite_rhs_to_search_query_input(
-                operator,
-                search_query_input_typoid,
-                lhs,
-                rhs,
-                field,
-            ),
-        };
-
-        assert_eq!(
-            get_expr_result_type(rhs),
-            search_query_input_typoid,
-            "rhs must represent a SearchQueryInput"
-        );
-
-        #[cfg(feature = "pg18")]
-        let base_var = resolve_lhs_var_for_group((*request).root, base_var);
-
-        let original_lhs = lhs;
-        let SearchLhs {
-            node: lhs,
-            supports_heap_fallback,
-        } = if derived {
-            SearchLhs {
-                node: lhs,
-                supports_heap_fallback: true,
-            }
-        } else {
-            SearchLhs::from_index(&indexrel, base_var, lhs)
-        };
-        let Some(rhs) = wrap_with_index(&indexrel, rhs, inferred_field) else {
-            return Self::unsupported();
-        };
-        if !supports_heap_fallback {
-            // Preserve index planning; the scalar operator rejects heap execution.
-            return Self::from_node(
-                SearchPredicate {
-                    lhs,
-                    rhs,
-                    location: (*(*request).fcall).location,
-                }
-                .into_opexpr()
-                .cast(),
-            );
-        }
-        let ctid = (!derived).then(|| {
-            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-            (*ctid).varattnosyn = (*ctid).varattno;
-            (*ctid).vartype = pg_sys::TIDOID;
-            (*ctid).vartypmod = -1;
-            (*ctid).varcollid = pg_sys::Oid::INVALID;
-            ctid
-        });
-
-        let mut args = PgList::<pg_sys::Node>::new();
-        args.push(lhs);
-        args.push(rhs);
-        args.push(ctid.map_or_else(
-            || {
-                pg_sys::makeConst(
-                    pg_sys::TIDOID,
-                    -1,
-                    pg_sys::Oid::INVALID,
-                    size_of::<pg_sys::ItemPointerData>() as _,
-                    pg_sys::ItemPointerData::default().into_datum().unwrap(),
-                    false,
-                    false,
-                )
-                .cast()
-            },
-            |ctid| ctid.cast(),
-        ));
-
-        let inline_row = MaybeInlineRow::new((*request).root, base_var, ctid, &indexrel);
-        if let Some(row) = inline_row.as_ptr() {
-            args.push(row);
-        }
-
-        let mut fields = PgList::<pg_sys::Node>::new();
-        let mut names = PgList::<pg_sys::Node>::new();
-        if keep_original_lhs {
-            fields.push(original_lhs);
-            names.push(pg_sys::makeString(pg_sys::pstrdup(c"original_lhs".as_ptr())).cast());
-        }
-        // A non-null record preserves strictness even when the original LHS is NULL.
-        args.push(
-            pg_sys::RowExpr {
-                xpr: pg_sys::Expr {
-                    type_: pg_sys::NodeTag::T_RowExpr,
-                },
-                args: fields.into_pg(),
-                row_typeid: pg_sys::RECORDOID,
-                row_format: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                colnames: names.into_pg(),
-                location: -1,
-            }
-            .palloc()
-            .cast(),
-        );
-
-        // Index tuple descriptors do not preserve the heap column's NOT NULL flag.
-        // Use a strict helper only when the chosen anchor is a NOT NULL heap column.
-        let heap_attno = nodecast!(Var, T_Var, lhs).map_or(0, |var| (*var).varattno);
-        let anchor_is_not_null = !derived
-            && heap_attno > 0
-            && indexrel.heap_relation().is_some_and(|heaprel| {
-                heaprel
-                    .tuple_desc()
-                    .get(heap_attno as usize - 1)
-                    .is_some_and(|attribute| attribute.attnotnull)
-            });
-
-        let function = pg_sys::makeFuncExpr(
-            inline_row.procoid(anchor_is_not_null),
-            pg_sys::BOOLOID,
-            args.into_pg(),
-            pg_sys::Oid::INVALID,
-            pg_sys::Oid::INVALID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        );
-        (*function).location = (*(*request).fcall).location;
-
-        Self::from_node(function.cast())
-    }
-
-    unsafe fn for_support_index_condition(
-        request: *mut pg_sys::SupportRequestIndexCondition,
-    ) -> Self {
-        unsafe {
-            if !is_search_with_query_input_exec_procoid((*request).funcid)
-                || (*request).indexarg != 0
-                || !pg_sys::op_in_opfamily(anyelement_query_input_opoid(), (*request).opfamily)
-            {
-                return Self::unsupported();
-            }
-
-            let Some(predicate) = SearchPredicate::from_node((*request).node) else {
-                return Self::unsupported();
-            };
-            if !pg_sys::is_pseudo_constant_for_index(
-                (*request).root,
-                predicate.rhs,
-                (*request).index,
-            ) {
-                return Self::unsupported();
-            }
-
-            let scalar_predicate = predicate.into_opexpr();
-            let mut conditions = PgList::<pg_sys::Node>::new();
-            conditions.push(scalar_predicate.cast());
-            (*request).lossy = false;
-            Self::from_node(conditions.into_pg().cast())
-        }
-    }
-
-    unsafe fn for_support_selectivity(request: *mut pg_sys::SupportRequestSelectivity) -> Self {
-        unsafe {
-            if !is_search_with_query_input_exec_procoid((*request).funcid) {
-                return Self::unsupported();
-            }
-
-            (*request).selectivity =
-                searchqueryinput::query_input_selectivity((*request).root, (*request).args);
-            Self::from_node(request.cast())
-        }
-    }
-
-    unsafe fn for_support_cost(request: *mut pg_sys::SupportRequestCost) -> Self {
-        unsafe {
-            // Heap execution materializes matching CTIDs, so keep its function cost high enough
-            // that PostgreSQL prefers the index AM whenever one is available.
-            (*request).startup = per_tuple_cost();
-            (*request).per_tuple = per_tuple_cost();
-            Self::from_node(request.cast())
-        }
-    }
-}
-
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 unsafe impl BoxRet for ReturnedNodePointer {
     unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
         self.0
@@ -373,85 +119,6 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
     }
 }
 
-<<<<<<< HEAD
-=======
-pub(crate) fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 4] {
-    static CACHE: OnceLock<[pg_sys::Oid; 4]> = OnceLock::new();
-    *CACHE.get_or_init(|| unsafe {
-        [
-            c"paradedb.search_with_query_input_ctid(anyelement, paradedb.searchqueryinput, tid, record)",
-            c"paradedb.search_with_query_input_ctid_strict(anyelement, paradedb.searchqueryinput, tid, record)",
-            c"paradedb.search_with_query_input_ctid_or_row(anyelement, paradedb.searchqueryinput, tid, record[], record)",
-            c"paradedb.search_with_query_input_ctid_or_row_strict(anyelement, paradedb.searchqueryinput, tid, record[], record)",
-        ].map(|signature| {
-            direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[signature.into_datum()])
-                .unwrap_or_else(|| panic!("`{}` should exist", signature.to_str().unwrap()))
-        })
-    })
-}
-
-fn is_search_with_query_input_exec_procoid(procoid: pg_sys::Oid) -> bool {
-    search_with_query_input_exec_procoids().contains(&procoid)
-}
-
-/// The search operands shared by the scalar operator and its heap-filter forms.
-/// CTID and fallback-row arguments are execution details, so custom-scan planning only sees
-/// `lhs` and `rhs`.
-#[derive(Clone, Copy)]
-pub(crate) struct SearchPredicate {
-    lhs: *mut pg_sys::Node,
-    rhs: *mut pg_sys::Node,
-    location: pg_sys::int32,
-}
-
-impl SearchPredicate {
-    pub(crate) unsafe fn from_node(node: *mut pg_sys::Node) -> Option<Self> {
-        if let Some(operator) = nodecast!(OpExpr, T_OpExpr, node)
-            && (*operator).opno == anyelement_query_input_opoid()
-        {
-            let args = PgList::<pg_sys::Node>::from_pg((*operator).args);
-            return Some(Self {
-                lhs: args.get_ptr(0)?,
-                rhs: args.get_ptr(1)?,
-                location: (*operator).location,
-            });
-        }
-
-        let function = nodecast!(FuncExpr, T_FuncExpr, node)?;
-        if !is_search_with_query_input_exec_procoid((*function).funcid) {
-            return None;
-        }
-
-        let args = PgList::<pg_sys::Node>::from_pg((*function).args);
-        Some(Self {
-            lhs: args.get_ptr(0)?,
-            rhs: args.get_ptr(1)?,
-            location: (*function).location,
-        })
-    }
-
-    pub(crate) unsafe fn into_opexpr(self) -> *mut pg_sys::OpExpr {
-        let operator = pg_sys::make_opclause(
-            anyelement_query_input_opoid(),
-            pg_sys::BOOLOID,
-            false,
-            self.lhs.cast(),
-            self.rhs.cast(),
-            pg_sys::Oid::INVALID,
-            pg_sys::DEFAULT_COLLATION_OID,
-        )
-        .cast::<pg_sys::OpExpr>();
-        (*operator).opfuncid = anyelement_query_input_procoid();
-        (*operator).location = self.location;
-        operator
-    }
-}
-
-pub(crate) unsafe fn expr_contains_search_predicate(node: *mut pg_sys::Node) -> bool {
-    node.any(|node| SearchPredicate::from_node(node).is_some())
-}
-
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     anyelement_search_opoids()[0]
 }
@@ -760,34 +427,9 @@ pub unsafe fn tantivy_field_name_from_node(
         )
     });
 
-<<<<<<< HEAD
     let field_name =
         field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node)?;
     Some((indexrel, Some(field_name)))
-=======
-    let (field_node, context) = if targetlist.is_some() {
-        let node = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
-        for var in node.collect_nodes::<pg_sys::Var>() {
-            let (relation, attribute, _) = find_var_relation(var, root);
-            if relation != heaprelid {
-                return None;
-            }
-            (*var).varattno = attribute;
-            (*var).varattnosyn = attribute;
-        }
-        (node, VarContext::from_exec(heaprelid))
-    } else {
-        (node, VarContext::from_planner(root))
-    };
-    let field_name = field_name_from_node(context, &heaprel, &indexrel, field_node);
-    if field_name.is_none() {
-        let var = nodecast!(Var, T_Var, node)?;
-        if (*var).varattno != 0 {
-            return None;
-        }
-    }
-    Some((indexrel, field_name))
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 }
 
 pub(crate) unsafe fn row_expr_from_indexed_expr(
@@ -1099,49 +741,7 @@ unsafe fn rewrite_to_search_query_input_opexpr(
         "rhs must represent a SearchQueryInput"
     );
 
-<<<<<<< HEAD
     let lhs_var = make_lhs_var((*srs).root, indexrel, lhs);
-=======
-        // Zero identifies an indexed expression rather than a heap column.
-        if heap_attno == 0 {
-            let expressions = indexrel.index_expressions();
-            let is_partial = !pg_sys::RelationGetIndexPredicate(indexrel.as_ptr()).is_null();
-            let expression = if is_partial {
-                let Some(expression) = expressions
-                    .iter_ptr()
-                    .find(|&expression| expr_matches_node(original_lhs, expression, type_is_alias))
-                else {
-                    return Self {
-                        node: original_lhs,
-                        supports_heap_fallback: false,
-                    };
-                };
-                expression
-            } else {
-                expressions
-                    .get_ptr(0)
-                    .expect("first index attribute should have an expression")
-            };
-            let expression = pg_sys::copyObjectImpl(expression.cast()).cast::<pg_sys::Node>();
-            for var in expression.collect_nodes::<pg_sys::Var>() {
-                (*var).varno = (*base_var).varno;
-                (*var).varnosyn = (*base_var).varnosyn;
-                (*var).varlevelsup = (*base_var).varlevelsup;
-                #[cfg(not(feature = "pg15"))]
-                {
-                    (*var).varnullingrels = pg_sys::bms_copy((*base_var).varnullingrels);
-                }
-                #[cfg(feature = "pg18")]
-                {
-                    (*var).varreturningtype = (*base_var).varreturningtype;
-                }
-            }
-            return Self {
-                node: expression,
-                supports_heap_fallback: !is_partial,
-            };
-        }
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 
     let rhs = wrap_with_index(indexrel, rhs);
 
@@ -1171,7 +771,7 @@ unsafe fn make_lhs_var(
     let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
-    let vars = find_vars(lhs);
+    let vars = lhs.collect_nodes::<pg_sys::Var>();
     if vars.is_empty() {
         panic!("provided lhs does not contain a Var")
     }

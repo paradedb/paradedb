@@ -29,25 +29,13 @@ use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::snippet::{
-<<<<<<< HEAD
-    extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
-    snippet_positions_funcoids, SnippetType,
-};
-use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
-use crate::postgres::customscan::score_funcoids;
-use crate::postgres::var::{find_one_var_and_fieldname, find_vars, VarContext};
-use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, Internal, IntoDatum, PgList};
-use std::ptr::{addr_of_mut, NonNull};
-=======
-    SnippetType, extract_snippet, extract_snippet_positions, extract_snippets,
+    extract_snippet, extract_snippet_positions, extract_snippets, SnippetType,
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::node::{NodeExt, WalkControl};
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
-use pgrx::{Internal, IntoDatum, PgList, direct_function_call, pg_extern, pg_guard, pg_sys};
-use std::ptr::addr_of_mut;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
+use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, Internal, IntoDatum, PgList};
+use std::ptr::{addr_of_mut, NonNull};
 use tantivy::snippet::SnippetGenerator;
 
 /// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
@@ -249,34 +237,6 @@ unsafe fn make_placeholder_const_from_funcexpr(
     )
 }
 
-<<<<<<< HEAD
-/// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
-/// when it encounters a join context.
-#[pg_guard]
-unsafe extern "C-unwind" fn find_join_expr_walker(
-    node: *mut pg_sys::Node,
-    _context: *mut std::ffi::c_void,
-) -> bool {
-    if node.is_null() {
-        return false;
-    }
-    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
-        return true;
-    }
-    // Comma joins are a `FromExpr` with multiple fromlist entries and no
-    // `JoinExpr`. Without this, placeholder functions (score/snippet) used in a
-    // comma-join query are not wrapped in a PlaceHolderVar and get re-evaluated
-    // above the Gather Merge, panicking with "Unsupported query shape" (#5108).
-    if let Some(from_expr) = nodecast!(FromExpr, T_FromExpr, node) {
-        if PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1 {
-            return true;
-        }
-    }
-    expression_tree_walker(node, Some(find_join_expr_walker), _context)
-}
-
-=======
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     // We "simplify" calls to `pdb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
@@ -362,27 +322,27 @@ pub unsafe fn pullout_funcexprs(
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
     let mut matches = Vec::new();
     node.walk(|node| {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-            && funcids.contains(&(*funcexpr).funcid)
-        {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            for arg in args.iter_ptr() {
-                if let Some((var, fieldname)) =
-                    find_one_var_and_fieldname(VarContext::Planner(root), arg)
-                {
-                    let same_layer = (*var).varno as i32 == rti
-                        || (rte_is_partitioned(root, (*var).varno as pg_sys::Index)
-                            && rte_is_parent(
-                                root,
-                                rti as pg_sys::Index,
-                                (*var).varno as pg_sys::Index,
-                            ));
-                    if same_layer {
-                        matches.push((funcexpr, var, fieldname));
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            if funcids.contains(&(*funcexpr).funcid) {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                for arg in args.iter_ptr() {
+                    if let Some((var, fieldname)) =
+                        find_one_var_and_fieldname(VarContext::Planner(root), arg)
+                    {
+                        let same_layer = (*var).varno as i32 == rti
+                            || (rte_is_partitioned(root, (*var).varno as pg_sys::Index)
+                                && rte_is_parent(
+                                    root,
+                                    rti as pg_sys::Index,
+                                    (*var).varno as pg_sys::Index,
+                                ));
+                        if same_layer {
+                            matches.push((funcexpr, var, fieldname));
+                        }
                     }
                 }
+                return WalkControl::SkipChildren;
             }
-            return WalkControl::SkipChildren;
         }
         WalkControl::Continue
     });

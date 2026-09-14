@@ -75,12 +75,8 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::{
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-<<<<<<< HEAD
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-=======
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::var::VarContext;
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
@@ -554,63 +550,36 @@ pub unsafe fn deserialize_window_agg_placeholders(
     let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
     for (idx, te) in target_entries.iter_ptr().enumerate() {
         (*te).expr.visit(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && (*funcexpr).funcid == window_agg_procid
-            {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-<<<<<<< HEAD
-                if let Some(json_arg) = args.get_ptr(0) {
-                    if let Some(const_node) = nodecast!(Const, T_Const, json_arg) {
-                        if !(*const_node).constisnull {
-                            let json_datum = (*const_node).constvalue;
-                            let json_varlena = json_datum.cast_mut_ptr::<pg_sys::varlena>();
-                            let json_varlena_detoasted =
-                                pg_sys::pg_detoast_datum(json_varlena.cast());
-                            let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
-                            let json_str =
-                                CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
-
-                            // Deserialize TargetList and create WindowAggregateInfo
-                            // with the correct target_entry_index from the current position
-                            match serde_json::from_str::<TargetList>(json_str) {
-                                Ok(targetlist) => {
-                                    let info = WindowAggregateInfo {
-                                        target_entry_index: (*context).current_te_index,
-                                        targetlist,
-                                    };
-                                    (*context).window_aggs.push(info);
-                                }
-                                Err(e) => {
-                                    pgrx::error!(
-                                        "Failed to deserialize window aggregate specification: {}. \
-                                         This is an internal error - the window function replacement may have failed.",
-                                        e
-                                    );
-                                }
-                            }
-                        }
-=======
-                if let Some(json_arg) = args.get_ptr(0)
-                    && let Some(const_node) = nodecast!(Const, T_Const, json_arg)
-                    && !(*const_node).constisnull
-                {
-                    let json_varlena = (*const_node).constvalue.cast_mut_ptr::<pg_sys::varlena>();
-                    let json_varlena_detoasted = pg_sys::pg_detoast_datum(json_varlena.cast());
-                    let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
-                    let json_str = CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
-                    match serde_json::from_str::<TargetList>(json_str) {
-                        Ok(targetlist) => window_aggs.push(WindowAggregateInfo {
-                            target_entry_index: idx,
-                            targetlist,
-                        }),
-                        Err(e) => pgrx::error!(
-                            "Failed to deserialize window aggregate specification: {}. \
-                             This is an internal error - the window function replacement may have failed.",
-                            e
-                        ),
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
-                    }
-                }
+            let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) else {
+                return;
+            };
+            if (*funcexpr).funcid != window_agg_procid {
+                return;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            let Some(json_arg) = args.get_ptr(0) else {
+                return;
+            };
+            let Some(const_node) = nodecast!(Const, T_Const, json_arg) else {
+                return;
+            };
+            if (*const_node).constisnull {
+                return;
+            }
+            let json_varlena = (*const_node).constvalue.cast_mut_ptr::<pg_sys::varlena>();
+            let json_varlena_detoasted = pg_sys::pg_detoast_datum(json_varlena.cast());
+            let json_text = pg_sys::text_to_cstring(json_varlena_detoasted.cast());
+            let json_str = CStr::from_ptr(json_text).to_str().expect("invalid UTF-8");
+            match serde_json::from_str::<TargetList>(json_str) {
+                Ok(targetlist) => window_aggs.push(WindowAggregateInfo {
+                    target_entry_index: idx,
+                    targetlist,
+                }),
+                Err(e) => pgrx::error!(
+                    "Failed to deserialize window aggregate specification: {}. \
+                     This is an internal error - the window function replacement may have failed.",
+                    e
+                ),
             }
         });
     }

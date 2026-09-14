@@ -43,24 +43,12 @@ use crate::postgres::customscan::pullup::{
     ResolvedIndexField,
 };
 use crate::postgres::customscan::qual_inspect::{
-<<<<<<< HEAD
-    collect_implicit_and_conjuncts, contains_extern_param, extract_quals, PlannerContext,
-    QualExtractState,
-=======
-    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
+    collect_implicit_and_conjuncts, extract_quals, PlannerContext, QualExtractState,
 };
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-<<<<<<< HEAD
-use crate::postgres::utils::{
-    expr_collect_rtis, expr_collect_vars, expr_contains_any_operator,
-    missing_partial_index_predicate,
-};
-=======
 use crate::postgres::utils::missing_partial_index_predicate;
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
@@ -815,20 +803,11 @@ unsafe fn extract_non_equi_filter_from_quals(
 
         // Check if this conjunct references only a side that PostgreSQL pushes down.
         // For Inner joins, quals referencing only left or only right are pushed into base rels.
-<<<<<<< HEAD
         // For Left joins, quals referencing only the nullable side (right) are pushed into right's base rels
         // only when the right side is a base relation (not an outer join, where outer-join-delayed quals cannot be pushed down).
         // For Right joins, quals referencing only the nullable side (left) are pushed into left's base rels
         // only when the left side is a base relation.
-        let rtis = expr_collect_rtis(node);
-=======
-        // For Left, Semi, and Anti joins, quals referencing only the inner/nullable side (right)
-        // are pushed into right's base rels only when the right side is a base relation
-        // (not an outer join, where outer-join-delayed quals cannot be pushed down).
-        // For Right, RightSemi, and RightAnti joins, quals referencing only the inner/nullable
-        // side (left) are pushed into left's base rels only when the left side is a base relation.
         let rtis = node.collect_rtis();
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
         let pushed_down = if rtis.is_empty() {
             false
         } else {
@@ -852,7 +831,7 @@ unsafe fn extract_non_equi_filter_from_quals(
             continue;
         }
 
-        if expr_contains_any_operator(node, &[search_op]) {
+        if node.contains_operators(&[search_op]) {
             return Err("search operators in join ON clause are not supported".into());
         }
 
@@ -1221,7 +1200,7 @@ unsafe fn classify_path_restrictinfo(
             || on_clauses
                 .iter()
                 .any(|&on_node| pg_sys::equal(clause.cast(), on_node.cast()));
-        if is_on_clause && !expr_contains_any_operator(clause, &[search_op]) {
+        if is_on_clause && !clause.contains_operators(&[search_op]) {
             // ON-clause predicate (for inner or outer join) - handled in JoinNode.filter during
             // join execution. Decline only if columns are not columnar fields.
             if !all_vars_are_fast_fields_for_agg(clause, sources) {
@@ -1232,7 +1211,7 @@ unsafe fn classify_path_restrictinfo(
 
         let rtis = clause.collect_rtis();
         if !rtis.is_empty() {
-            let has_search = expr_contains_any_operator(clause, &[search_op]);
+            let has_search = clause.contains_operators(&[search_op]);
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
             } else {
@@ -1481,11 +1460,10 @@ impl FilterExpr {
                         // identity; targetlist refs don't carry rti.
                         if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-<<<<<<< HEAD
                             if let Some(first_arg) = args.get_ptr(0) {
-                                if let Some(var) = crate::postgres::var::find_one_var(
-                                    (*first_arg).expr as *mut pg_sys::Node,
-                                ) {
+                                if let Some(var) =
+                                    (*first_arg).expr.find_single_node::<pg_sys::Var>()
+                                {
                                     let rti = (*var).varno as pg_sys::Index;
                                     let attno = (*var).varattno;
                                     if let Some(r) = agg.field_refs.first() {
@@ -1493,18 +1471,6 @@ impl FilterExpr {
                                         if var_pp == Some(r.plan_position) && attno == r.attno {
                                             return Some(Self::AggRef(idx));
                                         }
-=======
-                            if let Some(first_arg) = args.get_ptr(0)
-                                && let Some(var) =
-                                    (*first_arg).expr.find_single_node::<pg_sys::Var>()
-                            {
-                                let rti = (*var).varno as pg_sys::Index;
-                                let attno = (*var).varattno;
-                                if let Some(r) = agg.field_refs.first() {
-                                    let var_pp = ctx.resolve_var(rti, attno);
-                                    if var_pp == Some(r.plan_position) && attno == r.attno {
-                                        return Some(Self::AggRef(idx));
->>>>>>> 8ce3d5ea8 (refactor: centralize expression inspection in NodeExt (#6244))
                                     }
                                 }
                             }

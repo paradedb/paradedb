@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789411650252,
+  "lastUpdate": 1789412801859,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3810,6 +3810,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.214,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d46f86b867f61d1a0a367e6cd0c68900fc51ef4",
+          "message": "chore: Add support for `partition_by` on the `ctid`. (#6317)\n\n## What\n\nAdds support for `partition_by` on the `ctid`.\n\n## Why\n\nAlthough every segment is currently always sorted by the `ctid`, we do\nnot partition by the `ctid`.\n\nPartitioning on the `ctid` might be useful in cases where the only other\nuseful property to `partition_by` is something very low cardinality,\nsuch as an enum or boolean column, as it will allow for increasing the\ntotal number of partitions while increasing density for visibility\nchecks.\n\nIt's not clear yet whether partitioning by the `ctid` is something that\nwe'll want to do by default though: because it is never used as a\nfilter, introducing partitioning will almost never allow for pruning\nsegments (the exception is sequential scans, which do `ctid` point\nlookups: but we avoid them anyway). Nonetheless, it's possible that\npartitioning will reduce write amplification in M3, and in that case it\nwould be worth partitioning by the `ctid` by default.\n\n## Tests\n\nAdded regress test coverage.",
+          "timestamp": "2026-09-14T11:44:54-07:00",
+          "tree_id": "ba1833f37a8fc9103ec8d4c67faac755a68cf4a6",
+          "url": "https://github.com/paradedb/paradedb/commit/3d46f86b867f61d1a0a367e6cd0c68900fc51ef4"
+        },
+        "date": 1789412797711,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6622509497206726,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.08,
             "unit": "ms"
           }
         ]

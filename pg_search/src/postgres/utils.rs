@@ -252,6 +252,15 @@ pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
     (value >> 16) as pg_sys::BlockNumber
 }
 
+/// Formats a packed `u64` ctid as a Postgres tuple string `"(block,offset)"`.
+///
+/// TODO: introduce a newtype for packed ctids to encapsulate packing and formatting.
+pub fn format_u64_ctid(value: u64) -> String {
+    let blockno = u64_ctid_block_number(value);
+    let offno = value as pg_sys::OffsetNumber;
+    format!("({blockno},{offno})")
+}
+
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
 /// in `rel`. A `false` result means VACUUM has truncated the page.
 #[inline(always)]

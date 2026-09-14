@@ -30,7 +30,7 @@ use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
     ParallelWorker, WorkerStyle,
 };
-use crate::postgres::build_partitioning::plan_partition_boundaries;
+use crate::postgres::build_partitioning::{plan_partition_boundaries, PartitionField};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
@@ -46,7 +46,6 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::tuplesort::Int8Sorter;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
-    scalar_datum_to_tantivy_value, unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
@@ -636,15 +635,18 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 }
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
-/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to the
+/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to that
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
     tree: KdTree,
-    /// The `partition_by` fields in `tree.dims()` order, resolved to the index's categorized
+    /// The `partition_by` fields in `tree.dims()` order, resolved to either `Ctid` or the index's categorized
     /// fields so the callback can project each scanned row onto them.
-    dim_fields: Vec<(SearchField, CategorizedFieldData)>,
+    dim_fields: Vec<PartitionField>,
     files: PartitionSpillFiles,
+    /// A key's encoding can depend on the version that created the index, so routing has to
+    /// convert values the way the document build does.
+    created_by_version: Option<Version>,
 }
 
 impl PartitionSpill {
@@ -652,25 +654,15 @@ impl PartitionSpill {
         tree: KdTree,
         categorized_fields: &[(SearchField, CategorizedFieldData)],
         files: PartitionSpillFiles,
+        created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
-        let dim_fields = tree
-            .dims()
-            .iter()
-            .map(|dim| {
-                categorized_fields
-                    .iter()
-                    .find(|(field, _)| field.field_name() == dim)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("partition_by field `{dim}` is not an indexed field")
-                    })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let dim_fields = PartitionField::resolve_dims(tree.dims(), categorized_fields)?;
         let files = files.with_partitions(tree.partition_count());
         Ok(Self {
             tree,
             dim_fields,
             files,
+            created_by_version,
         })
     }
 
@@ -681,31 +673,24 @@ impl PartitionSpill {
         &self,
         values: *mut pg_sys::Datum,
         isnull: *mut bool,
+        ctid: u64,
         unpacked_composites: &CompositeSlotValues,
-        created_by_version: Option<Version>,
     ) -> anyhow::Result<usize> {
         let point = self
             .dim_fields
             .iter()
-            .map(|(field, categorized)| {
-                let (datum, is_null) = get_field_value(
-                    &categorized.source,
-                    categorized.attno,
-                    values,
-                    isnull,
-                    unpacked_composites,
-                );
-                if is_null {
-                    return Ok(PdbOwnedValue::Null);
+            .map(|dim_field| match dim_field {
+                PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionField::Categorized(categorized) => {
+                    let (datum, is_null) = get_field_value(
+                        &categorized.categorized.source,
+                        categorized.categorized.attno,
+                        values,
+                        isnull,
+                        unpacked_composites,
+                    );
+                    unsafe { categorized.datum_to_value(datum, is_null, self.created_by_version) }
                 }
-                let datum = unwrap_alias_datum(datum, categorized.pg_type);
-                Ok(scalar_datum_to_tantivy_value(
-                    datum,
-                    field.field_type(),
-                    categorized.base_oid,
-                    created_by_version,
-                )?
-                .0)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(self.tree.route(&point))
@@ -827,7 +812,9 @@ impl<'a> WorkerBuildState<'a> {
 
         let (participant, nparticipants) = (spill_files.participant, spill_files.nparticipants);
         let partitioning = partitioning
-            .map(|tree| PartitionSpill::new(tree, &categorized_fields, spill_files))
+            .map(|tree| {
+                PartitionSpill::new(tree, &categorized_fields, spill_files, created_by_version)
+            })
             .transpose()?;
 
         Ok(Self {
@@ -1037,12 +1024,7 @@ impl<'a> WorkerBuildState<'a> {
                     values,
                     isnull,
                 ));
-            partitioning.route(
-                values,
-                isnull,
-                &unpacked_composites,
-                self.index_created_by_version,
-            )
+            partitioning.route(values, isnull, ctid, &unpacked_composites)
         });
         self.per_row_context.reset();
         partitioning.files.append(pid?, ctid);
@@ -1928,6 +1910,77 @@ mod tests {
         }
 
         Spi::run("DROP TABLE partitioned_build;").unwrap();
+    }
+
+    /// An index with `partition_by = 'ctid'` routes each row by its ctid and builds one segment
+    /// per partition, serial or parallel.
+    #[pg_test]
+    fn test_partitioned_build_with_ctid() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_ctid_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_ctid_build (tenant_id, name)
+            SELECT (i * 7919) % 100, 'row ' || i
+            FROM generate_series(1, 1000) i;
+            "#,
+        )
+        .unwrap();
+
+        // 1-dim partition_by on ctid
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, name) WITH (key_field = 'id', partition_by = 'ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 4, "serial partitioned build on ctid: 4 segments");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "serial partitioned build on ctid indexes every row"
+        );
+
+        // 2-dim partition_by on tenant_id, ctid with parallel workers
+        Spi::run("DROP INDEX partitioned_ctid_build_idx;").unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id, ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 4,
+            "parallel partitioned build on (tenant_id, ctid): 4 segments"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "parallel partitioned build on (tenant_id, ctid) indexes every row"
+        );
+
+        Spi::run("DROP TABLE partitioned_ctid_build;").unwrap();
     }
 
     /// A partition whose rows all sit in one heap block is scanned by a single participant, so every

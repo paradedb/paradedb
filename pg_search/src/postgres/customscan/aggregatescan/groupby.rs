@@ -118,9 +118,9 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(ff) = unsafe {
+                } else if let Some(ff) =
                     find_matching_fast_field(expr, &index_expressions, schema.clone(), _heap_rti)
-                } {
+                {
                     (ff.name(), 0) // Complex expressions don't have a single attno
                 } else {
                     last_error =

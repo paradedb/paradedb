@@ -2023,7 +2023,7 @@ fn collect_cross_table_search_quals(node: *mut pg_sys::Node, clauses: &mut Vec<*
     for conjunct in conjuncts {
         // Keep cross-table conjuncts (both @@@ and non-@@@). Single-table
         // conjuncts are already owned by the corresponding baserestrictinfo.
-        let rtis = unsafe { conjunct.collect_rtis() };
+        let rtis = conjunct.collect_rtis();
         if rtis.len() > 1 {
             clauses.push(conjunct);
         }
@@ -2067,21 +2067,19 @@ pub(crate) fn collect_on_clause_nodes(node: *mut pg_sys::Node, acc: &mut Vec<*mu
 /// so that the outer relation's variable is on the left (see `order_qual_clauses` / `commute_restrictinfo`).
 /// Direct structural equality via `pg_sys::equal` fails to match such commuted clauses against parse-tree
 /// ON-clause nodes, causing join conditions to leak into post-join filter classification.
-pub(crate) unsafe fn nodes_equal_modulo_commutation(
-    a: *mut pg_sys::Node,
-    b: *mut pg_sys::Node,
-) -> bool {
-    if pg_sys::equal(a.cast(), b.cast()) {
+pub(crate) fn nodes_equal_modulo_commutation(a: *mut pg_sys::Node, b: *mut pg_sys::Node) -> bool {
+    if unsafe { pg_sys::equal(a.cast(), b.cast()) } {
         return true;
     }
     if a.is_null() || b.is_null() {
         return false;
     }
-    if (*a).type_ == pg_sys::NodeTag::T_OpExpr && (*b).type_ == pg_sys::NodeTag::T_OpExpr {
-        let op_a = a as *mut pg_sys::OpExpr;
-        let op_b = b as *mut pg_sys::OpExpr;
-        let args_a = pgrx::PgList::<pg_sys::Node>::from_pg((*op_a).args);
-        let args_b = pgrx::PgList::<pg_sys::Node>::from_pg((*op_b).args);
+    if unsafe { (*a).type_ == pg_sys::NodeTag::T_OpExpr && (*b).type_ == pg_sys::NodeTag::T_OpExpr }
+    {
+        let op_a = unsafe { &*(a as *mut pg_sys::OpExpr) };
+        let op_b = unsafe { &*(b as *mut pg_sys::OpExpr) };
+        let args_a = unsafe { pgrx::PgList::<pg_sys::Node>::from_pg(op_a.args) };
+        let args_b = unsafe { pgrx::PgList::<pg_sys::Node>::from_pg(op_b.args) };
         if args_a.len() == 2 && args_b.len() == 2 {
             let a0 = args_a.get_ptr(0).unwrap();
             let a1 = args_a.get_ptr(1).unwrap();
@@ -2091,7 +2089,7 @@ pub(crate) unsafe fn nodes_equal_modulo_commutation(
             let operands_equal = |x0: *mut pg_sys::Node,
                                   x1: *mut pg_sys::Node,
                                   y0: *mut pg_sys::Node,
-                                  y1: *mut pg_sys::Node| {
+                                  y1: *mut pg_sys::Node| unsafe {
                 (pg_sys::equal(x0.cast(), y0.cast()) && pg_sys::equal(x1.cast(), y1.cast()))
                     || (pg_sys::equal(
                         strip_node_wrappers(x0).cast(),
@@ -2103,14 +2101,14 @@ pub(crate) unsafe fn nodes_equal_modulo_commutation(
             };
 
             // Direct comparison: same operator and same argument order.
-            if (*op_a).opno == (*op_b).opno && operands_equal(a0, a1, b0, b1) {
+            if op_a.opno == op_b.opno && operands_equal(a0, a1, b0, b1) {
                 return true;
             }
 
             // Commuted comparison: op_a is the commutator of op_b and operands are swapped.
-            let comm_b = pg_sys::get_commutator((*op_b).opno);
+            let comm_b = unsafe { pg_sys::get_commutator(op_b.opno) };
             if comm_b != pg_sys::Oid::INVALID
-                && (*op_a).opno == comm_b
+                && op_a.opno == comm_b
                 && operands_equal(a0, a1, b1, b0)
             {
                 return true;

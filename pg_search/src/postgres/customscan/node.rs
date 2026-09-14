@@ -25,63 +25,69 @@ use crate::postgres::node::NodeExt;
 use pgrx::{PgList, pg_sys};
 
 pub(crate) trait CustomScanNodeExt: NodeExt {
-    unsafe fn contains_score(self) -> bool {
+    fn contains_score(self) -> bool {
         self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node)
-                .is_some_and(|expr| score_funcoids().contains(&(*expr).funcid))
+            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+                .is_some_and(|expr| score_funcoids().contains(&unsafe { (*expr).funcid }))
         })
     }
 
-    unsafe fn contains_score_for_relation(
+    fn contains_score_for_relation(
         self,
         score_funcoids: [pg_sys::Oid; 2],
         rti: pg_sys::Index,
     ) -> bool {
         self.any(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && score_funcoids.contains(&(*funcexpr).funcid)
+            if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+                && score_funcoids.contains(&unsafe { (*funcexpr).funcid })
             {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg((*funcexpr).args) };
                 assert!(args.len() == 1, "score function must have 1 argument");
-                return nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                    .is_some_and(|var| (*var).varno == rti as i32);
+                return unsafe { nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) }
+                    .is_some_and(|var| unsafe { (*var).varno } == rti as i32);
             }
             false
         })
     }
 
-    unsafe fn maybe_needs_const_projections(self) -> bool {
+    fn maybe_needs_const_projections(self) -> bool {
         let score_funcoids = score_funcoids();
         let snippet_funcoids = snippet_funcoids();
         let snippet_positions_funcoids = snippet_positions_funcoids();
         self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node).is_some_and(|expr| {
-                score_funcoids.contains(&(*expr).funcid)
-                    || snippet_funcoids.contains(&(*expr).funcid)
-                    || snippet_positions_funcoids.contains(&(*expr).funcid)
+            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }.is_some_and(|expr| {
+                let funcid = unsafe { (*expr).funcid };
+                score_funcoids.contains(&funcid)
+                    || snippet_funcoids.contains(&funcid)
+                    || snippet_positions_funcoids.contains(&funcid)
             })
         })
     }
 
-    unsafe fn has_unsupported_collation(self) -> bool {
+    fn has_unsupported_collation(self) -> bool {
         self.any(|node| {
-            let Some(op_expr) = nodecast!(OpExpr, T_OpExpr, node) else {
+            let Some(op_expr) = (unsafe { nodecast!(OpExpr, T_OpExpr, node) }) else {
                 return false;
             };
-            let collid = (*op_expr).inputcollid;
+            let op_expr = unsafe { &*op_expr };
+            let collid = op_expr.inputcollid;
             if collid == pg_sys::Oid::INVALID {
                 return false;
             }
-            let op_name_ptr = pg_sys::get_opname((*op_expr).opno);
+            let op_name_ptr = unsafe { pg_sys::get_opname(op_expr.opno) };
             (!op_name_ptr.is_null())
-                .then(|| std::ffi::CStr::from_ptr(op_name_ptr).to_str().ok())
+                .then(|| {
+                    unsafe { std::ffi::CStr::from_ptr(op_name_ptr) }
+                        .to_str()
+                        .ok()
+                })
                 .flatten()
                 .and_then(|op_str| match op_str {
                     "=" | "<>" | "!=" => Some(CollationOperation::Equality),
                     "<" | "<=" | ">" | ">=" => Some(CollationOperation::Ordering),
                     _ => None,
                 })
-                .is_some_and(|op_type| !collation_supports(collid, op_type))
+                .is_some_and(|op_type| !unsafe { collation_supports(collid, op_type) })
         })
     }
 }

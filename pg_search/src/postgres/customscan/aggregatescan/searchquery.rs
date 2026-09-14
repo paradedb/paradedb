@@ -94,7 +94,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         // restrict_info is a list of RestrictInfo nodes
         let has_correlation = restrict_info.iter_ptr().any(|rinfo| {
             let rinfo = unsafe { &*rinfo };
-            !rinfo.clause.is_null() && unsafe { rinfo.clause.contains_exec_param() }
+            !rinfo.clause.is_null() && rinfo.clause.contains_exec_param()
         });
 
         if has_correlation && !crate::gucs::enable_filter_pushdown() {

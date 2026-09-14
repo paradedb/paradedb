@@ -90,7 +90,7 @@ pub(crate) fn create_placeholder_targetlist(
         let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
             && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
 
-        !is_top_level_placeholder && unsafe { te.expr.contains_functions(&[placeholder_funcid]) }
+        !is_top_level_placeholder && te.expr.contains_functions(&[placeholder_funcid])
     });
 
     if !needs_projection {
@@ -180,8 +180,8 @@ pub(crate) fn create_placeholder_targetlist(
         let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
             && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
 
-        let contains_placeholder = is_top_level_placeholder
-            || unsafe { te.expr.contains_functions(&[placeholder_funcid]) };
+        let contains_placeholder =
+            is_top_level_placeholder || te.expr.contains_functions(&[placeholder_funcid]);
 
         if contains_placeholder {
             // Replace ALL placeholder FuncExprs with Const nodes (both wrapped and top-level)

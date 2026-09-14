@@ -796,7 +796,7 @@ pub fn extract_quals(
             // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
             // This is distinct from FuncExprs used inside comparisons (e.g. pdb.score(id) > 0.5),
             // which are handled within opexpr().
-            if unsafe { node.contains_relation_reference(rti) } {
+            if node.contains_relation_reference(rti) {
                 if !gucs::enable_filter_pushdown() {
                     return None;
                 }

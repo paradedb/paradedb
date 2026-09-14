@@ -470,21 +470,22 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
 
 /// The column name a parse-tree Var refers to, resolved through the query's
 /// range table; `None` when anything along the way is unresolvable.
-unsafe fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<String> {
-    if root.is_null() || (*root).parse.is_null() || var.varno < 1 {
+fn var_column_name(var: &pg_sys::Var, root: *mut pg_sys::PlannerInfo) -> Option<String> {
+    if root.is_null() || unsafe { (*root).parse.is_null() } || var.varno < 1 {
         return None;
     }
-    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
+    let rtable = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable) };
     let rte = rtable.get_ptr(var.varno as usize - 1)?;
-    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+    let rte = unsafe { &*rte };
+    if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
         return None;
     }
-    let name_ptr = pg_sys::get_attname((*rte).relid, var.varattno, true);
+    let name_ptr = unsafe { pg_sys::get_attname(rte.relid, var.varattno, true) };
     if name_ptr.is_null() {
         return None;
     }
     Some(
-        std::ffi::CStr::from_ptr(name_ptr)
+        unsafe { std::ffi::CStr::from_ptr(name_ptr) }
             .to_string_lossy()
             .into_owned(),
     )

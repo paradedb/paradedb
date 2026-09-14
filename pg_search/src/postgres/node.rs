@@ -39,15 +39,14 @@ pub(crate) enum WalkControl {
 /// Expression-tree traversal in PostgreSQL's child order, including the root.
 /// Null pointers are empty trees. Query and planner nodes need their own traversal.
 ///
-/// # Safety
 /// The receiver must be null or a valid PostgreSQL expression tree. Other pointers must
 /// be valid for their declared types. Visitors may change fields, but must keep the tree
 /// valid and must not free nodes during traversal.
 pub(crate) trait NodeExt: Copy {
     /// Returns true if a visitor stopped traversal with `WalkControl::Break`.
-    unsafe fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, visitor: F) -> bool;
+    fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, visitor: F) -> bool;
 
-    unsafe fn any(self, mut predicate: impl FnMut(*mut pg_sys::Node) -> bool) -> bool {
+    fn any(self, mut predicate: impl FnMut(*mut pg_sys::Node) -> bool) -> bool {
         self.walk(|node| {
             if predicate(node) {
                 WalkControl::Break
@@ -57,17 +56,17 @@ pub(crate) trait NodeExt: Copy {
         })
     }
 
-    unsafe fn visit(self, mut visitor: impl FnMut(*mut pg_sys::Node)) {
+    fn visit(self, mut visitor: impl FnMut(*mut pg_sys::Node)) {
         self.walk(|node| {
             visitor(node);
             WalkControl::Continue
         });
     }
 
-    unsafe fn find_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
+    fn find_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
         let mut found = None;
         self.any(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::CAST_TAGS.contains(&unsafe { (*node).type_ }) {
                 found = Some(node.cast());
                 true
             } else {
@@ -77,10 +76,10 @@ pub(crate) trait NodeExt: Copy {
         found
     }
 
-    unsafe fn find_single_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
+    fn find_single_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
         let mut found = None;
         let multiple = self.walk(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::CAST_TAGS.contains(&unsafe { (*node).type_ }) {
                 if found.is_some() {
                     return WalkControl::Break;
                 }
@@ -91,21 +90,21 @@ pub(crate) trait NodeExt: Copy {
         if multiple { None } else { found }
     }
 
-    unsafe fn collect_nodes<T: pg_sys::PgNode>(self) -> Vec<*mut T> {
+    fn collect_nodes<T: pg_sys::PgNode>(self) -> Vec<*mut T> {
         let mut nodes = Vec::new();
         self.visit(|node| {
-            if T::CAST_TAGS.contains(&(*node).type_) {
+            if T::CAST_TAGS.contains(&unsafe { (*node).type_ }) {
                 nodes.push(node.cast());
             }
         });
         nodes
     }
 
-    unsafe fn collect_rtis(self) -> HashSet<pg_sys::Index> {
+    fn collect_rtis(self) -> HashSet<pg_sys::Index> {
         let mut rtis = HashSet::new();
         self.visit(|node| {
-            if let Some(var) = nodecast!(Var, T_Var, node) {
-                let varno = (*var).varno as pg_sys::Index;
+            if let Some(var) = unsafe { nodecast!(Var, T_Var, node) } {
+                let varno = unsafe { (*var).varno } as pg_sys::Index;
                 if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
                     rtis.insert(varno);
                 }
@@ -115,18 +114,19 @@ pub(crate) trait NodeExt: Copy {
     }
 
     /// Collects positive attribute numbers; `include_special_vars` bypasses the varno filter.
-    unsafe fn collect_var_refs(self, include_special_vars: bool) -> Vec<VarRef> {
+    fn collect_var_refs(self, include_special_vars: bool) -> Vec<VarRef> {
         let mut vars = Vec::new();
         self.visit(|node| {
-            if let Some(var) = nodecast!(Var, T_Var, node) {
-                let varno = (*var).varno as pg_sys::Index;
-                if (*var).varattno > 0
+            if let Some(var) = unsafe { nodecast!(Var, T_Var, node) } {
+                let var = unsafe { &*var };
+                let varno = var.varno as pg_sys::Index;
+                if var.varattno > 0
                     && (include_special_vars
                         || (varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index))
                 {
                     vars.push(VarRef {
                         rti: varno,
-                        attno: (*var).varattno,
+                        attno: var.varattno,
                     });
                 }
             }
@@ -134,108 +134,113 @@ pub(crate) trait NodeExt: Copy {
         vars
     }
 
-    unsafe fn collect_subplan_ids(self, ids: &mut crate::api::HashSet<i32>) {
+    fn collect_subplan_ids(self, ids: &mut crate::api::HashSet<i32>) {
         self.visit(|node| {
-            if let Some(subplan) = nodecast!(SubPlan, T_SubPlan, node) {
-                ids.insert((*subplan).plan_id);
+            if let Some(subplan) = unsafe { nodecast!(SubPlan, T_SubPlan, node) } {
+                ids.insert(unsafe { (*subplan).plan_id });
             }
         });
     }
 
-    unsafe fn contains_type(self, tag: pg_sys::NodeTag) -> bool {
-        self.any(|node| (*node).type_ == tag)
+    fn contains_type(self, tag: pg_sys::NodeTag) -> bool {
+        self.any(|node| unsafe { (*node).type_ } == tag)
     }
 
-    unsafe fn contains_var(self) -> bool {
+    fn contains_var(self) -> bool {
         self.contains_type(pg_sys::NodeTag::T_Var)
     }
 
-    unsafe fn contains_param(self) -> bool {
+    fn contains_param(self) -> bool {
         self.contains_type(pg_sys::NodeTag::T_Param)
     }
 
-    unsafe fn contains_aggref(self) -> bool {
+    fn contains_aggref(self) -> bool {
         self.contains_type(pg_sys::NodeTag::T_Aggref)
     }
 
-    unsafe fn contains_window_func(self) -> bool {
+    fn contains_window_func(self) -> bool {
         self.contains_type(pg_sys::NodeTag::T_WindowFunc)
     }
 
-    unsafe fn contains_param_kind(self, kind: pg_sys::ParamKind::Type) -> bool {
+    fn contains_param_kind(self, kind: pg_sys::ParamKind::Type) -> bool {
         self.any(|node| {
-            nodecast!(Param, T_Param, node).is_some_and(|param| (*param).paramkind == kind)
+            unsafe { nodecast!(Param, T_Param, node) }
+                .is_some_and(|param| unsafe { (*param).paramkind } == kind)
         })
     }
 
-    unsafe fn contains_exec_param(self) -> bool {
+    fn contains_exec_param(self) -> bool {
         self.contains_param_kind(pg_sys::ParamKind::PARAM_EXEC)
     }
 
     /// Prepared-statement parameters are bound when a generic plan executes.
-    unsafe fn contains_extern_param(self) -> bool {
+    fn contains_extern_param(self) -> bool {
         self.contains_param_kind(pg_sys::ParamKind::PARAM_EXTERN)
     }
 
     /// Correlated PARAM_EXEC values are not supplied by an init plan.
-    unsafe fn contains_correlated_param(self, root: *mut pg_sys::PlannerInfo) -> bool {
+    fn contains_correlated_param(self, root: *mut pg_sys::PlannerInfo) -> bool {
         assert!(!root.is_null(), "planner root must not be null");
+        let root = unsafe { &*root };
         self.any(|node| {
-            nodecast!(Param, T_Param, node).is_some_and(|param| {
-                (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
-                    && !PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+            unsafe { nodecast!(Param, T_Param, node) }.is_some_and(|param| {
+                let param = unsafe { &*param };
+                param.paramkind == pg_sys::ParamKind::PARAM_EXEC
+                    && !unsafe { PgList::<pg_sys::SubPlan>::from_pg(root.init_plans) }
                         .iter_ptr()
-                        .any(|subplan| {
-                            pg_sys::list_member_int((*subplan).setParam, (*param).paramid)
+                        .any(|subplan| unsafe {
+                            pg_sys::list_member_int((*subplan).setParam, param.paramid)
                         })
             })
         })
     }
 
-    unsafe fn contains_relation_reference(self, target_rti: pg_sys::Index) -> bool {
+    fn contains_relation_reference(self, target_rti: pg_sys::Index) -> bool {
         self.any(|node| {
-            nodecast!(Var, T_Var, node)
-                .is_some_and(|var| (*var).varno as pg_sys::Index == target_rti)
+            unsafe { nodecast!(Var, T_Var, node) }
+                .is_some_and(|var| unsafe { (*var).varno } as pg_sys::Index == target_rti)
         })
     }
 
-    unsafe fn contains_functions(self, funcids: &[pg_sys::Oid]) -> bool {
+    fn contains_functions(self, funcids: &[pg_sys::Oid]) -> bool {
         self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node)
-                .is_some_and(|expr| funcids.contains(&(*expr).funcid))
+            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+                .is_some_and(|expr| funcids.contains(&unsafe { (*expr).funcid }))
         })
     }
 
-    unsafe fn contains_operators(self, opnos: &[pg_sys::Oid]) -> bool {
+    fn contains_operators(self, opnos: &[pg_sys::Oid]) -> bool {
         self.any(|node| {
-            nodecast!(OpExpr, T_OpExpr, node).is_some_and(|expr| opnos.contains(&(*expr).opno))
+            unsafe { nodecast!(OpExpr, T_OpExpr, node) }
+                .is_some_and(|expr| opnos.contains(&unsafe { (*expr).opno }))
         })
     }
 
-    unsafe fn contains_paradedb_operator(self) -> bool {
+    fn contains_paradedb_operator(self) -> bool {
         self.any(|node| {
-            nodecast!(OpExpr, T_OpExpr, node)
-                .is_some_and(|expr| is_paradedb_search_operator((*expr).opno))
+            unsafe { nodecast!(OpExpr, T_OpExpr, node) }
+                .is_some_and(|expr| is_paradedb_search_operator(unsafe { (*expr).opno }))
         })
     }
 
-    unsafe fn contains_unnest(self) -> bool {
+    fn contains_unnest(self) -> bool {
         self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node).is_some_and(|expr| is_unnest_func((*expr).funcid))
+            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+                .is_some_and(|expr| is_unnest_func(unsafe { (*expr).funcid }))
         })
     }
 
-    unsafe fn is_complex(self) -> bool;
+    fn is_complex(self) -> bool;
 }
 
 impl<T: pg_sys::PgNode> NodeExt for *mut T {
-    unsafe fn is_complex(self) -> bool {
-        self.any(|node| {
+    fn is_complex(self) -> bool {
+        self.any(|node| unsafe {
             nodecast!(Var, T_Var, node).is_some() || nodecast!(Param, T_Param, node).is_some()
-        }) || pg_sys::contain_volatile_functions(self.cast())
+        }) || unsafe { pg_sys::contain_volatile_functions(self.cast()) }
     }
 
-    unsafe fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, mut visitor: F) -> bool {
+    fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, mut visitor: F) -> bool {
         #[pg_guard]
         unsafe extern "C-unwind" fn walker<F: FnMut(*mut pg_sys::Node) -> WalkControl>(
             node: *mut pg_sys::Node,
@@ -253,7 +258,7 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
             }
         }
 
-        walker::<F>(self.cast(), std::ptr::from_mut(&mut visitor).cast())
+        unsafe { walker::<F>(self.cast(), std::ptr::from_mut(&mut visitor).cast()) }
     }
 }
 
@@ -414,9 +419,7 @@ mod tests {
 
     #[pg_test(error = "planner root must not be null")]
     fn node_walk_rejects_null_planner_root() {
-        unsafe {
-            std::ptr::null_mut::<pg_sys::Node>().contains_correlated_param(std::ptr::null_mut());
-        }
+        std::ptr::null_mut::<pg_sys::Node>().contains_correlated_param(std::ptr::null_mut());
     }
 
     #[pg_test]

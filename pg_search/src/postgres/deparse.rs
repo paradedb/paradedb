@@ -52,7 +52,7 @@ pub fn deparse_expr(
     // clone and replace them with placeholder constants, then deparse
     // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
     // deparsed as "$N" by PostgreSQL's deparse_expression
-    let expr_to_deparse = if unsafe { expr.contains_exec_param() } {
+    let expr_to_deparse = if expr.contains_exec_param() {
         let cloned = unsafe { pg_sys::copyObjectImpl(expr.cast()) }.cast::<pg_sys::Node>();
         replace_exec_params_with_placeholders(cloned);
         cloned
@@ -70,7 +70,8 @@ pub fn deparse_expr(
     };
 
     // Collect all vars, extract varnos and remove duplicate varnos
-    let mut varnos = unsafe { expr_to_deparse.collect_nodes::<pg_sys::Var>() }
+    let mut varnos = expr_to_deparse
+        .collect_nodes::<pg_sys::Var>()
         .into_iter()
         .map(|var| unsafe { (*var).varno } as pg_sys::Index)
         .collect::<Vec<pg_sys::Index>>();
@@ -155,7 +156,7 @@ pub fn deparse_planner_expr(
     if root.is_null()
         || expr.is_null()
         || unsafe { (*root).parse.is_null() }
-        || unsafe { expr.contains_exec_param() }
+        || expr.contains_exec_param()
     {
         return None;
     }
@@ -222,33 +223,29 @@ unsafe fn deparse_with_single_relation(
 /// This allows deparse_expression to render them as `$N` instead of crashing.
 /// The expression should be cloned before calling this function.
 fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
-    unsafe {
-        node.visit(|node| {
-            if let Some(param) = nodecast!(Param, T_Param, node)
-                && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
-            {
-                (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
-                // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
-                (*param).paramid += 1;
-            }
-        })
-    };
+    node.visit(|node| unsafe {
+        if let Some(param) = nodecast!(Param, T_Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+        {
+            (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+            // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
+            (*param).paramid += 1;
+        }
+    });
 }
 
 /// Remap varnos in an expression tree from old_varno to new_varno
 fn remap_varnos(node: *mut pg_sys::Node, old_varno: pg_sys::Index, new_varno: pg_sys::Index) {
-    unsafe {
-        node.visit(|node| {
-            if let Some(var) = nodecast!(Var, T_Var, node) {
-                if (*var).varno as pg_sys::Index == old_varno {
-                    (*var).varno = new_varno as _;
-                }
-                if (*var).varnosyn as pg_sys::Index == old_varno {
-                    (*var).varnosyn = new_varno as _;
-                }
+    node.visit(|node| unsafe {
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            if (*var).varno as pg_sys::Index == old_varno {
+                (*var).varno = new_varno as _;
             }
-        })
-    };
+            if (*var).varnosyn as pg_sys::Index == old_varno {
+                (*var).varnosyn = new_varno as _;
+            }
+        }
+    });
 }
 
 /// Convert a PostgreSQL node to its raw AST string representation using `nodeToString`.

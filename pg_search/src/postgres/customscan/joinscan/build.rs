@@ -2187,39 +2187,42 @@ pub unsafe fn try_extract_equi_key(
 /// When an equivalence class contains a constant (`ec_has_const == true`), PostgreSQL's
 /// optimizer generates a `var = const` restriction for the base relation, pushing it down
 /// to the scan level (see `generate_base_implied_equalities_const` in `equivclass.c`).
-pub unsafe fn var_in_const_ec(
+pub fn var_in_const_ec(
     root: *mut pg_sys::PlannerInfo,
     target_rti: pg_sys::Index,
     target_attno: pg_sys::AttrNumber,
 ) -> Option<(*mut pg_sys::EquivalenceClass, *mut pg_sys::Node)> {
-    if root.is_null() || (*root).eq_classes.is_null() {
+    if root.is_null() || unsafe { (*root).eq_classes.is_null() } {
         return None;
     }
-    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    let root = unsafe { &*root };
+    let eq_classes = unsafe { PgList::<pg_sys::EquivalenceClass>::from_pg(root.eq_classes) };
     for eqc in eq_classes.iter_ptr() {
         let mut canonical = eqc;
-        while !canonical.is_null() && !(*canonical).ec_merged.is_null() {
-            canonical = (*canonical).ec_merged;
+        while !canonical.is_null() && unsafe { !(*canonical).ec_merged.is_null() } {
+            canonical = unsafe { (*canonical).ec_merged };
         }
-        if canonical.is_null() || (*canonical).ec_broken || !(*canonical).ec_has_const {
+        if canonical.is_null() || unsafe { (*canonical).ec_broken || !(*canonical).ec_has_const } {
             continue;
         }
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members);
+        let members =
+            unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members) };
         let mut var_matched = false;
         let mut const_expr: *mut pg_sys::Node = std::ptr::null_mut();
         for member in members.iter_ptr() {
-            if (*member).em_is_child {
+            let member = unsafe { &*member };
+            if member.em_is_child {
                 continue;
             }
-            if (*member).em_is_const && const_expr.is_null() {
-                const_expr = (*member).em_expr.cast();
+            if member.em_is_const && const_expr.is_null() {
+                const_expr = member.em_expr.cast();
             }
-            let node = strip_node_wrappers((*member).em_expr.cast());
-            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+            let node = strip_node_wrappers(member.em_expr.cast());
+            if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
                 continue;
             }
-            let var = node as *mut pg_sys::Var;
-            if (*var).varno as pg_sys::Index == target_rti && (*var).varattno == target_attno {
+            let var = unsafe { &*(node as *mut pg_sys::Var) };
+            if var.varno as pg_sys::Index == target_rti && var.varattno == target_attno {
                 var_matched = true;
             }
         }

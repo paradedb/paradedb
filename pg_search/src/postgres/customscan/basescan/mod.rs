@@ -436,7 +436,7 @@ pub(super) fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> 
         }
     }
 
-    unsafe { parse.targetList.contains_functions(&[window_agg_func_oid]) }
+    parse.targetList.contains_functions(&[window_agg_func_oid])
 }
 
 /// Classification of any set-returning function found in the target list,
@@ -1323,12 +1323,10 @@ impl CustomScan for BaseScan {
         builder.custom_state().snippet_funcoids = snippet_funcoids;
         builder.custom_state().snippets_funcoids = snippets_funcoids;
         builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-        builder.custom_state().need_scores = unsafe {
-            builder
-                .target_list()
-                .as_ptr()
-                .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti)
-        };
+        builder.custom_state().need_scores = builder
+            .target_list()
+            .as_ptr()
+            .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
 
         // Store join snippet predicates in the scan state
         builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();

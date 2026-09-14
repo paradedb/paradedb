@@ -1322,7 +1322,7 @@ pub fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::Tar
         return;
     }
 
-    for var_ptr in unsafe { expr.collect_nodes::<pg_sys::Var>() } {
+    for var_ptr in expr.collect_nodes::<pg_sys::Var>() {
         let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
         let varattno = unsafe { (*var_ptr).varattno };
 

@@ -537,8 +537,8 @@ pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<Wind
     let mut window_aggs = Vec::new();
     let target_entries = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(tlist) };
     for (idx, te) in target_entries.iter_ptr().enumerate() {
-        unsafe {
-            (*te).expr.visit(|node| {
+        let te = unsafe { &*te };
+        te.expr.visit(|node| unsafe {
             if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
                 && (*funcexpr).funcid == window_agg_procid
             {
@@ -564,8 +564,7 @@ pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<Wind
                     }
                 }
             }
-            })
-        };
+        });
     }
     window_aggs
 }

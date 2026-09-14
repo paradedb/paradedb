@@ -538,30 +538,28 @@ pub fn uses_snippets(
     snippet_positions_funcoids: [pg_sys::Oid; 2],
 ) -> Vec<SnippetType> {
     let mut snippet_types = Vec::new();
-    unsafe {
-        node.visit(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-                if let Some(snippet_type) =
-                    extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
-                {
-                    snippet_types.push(snippet_type);
-                }
-                if let Some(snippet_type) =
-                    extract_snippets(funcexpr, planning_rti, snippets_funcoids, attname_lookup)
-                {
-                    snippet_types.push(snippet_type);
-                }
-                if let Some(snippet_type) = extract_snippet_positions(
-                    funcexpr,
-                    planning_rti,
-                    snippet_positions_funcoids,
-                    attname_lookup,
-                ) {
-                    snippet_types.push(snippet_type);
-                }
+    node.visit(|node| unsafe {
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            if let Some(snippet_type) =
+                extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
+            {
+                snippet_types.push(snippet_type);
             }
-        })
-    };
+            if let Some(snippet_type) =
+                extract_snippets(funcexpr, planning_rti, snippets_funcoids, attname_lookup)
+            {
+                snippet_types.push(snippet_type);
+            }
+            if let Some(snippet_type) = extract_snippet_positions(
+                funcexpr,
+                planning_rti,
+                snippet_positions_funcoids,
+                attname_lookup,
+            ) {
+                snippet_types.push(snippet_type);
+            }
+        }
+    });
     snippet_types
 }
 

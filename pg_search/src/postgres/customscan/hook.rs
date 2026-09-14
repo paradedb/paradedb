@@ -517,7 +517,7 @@ fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     let parse = unsafe { &*parse };
 
     // Check the current query's target list
-    if !parse.targetList.is_null() && unsafe { parse.targetList.contains_window_func() } {
+    if !parse.targetList.is_null() && parse.targetList.contains_window_func() {
         return true;
     }
 

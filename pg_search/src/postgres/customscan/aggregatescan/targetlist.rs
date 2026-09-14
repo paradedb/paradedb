@@ -141,15 +141,8 @@ impl CustomScanClause<AggregateScan> for TargetList {
             {
                 Some(field_name.into_inner())
             } else {
-                unsafe {
-                    find_matching_fast_field(
-                        actual_expr,
-                        &index_expressions,
-                        schema.clone(),
-                        heap_rti,
-                    )
-                }
-                .map(|ff| ff.name())
+                find_matching_fast_field(actual_expr, &index_expressions, schema.clone(), heap_rti)
+                    .map(|ff| ff.name())
             };
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
@@ -169,7 +162,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 if !found {
                     return Err(format!("Field '{}' is not a grouping column", field_name).into());
                 }
-            } else if let Some(aggref) = unsafe { expr.find_single_node::<pg_sys::Aggref>() } {
+            } else if let Some(aggref) = expr.find_single_node::<pg_sys::Aggref>() {
                 // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                 // TODO: Support DISTINCT
                 if unsafe { !(*aggref).aggdistinct.is_null() } {

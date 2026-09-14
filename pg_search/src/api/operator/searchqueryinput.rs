@@ -84,18 +84,16 @@ pub fn query_input_restrict(
     _var_relid: i32,
 ) -> f64 {
     assert!(operator_oid == anyelement_query_input_opoid());
-    unsafe {
-        query_input_selectivity(
-            planner_info
-                .unwrap()
-                .map_or(std::ptr::null_mut(), |datum| datum.cast_mut_ptr()),
-            args.unwrap()
-                .map_or(std::ptr::null_mut(), |datum| datum.cast_mut_ptr()),
-        )
-    }
+    query_input_selectivity(
+        planner_info
+            .unwrap()
+            .map_or(std::ptr::null_mut(), |datum| datum.cast_mut_ptr()),
+        args.unwrap()
+            .map_or(std::ptr::null_mut(), |datum| datum.cast_mut_ptr()),
+    )
 }
 
-pub(super) unsafe fn query_input_selectivity(
+pub(super) fn query_input_selectivity(
     planner_info: *mut pg_sys::PlannerInfo,
     args: *mut pg_sys::List,
 ) -> f64 {
@@ -103,23 +101,26 @@ pub(super) unsafe fn query_input_selectivity(
         return UNKNOWN_SELECTIVITY;
     }
 
-    let args = PgList::<pg_sys::Node>::from_pg(args);
-    let Some(var) = args.get_ptr(0).and_then(|lhs| nodecast!(Var, T_Var, lhs)) else {
+    let args = unsafe { PgList::<pg_sys::Node>::from_pg(args) };
+    let Some(var) = args
+        .get_ptr(0)
+        .and_then(|lhs| unsafe { nodecast!(Var, T_Var, lhs) })
+    else {
         return UNKNOWN_SELECTIVITY;
     };
     let Some(rhs) = args.get_ptr(1) else {
         return UNKNOWN_SELECTIVITY;
     };
 
-    let selectivity = match (*rhs).type_ {
+    let selectivity = match unsafe { (*rhs).type_ } {
         pg_sys::NodeTag::T_Const => {
-            let const_ = rhs.cast::<pg_sys::Const>();
-            let (heaprelid, _, _) = find_var_relation(var, planner_info);
+            let const_ = unsafe { &*rhs.cast::<pg_sys::Const>() };
+            let (heaprelid, _, _) = unsafe { find_var_relation(var, planner_info) };
             let Some((_, indexrel)) = rel_get_bm25_index(heaprelid) else {
                 return UNKNOWN_SELECTIVITY;
             };
             let Some(search_query_input) =
-                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                (unsafe { SearchQueryInput::from_datum(const_.constvalue, const_.constisnull) })
             else {
                 return UNKNOWN_SELECTIVITY;
             };

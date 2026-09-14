@@ -401,10 +401,7 @@ unsafe fn try_pushdown_jsonb_exists(
 
 /// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
 fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
-    if node.is_null()
-        || unsafe { pg_sys::exprType(node) } != pg_sys::BOOLOID
-        || unsafe { node.is_complex() }
-    {
+    if node.is_null() || unsafe { pg_sys::exprType(node) } != pg_sys::BOOLOID || node.is_complex() {
         return None;
     }
 

@@ -20,15 +20,27 @@ SET paradedb.enable_custom_scan_without_operator = false;
 SET paradedb.enable_filter_pushdown = true;
 SET paradedb.enable_join_custom_scan = true;
 SET max_parallel_workers_per_gather = 0;
-EXPLAIN (COSTS OFF, TIMING OFF)
+-- Serialized expression hashes can differ between PostgreSQL builds.
+CREATE FUNCTION pg_temp.issue_6337_explain(query text) RETURNS SETOF text
+LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, 'pdb_eval_expr_opexpr_[0-9a-f]{8}', 'pdb_eval_expr_opexpr_HASH', 'g');
+    END LOOP;
+END;
+$$;
+SELECT * FROM pg_temp.issue_6337_explain($query$
 SELECT u.id, u.name FROM scalar_uuid_users u
 JOIN scalar_uuid_products p ON u.id = p.id
 JOIN scalar_uuid_orders o ON p.id = o.id
 WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
   AND u.id @@@ pdb.all()
-ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2
+$query$) AS "QUERY PLAN";
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (u INNER p) INNER o
    Join Cond: p.id = o.id, u.id = o.id, u.id = p.id
@@ -43,8 +55,8 @@ ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
      :       VisibilityFilterExec: tables=[u, p, o]
      :         TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1), (id@1, id@1)]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=id@0 < 4 OR pdb_eval_expr_opexpr_f560a0b2(CAST(uuid@1 AS Utf8)), projection=[ctid_0@3, id@4, ctid_1@0, id@1]
-     :               FilterExec: id@1 < 4 OR pdb_eval_expr_opexpr_f560a0b2(CAST(uuid@2 AS Utf8))
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=id@0 < 4 OR pdb_eval_expr_opexpr_HASH(CAST(uuid@1 AS Utf8)), projection=[ctid_0@3, id@4, ctid_1@0, id@1]
+     :               FilterExec: id@1 < 4 OR pdb_eval_expr_opexpr_HASH(CAST(uuid@2 AS Utf8))
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=1, query="all"
      :               CooperativeExec
@@ -78,6 +90,7 @@ ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
   4 | bob
 (2 rows)
 
+DROP FUNCTION pg_temp.issue_6337_explain(text);
 DROP TABLE scalar_uuid_users, scalar_uuid_products, scalar_uuid_orders;
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;

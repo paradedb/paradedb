@@ -17,12 +17,6 @@
 
 use crate::api::operator::is_paradedb_search_operator;
 use crate::nodecast;
-use crate::postgres::customscan::basescan::projections::snippet::{
-    snippet_funcoids, snippet_positions_funcoids,
-};
-use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
-use crate::postgres::customscan::joinscan::build::JoinSource;
-use crate::postgres::customscan::score_funcoids;
 use crate::postgres::utils::is_unnest_func;
 use pgrx::{PgList, pg_guard, pg_sys};
 use std::collections::HashSet;
@@ -84,10 +78,17 @@ pub(crate) trait NodeExt: Copy {
     }
 
     unsafe fn find_single_node<T: pg_sys::PgNode>(self) -> Option<*mut T> {
-        match self.collect_nodes::<T>().as_slice() {
-            [node] => Some(*node),
-            _ => None,
-        }
+        let mut found = None;
+        let multiple = self.walk(|node| {
+            if T::CAST_TAGS.contains(&(*node).type_) {
+                if found.is_some() {
+                    return WalkControl::Break;
+                }
+                found = Some(node.cast());
+            }
+            WalkControl::Continue
+        });
+        if multiple { None } else { found }
     }
 
     unsafe fn collect_nodes<T: pg_sys::PgNode>(self) -> Vec<*mut T> {
@@ -178,6 +179,7 @@ pub(crate) trait NodeExt: Copy {
 
     /// Correlated PARAM_EXEC values are not supplied by an init plan.
     unsafe fn contains_correlated_param(self, root: *mut pg_sys::PlannerInfo) -> bool {
+        assert!(!root.is_null(), "planner root must not be null");
         self.any(|node| {
             nodecast!(Param, T_Param, node).is_some_and(|param| {
                 (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
@@ -223,91 +225,16 @@ pub(crate) trait NodeExt: Copy {
         })
     }
 
-    unsafe fn contains_score(self) -> bool {
-        self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node)
-                .is_some_and(|expr| score_funcoids().contains(&(*expr).funcid))
-        })
-    }
-
-    unsafe fn contains_score_for_relation(
-        self,
-        score_funcoids: [pg_sys::Oid; 2],
-        rti: pg_sys::Index,
-    ) -> bool {
-        self.any(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && score_funcoids.contains(&(*funcexpr).funcid)
-            {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                assert!(args.len() == 1, "score function must have 1 argument");
-                return nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                    .is_some_and(|var| (*var).varno == rti as i32);
-            }
-            false
-        })
-    }
-
-    unsafe fn contains_score_from(self, source: &JoinSource) -> bool {
-        let funcoids = score_funcoids();
-        self.any(|node| {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
-                && funcoids.contains(&(*funcexpr).funcid)
-            {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                return args.len() == 1
-                    && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
-                        .is_some_and(|var| source.contains_rti((*var).varno as pg_sys::Index));
-            }
-            false
-        })
-    }
-
-    unsafe fn maybe_needs_const_projections(self) -> bool {
-        let score_funcoids = score_funcoids();
-        let snippet_funcoids = snippet_funcoids();
-        let snippet_positions_funcoids = snippet_positions_funcoids();
-        self.any(|node| {
-            nodecast!(FuncExpr, T_FuncExpr, node).is_some_and(|expr| {
-                score_funcoids.contains(&(*expr).funcid)
-                    || snippet_funcoids.contains(&(*expr).funcid)
-                    || snippet_positions_funcoids.contains(&(*expr).funcid)
-            })
-        })
-    }
-
-    unsafe fn has_unsupported_collation(self) -> bool {
-        self.any(|node| {
-            let Some(op_expr) = nodecast!(OpExpr, T_OpExpr, node) else {
-                return false;
-            };
-            let collid = (*op_expr).inputcollid;
-            if collid == pg_sys::Oid::INVALID {
-                return false;
-            }
-            let op_name_ptr = pg_sys::get_opname((*op_expr).opno);
-            (!op_name_ptr.is_null())
-                .then(|| std::ffi::CStr::from_ptr(op_name_ptr).to_str().ok())
-                .flatten()
-                .and_then(|op_str| match op_str {
-                    "=" | "<>" | "!=" => Some(CollationOperation::Equality),
-                    "<" | "<=" | ">" | ">=" => Some(CollationOperation::Ordering),
-                    _ => None,
-                })
-                .is_some_and(|op_type| !collation_supports(collid, op_type))
-        })
-    }
-
-    unsafe fn is_complex(self) -> bool {
-        self.any(|node| {
-            nodecast!(Var, T_Var, node).is_some()
-                || nodecast!(Param, T_Param, node).is_some()
-                || pg_sys::contain_volatile_functions(node)
-        })
-    }
+    unsafe fn is_complex(self) -> bool;
 }
 
 impl<T: pg_sys::PgNode> NodeExt for *mut T {
+    unsafe fn is_complex(self) -> bool {
+        self.any(|node| {
+            nodecast!(Var, T_Var, node).is_some() || nodecast!(Param, T_Param, node).is_some()
+        }) || pg_sys::contain_volatile_functions(self.cast())
+    }
+
     unsafe fn walk<F: FnMut(*mut pg_sys::Node) -> WalkControl>(self, mut visitor: F) -> bool {
         #[pg_guard]
         unsafe extern "C-unwind" fn walker<F: FnMut(*mut pg_sys::Node) -> WalkControl>(
@@ -482,6 +409,32 @@ mod tests {
             assert!(!param.contains_correlated_param(root.as_ptr()));
             (*param).paramid = 8;
             assert!(param.contains_correlated_param(root.as_ptr()));
+        }
+    }
+
+    #[pg_test(error = "planner root must not be null")]
+    fn node_walk_rejects_null_planner_root() {
+        unsafe {
+            std::ptr::null_mut::<pg_sys::Node>().contains_correlated_param(std::ptr::null_mut());
+        }
+    }
+
+    #[pg_test]
+    fn node_walk_complexity_detects_nested_volatile_functions() {
+        unsafe {
+            let mut func = PgBox::<pg_sys::FuncExpr>::alloc_node(pg_sys::NodeTag::T_FuncExpr);
+            func.funcid = pg_sys::F_CLOCK_TIMESTAMP.into();
+            let func = func.into_pg();
+            let target = pg_sys::makeTargetEntry(func.cast(), 1, std::ptr::null_mut(), false);
+            assert!(func.is_complex());
+            assert!(target.is_complex());
+            (*func).funcid = pg_sys::F_NOW.into();
+            assert!(!target.is_complex());
+            assert!(!std::ptr::null_mut::<pg_sys::Node>().is_complex());
+            let (tree, _) = expression_tree();
+            assert!(tree.is_complex());
+            let param = PgBox::<pg_sys::Param>::alloc_node(pg_sys::NodeTag::T_Param);
+            assert!(param.as_ptr().is_complex());
         }
     }
 

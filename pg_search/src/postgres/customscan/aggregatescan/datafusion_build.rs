@@ -38,6 +38,7 @@ use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
     wrap_with_semi_anti,
 };
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
     ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
     resolve_index_field_by_name,

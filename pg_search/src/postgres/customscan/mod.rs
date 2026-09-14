@@ -20,6 +20,7 @@
 #![allow(clippy::tabs_in_doc_comments)]
 
 use crate::postgres::node::NodeExt;
+
 use parking_lot::Mutex;
 use pgrx::{IntoDatum, PgList, PgMemoryContexts, direct_function_call, pg_sys};
 
@@ -42,6 +43,7 @@ mod hook;
 pub mod joinscan;
 pub mod limit_offset;
 pub mod mpp;
+pub(crate) mod node;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;

@@ -672,7 +672,7 @@ impl JoinScan {
             .with_distinct(has_distinct);
 
         for source in join_clause.plan.sources_mut() {
-            let score_in_tlist = (*root).processed_tlist.contains_score_from(source);
+            let score_in_tlist = source.contains_score((*root).processed_tlist.cast());
             let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
             if score_in_tlist || score_in_pathkey {
                 ensure_score_bubbling(source);

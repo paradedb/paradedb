@@ -30,8 +30,8 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::score_funcoids;
-use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,

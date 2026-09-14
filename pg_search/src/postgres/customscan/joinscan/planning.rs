@@ -33,6 +33,7 @@ use super::predicate::{
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
 
 use crate::api::operator::expr_contains_search_predicate;
@@ -2360,7 +2361,7 @@ pub(super) unsafe fn pathkey_uses_scores_from_source(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            if expr.contains_score_from(source) {
+            if source.contains_score(expr.cast()) {
                 return true;
             }
         }

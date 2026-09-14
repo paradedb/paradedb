@@ -31,6 +31,7 @@ use super::build::{JoinLevelExpr, JoinSource, RelNode, ScanInfo};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;

@@ -24,6 +24,7 @@ pub mod projections;
 mod scan_state;
 pub(crate) mod telemetry;
 
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
 use cost::{
     CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,

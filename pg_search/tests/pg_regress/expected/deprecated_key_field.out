@@ -28,7 +28,7 @@ SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id 
 
 DROP INDEX deprecated_key_field_idx;
 CREATE INDEX deprecated_key_field_idx ON deprecated_key_field USING paradedb (description);
-SELECT * FROM deprecated_key_field WHERE description @@@ 'keyboard' ORDER BY id NULLS FIRST;
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
  id | description 
 ----+-------------
     | keyboard

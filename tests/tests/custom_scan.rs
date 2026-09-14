@@ -574,7 +574,7 @@ fn without_operator_guc(mut conn: PgConnection) {
         // And that a plan which does use our operator is not affected by the GUC.
         let uses_custom_scan = plan_uses_custom_scan(
             &mut conn,
-            "SELECT id FROM mock_items WHERE id @@@ pdb.term(1)",
+            "SELECT id FROM mock_items WHERE id @@@ pdb.all() AND id = 1",
         );
         assert!(
             uses_custom_scan,

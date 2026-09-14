@@ -30,12 +30,12 @@ SET work_mem TO '64MB';
 EXPLAIN
 SELECT users.name, users.color, users.age
 FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
-WHERE ((orders.id @@@ pdb.term(3)) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id @@@ pdb.term(3)))
+WHERE ((orders.id = 3) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id = 3))
 LIMIT 10;
 
 SELECT users.name, users.color, users.age
 FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
-WHERE ((orders.id @@@ pdb.term(3)) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id @@@ pdb.term(3)))
+WHERE ((orders.id = 3) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id = 3))
 LIMIT 10;
 
 -- Cleanup

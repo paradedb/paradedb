@@ -8,6 +8,8 @@ For a complete overview of ParadeDB's testing infrastructure (including unit tes
 
 Use `USING paradedb`, tokenizer casts for text/JSON configuration, and `===`, `###`, `|||`, or `&&&` for text searches. Non-text columns are columnar by default. Use `pdb.literal` or `pdb.literal_normalized` for columnar whole-value text; a word tokenizer with `columnar=true` preserves tokenized search when the same field also needs columnar access. `@@@` accepts explicit query builders such as `pdb.all()`, `pdb.more_like_this()`, and `pdb.parse()`.
 
+Use SQL comparisons such as `rating = 4` and `in_stock = true` for non-text scalar filters. Keep at least one ParadeDB operator in the query; add `id @@@ pdb.all()` when there is no text search. Explicit term-query tests remain for alias operands, array membership, ltree hierarchy matching, and executor paths that disable filter pushdown or index scans.
+
 The `deprecated_*` compatibility tests deliberately retain old syntax where current APIs cannot preserve the tested behavior:
 
 - JSON tokenizer casts change numeric JSON filter and term matching. The legacy JSON pushdown and aggregate cases retain their schema options.

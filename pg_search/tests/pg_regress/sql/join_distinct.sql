@@ -698,7 +698,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
@@ -706,7 +706,7 @@ LIMIT 10;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
@@ -716,7 +716,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
@@ -728,7 +728,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;
@@ -736,7 +736,7 @@ LIMIT 10;
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;
@@ -746,7 +746,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;

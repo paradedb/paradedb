@@ -154,7 +154,7 @@ fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
           COUNT(distinct expected_payments.currency) as currency_count, 
           (ARRAY_AGG(distinct expected_payments.currency))[1] as currency 
         FROM expected_payments
-        WHERE expected_payments.live_mode @@@ pdb.term(true)
+        WHERE expected_payments.live_mode = true
           AND expected_payments.status === ARRAY['unreconciled', 'partially_reconciled']
           AND expected_payments.discarded_at IS NULL 
         LIMIT 1
@@ -186,7 +186,7 @@ fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
           COUNT(distinct expected_payments.currency) as currency_count, 
           (ARRAY_AGG(distinct expected_payments.currency))[1] as currency 
         FROM expected_payments
-        WHERE expected_payments.live_mode @@@ pdb.term(true)
+        WHERE expected_payments.live_mode = true
           AND expected_payments.status === ARRAY['unreconciled', 'partially_reconciled']
           AND expected_payments.discarded_at IS NULL 
         LIMIT 1

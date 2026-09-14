@@ -75,7 +75,7 @@ GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
 -- Selective filter: only a few rows match, so few groups are possible even
 -- though cat has 50 distinct values overall — stays on the fast Tantivy path.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.term(7) GROUP BY cat;
+SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() AND id = 7 GROUP BY cat;
 
 -- Low grouping cardinality (2 groups < cap): stays on Tantivy.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

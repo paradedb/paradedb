@@ -435,7 +435,7 @@ async fn test_parallel_rescan_does_not_double_scan(database: Db) -> Result<()> {
         FROM rescan_users CROSS JOIN rescan_products
         JOIN rescan_orders ON rescan_products.name = rescan_orders.name
         WHERE (rescan_users.name ||| 'bob')
-           OR ((rescan_users.id @@@ pdb.term(4)) AND ((rescan_orders.id @@@ pdb.term(4)) AND (rescan_products.age @@@ pdb.term(20))))
+           OR ((rescan_users.id @@@ pdb.all() AND rescan_users.id = 4) AND ((rescan_orders.id @@@ pdb.all() AND rescan_orders.id = 4) AND (rescan_products.id @@@ pdb.all() AND rescan_products.age = 20)))
     "#;
 
     if forced_parallel {

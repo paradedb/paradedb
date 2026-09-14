@@ -190,7 +190,7 @@ WHERE id IN (
     SELECT a_id
     FROM table_b
 )
-AND id @@@ pdb.term(1)
+AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
 
@@ -200,7 +200,7 @@ WHERE id IN (
     SELECT a_id
     FROM table_b
 )
-AND id @@@ pdb.term(1)
+AND id @@@ pdb.all() AND id = 1
 ORDER BY id ASC
 LIMIT 10;
 

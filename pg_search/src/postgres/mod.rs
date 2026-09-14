@@ -42,6 +42,7 @@ mod delete;
 pub mod deparse;
 pub mod insert;
 mod merge;
+pub(crate) mod node;
 pub mod options;
 mod ps_status;
 mod range;

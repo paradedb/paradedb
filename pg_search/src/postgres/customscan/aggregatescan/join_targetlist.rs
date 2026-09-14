@@ -32,7 +32,8 @@ use crate::api::{HashMap, SortDirection, pdb_agg_spec};
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::RelationAlias;
-use crate::postgres::var::{VarContext, find_one_aggref, find_one_var_and_fieldname};
+use crate::postgres::node::NodeExt;
+use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
 use pgrx::pg_sys;
@@ -319,16 +320,16 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     }
 }
 
-unsafe fn extract_timestamp_to_date_var(
+fn extract_timestamp_to_date_var(
     expr: *mut pg_sys::Node,
 ) -> Result<Option<*mut pg_sys::Var>, String> {
-    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_FuncExpr {
+    if expr.is_null() || unsafe { (*expr).type_ } != pg_sys::NodeTag::T_FuncExpr {
         return Ok(None);
     }
 
-    let fun_expr = expr.cast::<pg_sys::FuncExpr>();
+    let fun_expr = unsafe { &*expr.cast::<pg_sys::FuncExpr>() };
 
-    match (*fun_expr).funcid.to_u32() {
+    match fun_expr.funcid.to_u32() {
         pg_sys::F_DATE_TIMESTAMP => {}
         pg_sys::F_DATE_TIMESTAMPTZ => {
             return Err(
@@ -339,7 +340,7 @@ unsafe fn extract_timestamp_to_date_var(
         _ => return Ok(None),
     }
 
-    let args = PgList::<pg_sys::Node>::from_pg((*fun_expr).args);
+    let args = unsafe { PgList::<pg_sys::Node>::from_pg(fun_expr.args) };
 
     if args.len() != 1 {
         return Err("DATE(timestamp) grouping has an unexpected argument count".into());
@@ -349,13 +350,13 @@ unsafe fn extract_timestamp_to_date_var(
         .get_ptr(0)
         .ok_or_else(|| "DATE(timestamp) grouping has a missing argument".to_string())?;
 
-    if inner.is_null() || (*inner).type_ != pg_sys::NodeTag::T_Var {
+    if inner.is_null() || unsafe { (*inner).type_ } != pg_sys::NodeTag::T_Var {
         return Err("DATE(timestamp) grouping requires a bare timestamp column, casts and other expressions are not supported".into());
     }
 
     let var = inner.cast::<pg_sys::Var>();
 
-    if (*var).vartype != pg_sys::TIMESTAMPOID {
+    if unsafe { (*var).vartype } != pg_sys::TIMESTAMPOID {
         return Err(
             "DATE(timestamp) grouping requires a timestamp column, found a non-timestamp column"
                 .into(),
@@ -553,7 +554,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 numeric_scale,
                 transform: GroupingTransform::Identity,
             });
-        } else if let Some(aggref) = unsafe { find_one_aggref(expr as *mut pg_sys::Node) } {
+        } else if let Some(aggref) = expr.find_node::<pg_sys::Aggref>() {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
@@ -698,7 +699,7 @@ pub unsafe fn pdb_agg_route(
     let sources = collect_join_agg_sources(root, input_rel);
     let mut requests = HashMap::default();
     for (idx, expr) in shape.target_exprs().iter_ptr().enumerate() {
-        let Some(aggref) = (unsafe { find_one_aggref(expr as *mut pg_sys::Node) }) else {
+        let Some(aggref) = expr.find_node::<pg_sys::Aggref>() else {
             continue;
         };
         if !crate::api::is_agg_funcoid((*aggref).aggfnoid.to_u32()) {
@@ -801,7 +802,7 @@ unsafe fn extract_aggref_field_refs(
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
-        // Reject complex expressions like COALESCE(score, 0) - find_one_var
+        // Reject complex expressions like COALESCE(score, 0) - find_single_node
         // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
         // instead of the intended SUM(COALESCE(score, 0)).
         let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
@@ -956,14 +957,14 @@ unsafe fn extract_aggref_order_by(
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
 /// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
 /// so the caller can reject and fall back to native Postgres.
-pub(in crate::postgres::customscan) unsafe fn unwrap_to_var(
+pub(in crate::postgres::customscan) fn unwrap_to_var(
     mut node: *mut pg_sys::Node,
 ) -> Option<*mut pg_sys::Var> {
     while !node.is_null() {
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+                node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node };
             }
             _ => return None,
         }

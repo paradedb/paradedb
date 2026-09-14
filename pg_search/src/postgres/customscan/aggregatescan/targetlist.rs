@@ -25,57 +25,11 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::node::NodeExt;
 use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use pgrx::PgList;
 use pgrx::pg_sys;
-use std::ptr::addr_of_mut;
-
-/// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
-/// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
-/// Expressions like COUNT(*) + SUM(x) will return None since we can't handle multiple aggregates.
-pub(super) unsafe fn find_single_aggref_in_expr(
-    expr: *mut pg_sys::Node,
-) -> Option<*mut pg_sys::Aggref> {
-    use pgrx::pg_guard;
-
-    struct WalkerContext {
-        aggrefs: Vec<*mut pg_sys::Aggref>,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn aggref_walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = &mut *(context as *mut WalkerContext);
-
-        // Check if this node is an Aggref
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            ctx.aggrefs.push(node as *mut pg_sys::Aggref);
-            // Continue walking to find any other Aggrefs (don't stop early)
-        }
-
-        // Continue walking into child nodes
-        pg_sys::expression_tree_walker(node, Some(aggref_walker), context)
-    }
-
-    let mut context = WalkerContext {
-        aggrefs: Vec::new(),
-    };
-    aggref_walker(expr, addr_of_mut!(context).cast());
-
-    // Only return an Aggref if exactly one was found
-    if context.aggrefs.len() == 1 {
-        context.aggrefs.into_iter().next()
-    } else {
-        None
-    }
-}
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -178,88 +132,71 @@ impl CustomScanClause<AggregateScan> for TargetList {
         let index_expressions = index.index_expressions();
 
         for expr in target_list.iter_ptr() {
-            unsafe {
-                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+            let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-                let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
+            let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
 
-                let maybe_field_name = if let Some((_, field_name)) =
-                    find_one_var_and_fieldname(var_context, actual_expr)
-                {
-                    Some(field_name.into_inner())
-                } else {
-                    find_matching_fast_field(
-                        actual_expr,
-                        &index_expressions,
-                        schema.clone(),
-                        heap_rti,
-                    )
+            let maybe_field_name = if let Some((_, field_name)) =
+                unsafe { find_one_var_and_fieldname(var_context, actual_expr) }
+            {
+                Some(field_name.into_inner())
+            } else {
+                find_matching_fast_field(actual_expr, &index_expressions, schema.clone(), heap_rti)
                     .map(|ff| ff.name())
-                };
+            };
 
-                // Try to extract field name from the expression (handles both Var and JSON operators)
-                if let Some(field_name) = maybe_field_name {
-                    // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
-                    // Find which grouping column this is
-                    let mut found = false;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        // For JSON projections, the field_name will be like "metadata_json.value"
-                        // and gc.field_name should match
-                        if gc.field_name == field_name {
-                            entries.push(TargetListEntry::GroupingColumn(i));
-                            found = true;
-                            break;
-                        }
+            // Try to extract field name from the expression (handles both Var and JSON operators)
+            if let Some(field_name) = maybe_field_name {
+                // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
+                // Find which grouping column this is
+                let mut found = false;
+                for (i, gc) in grouping_columns.iter().enumerate() {
+                    // For JSON projections, the field_name will be like "metadata_json.value"
+                    // and gc.field_name should match
+                    if gc.field_name == field_name {
+                        entries.push(TargetListEntry::GroupingColumn(i));
+                        found = true;
+                        break;
                     }
-                    if !found {
-                        return Err(
-                            format!("Field '{}' is not a grouping column", field_name).into()
-                        );
-                    }
-                } else if let Some(aggref) = find_single_aggref_in_expr(expr as *mut pg_sys::Node) {
-                    // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
-                    // TODO: Support DISTINCT
-                    if !(*aggref).aggdistinct.is_null() {
-                        return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
-                    }
-
-                    let mut qual_state = QualExtractState::default();
-                    let aggregate = AggregateType::try_from(
-                        aggref,
-                        index,
-                        args.root,
-                        heap_rti,
-                        &mut qual_state,
-                    )
-                    .map_err(|error| error.to_string())?;
-                    uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
-
-                    // If we identified a pdb.agg() custom aggregate, we MUST handle it
-                    // via AggregateScan regardless of which operator is in the WHERE clause.
-                    // The placeholder pdb.agg() state function will error if PostgreSQL's
-                    // standard aggregate machinery tries to process it.
-                    if matches!(aggregate, AggregateType::Custom { .. }) {
-                        uses_our_operator = true;
-                    }
-
-                    if let Some(field_name) = aggregate.field_name() {
-                        if let Some(search_field) = schema.search_field(&field_name) {
-                            if !search_field.is_fast() {
-                                return Err(format!("Field '{}' is not fast", field_name).into());
-                            }
-                        } else {
-                            return Err(
-                                format!("Field '{}' not found in schema", field_name).into()
-                            );
-                        }
-                    }
-
-                    entries.push(TargetListEntry::Aggregate(aggregate));
-                } else {
-                    return Err(
-                        "Expression is neither a grouping column nor a single Aggref".into(),
-                    );
                 }
+                if !found {
+                    return Err(format!("Field '{}' is not a grouping column", field_name).into());
+                }
+            } else if let Some(aggref) = expr.find_single_node::<pg_sys::Aggref>() {
+                // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
+                // TODO: Support DISTINCT
+                if unsafe { !(*aggref).aggdistinct.is_null() } {
+                    return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
+                }
+
+                let mut qual_state = QualExtractState::default();
+                let aggregate = unsafe {
+                    AggregateType::try_from(aggref, index, args.root, heap_rti, &mut qual_state)
+                }
+                .map_err(|error| error.to_string())?;
+                uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
+
+                // If we identified a pdb.agg() custom aggregate, we MUST handle it
+                // via AggregateScan regardless of which operator is in the WHERE clause.
+                // The placeholder pdb.agg() state function will error if PostgreSQL's
+                // standard aggregate machinery tries to process it.
+                if matches!(aggregate, AggregateType::Custom { .. }) {
+                    uses_our_operator = true;
+                }
+
+                if let Some(field_name) = aggregate.field_name() {
+                    if let Some(search_field) = schema.search_field(&field_name) {
+                        if !search_field.is_fast() {
+                            return Err(format!("Field '{}' is not fast", field_name).into());
+                        }
+                    } else {
+                        return Err(format!("Field '{}' not found in schema", field_name).into());
+                    }
+                }
+
+                entries.push(TargetListEntry::Aggregate(aggregate));
+            } else {
+                return Err("Expression is neither a grouping column nor a single Aggref".into());
             }
         }
 

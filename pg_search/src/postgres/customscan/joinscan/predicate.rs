@@ -31,13 +31,12 @@ use super::build::{JoinLevelExpr, JoinSource, RelNode, ScanInfo};
 use crate::api::operator::{SearchPredicate, expr_contains_search_predicate};
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
-};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars};
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -84,7 +83,7 @@ pub unsafe fn transform_to_search_expr(
     let has_search_op = expr_contains_search_predicate(node);
 
     // Check which tables this expression references
-    let rtis = expr_collect_rtis(node);
+    let rtis = node.collect_rtis();
     let mut referenced_source_indices = Vec::new();
 
     for (i, source) in sources.iter().enumerate() {
@@ -96,7 +95,7 @@ pub unsafe fn transform_to_search_expr(
     /// Check if an expression consists purely of search predicates
     /// connected by boolean operations (AND, OR, NOT). Expressions containing
     /// non-search predicates (such as `NullTest`, comparisons, etc.) return false.
-    unsafe fn is_pure_search_expr(mut node: *mut pg_sys::Node) -> bool {
+    fn is_pure_search_expr(mut node: *mut pg_sys::Node) -> bool {
         if node.is_null() {
             return false;
         }
@@ -104,14 +103,14 @@ pub unsafe fn transform_to_search_expr(
         if node.is_null() {
             return false;
         }
-        if SearchPredicate::from_node(node).is_some() {
+        if unsafe { SearchPredicate::from_node(node) }.is_some() {
             return true;
         }
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_BoolExpr => {
-                let boolexpr = node as *mut pg_sys::BoolExpr;
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-                !args.is_empty() && args.iter_ptr().all(|arg| is_pure_search_expr(arg))
+                let boolexpr = unsafe { &*(node as *mut pg_sys::BoolExpr) };
+                let args = unsafe { PgList::<pg_sys::Node>::from_pg(boolexpr.args) };
+                !args.is_empty() && args.iter_ptr().all(is_pure_search_expr)
             }
             _ => false,
         }
@@ -279,7 +278,7 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
     sources: &[&JoinSource],
     plan: Option<&crate::postgres::customscan::joinscan::build::RelNode>,
 ) -> bool {
-    let vars = expr_collect_vars(node, false);
+    let vars = node.collect_var_refs(false);
 
     for var_ref in vars {
         let mut source_found = false;
@@ -377,7 +376,7 @@ pub unsafe fn resolve_join_conditions(
             continue;
         }
         if clause.is_null()
-            || contains_exec_param(clause.cast())
+            || clause.contains_exec_param()
             || !all_vars_are_fast_fields_recursive(clause.cast(), sources, None)
             || !PredicateTranslator::can_translate(Some(root), sources, clause.cast(), None)
         {
@@ -452,10 +451,7 @@ pub unsafe fn resolve_join_conditions(
         }
         if illegal_residuals.iter().any(|&ri| {
             let clause = (*ri).clause;
-            !clause.is_null()
-                && crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
-                    clause.cast(),
-                )
+            !clause.is_null() && clause.has_unsupported_collation()
         }) {
             return Err(super::JoinDeclineReason::new(
                 "JoinScan not used: join conditions on a nondeterministic collation are not supported",

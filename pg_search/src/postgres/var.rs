@@ -17,14 +17,13 @@
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet};
 use crate::customscan::operator_oid;
-use crate::nodecast;
+use crate::postgres::node::NodeExt;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
-use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var, expression_tree_walker};
+use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::{AnyNumeric, PgOid};
-use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_guard, pg_sys};
+use pgrx::{FromDatum, PgList, PgRelation, is_a, pg_sys};
 use std::ffi::CStr;
-use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
 /// Operator OIDs
@@ -105,20 +104,20 @@ mod identity_ops {
 /// If nothing can be safely stripped, returns `expr` unchanged.
 ///
 /// Safe to call with a null pointer; returns null in that case.
-pub(crate) unsafe fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub(crate) fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if expr.is_null() {
             return expr;
         }
-        match (*expr).type_ {
+        match unsafe { (*expr).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::RelabelType)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_CoerceToDomain => {
-                expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
+                expr = unsafe { (*(expr as *mut pg_sys::CoerceToDomain)).arg } as *mut pg_sys::Node;
             }
             pg_sys::NodeTag::T_OpExpr => {
-                match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                match unsafe { try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) } {
                     Some(inner) => expr = inner,
                     None => return expr,
                 }
@@ -161,31 +160,34 @@ unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_
 ///
 /// `const_on_right` indicates whether the constant is the right operand.
 /// For non-commutative operators like `-` and `/`, the constant must be on the right.
-unsafe fn is_identity_operation(
+fn is_identity_operation(
     opno: pg_sys::Oid,
     konst: *mut pg_sys::Const,
     const_on_right: bool,
 ) -> bool {
-    if konst.is_null() || (*konst).constisnull {
+    if konst.is_null() || unsafe { (*konst).constisnull } {
         return false;
     }
+    let konst = unsafe { &*konst };
 
-    let Some(&op) = identity_ops::lookup().get(&opno) else {
+    let Some(&op) = unsafe { identity_ops::lookup() }.get(&opno) else {
         return false;
     };
 
     let const_is = |expected: i64| -> bool {
-        let datum = (*konst).constvalue;
-        let typoid = (*konst).consttype;
-        match typoid {
-            pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
-            pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
-            pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
-            pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
-            pg_sys::NUMERICOID => {
-                AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+        let datum = konst.constvalue;
+        let typoid = konst.consttype;
+        unsafe {
+            match typoid {
+                pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
+                pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
+                pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
+                pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+                pg_sys::NUMERICOID => {
+                    AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+                }
+                _ => false,
             }
-            _ => false,
         }
     };
 
@@ -229,9 +231,9 @@ pub(crate) unsafe fn resolve_rte_group_var(
 
     let group_exprs = PgList::<pg_sys::Node>::from_pg((*rte).groupexprs);
     let group_expr = group_exprs.get_ptr(varattno as usize - 1)?;
-    // find_one_var returns None if the expression contains multiple Vars (e.g., "a + b"),
+    // find_single_node returns None for multiple Vars (e.g., "a + b"),
     // which is correct: we can only resolve single-column GROUP BY references here.
-    let group_var = find_one_var(group_expr)?;
+    let group_var = group_expr.find_single_node::<pg_sys::Var>()?;
 
     Some(group_var)
 }
@@ -255,50 +257,53 @@ impl VarContext {
                 let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
                 (heaprelid, varattno)
             }
-            Self::Query(parse) => unsafe {
+            Self::Query(parse) => {
                 // Early return for null pointers
                 if var.is_null() || parse.is_null() {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, unsafe { (*var).varattno });
                 }
 
-                let query_ptr = *parse;
-                let varno = (*var).varno;
-                let rtable = (*query_ptr).rtable;
+                let var = unsafe { &*var };
+                let query = unsafe { &**parse };
+                let varno = var.varno;
+                let rtable = query.rtable;
 
                 // Early return for invalid rtable or varno
                 if rtable.is_null() || varno <= 0 {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, var.varattno);
                 }
 
-                let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
+                let rtable_list = unsafe { PgList::<pg_sys::RangeTblEntry>::from_pg(rtable) };
                 let rte_index = (varno - 1) as usize;
 
                 // Early return for out of bounds index
                 if rte_index >= rtable_list.len() {
-                    return (pg_sys::InvalidOid, (*var).varattno);
+                    return (pg_sys::InvalidOid, var.varattno);
                 }
 
-                let varattno = (*var).varattno;
+                let varattno = var.varattno;
                 let rte = match rtable_list.get_ptr(rte_index) {
                     Some(rte) => rte,
                     None => return (pg_sys::InvalidOid, varattno),
                 };
 
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
-                    return ((*rte).relid, varattno);
-                } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
-                    let subquery = (*rte).subquery;
+                let rtekind = unsafe { (*rte).rtekind };
+                if rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    return (unsafe { (*rte).relid }, varattno);
+                } else if rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
+                    let subquery = unsafe { (*rte).subquery };
                     if !subquery.is_null() {
+                        let subquery = unsafe { &*subquery };
                         let targetlist =
-                            PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
+                            unsafe { PgList::<pg_sys::TargetEntry>::from_pg(subquery.targetList) };
                         return find_targetlist_relation(&targetlist, varattno);
                     }
                 }
 
                 #[cfg(feature = "pg18")]
-                if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
+                if rtekind == pg_sys::RTEKind::RTE_GROUP {
                     // PG18: grouped Vars point at RTE_GROUP, not the base relation.
-                    if let Some(group_var) = resolve_rte_group_var(rte, varattno) {
+                    if let Some(group_var) = unsafe { resolve_rte_group_var(rte, varattno) } {
                         let (heaprelid, group_attno) = self.var_relation(group_var);
                         if heaprelid != pg_sys::InvalidOid {
                             return (heaprelid, group_attno);
@@ -307,7 +312,7 @@ impl VarContext {
                 }
 
                 (pg_sys::InvalidOid, varattno)
-            },
+            }
             Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
     }
@@ -434,61 +439,38 @@ pub unsafe fn find_var_relation(
     }
 }
 
-unsafe fn find_targetlist_relation(
+fn find_targetlist_relation(
     targetlist: &PgList<pg_sys::TargetEntry>,
     varattno: pg_sys::AttrNumber,
 ) -> (pg_sys::Oid, pg_sys::AttrNumber) {
     if varattno != 0 {
-        return pg_sys::get_tle_by_resno(targetlist.as_ptr(), varattno)
-            .as_ref()
-            .map(|entry| (entry.resorigtbl, entry.resorigcol))
-            .unwrap_or((pg_sys::InvalidOid, varattno));
+        unsafe {
+            return pg_sys::get_tle_by_resno(targetlist.as_ptr(), varattno)
+                .as_ref()
+                .map(|entry| (entry.resorigtbl, entry.resorigcol))
+                .unwrap_or((pg_sys::InvalidOid, varattno));
+        }
     }
 
     let mut source = None;
     for entry in targetlist.iter_ptr() {
-        if (*entry).resjunk || (*entry).resorigtbl == pg_sys::InvalidOid {
+        let entry = unsafe { &*entry };
+        if entry.resjunk || entry.resorigtbl == pg_sys::InvalidOid {
             continue;
         }
-        let Some(var) = find_one_var((*entry).expr.cast()) else {
-            return (pg_sys::InvalidOid, 0);
+        let var = unsafe {
+            let Some(var) = entry.expr.find_single_node::<pg_sys::Var>() else {
+                return (pg_sys::InvalidOid, 0);
+            };
+            &*var
         };
-        let origin = ((*entry).resorigtbl, (*var).varno, (*var).varlevelsup);
+        let origin = (entry.resorigtbl, var.varno, var.varlevelsup);
         if source.is_some_and(|source| source != origin) {
             return (pg_sys::InvalidOid, 0);
         }
         source = Some(origin);
     }
     (source.map_or(pg_sys::InvalidOid, |source| source.0), 0)
-}
-
-/// Find all the Vars referenced in the specified node
-pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let data = data.cast::<Data>();
-            (*data).vars.push(var);
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        vars: Vec<*mut pg_sys::Var>,
-    }
-
-    let mut data = Data { vars: Vec::new() };
-
-    walker(node, addr_of_mut!(data).cast());
-    data.vars
 }
 
 /// Given a [`pg_sys::Var`], attempt to find the [`FieldName`] that it references.
@@ -515,51 +497,6 @@ pub unsafe fn fieldname_from_var(
     }
 }
 
-/// Given a [`pg_sys::Node`], attempt to find the [`pg_sys::Var`] that it references.
-///
-/// If there is not exactly one Var in the node, then this function will return `None`.
-pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    let mut vars = find_vars(node);
-    if vars.len() == 1 {
-        Some(vars.pop().unwrap())
-    } else {
-        None
-    }
-}
-
-/// Find an `Aggref` node in an expression tree using Postgres's `expression_tree_walker`
-/// for robust traversal through all wrapper types (RelabelType, CoerceViaIO, FuncExpr, etc.).
-pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            (*(data as *mut Data)).found = node as *mut pg_sys::Aggref;
-            return true;
-        }
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    struct Data {
-        found: *mut pg_sys::Aggref,
-    }
-
-    let mut data = Data {
-        found: std::ptr::null_mut(),
-    };
-    walker(node, addr_of_mut!(data).cast());
-    if data.found.is_null() {
-        None
-    } else {
-        Some(data.found)
-    }
-}
-
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
 ///
@@ -575,14 +512,14 @@ pub unsafe fn find_one_var_and_fieldname(
             .get_or_init(|| initialize_json_operator_lookup())
             .contains(&(*opexpr).opno)
         {
-            let var = find_one_var(node)?;
+            let var = node.find_single_node::<pg_sys::Var>()?;
             let path = find_json_path(&context, node);
             return Some((var, path.join(".").into()));
         }
         None
     } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
         // Handle PostgreSQL 14+ bracket notation: json['key']
-        let var = find_one_var(node)?;
+        let var = node.find_single_node::<pg_sys::Var>()?;
         let path = find_json_path(&context, node);
         Some((var, path.join(".").into()))
     } else if is_a(node, T_Var) {

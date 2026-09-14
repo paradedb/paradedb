@@ -307,14 +307,12 @@ LIMIT 5;
                  :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
                  :     TantivyDecodeExec: decode=[title]
                  :       TantivyFetchExec: fetch=[title]
-                 :         VisibilityFilterExec: tables=[d, f]
-                 :           TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@2, ctid_0@1, ctid_1@4]
-                 :               CooperativeExec
-                 :                 PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-                 :               CooperativeExec
-                 :                 PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
-(23 rows)
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@1]
+                 :           CooperativeExec
+                 :             PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+                 :           CooperativeExec
+                 :             PgSearchScan: table=f, segments=2, dynamic_filters=2, visibility=eager, query="all"
+(21 rows)
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -560,14 +558,12 @@ LIMIT 5;
                  : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0]
                  :     TantivyDecodeExec: decode=[title]
-                 :       VisibilityFilterExec: tables=[d, f]
-                 :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@2, ctid_0@1, ctid_1@4]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-                 :             CooperativeExec
-                 :               PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
-(22 rows)
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[title@1]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"BETA_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, visibility=eager, query="all"
+(20 rows)
 
 SELECT f.title, COUNT(*)
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id

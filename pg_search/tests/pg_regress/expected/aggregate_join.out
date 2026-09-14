@@ -370,12 +370,14 @@ ORDER BY p.category;
          Aggregates: COUNT(DISTINCT)(tag_name)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+           :   TantivyDecodeExec: decode=[tag_name]
+           :     TantivyFetchExec: fetch=[tag_name]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
@@ -425,12 +427,14 @@ ORDER BY t.tag_name;
          Aggregates: COUNT(DISTINCT)(category)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tag_name@1 as tag_name], aggr=[count(DISTINCT p_0.category) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+           :   TantivyDecodeExec: decode=[tag_name]
+           :     TantivyFetchExec: fetch=[tag_name]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+           :         CooperativeExec
+           :           PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT t.tag_name, COUNT(DISTINCT p.category)
 FROM agg_join_products p
@@ -486,12 +490,14 @@ GROUP BY p.category;
    Aggregates: COUNT(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(t_1.tag_name) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(12 rows)
+     :   TantivyDecodeExec: decode=[tag_name]
+     :     TantivyFetchExec: fetch=[tag_name]
+     :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
 
 SELECT p.category, COUNT(t.tag_name)
 FROM agg_join_products p
@@ -554,12 +560,13 @@ ORDER BY t.tag_name;
          Aggregates: COUNT(category)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tag_name@0 as tag_name], aggr=[count(p_1.category) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(product_id@1, id@1)], projection=[tag_name@0, category@2]
-           :     CooperativeExec
-           :       PgSearchScan: table=t, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+           :   TantivyDecodeExec: decode=[tag_name]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(product_id@1, id@1)], projection=[tag_name@0, category@2]
+           :       CooperativeExec
+           :         PgSearchScan: table=t, segments=2, fetch=[tag_name], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag_name","query_string":"tech OR orphan_tag","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, eager=[category], dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
 
 SELECT t.tag_name, COUNT(p.category)
 FROM agg_join_products p
@@ -1123,12 +1130,14 @@ GROUP BY p.category;
    Aggregates: COUNT(DISTINCT)(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(DISTINCT t_1.tag_name) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(12 rows)
+     :   TantivyDecodeExec: decode=[tag_name]
+     :     TantivyFetchExec: fetch=[tag_name]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
 
 -- =====================================================================
 -- SECTION 13: Cross-table OR predicates (regression for generated_joins_small)
@@ -1378,12 +1387,14 @@ GROUP BY p.category;
    Aggregates: STRING_AGG(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(13 rows)
+     :   TantivyDecodeExec: decode=[tag_name]
+     :     TantivyFetchExec: fetch=[tag_name]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
 FROM agg_join_products p
@@ -1484,12 +1495,14 @@ WHERE p.description @@@ 'laptop OR shoes';
    Aggregates: COUNT(*), COUNT(category), COUNT(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(p_0.category) as agg_1, count(t_1.tag_name) as agg_2]
-     :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(12 rows)
+     :   TantivyDecodeExec: decode=[tag_name]
+     :     TantivyFetchExec: fetch=[tag_name]
+     :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
 
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
@@ -1563,13 +1576,15 @@ GROUP BY p.category;
    Aggregates: STRING_AGG(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[string_agg(t_1.tag_name, , ) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     SortExec: expr=[tag_name@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :       CooperativeExec
-     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+     :   SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     TantivyDecodeExec: decode=[tag_name]
+     :       TantivyFetchExec: fetch=[tag_name]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
 FROM agg_join_products p
@@ -1631,13 +1646,15 @@ GROUP BY p.category;
    Aggregates: ARRAY_AGG(tag_name)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[array_agg(t_1.tag_name) ORDER BY [t_1.tag_name ASC NULLS LAST] as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-     :     SortExec: expr=[tag_name@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :       CooperativeExec
-     :         PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(14 rows)
+     :   SortExec: expr=[tag_name@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     TantivyDecodeExec: decode=[tag_name]
+     :       TantivyFetchExec: fetch=[tag_name]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
 FROM agg_join_products p

@@ -159,12 +159,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
    Group By: title
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[]
-     :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
-     :     CooperativeExec
-     :       PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
-(12 rows)
+     :   TantivyDecodeExec: decode=[title]
+     :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
+     :       CooperativeExec
+     :         PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(13 rows)
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title
@@ -413,9 +414,10 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f,
      :     ┌───── Stage 3 ── tasks=2, partitions=6
      :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
      :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
-     :     │     HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
-     :     │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
-     :     │       [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │     TantivyDecodeExec: decode=[title]
+     :     │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
+     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
      :     └──────────────────────────────────────────────────
      :       ┌───── Stage 1 ── tasks=2, partitions=6
      :       │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=1

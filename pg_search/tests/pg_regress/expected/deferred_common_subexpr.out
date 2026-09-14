@@ -57,11 +57,11 @@ ORDER BY p.quantity;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[quantity@0 as quantity], aggr=[sum(p_1.age) as agg_0, count(1) as agg_1, count(p_1.price) as __pdb_m0, numeric64_sum(p_1.price, 2) as __pdb_m1]
            :   FilterExec: __common_expr_6@0 AND name@4 = bob OR name@4 IS NULL OR __common_expr_6@0, projection=[quantity@1, age@2, price@3]
-           :     ProjectionExec: expr=[color@6 = blue as __common_expr_6, quantity@1 as quantity, age@2 as age, price@3 as price, name@5 as name]
-           :       TantivyDecodeExec: decode=[name, color]
-           :         TantivyFetchExec: fetch=[name, color]
-           :           HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)]
-           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, id@0)], projection=[id@1, quantity@2, age@3, price@4]
+           :     ProjectionExec: expr=[color@5 = blue as __common_expr_6, quantity@0 as quantity, age@1 as age, price@3 as price, name@6 as name]
+           :       TantivyDecodeExec: decode=[color, name]
+           :         TantivyFetchExec: fetch=[color, name]
+           :           HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@2, id@0)]
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, id@2)], projection=[quantity@1, age@2, id@3, price@4]
            :               CooperativeExec
            :                 PgSearchScan: table=u, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"name"}}]}}
            :               CooperativeExec

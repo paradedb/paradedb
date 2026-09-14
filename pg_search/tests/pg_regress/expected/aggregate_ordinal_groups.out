@@ -253,7 +253,7 @@ ORDER BY p.category;
            : AggregateExec: mode=Final, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
            :   TantivyDecodeExec: decode=[category]
            :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, stars@3]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, stars@2]
            :         CooperativeExec
            :           PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
@@ -345,7 +345,7 @@ ORDER BY p.category;
            :   TantivyDecodeExec: decode=[category]
            :     AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, count(n_1.note) as agg_1]
            :       TantivyDecodeExec: decode=[note]
-           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(product_id@0, id@0)], projection=[category@3, note@1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(product_id@1, id@1)], projection=[category@2, note@0]
            :           CooperativeExec
            :             PgSearchScan: table=n, segments=1, fetch=[note], visibility=eager, query="all"
            :           CooperativeExec
@@ -536,7 +536,7 @@ ORDER BY p.category;
            : │     RepartitionExec: partitioning=Hash([category@0], 3), input_partitions=3
            : │       TantivyDecodeExec: decode=[category]
            : │         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
-           : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, stars@3]
+           : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, stars@2]
            : │             CoalescePartitionsExec
            : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
            : │             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1

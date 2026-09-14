@@ -122,6 +122,22 @@ FROM (
     GROUP BY f.id, f.title
 ) q;
 
+-- GUC on, but enough work_mem for the same plan to stay in memory: the spill file
+-- must never be created, so no warning is emitted.
+SET work_mem = '64MB';
+SELECT
+    COUNT(*) = 20000 AS all_groups_present,
+    COUNT(*) FILTER (
+        WHERE cnt <> 1 OR total_size <> ((id * 17) % 4096)
+    ) = 0 AS all_groups_correct
+FROM (
+    SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+    FROM spill_small_files f
+    JOIN spill_small_pages p ON f.id = p.file_id
+    WHERE f.content @@@ 'Section'
+    GROUP BY f.id, f.title
+) q;
+
 RESET work_mem;
 RESET paradedb.spill_to_disk;
 RESET client_min_messages;

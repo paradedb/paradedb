@@ -63,6 +63,8 @@ type JoinTreeResult = (RelNode, Vec<*mut pg_sys::Expr>);
 /// Result type for `build_search_filter`: the filter expression and raw PG Expr clause pointers.
 type SearchFilterResult = (JoinLevelExpr, Vec<*mut pg_sys::Expr>);
 
+use std::sync::OnceLock;
+
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
 pub struct JoinAggSource {
@@ -70,12 +72,10 @@ pub struct JoinAggSource {
     pub relid: pg_sys::Oid,
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
-    /// Eagerly populated attno -> fast-field mapping for this relation.
-    /// Built once in [`collect_join_agg_sources`] and used by
-    /// [`JoinAggSource::column_name`] during planning (such as aggregate
-    /// extraction) to resolve the BM25-registered field name for every heap
-    /// attno. Empty when the relation has no ParadeDB index.
-    pub fields: Vec<FieldInfo>,
+    /// Lazily populated attno -> fast-field mapping for this relation.
+    /// Filled on first access by [`JoinAggSource::column_name`]. Empty when the
+    /// relation has no ParadeDB index.
+    fields: OnceLock<Vec<FieldInfo>>,
 }
 
 impl JoinAggSource {
@@ -91,13 +91,18 @@ impl JoinAggSource {
     /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
     /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
-        self.fields
+        self.fields()
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
                 WhichFastField::Score | WhichFastField::Junk(_) => None,
                 _ => Some(f.field.name()),
             })
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        self.fields
+            .get_or_init(|| unsafe { collect_source_fields(self.relid, self.bm25_index.as_ref()) })
     }
 }
 
@@ -246,13 +251,12 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
-        let fields = collect_source_fields(relid, bm25_index.as_ref());
         sources.push(JoinAggSource {
             rti,
             relid,
             alias,
             bm25_index,
-            fields,
+            fields: OnceLock::new(),
         });
     }
 

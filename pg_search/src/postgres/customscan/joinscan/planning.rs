@@ -1650,6 +1650,9 @@ pub(super) unsafe fn collect_required_fields(
                 super::build::ChildProjection::Column { rti, attno }
                     if join_clause.has_distinct =>
                 {
+                    // Ensure plain columns in DISTINCT projections are present in the scan schema
+                    // even if omitted from `order_by` (e.g. when columns are equated in WHERE/JOIN
+                    // and merged into a single EquivalenceClass, or when constant-filtered).
                     ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
                 }
                 _ => {}

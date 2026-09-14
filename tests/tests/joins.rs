@@ -294,6 +294,12 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         explain.contains("ord@3") && explain.contains("ord@1"),
         "Expected both sort keys at distinct physical indices in plan:\n{explain}"
     );
+    // Regression guard: non-sort, non-join columns are deferred to PostgreSQL heap fetch
+    // via CTID and must appear as NULL in DataFusion's top ProjectionExec.
+    assert!(
+        explain.contains("NULL as col_3") && explain.contains("NULL as col_4"),
+        "Expected non-sort/non-join columns to be deferred as NULL:\n{explain}"
+    );
 
     type Row = (String, String, i32, i32);
 

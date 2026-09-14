@@ -1103,6 +1103,140 @@ LIMIT 50;
 (1 row)
 
 -- =============================================================================
+-- TEST 20: DISTINCT with column omitted from order_by / EquivalenceClass merging
+-- =============================================================================
+-- When DISTINCT projects multiple columns but one is omitted from ORDER BY pathkeys
+-- (e.g. equated columns merge into a single EquivalenceClass, or constant filter
+-- removes a column from distinct_pathkeys), all projected columns must still be
+-- included in the scan schema and correctly deduplicated.
+-- Sub-test A: Equated columns (p.name = s.name merges into one EquivalenceClass)
+SET paradedb.enable_aggregate_custom_scan = off;
+INSERT INTO dist_products (id, name, description, supplier_id, category_id, price)
+VALUES (211, 'TechCorp', 'Brand product with wireless technology', 151, 301, 49.99);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.name, s.name
+   ->  Unique
+         Output: p.name, s.name
+         ->  Sort
+               Output: p.name, s.name
+               Sort Key: p.name
+               ->  Hash Join
+                     Output: p.name, s.name
+                     Hash Cond: ((s.id = p.supplier_id) AND (s.name = p.name))
+                     ->  Seq Scan on public.dist_suppliers s
+                           Output: s.id, s.name, s.contact_info, s.country
+                     ->  Hash
+                           Output: p.name, p.supplier_id
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                 Output: p.name, p.supplier_id
+                                 Table: dist_products
+                                 Index: dist_products_bm25_idx
+                                 Worker Selection: Cost model
+                                 Exec Method: ColumnarExecState
+                                 Columnar: name, supplier_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+   name   | supplier_name 
+----------+---------------
+ TechCorp | TechCorp
+(1 row)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+   name   | supplier_name 
+----------+---------------
+ TechCorp | TechCorp
+(1 row)
+
+SET paradedb.enable_join_custom_scan = on;
+-- Sub-test B: Constant-filtered column (category_id = 301 is stripped from distinct_pathkeys)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+                                                                                                                              QUERY PLAN                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.name, p.category_id
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@1 as col_1, category_id@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, name@2, category_id@3, ctid_1@4]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"category_id","value":301}}]}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+       name       | category_id 
+------------------+-------------
+ Headphones       |         301
+ Keyboard         |         301
+ TechCorp         |         301
+ Wireless Charger |         301
+(4 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+       name       | category_id 
+------------------+-------------
+ Headphones       |         301
+ Keyboard         |         301
+ TechCorp         |         301
+ Wireless Charger |         301
+(4 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dist_products CASCADE;
@@ -1114,3 +1248,4 @@ DROP TABLE IF EXISTS profiles_positions CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;

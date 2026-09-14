@@ -1238,29 +1238,21 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, columns referenced by DISTINCT projections
-        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
+        // When DISTINCT is present, indexed expression projections and ORDER BY must be
+        // available early for DataFusion's AggregateExec and SortExec. Plain DISTINCT columns
+        // remain deferred, as DataFusion's LateMaterializationRule anchors a decode below
+        // the AggregateExec (after the join).
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {
-                    match proj {
-                        build::ChildProjection::IndexedExpression { rti, field_name } => {
-                            if source.contains_rti(*rti) {
-                                insert_field_name_required_early(
-                                    source,
-                                    field_name.as_ref(),
-                                    &mut required_early,
-                                );
-                            }
-                        }
-                        build::ChildProjection::Column { rti, attno } => {
-                            if source.contains_rti(*rti)
-                                && let Some(col_name) = source.column_name(*attno)
-                            {
-                                required_early.insert(col_name);
-                            }
-                        }
-                        _ => {}
+                    if let build::ChildProjection::IndexedExpression { rti, field_name } = proj
+                        && source.contains_rti(*rti)
+                    {
+                        insert_field_name_required_early(
+                            source,
+                            field_name.as_ref(),
+                            &mut required_early,
+                        );
                     }
                 }
             }

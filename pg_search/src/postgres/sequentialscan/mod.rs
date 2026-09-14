@@ -47,6 +47,16 @@ struct QueryCacheEntry {
     missing_values: Option<KeySet>,
 }
 
+impl QueryCacheEntry {
+    fn is_valid(&self) -> bool {
+        self.matches.is_valid()
+            && self
+                .missing_values
+                .as_ref()
+                .is_none_or(|missing_values| missing_values.is_valid())
+    }
+}
+
 #[derive(Default)]
 struct Cache {
     by_query: HashMap<Vec<u8>, QueryCacheEntry>,
@@ -158,24 +168,13 @@ pub fn search_with_query_input_ctid_or_row(
     let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
 
     let matcher = cache.inline_rows.entry(key).or_insert_with(|| {
-        let query = unsafe {
-            SearchQueryInput::from_datum(query_datum.into(), false)
-                .expect("the query argument cannot be NULL")
-        };
+        let query = unsafe { deserialize_query(query_datum) };
         let index_oid = query.index_oid().unwrap_or_else(|| {
             panic!("pg_search: could not determine the index to use for this query")
         });
-        unsafe {
-            pgrx::PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).switch_to(|_| {
-                RowMatcher::new(
-                    PgSearchRelation::with_lock(
-                        index_oid,
-                        pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-                    ),
-                    query,
-                )
-            })
-        }
+        let index_relation =
+            PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+        unsafe { build_row_matcher(fcinfo, index_relation, query) }
     });
 
     unsafe { matcher.matches(row) }
@@ -233,23 +232,18 @@ fn search_with_query_input_impl(
     let mut cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
     let key = unsafe { pgrx::varlena_to_byte_slice(query_datum).to_vec() };
-    if cache.by_query.get(&key).is_some_and(|entry| {
-        !entry.matches.is_valid()
-            || entry
-                .missing_values
-                .as_ref()
-                .is_some_and(|missing_values| !missing_values.is_valid())
-    }) {
+    if cache
+        .by_query
+        .get(&key)
+        .is_some_and(|entry| !entry.is_valid())
+    {
         cache.by_query.remove(&key);
     }
 
     let mut newly_built = false;
     let query_cache = cache.by_query.entry(key).or_insert_with(|| {
         newly_built = true;
-        let search_query_input = unsafe {
-            SearchQueryInput::from_datum(query_datum.into(), false)
-                .expect("the query argument cannot be NULL")
-        };
+        let search_query_input = unsafe { deserialize_query(query_datum) };
 
         // `empty()` cannot match any index document, including for a partial index.
         if matches!(&search_query_input, SearchQueryInput::Empty) {
@@ -265,107 +259,7 @@ fn search_with_query_input_impl(
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        let is_partial =
-            unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
-        let null_guard = index_relation
-            .schema()
-            .expect("a ParadeDB index must have a schema")
-            .null_guard(&search_query_input);
-        let is_match_all = search_query_input.is_match_all() && !is_partial;
-
-        // `all()` matches every document, but a partial index may not contain every table row.
-        if is_match_all && null_guard.is_none() {
-            return QueryCacheEntry {
-                matches: KeySet::All,
-                missing_values: None,
-            };
-        }
-
-        if ctid.is_none() {
-            let index_info = unsafe { &*index_relation.index_info() };
-            if is_partial
-                && index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize]
-                    .iter()
-                    .all(|&attno| attno == 0)
-            {
-                ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                    "searches on expression-only partial indexes require an index scan",
-                    function_name!(),
-                )
-                .set_hint("Add a directly indexed table column to support searches without an index scan.")
-                .report(PgLogLevel::ERROR);
-            }
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "search query requires row identity that is unavailable in this context",
-                function_name!(),
-            )
-            .set_hint("Apply the search operator in a table query. Use an ordinary SQL predicate to define a partial index.")
-            .report(PgLogLevel::ERROR);
-        }
-
-        // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
-        // materialize the match set and apply it as a per-row filter (the slow path).
-
-        let heap_relation = index_relation
-            .heap_relation()
-            .expect("a ParadeDB index must have a heap relation");
-        let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_relation, unsafe {
-            pg_sys::GetActiveSnapshot()
-        });
-        let mut cache_context = unsafe { PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt) };
-
-        // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
-        // `work_mem`), reused for every row of the scan.
-        let matches = if is_match_all {
-            KeySet::All
-        } else {
-            let search_reader = SearchIndexReader::open(
-                &index_relation,
-                search_query_input,
-                false,
-                MvccSatisfies::Snapshot,
-            )
-            .expect("search_with_query_input: should be able to open a SearchIndexReader");
-
-            unsafe { cache_context.switch_to(|_| search_reader.collect_ctidset(&mut visibility)) }
-        };
-
-        let missing_values = if let Some(null_guard) = null_guard {
-            // Collect rows where the field is absent (the complement of `exists`). Membership in
-            // this set means SQL NULL for negation semantics.
-            let complement_query = SearchQueryInput::WithIndex {
-                oid: index_oid,
-                query: Box::new(SearchQueryInput::Boolean {
-                    must: vec![SearchQueryInput::All],
-                    should: Default::default(),
-                    must_not: vec![null_guard],
-                    minimum_should_match: None,
-                }),
-            };
-
-            let complement_reader = SearchIndexReader::open(
-                &index_relation,
-                complement_query,
-                false,
-                MvccSatisfies::Snapshot,
-            )
-            .expect(
-                "search_with_query_input: should be able to open a complement SearchIndexReader",
-            );
-
-            Some(unsafe {
-                cache_context.switch_to(|_| complement_reader.collect_ctidset(&mut visibility))
-            })
-        } else {
-            None
-        };
-
-        QueryCacheEntry {
-            matches,
-            missing_values,
-        }
+        build_query_cache_entry(fcinfo, ctid, index_relation, search_query_input)
     });
 
     // Reaching this function at all means the search-operator predicate is being applied as a
@@ -403,4 +297,142 @@ fn search_with_query_input_impl(
     }
 
     result
+}
+
+/// Materialize the match sets for one concrete leaf index: the slow path behind the
+/// scalar operator, collecting matching CTIDs into a memory-bounded set that is reused
+/// for every row of the scan.
+fn build_query_cache_entry(
+    fcinfo: pg_sys::FunctionCallInfo,
+    ctid: Option<Ctid>,
+    index_relation: PgSearchRelation,
+    search_query_input: SearchQueryInput,
+) -> QueryCacheEntry {
+    let is_partial =
+        unsafe { !pg_sys::RelationGetIndexPredicate(index_relation.as_ptr()).is_null() };
+    let null_guard = index_relation
+        .schema()
+        .expect("a ParadeDB index must have a schema")
+        .null_guard(&search_query_input);
+    let is_match_all = search_query_input.is_match_all() && !is_partial;
+
+    // `all()` matches every document, but a partial index may not contain every table row.
+    if is_match_all && null_guard.is_none() {
+        return QueryCacheEntry {
+            matches: KeySet::All,
+            missing_values: None,
+        };
+    }
+
+    if ctid.is_none() {
+        let index_info = unsafe { &*index_relation.index_info() };
+        if is_partial
+            && index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize]
+                .iter()
+                .all(|&attno| attno == 0)
+        {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                "searches on expression-only partial indexes require an index scan",
+                function_name!(),
+            )
+            .set_hint(
+                "Add a directly indexed table column to support searches without an index scan.",
+            )
+            .report(PgLogLevel::ERROR);
+        }
+        report_missing_row_identity();
+    }
+
+    // Reaching here means the planner could not use the ParadeDB index to satisfy this query, so we
+    // materialize the match set and apply it as a per-row filter (the slow path).
+
+    let heap_relation = index_relation
+        .heap_relation()
+        .expect("a ParadeDB index must have a heap relation");
+    let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_relation, unsafe {
+        pg_sys::GetActiveSnapshot()
+    });
+    let mut cache_context = unsafe { PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt) };
+
+    // Collect matching CTIDs into a memory-bounded set (spills to a temp file past
+    // `work_mem`), reused for every row of the scan.
+    let matches = if is_match_all {
+        KeySet::All
+    } else {
+        let search_reader = SearchIndexReader::open(
+            &index_relation,
+            search_query_input,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .expect("search_with_query_input: should be able to open a SearchIndexReader");
+
+        unsafe { cache_context.switch_to(|_| search_reader.collect_ctidset(&mut visibility)) }
+    };
+
+    let missing_values = if let Some(null_guard) = null_guard {
+        // Collect rows where the field is absent (the complement of `exists`). Membership in
+        // this set means SQL NULL for negation semantics.
+        let complement_query = SearchQueryInput::WithIndex {
+            oid: index_relation.oid(),
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: Default::default(),
+                must_not: vec![null_guard],
+                minimum_should_match: None,
+            }),
+        };
+
+        let complement_reader = SearchIndexReader::open(
+            &index_relation,
+            complement_query,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .expect("search_with_query_input: should be able to open a complement SearchIndexReader");
+
+        Some(unsafe {
+            cache_context.switch_to(|_| complement_reader.collect_ctidset(&mut visibility))
+        })
+    } else {
+        None
+    };
+
+    QueryCacheEntry {
+        matches,
+        missing_values,
+    }
+}
+
+/// A [`RowMatcher`] in the function's own memory context, so it outlives this call.
+unsafe fn build_row_matcher(
+    fcinfo: pg_sys::FunctionCallInfo,
+    index_relation: PgSearchRelation,
+    query: SearchQueryInput,
+) -> RowMatcher {
+    unsafe {
+        PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
+            .switch_to(|_| RowMatcher::new(index_relation, query))
+    }
+}
+
+/// The detoasted query argument as a [`SearchQueryInput`].
+unsafe fn deserialize_query(query_datum: *mut pg_sys::varlena) -> SearchQueryInput {
+    unsafe {
+        SearchQueryInput::from_datum(query_datum.into(), false)
+            .expect("the query argument cannot be NULL")
+    }
+}
+
+/// A search evaluated without access to the identity of the row it is filtering.
+fn report_missing_row_identity() -> ! {
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        "search query requires row identity that is unavailable in this context",
+        function_name!(),
+    )
+    .set_hint("Apply the search operator in a table query. Use an ordinary SQL predicate to define a partial index.")
+    .report(PgLogLevel::ERROR);
+    unreachable!()
 }

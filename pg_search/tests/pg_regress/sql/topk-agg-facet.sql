@@ -980,7 +980,7 @@ USING paradedb (
     product_id,
     (content::pdb.unicode_words),
     score
-) WITH (key_field='id');
+); 
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT

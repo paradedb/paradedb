@@ -78,21 +78,22 @@ pub unsafe fn collect_fast_fields(
     .unwrap_or_default()
 }
 
-unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
+fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
     if node.is_null() {
         return;
     }
     for var in node.collect_nodes::<pg_sys::Var>() {
-        if (*var).varno as i32 == old_varno {
-            (*var).varno = new_varno as _;
+        let var = unsafe { &mut *var };
+        if var.varno as i32 == old_varno {
+            var.varno = new_varno as _;
         }
-        if (*var).varnosyn as i32 == old_varno {
-            (*var).varnosyn = new_varno as _;
+        if var.varnosyn as i32 == old_varno {
+            var.varnosyn = new_varno as _;
         }
     }
 }
 
-pub(crate) unsafe fn find_matching_fast_field(
+pub(crate) fn find_matching_fast_field(
     node: *mut pg_sys::Node,
     index_expressions: &PgList<pg_sys::Expr>,
     schema: SearchIndexSchema,
@@ -106,22 +107,25 @@ pub(crate) unsafe fn find_matching_fast_field(
     // `varnullingrels` tracking outer-join relids. Base table index expressions
     // always have `varnullingrels == NULL`. Clone the candidate query expression
     // and clear `varnullingrels` on all its `Var`s so `pg_sys::equal` can match.
-    let node_copy = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
+    let node_copy = unsafe { pg_sys::copyObjectImpl(node.cast()) }.cast::<pg_sys::Node>();
     #[cfg(not(feature = "pg15"))]
     for var in node_copy.collect_nodes::<pg_sys::Var>() {
-        (*var).varnullingrels = std::ptr::null_mut();
+        unsafe { (*var).varnullingrels = std::ptr::null_mut() };
     }
 
     let categorized_fields = schema.categorized_fields();
 
     let matches_node = |candidate: *mut pg_sys::Node| {
         let unwrapped = strip_tokenizer_cast(candidate);
-        let candidate_copy = pg_sys::copyObjectImpl(unwrapped.cast()).cast::<pg_sys::Node>();
+        let candidate_copy =
+            unsafe { pg_sys::copyObjectImpl(unwrapped.cast()) }.cast::<pg_sys::Node>();
         fix_varno_in_place(candidate_copy, 1, rti as i32);
-        pg_sys::equal(
-            node_copy as *const core::ffi::c_void,
-            candidate_copy as *const core::ffi::c_void,
-        )
+        unsafe {
+            pg_sys::equal(
+                node_copy as *const core::ffi::c_void,
+                candidate_copy as *const core::ffi::c_void,
+            )
+        }
     };
 
     let to_fast_field =
@@ -139,14 +143,14 @@ pub(crate) unsafe fn find_matching_fast_field(
         };
 
     for (i, expr) in index_expressions.iter_ptr().enumerate() {
-        if let Some(row_expr) = row_expr_from_indexed_expr(expr) {
+        if let Some(row_expr) = unsafe { row_expr_from_indexed_expr(expr) } {
             // ROW(...) composite: match each arg as if it were an independent expression.
-            let composite_oid = pg_sys::exprType(expr.cast());
-            let Ok(fields) = get_composite_type_fields(composite_oid) else {
+            let composite_oid = unsafe { pg_sys::exprType(expr.cast()) };
+            let Ok(fields) = (unsafe { get_composite_type_fields(composite_oid) }) else {
                 continue;
             };
 
-            let row_args = PgList::<pg_sys::Node>::from_pg((*row_expr).args);
+            let row_args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
             for (position, arg) in row_args.iter_ptr().enumerate() {
                 if position >= fields.len() || fields[position].is_dropped {
                     continue;

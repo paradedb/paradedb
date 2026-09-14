@@ -199,18 +199,18 @@ impl MoreLikeThisQueryBuilder {
                         .expect("source column should exist")
                         .name(),
                 ),
-                FieldSource::Expression { att_idx } => unsafe {
+                FieldSource::Expression { att_idx } => {
                     let expr = expressions
                         .get_ptr(att_idx)
                         .expect("source expression should exist");
                     deparse_expr(None, &heap_relation, expr.cast())
-                },
+                }
                 FieldSource::CompositeField {
                     expression_idx,
                     field_idx,
                     composite_type_oid,
                     ..
-                } => unsafe {
+                } => {
                     let expr = expressions
                         .get_ptr(expression_idx)
                         .expect("source expression should exist");
@@ -225,7 +225,7 @@ impl MoreLikeThisQueryBuilder {
                         deparse_expr(None, &heap_relation, expr.cast()),
                         pgrx::spi::quote_identifier(attribute.name()),
                     )
-                },
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");

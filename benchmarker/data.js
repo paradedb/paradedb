@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789405808045,
+  "lastUpdate": 1789408652757,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3663,6 +3663,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.249,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a254d4720cae92c088c0a4a227774e0f393c648",
+          "message": "fix: Restore late materialization in some join scan plans (#6318)\n\n## What\n\n#6239 and #6231 lightly collided, such that the join scan was not\nproperly deferring columns in all cases.\n\n## Why\n\n#6239 migrated the join scan to `extract_join_tree_from_parse`, which\ncloned all fast fields into `candidate.fields` in `build_scan_node`.\nExposing all fields caused DataFusion to project every column and\neagerly decode strings during scans, even though Postgres fetched the\nsame tuples from the heap via `ctid`.\n\nThis caused a regression in two benchmarks.\n\n## Tests\n\nBenchmarks for `join_foreign_filter_local_sort` and `join_semi_filter`\nare fixed.",
+          "timestamp": "2026-09-14T10:32:47-07:00",
+          "tree_id": "6f94e39dfaf44e0cb937410427a1ed99974e669a",
+          "url": "https://github.com/paradedb/paradedb/commit/7a254d4720cae92c088c0a4a227774e0f393c648"
+        },
+        "date": 1789408647705,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6481641278457755,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.927,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.042,
             "unit": "ms"
           }
         ]

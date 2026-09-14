@@ -53,9 +53,13 @@ pub fn arrow_array_to_datum(
     // `WhichFastField`/`FFType` (including Score/TableOid which are f32/u32). We widen any
     // narrower user types into those types. See the method docs about widening.
     let datum = match array.data_type() {
-        DataType::Utf8View => {
-            let arr = array.as_string_view();
-            let s = arr.value(index);
+        DataType::Utf8View | DataType::Utf8 | DataType::LargeUtf8 => {
+            let s = match array.data_type() {
+                DataType::Utf8View => array.as_string_view().value(index),
+                DataType::Utf8 => array.as_string::<i32>().value(index),
+                DataType::LargeUtf8 => array.as_string::<i64>().value(index),
+                _ => unreachable!(),
+            };
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
                 | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
@@ -102,42 +106,6 @@ pub fn arrow_array_to_datum(
                     }
                 }
                 _ => return Err(anyhow!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
-            }
-        }
-        DataType::Utf8 => {
-            let arr = array
-                .as_any()
-                .downcast_ref::<arrow_array::StringArray>()
-                .unwrap();
-            let s = arr.value(index);
-            match &oid {
-                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
-                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
-                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => {
-                    pgrx::Json(serde_json::Value::String(s.to_string())).into_datum()
-                }
-                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
-                    datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
-                }
-                _ => return Err(anyhow!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
-            }
-        }
-        DataType::LargeUtf8 => {
-            let arr = array
-                .as_any()
-                .downcast_ref::<arrow_array::LargeStringArray>()
-                .unwrap();
-            let s = arr.value(index);
-            match &oid {
-                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
-                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
-                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => {
-                    pgrx::Json(serde_json::Value::String(s.to_string())).into_datum()
-                }
-                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
-                    datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
-                }
-                _ => return Err(anyhow!("Unsupported OID for LargeUtf8 Arrow type: {oid:?}")),
             }
         }
         DataType::BinaryView => {
@@ -891,10 +859,14 @@ mod tests {
     fn test_arrow_string_to_datum_uuid() {
         proptest!(|(s in "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")| {
             let oid_uuid = PgOid::from(PgBuiltInOids::UUIDOID.value());
-            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_uuid, |v| {
-                let uuid = uuid::Uuid::parse_str(&v).unwrap();
-                pgrx::Uuid::from_slice(uuid.as_bytes()).unwrap()
-            });
+            for data_type in [DataType::Utf8View, DataType::Utf8, DataType::LargeUtf8] {
+                test_conversion_roundtrip(s.clone(), |s| {
+                    datafusion::arrow::compute::cast(&create_string_view_array(&s), &data_type).unwrap()
+                }, oid_uuid, |v| {
+                    let uuid = uuid::Uuid::parse_str(&v).unwrap();
+                    pgrx::Uuid::from_slice(uuid.as_bytes()).unwrap()
+                });
+            }
         });
     }
 

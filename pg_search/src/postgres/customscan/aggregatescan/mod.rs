@@ -2587,6 +2587,16 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
+    // A WindowAgg above the aggregate consumes every grouped row: the WINDOW
+    // stage sits between UPPERREL_GROUP_AGG and the LIMIT, so pushing the
+    // fetch into the scan starves it — `count(*) OVER ()` above a GROUP BY
+    // would return the fetch instead of the qualifying-group count (issue
+    // #5561's shape, one stage down). The scan still engages; only the
+    // sort+limit pushdown stays out.
+    if (*parse).hasWindowFuncs {
+        return None;
+    }
+
     // Must have a LIMIT for TopK to matter. We require a STATIC value here
     // because DataFusion's TopK rule needs a concrete K at planning time.
     // Parameterized LIMIT is left as a regular sort+limit pipeline.

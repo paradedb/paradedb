@@ -914,11 +914,7 @@ unsafe fn replace_windowfuncs_in_query(
             let new_te = pg_sys::flatCopyTargetEntry(te);
 
             // Replace WindowFunc in the expression tree
-            let new_expr = replace_in_node(
-                (*te).expr as *mut pg_sys::Node,
-                window_agg_procid,
-                window_tl,
-            );
+            let new_expr = replace_in_node((*te).expr as *mut pg_sys::Node, window_tl);
 
             (*new_te).expr = new_expr.cast();
             new_targetlist.push(new_te);
@@ -941,50 +937,27 @@ unsafe fn replace_windowfuncs_in_query(
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
-unsafe fn replace_in_node(
-    node: *mut pg_sys::Node,
-    window_agg_procid: pg_sys::Oid,
-    window_tl: &TargetList,
-) -> *mut pg_sys::Node {
+unsafe fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_sys::Node {
     if node.is_null() {
         return node;
     }
 
     // Check if this is a WindowFunc
     if nodecast!(WindowFunc, T_WindowFunc, node).is_some() {
-        // Replace with window_agg() placeholder
+        // Replace with a window_agg(json) placeholder call
         let json =
             serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
 
-        // Create a Const node for the JSON string
-        let json_cstring = std::ffi::CString::new(json).expect("Invalid JSON string");
-        let json_text = pg_sys::cstring_to_text(json_cstring.as_ptr());
-        let json_datum = pg_sys::Datum::from(json_text as usize);
-
-        // Create an argument list with the JSON string
-        let mut args = PgList::<pg_sys::Node>::new();
-        let json_const = pg_sys::makeConst(
-            pg_sys::TEXTOID,
-            -1,
-            pg_sys::DEFAULT_COLLATION_OID,
-            -1,
-            json_datum,
-            false, // not null
-            false, // not passed by value (text is varlena)
-        );
-        args.push(json_const.cast());
-
-        // Create a FuncExpr that calls paradedb.window_agg(json)
-        let funcexpr = pg_sys::makeFuncExpr(
-            window_agg_procid,
+        match crate::api::window_aggregate::make_window_agg_placeholder(
+            &json,
             window_tl.singleton_result_type_oid(),
-            args.into_pg(),
             pg_sys::InvalidOid,
-            pg_sys::InvalidOid,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        );
-
-        return funcexpr.cast();
+        ) {
+            Some(placeholder) => return placeholder.cast(),
+            // The caller checked the placeholder function exists; an
+            // interior NUL in serialized JSON cannot happen.
+            None => return node,
+        }
     }
 
     // Check if this is a FuncExpr that might contain a WindowFunc
@@ -995,7 +968,7 @@ unsafe fn replace_in_node(
 
         // Recursively process arguments
         for arg in args.iter_ptr() {
-            let new_arg = replace_in_node(arg, window_agg_procid, window_tl);
+            let new_arg = replace_in_node(arg, window_tl);
             if new_arg != arg {
                 modified = true;
             }

@@ -100,9 +100,6 @@ pub mod window_aggregates {
     /// Enable support for window functions in queries with HAVING clauses.
     pub const HAVING_SUPPORT: bool = false;
 
-    /// Enable support for window functions in queries with JOINs.
-    pub const JOIN_SUPPORT: bool = false;
-
     /// Enable support for `FILTER` clause in window functions.
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 }
@@ -208,8 +205,9 @@ pub unsafe fn extract_and_convert_window_functions(
         return HashMap::new();
     }
 
-    // Check JOIN support
-    if !window_aggregates::JOIN_SUPPORT && !(*parse).rtable.is_null() {
+    // Is this likely to be a join? Joinscan will handle the window functions directly, so don't
+    // insert placeholders.
+    if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
         let relation_count = rtable
             .iter_ptr()

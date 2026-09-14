@@ -37,7 +37,7 @@ use crate::postgres::customscan::datafusion::translator::{
     PredicateTranslator, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
-use crate::postgres::customscan::pg_expr_udf::PgExprUdf;
+use crate::postgres::customscan::pg_expr_udf::{InputDecode, PgExprUdf};
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
@@ -411,6 +411,7 @@ impl<'a> PredicateTranslator<'a> {
         let mut seen: HashSet<(pg_sys::Index, pg_sys::AttrNumber)> = HashSet::default();
         let mut input_vars: Vec<InputVarInfo> = Vec::with_capacity(vars.len());
         let mut input_exprs: Vec<Expr> = Vec::with_capacity(vars.len());
+        let mut input_decodes: Vec<InputDecode> = Vec::with_capacity(vars.len());
 
         for var_ptr in vars.iter_ptr() {
             if var_ptr.is_null() {
@@ -419,7 +420,13 @@ impl<'a> PredicateTranslator<'a> {
             let varno = (*var_ptr).varno as pg_sys::Index;
             let varattno = (*var_ptr).varattno;
 
-            if varno == 0 || varattno <= 0 {
+            // varattno <= 0 (whole-row / system columns) are never UDF
+            // inputs. varno == 0 with a positive attno is the joinscan
+            // window-aggregate input sentinel (window_func::
+            // rewrite_window_funcs_to_sentinels) — kept, and resolved by the
+            // mapper below like any other column; other varno == 0 Vars do
+            // not occur in planner expression trees.
+            if varattno <= 0 {
                 continue;
             }
             // Skip internal join sentinels (INNER_VAR, OUTER_VAR) but allow
@@ -434,20 +441,29 @@ impl<'a> PredicateTranslator<'a> {
                 continue;
             }
 
-            let col_expr = match self.translate_var(var_ptr) {
-                Some(expr) => expr,
-                None => {
-                    pgrx::debug1!(
-                        "PredicateTranslator: UDF wrap failed — could not resolve Var [{}] varno={}, varattno={} | {}",
-                        node_tag_debug(node),
-                        varno,
-                        varattno,
-                        self.deparse_for_debug(node)
-                    );
-                    return None;
+            let (col_expr, decode) = if let Some((expr, decode)) = self
+                .mapper
+                .as_ref()
+                .and_then(|m| m.udf_input(varno, varattno))
+            {
+                (expr, decode)
+            } else {
+                match self.translate_var(var_ptr) {
+                    Some(expr) => (expr, InputDecode::Plain),
+                    None => {
+                        pgrx::debug1!(
+                            "PredicateTranslator: UDF wrap failed — could not resolve Var [{}] varno={}, varattno={} | {}",
+                            node_tag_debug(node),
+                            varno,
+                            varattno,
+                            self.deparse_for_debug(node)
+                        );
+                        return None;
+                    }
                 }
             };
             input_exprs.push(col_expr);
+            input_decodes.push(decode);
             input_vars.push(InputVarInfo {
                 rti: varno,
                 attno: varattno,
@@ -469,7 +485,13 @@ impl<'a> PredicateTranslator<'a> {
         pg_sys::pfree(node_str.cast());
 
         let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), &pg_expr_string);
-        let udf = PgExprUdf::new(udf_name, pg_expr_string, input_vars, result_type_oid);
+        let udf = PgExprUdf::new(
+            udf_name,
+            pg_expr_string,
+            input_vars,
+            input_decodes,
+            result_type_oid,
+        );
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(udf)),

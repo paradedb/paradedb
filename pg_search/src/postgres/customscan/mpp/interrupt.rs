@@ -66,6 +66,19 @@ impl HeldInterrupts {
             _not_send: std::marker::PhantomData,
         }
     }
+
+    /// Re-establishes the hold after a caught Postgres ERROR. `errfinish` zeroes the
+    /// count, so a worker that turns a fragment's error into a `DataFusionError` and
+    /// keeps running would do so with interrupts live. Sets rather than increments, so
+    /// the live guard's single decrement still returns the count to zero.
+    pub(crate) fn reassert() {
+        #[cfg(not(test))]
+        unsafe {
+            if pgrx::pg_sys::InterruptHoldoffCount == 0 {
+                pgrx::pg_sys::InterruptHoldoffCount = 1;
+            }
+        }
+    }
 }
 
 impl Drop for HeldInterrupts {

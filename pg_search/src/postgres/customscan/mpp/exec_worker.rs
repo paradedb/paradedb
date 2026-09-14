@@ -260,6 +260,7 @@ fn spawn_fragment_execution_task(
                         Ok(res) => res,
                         Err(payload) => {
                             if let Some(msg) = downcast_pgrx_panic_payload(&*payload) {
+                                HeldInterrupts::reassert();
                                 Err(datafusion::common::DataFusionError::Execution(msg))
                             } else {
                                 std::panic::resume_unwind(payload);

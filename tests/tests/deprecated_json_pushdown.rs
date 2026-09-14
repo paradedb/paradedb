@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+// Legacy JSON configuration preserves numeric JSON filter pushdown until tokenizer casts support it.
+
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;

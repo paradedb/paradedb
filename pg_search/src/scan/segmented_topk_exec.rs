@@ -2043,11 +2043,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
-            USING paradedb (id, name, sort_col) 
-            WITH (
-                target_segment_count = 4, 
-                text_fields = '{"sort_col": {"fast": true}}'
-            );
+            USING paradedb (id, name, (sort_col::pdb.unicode_words('columnar=true'))) WITH (target_segment_count = 4);
             "#,
         )
         .unwrap();

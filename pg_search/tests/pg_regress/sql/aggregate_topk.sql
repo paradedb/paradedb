@@ -10,12 +10,7 @@ CALL paradedb.create_paradedb_test_table(
 );
 
 CREATE INDEX idx_mock_items ON mock_items
-    USING paradedb (id, description, category, rating, in_stock)
-    WITH (
-        text_fields='{"description": {}, "category": {"fast": true}}',
-        numeric_fields='{"rating": {"fast": true}}',
-        boolean_fields='{"in_stock": {"fast": true}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), rating, in_stock);
 
 -- Use a broad query to match items across multiple categories
 -- ================================================================
@@ -184,11 +179,7 @@ CREATE TABLE agg_null_test (
 );
 
 CREATE INDEX idx_agg_null_test ON agg_null_test
-USING paradedb (id, category, score)
-WITH (
-    text_fields='{"category": {"fast": true}}',
-    numeric_fields='{"score": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), score);
 
 INSERT INTO agg_null_test (category, score) VALUES
     ('null_grp', NULL),

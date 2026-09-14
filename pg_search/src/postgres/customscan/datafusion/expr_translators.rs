@@ -897,17 +897,9 @@ mod tests {
                 ('alpha', 5), (NULL, 10), ('', 15),
                 ('BETA', 20), ('gamma', 25), ('  trimme  ', 30);
             CREATE INDEX prop_items_idx ON prop_items
-                USING paradedb (id, name, value)
-                WITH (
-                    text_fields='{"name": {"fast": true}}',
-                    numeric_fields='{"value": {"fast": true}}'
-                );
+                USING paradedb (id, (name::pdb.unicode_words('columnar=true')), value);
             CREATE INDEX prop_exclusions_idx ON prop_exclusions
-                USING paradedb (id, pattern, threshold)
-                WITH (
-                    text_fields='{"pattern": {"fast": true}}',
-                    numeric_fields='{"threshold": {"fast": true}}'
-                );
+                USING paradedb (id, (pattern::pdb.unicode_words('columnar=true')), threshold);
             "#,
         )
         .expect("setup_test_tables failed");

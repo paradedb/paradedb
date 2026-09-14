@@ -1,3 +1,4 @@
+-- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 -- Coverage for the aggregate late-materialization path behind
 -- paradedb.enable_aggregate_late_materialization. Default off keeps aggregates
 -- eager; this flips it on so the deferred path (serial and MPP) does not rot.
@@ -25,11 +26,11 @@ INSERT INTO alm_products (description, category, price) VALUES
 INSERT INTO alm_tags (product_id, tag_name) VALUES
     (1, 'tech'), (2, 'tech'), (3, 'fitness'), (4, 'fitness'), (5, 'outdoor');
 CREATE INDEX alm_products_idx ON alm_products
-USING bm25 (id, description, category, price)
-WITH (text_fields='{"description": {}, "category": {"fast": true}}', numeric_fields='{"price": {"fast": true}}');
+USING paradedb (id, description, category, price)
+WITH (text_fields='{"description": {}, "category": {"fast": true}}');
 CREATE INDEX alm_tags_idx ON alm_tags
-USING bm25 (id, product_id, tag_name)
-WITH (numeric_fields='{"product_id": {"fast": true}}', text_fields='{"tag_name": {"fast": true}}');
+USING paradedb (id, product_id, tag_name)
+WITH ( text_fields='{"tag_name": {"fast": true}}');
 -- Delete a matched row so visibility actually filters. The deleted product must
 -- not appear in the aggregate.
 DELETE FROM alm_products WHERE id = 2;
@@ -41,11 +42,11 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -59,14 +60,14 @@ ORDER BY p.category;
            :     TantivyFetchExec: fetch=[ctid_0, ctid_1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[category@1, ctid_0@2, ctid_1@4]
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, eager=[category], query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, eager=[category], query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :         CooperativeExec
            :           PgSearchScan: table=t, segments=1, dynamic_filters=1, query="all"
 (16 rows)
 
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count 
@@ -84,7 +85,7 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count 
@@ -115,20 +116,19 @@ SELECT 'post ' || i,
 FROM generate_series(1, 60) AS i;
 INSERT INTO alm_views (post_id) SELECT id FROM alm_posts;
 CREATE INDEX alm_posts_idx ON alm_posts
-USING bm25 (id, title, author, labels)
+USING paradedb (id, title, author, labels)
 WITH (text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
 CREATE INDEX alm_views_idx ON alm_views
-USING bm25 (id, post_id)
-WITH (numeric_fields='{"post_id": {"fast": true}}');
+USING paradedb (id, post_id);
 SET max_parallel_workers_per_gather TO 0;
 -- Pinned so the shape under test does not depend on what the placement rule picks.
 SET paradedb.defer_string_decode TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
-WHERE p.title @@@ 'post';
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE p.title ||| 'post';
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: alm_posts_idx (p), alm_views_idx (v)
@@ -145,7 +145,7 @@ WHERE p.title @@@ 'post';
      :                 TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :                   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, ctid_0@2, ctid_1@4]
      :                     CooperativeExec
-     :                       PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :                       PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                     CooperativeExec
      :                       PgSearchScan: table=v, segments=1, dynamic_filters=1, query="all"
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
@@ -157,14 +157,14 @@ WHERE p.title @@@ 'post';
      :                   ProjectionExec: expr=[author@0 as author, labels@1 as p_0_labels, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
      :                     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[author@1, labels@2, ctid_0@3, ctid_1@5]
      :                       CooperativeExec
-     :                         PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"post","lenient":null,"conjunction_mode":null}}}}
+     :                         PgSearchScan: table=p, segments=1, fetch=[author], query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                       CooperativeExec
      :                         PgSearchScan: table=v, segments=1, dynamic_filters=1, query="all"
 (31 rows)
 
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
                                                                                                                                                                                                                                                         agg                                                                                                                                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "ann", "by_label": {"buckets": [{"key": "all", "doc_count": 20}, {"key": "red", "doc_count": 20}], "sum_other_doc_count": 0}, "doc_count": 20}, {"key": "bob", "by_label": {"buckets": [{"key": "all", "doc_count": 20}, {"key": "green", "doc_count": 20}], "sum_other_doc_count": 0}, "doc_count": 20}, {"key": "cid", "by_label": {"buckets": [{"key": "all", "doc_count": 20}, {"key": "blue", "doc_count": 20}], "sum_other_doc_count": 0}, "doc_count": 20}], "sum_other_doc_count": 0}

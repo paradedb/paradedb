@@ -29,18 +29,17 @@ INSERT INTO logs (id, message, country, timestamp) VALUES
 (6, 'German research leads to a breakthrough. This research is important.', 'Germany', '2021-09-01 00:00:00');
 CREATE INDEX logs_idx
 ON logs
-USING paradedb (id, message, country)
-WITH (text_fields = '{"country": {"tokenizer": {"type": "keyword"} }}');
+USING paradedb (id, message, (country::pdb.literal));
 \echo 'Test 1: pdb.snippets (no UNNEST) on parent table'
 Test 1: pdb.snippets (no UNNEST) on parent table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.snippets(message, max_num_chars => 25)
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Merge Append
          Sort Key: logs.id
@@ -51,7 +50,7 @@ LIMIT 3;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 3
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                Table: logs_2021
                Index: logs_2021_id_message_country_idx
@@ -59,12 +58,12 @@ LIMIT 3;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 3
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (19 rows)
 
 SELECT id, pdb.snippets(message, max_num_chars => 25)
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
  id |                              snippets                               
@@ -80,11 +79,11 @@ Test 2: UNNEST(pdb.snippets(...)) on parent table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Result
@@ -97,7 +96,7 @@ LIMIT 3;
                            Scores: false
                               TopK Order By: id asc
                               TopK Limit: 3
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
                      ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                            Table: logs_2021
                            Index: logs_2021_id_message_country_idx
@@ -105,12 +104,12 @@ LIMIT 3;
                            Scores: false
                               TopK Order By: id asc
                               TopK Limit: 3
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (21 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -119,11 +118,11 @@ Test 3: UNNEST(pdb.snippets(...)) on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Custom Scan (ParadeDB Base Scan) on logs_2020
@@ -133,12 +132,12 @@ LIMIT 3;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 3
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (10 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
  id |            snippet             
@@ -153,11 +152,11 @@ Test 4: UNNEST(pdb.snippets(...)) on a child table with OFFSET
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 2 OFFSET 1;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Custom Scan (ParadeDB Base Scan) on logs_2020
@@ -167,12 +166,12 @@ LIMIT 2 OFFSET 1;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 3
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (10 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 2 OFFSET 1;
  id |            snippet             
@@ -186,11 +185,11 @@ Test 5: UNNEST(pdb.snippets(...)) on a child table with LIMIT 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 0;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Custom Scan (ParadeDB Base Scan) on logs_2020
@@ -200,12 +199,12 @@ LIMIT 0;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 0
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (10 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 0;
  id | snippet 
@@ -218,11 +217,11 @@ Test 6: Multiple SRFs on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
          ->  Result
@@ -233,12 +232,12 @@ LIMIT 3;
                            Index: logs_2020_id_message_country_idx
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"message","value":"research","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"Canada","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (11 rows)
 
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose

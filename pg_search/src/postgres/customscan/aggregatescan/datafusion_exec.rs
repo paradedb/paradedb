@@ -1095,7 +1095,7 @@ async fn build_source_df(
         }
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
-    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // `pdb.literal` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.
     // The provider's `scan()` reaches for them via
     // `init_postgres_expressions` / `solve_postgres_expressions` only

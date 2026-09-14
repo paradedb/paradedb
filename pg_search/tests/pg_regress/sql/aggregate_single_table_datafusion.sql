@@ -35,11 +35,7 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
     ('Lamp bright light', 'Lighting', 59.99, 4);
 
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- ANALYZE so Postgres gets accurate group count estimates
 ANALYZE df_fallback_products;
@@ -52,12 +48,12 @@ ANALYZE df_fallback_products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -73,14 +69,14 @@ SET paradedb.max_term_agg_buckets TO 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 -- Test 2.2: With bucket limit = 1, the estimate exceeds the cap so it routes to
 -- DataFusion and returns every group (no truncation).
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -88,12 +84,12 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -102,11 +98,11 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes';
+WHERE (description ||| 'laptop' OR description ||| 'shoes');
 
 SELECT COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes';
+WHERE (description ||| 'laptop' OR description ||| 'shoes');
 
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
@@ -116,7 +112,7 @@ WHERE description @@@ 'laptop OR shoes';
 -- DataFusion fallback (bucket limit still 1)
 SELECT category, COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -124,7 +120,7 @@ ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 

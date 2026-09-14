@@ -26,6 +26,7 @@ pub enum Expr {
     Atom {
         name: String,
         value: String,
+        sql_type: String,
         is_indexed: bool,
     },
     All {
@@ -45,10 +46,23 @@ impl Expr {
             Expr::Atom {
                 name,
                 value,
+                sql_type,
                 is_indexed,
             } => {
-                let op = if *is_indexed { indexed_op } else { " = " };
-                format!("{name} {op} {value}")
+                if *is_indexed && indexed_op == "@@@" {
+                    match sql_type.as_str() {
+                        "SERIAL8" | "BIGSERIAL" => {
+                            format!("{name} @@@ pdb.term(({value})::bigint)")
+                        }
+                        "SERIAL" | "SERIAL4" => format!("{name} @@@ pdb.term(({value})::integer)"),
+                        "TEXT" | "VARCHAR" | "TEXT[]" | "VARCHAR[]" => {
+                            format!("{name} === {value}")
+                        }
+                        _ => format!("{name} @@@ pdb.term(({value})::{sql_type})"),
+                    }
+                } else {
+                    format!("{name} = {value}")
+                }
             }
             Expr::All { table, key_col } => {
                 if indexed_op == "@@@" {
@@ -159,6 +173,7 @@ pub fn arb_wheres<S: AsRef<str>>(
             (
                 c.name.to_owned(),
                 c.sample_value.to_owned(),
+                c.sql_type.to_owned(),
                 c.is_indexed,
                 c.is_primary_key,
             )
@@ -176,7 +191,7 @@ pub fn arb_wheres<S: AsRef<str>>(
         ],
     )
         .prop_map(
-            move |(table, (col, val, is_indexed, is_primary_key), kind)| {
+            move |(table, (col, val, sql_type, is_indexed, is_primary_key), kind)| {
                 let name = format!("{table}.{col}");
                 // Primary key columns are NOT NULL, so IS NULL is constant FALSE and IS NOT NULL is constant TRUE.
                 // Inside an OR branch, `(search_op) OR (pk IS NOT NULL)` simplifies to TRUE, causing PostgreSQL
@@ -187,6 +202,7 @@ pub fn arb_wheres<S: AsRef<str>>(
                     _ => Expr::Atom {
                         name,
                         value: val,
+                        sql_type,
                         is_indexed,
                     },
                 }
@@ -271,6 +287,7 @@ mod tests {
         let atom = Expr::Atom {
             name: "users.name".to_string(),
             value: "'alice'".to_string(),
+            sql_type: "TEXT".to_string(),
             is_indexed: false,
         };
         let all = Expr::All {
@@ -302,7 +319,7 @@ mod tests {
             assert!(!sql_pg.is_empty());
             assert!(!sql_bm25.is_empty());
             assert!(expr.has_search_operator());
-            assert!(sql_bm25.contains("@@@"));
+            assert!(sql_bm25.contains("@@@") || sql_bm25.contains("==="));
         }
     }
 }

@@ -560,7 +560,7 @@ mod tests {
         .unwrap();
 
         let count = Spi::get_one::<i64>(
-            "SELECT count(*) FROM sample_parallel WHERE body @@@ 'lorem' AND tenant_id = 3",
+            "SELECT count(*) FROM sample_parallel WHERE body ||| 'lorem' AND tenant_id = 3",
         )
         .unwrap()
         .unwrap();

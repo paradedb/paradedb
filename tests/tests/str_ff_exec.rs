@@ -32,8 +32,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     sql.execute(&mut conn);
 
     let sql = r#"
-        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, col_text, col_int8)
-        WITH (text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, (col_text::pdb.literal_normalized), col_int8);
     "#;
     sql.execute(&mut conn);
 
@@ -75,7 +74,7 @@ mod string_fast_field_exec {
     fn with_filter(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NULL and id @@@ '>2'
+            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2')
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -99,7 +98,7 @@ mod string_fast_field_exec {
     fn with_not_null(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NOT NULL and id @@@ '>2'
+            WHERE col_text IS NOT NULL and id @@@ pdb.parse_with_field('>2')
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -110,7 +109,7 @@ mod string_fast_field_exec {
     fn with_null(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NULL and id @@@ '<=2'
+            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('<=2')
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -121,14 +120,14 @@ mod string_fast_field_exec {
     fn with_count(#[from(setup_test_table)] mut conn: PgConnection) {
         let count = r#"
             SELECT count(*) FROM test
-            WHERE col_text IS NOT NULL and id @@@ '>2';
+            WHERE col_text IS NOT NULL and id @@@ pdb.parse_with_field('>2');
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
 
         let count = r#"
             SELECT count(*) FROM test
-            WHERE col_text IS NULL and id @@@ '>2';
+            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2');
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -160,8 +159,7 @@ mod string_fast_field_exec {
         sql.execute(&mut conn);
 
         let sql = r#"
-            CREATE INDEX another_idxtest ON another_test USING paradedb (id, col_boolean, col_text, col_int8)
-            WITH (text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+            CREATE INDEX another_idxtest ON another_test USING paradedb (id, col_boolean, (col_text::pdb.literal_normalized), col_int8);
         "#;
         sql.execute(&mut conn);
 
@@ -177,7 +175,7 @@ mod string_fast_field_exec {
 
         let count = r#"
             SELECT count(*) FROM another_test
-            WHERE col_text IS NULL and id @@@ '>2';
+            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2');
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(5,)]);

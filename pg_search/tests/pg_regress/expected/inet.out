@@ -4,14 +4,14 @@ DROP TABLE IF EXISTS tbl_inet;
 CREATE TABLE tbl_inet (ip inet);
 CREATE INDEX idx_inet ON tbl_inet USING paradedb (ip);
 INSERT INTO tbl_inet (ip) VALUES ('192.168.0.1');
-SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.parse_with_field('192.168.0.1');
  count 
 -------
      1
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
+SELECT count(*) FROM tbl_inet WHERE ip @@@ pdb.parse_with_field('192.168.0.1');
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.tbl_inet

@@ -97,25 +97,22 @@ const COLUMNS: &[Column] = &[
         .groupable({
             true
         })
-        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql("rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid"),
     Column::new("name", "TEXT", "'bob'")
-        .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .index_expression(IndexExpression::Literal)
         .random_generator_sql(
             "(ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int]"
         ),
     Column::new("color", "VARCHAR", "'blue'")
         .whereable(true)
-        .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .index_expression(IndexExpression::Literal)
         .random_generator_sql(
             "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
         ),
     Column::new("age", "INTEGER", "'20'")
-        .bm25_numeric_field(r#""age": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
         .whereable(true)
-        .bm25_numeric_field(r#""quantity": { "fast": true }"#)
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
         .groupable({
@@ -125,24 +122,19 @@ const COLUMNS: &[Column] = &[
             // ```
             false
         })
-        .bm25_numeric_field(r#""price": { "fast": true }"#)
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
     // Additional NUMERIC columns for testing Numeric64 vs NumericBytes storage
     Column::new("small_numeric", "NUMERIC(5,2)", "'12.34'")
         .groupable(false)
-        .bm25_numeric_field(r#""small_numeric": { "fast": true }"#)
         .random_generator_sql("(random() * 100)::numeric(5,2)"),
     Column::new("int_numeric", "NUMERIC(10,0)", "'12345'")
         .groupable(false)
-        .bm25_numeric_field(r#""int_numeric": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 1000000))::numeric(10,0)"),
     Column::new("high_scale", "NUMERIC(18,6)", "'123.456789'")
         .groupable(false)
-        .bm25_numeric_field(r#""high_scale": { "fast": true }"#)
         .random_generator_sql("(random() * 10000)::numeric(18,6)"),
     Column::new("big_numeric", "NUMERIC", "'12345.67890'")
         .groupable(false)  // Cannot aggregate NumericBytes
-        .bm25_numeric_field(r#""big_numeric": { "fast": true }"#)
         .random_generator_sql("(random() * 100000)::numeric"),
     Column::new("rating", "INTEGER", "'4'")
         .indexed({
@@ -152,11 +144,10 @@ const COLUMNS: &[Column] = &[
         .groupable({
             true
         })
-        .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
     Column::new("category", "TEXT", "'electronics'")
         .whereable(false)
-        .bm25_v2_expression(IndexExpression::Upper)
+        .index_expression(IndexExpression::Upper)
         .random_generator_sql(
             "(ARRAY ['electronics', 'clothing', 'food', 'books', 'toys', 'sports', 'home']::text[])[(floor(random() * 7) + 1)::int]"
         ),
@@ -168,14 +159,14 @@ const COLUMNS: &[Column] = &[
             false
         })
         .groupable(false)
-        .bm25_v2_expression(IndexExpression::LiteralNormalized)
+        .index_expression(IndexExpression::LiteralNormalized)
         .random_generator_sql(
             "(ARRAY ['Hello World', 'HELLO WORLD', 'hello world', 'HeLLo WoRLD', 'GOODBYE WORLD', 'goodbye world']::text[])[(floor(random() * 6) + 1)::int]"
         ),
     Column::new("metadata", "JSONB", "'{\"brand\": \"apple\", \"rating\": 4}'")
         .whereable(false)
         .groupable(false)
-        .bm25_json_field(r#""metadata": { "fast": true }"#)
+        .index_expression(IndexExpression::UnicodeWordsColumnar)
         .random_generator_sql(
             "CASE (floor(random() * 5))::int
                 WHEN 0 THEN NULL
@@ -191,7 +182,7 @@ const COLUMNS: &[Column] = &[
     Column::new("tags", "TEXT[]", "ARRAY['alpha', 'beta']::text[]")
         .whereable(false)
         .groupable(false)
-        .bm25_text_field(r#""tags": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .index_expression(IndexExpression::Literal)
         .random_generator_sql(
             "(CASE (floor(random() * 5) + 1)::int \
                 WHEN 1 THEN ARRAY['alpha', 'beta']::text[] \
@@ -476,7 +467,7 @@ async fn generated_group_by_aggregates(database: Db) {
     let table_name = "users";
     let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
 
-    // Columns that can be used for grouping (must have fast: true in index)
+    // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
@@ -651,7 +642,7 @@ async fn generated_paging_large(database: Db) {
     )| {
         qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
-            &format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
+            &format!("SELECT uuid::text FROM {table_name} WHERE name === 'bob' {paging_exprs}"),
             &gucs,
             &pool,
             &setup_sql,
@@ -992,7 +983,7 @@ async fn generated_group_by_stddev(database: Db) {
     let table_name = "users";
     let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
 
-    // Columns that can be used for grouping (must have fast: true in index)
+    // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
@@ -1438,11 +1429,10 @@ async fn generated_numeric_precision(database: Db) {
             .primary_key()
             .groupable(true),
         Column::new("name", "TEXT", "'test'")
-            .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+            .index_expression(IndexExpression::Literal)
             .random_generator_sql("'test'"),
         Column::new("big_int", "NUMERIC(18,0)", "'123456789012345678'")
             .groupable(false)
-            .bm25_numeric_field(r#""big_int": { "fast": true }"#)
             // Generate high-precision values that differ only in lower digits
             // These values would collide if converted to f64
             .random_generator_sql(
@@ -1473,7 +1463,7 @@ async fn generated_numeric_precision(database: Db) {
         // BM25 query - should produce identical results
         // Use 'test' as the name value since all rows have name = 'test'
         let bm25_query = format!(
-            "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int = {test_value}"
+            "SELECT COUNT(*) FROM {table_name} WHERE name === 'test' AND big_int = {test_value}"
         );
 
         qgen_oracle!("qgen: generated_numeric_precision - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -1509,11 +1499,10 @@ async fn generated_numeric_range_precision(database: Db) {
             .primary_key()
             .groupable(true),
         Column::new("name", "TEXT", "'test'")
-            .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+            .index_expression(IndexExpression::Literal)
             .random_generator_sql("'test'"),
         Column::new("big_int", "NUMERIC(18,0)", "'100'")
             .groupable(false)
-            .bm25_numeric_field(r#""big_int": { "fast": true }"#)
             // Generate sequential high-precision values
             .random_generator_sql("(floor(random() * 100) + 123456789012345600)::numeric(18,0)"),
     ];
@@ -1539,7 +1528,7 @@ async fn generated_numeric_range_precision(database: Db) {
         // BM25 query - should produce identical results
         // Use 'test' as the name value since all rows have name = 'test'
         let bm25_query = format!(
-            "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int >= {low} AND big_int < {high}"
+            "SELECT COUNT(*) FROM {table_name} WHERE name === 'test' AND big_int >= {low} AND big_int < {high}"
         );
 
         qgen_oracle!("qgen: generated_numeric_range_precision - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -1553,80 +1542,8 @@ async fn generated_numeric_range_precision(database: Db) {
     });
 }
 
-/// Property test for `pdb.agg()` over joins: the buckets and metrics the DataFusion backend
-/// assembles must equal the rows of the equivalent SQL `GROUP BY` run by PostgreSQL, which is
-/// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
-/// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
-/// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
-/// TODO: Consider merging this property test with other "aggregate over join" tests
-/// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
-#[rstest]
-#[tokio::test]
-async fn generated_pdb_agg_join(database: Db) {
-    let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
-        |_| {},
-    );
-
-    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
-    let all_tables: Vec<String> = tables_and_sizes
-        .iter()
-        .map(|(table, _)| table.to_string())
-        .collect();
-    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
-
-    let where_columns = columns_named(vec!["name", "color"]);
-    let join_key_columns = columns_named(vec!["id", "age"]);
-
-    proptest!(qgen_proptest_config(), |(
-        (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
-        mut gucs in any::<PgGucs>(),
-    )| {
-        let join_clause = join_expr.to_sql();
-        let pg_query = agg.pg_query(&join_clause, &wheres.pg_where());
-        let bm25_query = agg.pdb_query(&join_clause, &wheres.bm25_where());
-
-        // `pdb.agg()` over a join only runs on the DataFusion backend.
-        gucs.aggregate_custom_scan = true;
-        gucs.join_custom_scan = true;
-        gucs.custom_scan = true;
-
-        if !agg.outer_aggs.is_empty() {
-            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
-            qgen_oracle!("qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL", compare_outcome_retrying(
-                &pg_outer_query,
-                &bm25_query,
-                &gucs,
-                &pool,
-                &setup_sql,
-                |query, side, conn| {
-                    "SET work_mem TO '64MB';".execute_result(conn)?;
-                    let rows = query.fetch_dynamic_result(conn)?;
-                    let mut rows = agg.outer_rows(rows, side.is_candidate())?;
-                    rows.sort();
-                    Ok(rows)
-                },
-            ))?;
-        }
-
-        qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
-            &pg_query,
-            &bm25_query,
-            &gucs,
-            &pool,
-            &setup_sql,
-            |query, _, conn| {
-                // A keyless join under three bucket keys makes tens of thousands of
-                // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
-                "SET work_mem TO '64MB';".execute_result(conn)?;
-                let rows = query.fetch_dynamic_result(conn)?;
-                let mut rows = agg.rows(rows)?;
-                rows.sort();
-                Ok(rows)
-            },
-        ))?;
-    });
-}
+#[path = "support/deprecated_aggregate_readback.rs"]
+mod deprecated_aggregate_readback;
 
 /// The same single-table `pdb.agg()` answered by Tantivy and by DataFusion. The documents must
 /// be equal as they are: bucket order, `sum_other_doc_count`, NULL buckets, and metric values

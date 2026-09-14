@@ -31,33 +31,9 @@ CREATE TABLE orders
 );
 
 
-CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
-    WITH (
-    text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" } },
-                "color": { "tokenizer": { "type": "keyword" } },
-                "age": { "tokenizer": { "type": "keyword" } }
-            }'
-    );
-CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
-    WITH (
-    text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" } },
-                "color": { "tokenizer": { "type": "keyword" } },
-                "age": { "tokenizer": { "type": "keyword" } }
-            }'
-    );
-CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
-    WITH (
-    text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" } },
-                "color": { "tokenizer": { "type": "keyword" } },
-                "age": { "tokenizer": { "type": "keyword" } }
-            }'
-    );
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
+CREATE INDEX idxorders ON orders USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 
 CREATE INDEX idxusers_name ON users (name);
 CREATE INDEX idxusers_color ON users (color);
@@ -173,11 +149,11 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM users
                  LEFT JOIN products ON users.color = products.color
-        WHERE (users.name @@@ 'bob') AND ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND
-              (products.name @@@ 'bob')
-           OR (NOT (products.age @@@ '20')) AND (users.name @@@ 'bob')
-           OR ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND (products.color @@@ 'blue')
-           OR (NOT (products.name @@@ 'bob')));
+        WHERE (users.name ||| 'bob') AND ((users.color ||| 'blue') AND (users.name ||| 'bob')) AND
+              (products.name ||| 'bob')
+           OR (NOT (products.age ||| '20')) AND (users.name ||| 'bob')
+           OR ((users.color ||| 'blue') AND (users.name ||| 'bob')) AND (products.color ||| 'blue')
+           OR (NOT (products.name ||| 'bob')));
 
 ---- idx=4 ----
 ---- connector=AND NOT ----
@@ -192,11 +168,11 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM users
                  JOIN orders ON users.color = orders.color
-        WHERE (users.name @@@ 'bob') AND ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
-              NOT ((orders.name @@@ 'bob') AND (orders.age @@@ '20'))
-           OR (orders.age @@@ '20') AND NOT (users.name @@@ 'bob')
-           OR ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
-              NOT ((orders.name @@@ 'bob') OR (orders.age @@@ '20')) AND (orders.name @@@ 'bob'));
+        WHERE (users.name ||| 'bob') AND ((users.color ||| 'blue') OR (NOT (users.name ||| 'bob'))) AND
+              NOT ((orders.name ||| 'bob') AND (orders.age ||| '20'))
+           OR (orders.age ||| '20') AND NOT (users.name ||| 'bob')
+           OR ((users.color ||| 'blue') OR (NOT (users.name ||| 'bob'))) AND
+              NOT ((orders.name ||| 'bob') OR (orders.age ||| '20')) AND (orders.name ||| 'bob'));
 
 ---- idx=37 ----
 ---- connector=AND NOT ----
@@ -211,11 +187,11 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM users
                  JOIN products ON users.name = products.name
-        WHERE (users.color @@@ 'blue') AND ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND
-              NOT (products.color @@@ 'blue')
-           OR ((products.color @@@ 'blue') AND (products.color @@@ 'blue')) AND NOT (users.color @@@ 'blue')
-           OR ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.color @@@ 'blue') AND
-              ((products.color @@@ 'blue') OR (products.color @@@ 'blue')));
+        WHERE (users.color ||| 'blue') AND ((users.name ||| 'bob') OR (NOT (users.color ||| 'blue'))) AND
+              NOT (products.color ||| 'blue')
+           OR ((products.color ||| 'blue') AND (products.color ||| 'blue')) AND NOT (users.color ||| 'blue')
+           OR ((users.name ||| 'bob') OR (NOT (users.color ||| 'blue'))) AND NOT (products.color ||| 'blue') AND
+              ((products.color ||| 'blue') OR (products.color ||| 'blue')));
 
 ---- idx=46 ----
 ---- connector=AND NOT ----
@@ -230,11 +206,11 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM users
                  LEFT JOIN products ON users.name = products.name
-        WHERE (users.color @@@ 'blue') AND ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND
-              NOT (products.color @@@ 'blue')
-           OR ((products.age @@@ '20') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
-           OR ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.age @@@ '20') AND
-              (NOT (NOT (products.name @@@ 'bob'))));
+        WHERE (users.color ||| 'blue') AND ((users.age ||| '20') OR (NOT (users.color ||| 'blue'))) AND
+              NOT (products.color ||| 'blue')
+           OR ((products.age ||| '20') OR (products.age ||| '20')) AND NOT (users.color ||| 'blue')
+           OR ((users.age ||| '20') OR (NOT (users.color ||| 'blue'))) AND NOT (products.age ||| '20') AND
+              (NOT (NOT (products.name ||| 'bob'))));
 
 ---- idx=55 ----
 ---- connector=AND NOT ----
@@ -249,11 +225,11 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM users
                  RIGHT JOIN products ON users.name = products.name
-        WHERE (users.color @@@ 'blue') AND ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND
-              NOT (products.age @@@ '20')
-           OR ((products.name @@@ 'bob') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
-           OR ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND NOT (products.age @@@ '20') AND
-              ((products.color @@@ 'blue') AND (products.name @@@ 'bob')));
+        WHERE (users.color ||| 'blue') AND ((NOT (users.color ||| 'blue')) OR (users.color ||| 'blue')) AND
+              NOT (products.age ||| '20')
+           OR ((products.name ||| 'bob') OR (products.age ||| '20')) AND NOT (users.color ||| 'blue')
+           OR ((NOT (users.color ||| 'blue')) OR (users.color ||| 'blue')) AND NOT (products.age ||| '20') AND
+              ((products.color ||| 'blue') AND (products.name ||| 'bob')));
 
 ---- idx=83 ----
 ---- connector=AND NOT ----
@@ -267,10 +243,10 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM orders
                  LEFT JOIN users ON orders.name = users.name
-        WHERE NOT (NOT ((orders.age @@@ '20') OR (NOT (orders.age @@@ '20')))) AND NOT (users.age @@@ '20')
-           OR ((users.age @@@ '20') OR (NOT (users.name @@@ 'bob'))) AND
-              NOT NOT (NOT ((NOT (orders.name @@@ 'bob')) OR (orders.name @@@ 'bob'))) AND NOT (users.age @@@ '20')
-           OR ((users.age @@@ '20') AND (NOT (users.color @@@ 'blue'))));
+        WHERE NOT (NOT ((orders.age ||| '20') OR (NOT (orders.age ||| '20')))) AND NOT (users.age ||| '20')
+           OR ((users.age ||| '20') OR (NOT (users.name ||| 'bob'))) AND
+              NOT NOT (NOT ((NOT (orders.name ||| 'bob')) OR (orders.name ||| 'bob'))) AND NOT (users.age ||| '20')
+           OR ((users.age ||| '20') AND (NOT (users.color ||| 'blue'))));
 
 ---- idx=92 ----
 ---- connector=AND NOT ----
@@ -284,10 +260,10 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM orders
                  RIGHT JOIN users ON orders.name = users.name
-        WHERE NOT ((NOT (orders.color @@@ 'blue')) AND (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
-           OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
-              NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
-           OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
+        WHERE NOT ((NOT (orders.color ||| 'blue')) AND (NOT (orders.color ||| 'blue'))) AND NOT (users.age ||| '20')
+           OR ((NOT (users.color ||| 'blue')) OR (users.name ||| 'bob')) AND
+              NOT NOT ((NOT (orders.color ||| 'blue')) OR (NOT (orders.color ||| 'blue'))) AND NOT (users.age ||| '20')
+           OR ((NOT (users.color ||| 'blue')) AND (users.color ||| 'blue')));
 
 ---- idx=74 ----
 ---- connector=AND NOT ----
@@ -302,11 +278,11 @@ SELECT (SELECT COUNT(*)
         FROM orders
                  JOIN users ON orders.name = users.name
         WHERE
-            ((orders.age @@@ '20') AND (orders.age @@@ '20')) AND (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
-           OR ((users.name @@@ 'bob') OR (NOT (users.name @@@ 'bob'))) AND
-              NOT ((orders.age @@@ '20') AND (orders.age @@@ '20'))
-           OR (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
-           OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
+            ((orders.age ||| '20') AND (orders.age ||| '20')) AND (orders.color ||| 'blue') AND NOT (users.age ||| '20')
+           OR ((users.name ||| 'bob') OR (NOT (users.name ||| 'bob'))) AND
+              NOT ((orders.age ||| '20') AND (orders.age ||| '20'))
+           OR (orders.color ||| 'blue') AND NOT (users.age ||| '20')
+           OR ((users.name ||| 'bob') AND (NOT (users.color ||| 'blue'))));
 
 --
 -- removing the `uses_tantivy_to_query` code so that we always push down quals if we can exposed
@@ -321,5 +297,5 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM products
                  JOIN orders ON products.name = orders.name
-        WHERE (NOT (products.id @@@ '3'))
-           OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
+        WHERE (NOT (products.id @@@ pdb.term(3)))
+           OR ((products.name ||| 'bob') AND (orders.id @@@ pdb.term(3))));

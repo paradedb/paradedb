@@ -64,7 +64,7 @@ fn use_ivm(mut conn: PgConnection) {
     let res: Vec<(i32, f32)> = r#"
     SELECT id, pdb.score(id)
     FROM test_view
-    WHERE test_view.content @@@ 'pineapple';
+    WHERE test_view.content ||| 'pineapple';
     "#
     .fetch(&mut conn);
     assert_eq!(res, vec![(1, 0.5389965)]);

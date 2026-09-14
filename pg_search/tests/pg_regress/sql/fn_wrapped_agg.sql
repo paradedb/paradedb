@@ -16,13 +16,7 @@ CREATE TABLE fn_wrapped_agg_logs (
 
 -- Create a BM25 index with fast fields for aggregation
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING paradedb (log_id, description, category)
-WITH (
-    text_fields = '{
-        "description": {},
-        "category": {"fast": true}
-    }'
-);
+USING paradedb (log_id, description, (category::pdb.unicode_words('columnar=true')));
 
 -- Insert test data
 INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
@@ -113,61 +107,61 @@ USING paradedb (log_id, description, (category::pdb.literal), score);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 6: pdb.agg() with -> operator (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 7: pdb.agg() wrapped in COALESCE (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 8: Nested wrappers - jsonb_pretty(COALESCE(pdb.agg(...)))
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 9: Standard COUNT(*) wrapped in COALESCE (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(COUNT(*), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT COALESCE(COUNT(*), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 10: Standard SUM wrapped in COALESCE (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(SUM(score), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT COALESCE(SUM(score), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 11: Mixed wrapped and unwrapped aggregates in same SELECT
 -- This is critical: if we don't replace ALL placeholders with Const nodes,
@@ -177,13 +171,13 @@ SELECT
     pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
     (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT
     pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
     (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 12: Multiple wrapped aggregates with different wrappers
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -192,14 +186,14 @@ SELECT
     (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
     COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT
     jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}')) as pretty_count,
     (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
     COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 -- Test 13: Mixed standard aggregates - wrapped and unwrapped
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -207,16 +201,15 @@ SELECT
     COUNT(*) as raw_count,
     COALESCE(SUM(score), 0) as coalesced_sum
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 SELECT
     COUNT(*) as raw_count,
     COALESCE(SUM(score), 0) as coalesced_sum
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
 
 RESET paradedb.enable_aggregate_custom_scan;
 
 -- Cleanup
 DROP TABLE fn_wrapped_agg_logs CASCADE;
-

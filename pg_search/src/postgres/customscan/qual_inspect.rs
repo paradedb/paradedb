@@ -2221,12 +2221,7 @@ mod tests {
                 description TEXT
             );
             CREATE INDEX exists_guard_test_idx ON exists_guard_test
-            USING paradedb (id, color, description) WITH (
-                text_fields = '{
-                    "color": {"tokenizer": {"type": "keyword"}, "fast": true},
-                    "description": {}
-                }'
-            );
+            USING paradedb (id, (color::pdb.literal), description);
             "#,
         )
         .unwrap();

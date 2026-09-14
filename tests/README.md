@@ -4,6 +4,18 @@ This directory contains the **integration tests** and **client property tests** 
 
 For a complete overview of ParadeDB's testing infrastructure (including unit tests and pg regress tests), please see the [Testing section in `CONTRIBUTING.md`](../CONTRIBUTING.md#testing).
 
+## SQL syntax in tests
+
+Use `USING paradedb`, tokenizer casts for text/JSON configuration, and `===`, `###`, `|||`, or `&&&` for text searches. Non-text columns are columnar by default. Use `pdb.literal` or `pdb.literal_normalized` for columnar whole-value text; a word tokenizer with `columnar=true` preserves tokenized search when the same field also needs columnar access. `@@@` accepts explicit query builders such as `pdb.all()`, `pdb.more_like_this()`, and `pdb.parse()`.
+
+The `deprecated_*` compatibility tests deliberately retain old syntax where current APIs cannot preserve the tested behavior:
+
+- JSON tokenizer casts change numeric JSON filter and term matching. The legacy JSON pushdown and aggregate cases retain their schema options.
+- `pdb.agg()` over joins cannot read back tokenizer expression fields, including literal casts. The affected aggregate tests and the isolated property-test module retain legacy field configuration.
+- Custom stopword lists have no working tokenizer cast equivalent.
+
+Dedicated compatibility tests also cover the old access-method name, ignored key/datetime options, and rejected legacy operator arguments. These are not examples for new queries. Parser-specific tests use explicit parser functions; this includes phrases with stopwords, whose position gaps are currently lost by `###`. JSON query serialization tests exercise typed query objects rather than query-string syntax.
+
 ## Client Property Tests
 
 Client property tests are a particularly interesting subcategory of integration tests. Most live in [`qgen.rs`](tests/qgen.rs), but other files also use `crate::fixtures::querygen` to generate tests.

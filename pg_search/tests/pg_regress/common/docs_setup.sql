@@ -393,80 +393,10 @@ SELECT
 FROM generate_series(1, :rows) s(id);
 
 CREATE INDEX pages_index ON pages
-USING paradedb (
-    "id",
-    "content",
-    "title",
-    "parents",
-    "fileId",
-    "sizeInBytes",
-    "createdAt"
-)
-WITH (
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "fileId": {
-            "tokenizer": {"type": "keyword"}, "fast": true
-        },
-        "content": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "title": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "parents": {
-            "tokenizer": {"type": "default"}, "fast": true
-        }
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), ("fileId"::pdb.literal), "sizeInBytes", "createdAt");
 
 CREATE INDEX files_index ON files
-USING paradedb (
-    "id",
-    "content",
-    "documentId",
-    "title",
-    "parents",
-    "sizeInBytes",
-    "createdAt"
-)
-WITH (
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "documentId": {
-            "tokenizer": {"type": "keyword"}, "fast": true
-        },
-        "content": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "title": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "parents": {
-            "tokenizer": {"type": "default"}, "fast": true
-        }
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), ("documentId"::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), "sizeInBytes", "createdAt");
 
 CREATE INDEX documents_index ON documents
-USING paradedb (
-    "id",
-    "content",
-    "title",
-    "parents",
-    "createdAt"
-)
-WITH (
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "content": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "title": {
-            "tokenizer": {"type": "default"}, "fast": true
-        },
-        "parents": {
-            "tokenizer": {"type": "default"}, "fast": true
-        }
-    }'
-);
+USING paradedb ((id::pdb.literal), (content::pdb.simple('columnar=true')), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), "createdAt");

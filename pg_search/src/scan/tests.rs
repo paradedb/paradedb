@@ -188,10 +188,7 @@ mod tests {
 
         Spi::run(
             "CREATE INDEX filter_test_idx ON filter_test
-             USING paradedb (id, price, quantity)
-             WITH (
-                 numeric_fields = '{\"price\": {\"fast\": true}, \"quantity\": {\"fast\": true}}'
-             );",
+             USING paradedb (id, price, quantity);",
         )
         .unwrap();
 

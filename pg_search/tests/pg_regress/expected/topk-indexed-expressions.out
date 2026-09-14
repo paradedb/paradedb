@@ -248,16 +248,9 @@ INSERT INTO expr_suppliers (id, product_id, name, contact_info) VALUES
                                                                     (10, 10, 'CableCo', 'cable manufacturing');
 -- BM25 indexes with fast fields and an indexed expression: upper(name)
 CREATE INDEX expr_products_bm25 ON expr_products
-    USING paradedb (id, description, category, (upper(name)::pdb.literal))
-    WITH (
-    text_fields = '{"category": {"fast": true}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), (upper(name)::pdb.literal));
 CREATE INDEX expr_suppliers_bm25 ON expr_suppliers
-    USING paradedb (id, product_id, name, contact_info)
-    WITH (
-    text_fields = '{"name": {"fast": true}}',
-    numeric_fields = '{"product_id": {"fast": true}}'
-    );
+    USING paradedb (id, product_id, (name::pdb.unicode_words('columnar=true')), contact_info);
 SET paradedb.enable_join_custom_scan = on;
 -- Test 7: JoinScan with ORDER BY indexed expression
 -- upper(name) is an indexed expression on expr_products — JoinScan should
@@ -266,11 +259,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name, (upper(p.name))
    Relation Tree: p INNER s
@@ -284,7 +277,7 @@ ORDER BY upper(p.name) ASC
      :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[ctid_0@1, name@2, name@4, ctid_1@5]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, fetch=[name], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -292,7 +285,7 @@ ORDER BY upper(p.name) ASC
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
        name       | supplier_name 
@@ -311,11 +304,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -329,7 +322,7 @@ ORDER BY s.name ASC
      :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[ctid_0@1, name@3, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=2, query="all"
 (16 rows)
@@ -337,7 +330,7 @@ ORDER BY s.name ASC
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name ASC
     LIMIT 5;
        name       | supplier_name 
@@ -356,12 +349,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, (upper(p.category))
    ->  Sort
@@ -382,13 +375,13 @@ WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions 
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (21 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
          JOIN expr_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
 WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, s)

@@ -124,21 +124,7 @@ fn complex_aggregation_setup() -> &'static str {
           FROM generate_series(1, 1000)
         ) sub;
 
-        create index expected_payments_idx on expected_payments using paradedb (
-            id,
-            organization_id,
-            live_mode,
-            status,
-            internal_account_id,
-            amount_range,
-            amount_reconciled,
-            direction,
-            currency,
-            discarded_at
-        ) with (
-            text_fields = '{"organization_id": {"fast":true}, "status": {"fast": true, "tokenizer": {"type": "keyword"}}, "direction": {"fast": true}, "currency": {"fast": true}}',
-            boolean_fields = '{"live_mode": {"fast": true}}'
-        );
+        create index expected_payments_idx on expected_payments using paradedb (id, (organization_id::pdb.unicode_words('columnar=true')), live_mode, (status::pdb.literal), internal_account_id, amount_range, amount_reconciled, (direction::pdb.unicode_words('columnar=true')), (currency::pdb.unicode_words('columnar=true')), discarded_at);
     "#
 }
 
@@ -168,8 +154,8 @@ fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
           COUNT(distinct expected_payments.currency) as currency_count, 
           (ARRAY_AGG(distinct expected_payments.currency))[1] as currency 
         FROM expected_payments
-        WHERE expected_payments.live_mode @@@ 'true' 
-          AND expected_payments.status @@@ 'IN [unreconciled partially_reconciled]' 
+        WHERE expected_payments.live_mode @@@ pdb.term(true)
+          AND expected_payments.status === ARRAY['unreconciled', 'partially_reconciled']
           AND expected_payments.discarded_at IS NULL 
         LIMIT 1
     "#
@@ -200,8 +186,8 @@ fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
           COUNT(distinct expected_payments.currency) as currency_count, 
           (ARRAY_AGG(distinct expected_payments.currency))[1] as currency 
         FROM expected_payments
-        WHERE expected_payments.live_mode @@@ 'true' 
-          AND expected_payments.status @@@ 'IN [unreconciled partially_reconciled]' 
+        WHERE expected_payments.live_mode @@@ pdb.term(true)
+          AND expected_payments.status === ARRAY['unreconciled', 'partially_reconciled']
           AND expected_payments.discarded_at IS NULL 
         LIMIT 1
     "#
@@ -293,29 +279,29 @@ fn fast_fields_setup() -> &'static str {
 }
 
 #[rstest]
-#[case::aliased_literal(r#"SELECT category FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
-#[case::unaliased_literal(r#"SELECT description FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
-#[case::simple_expression_id(r#"SELECT (id) FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
-#[case::aliased_integer(r#"SELECT rating FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
+#[case::aliased_literal(r#"SELECT category FROM mixed_ff_v2 WHERE title ||| 'Title'"#, true)]
+#[case::unaliased_literal(r#"SELECT description FROM mixed_ff_v2 WHERE title ||| 'Title'"#, true)]
+#[case::simple_expression_id(r#"SELECT (id) FROM mixed_ff_v2 WHERE title ||| 'Title'"#, true)]
+#[case::aliased_integer(r#"SELECT rating FROM mixed_ff_v2 WHERE title ||| 'Title'"#, true)]
 #[case::output_cast(
-    r#"SELECT rating::text FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    r#"SELECT rating::text FROM mixed_ff_v2 WHERE title ||| 'Title'"#,
     false
 )]
-#[case::default_tokenizer(r#"SELECT content FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::default_tokenizer(r#"SELECT content FROM mixed_ff_v2 WHERE title ||| 'Title'"#, false)]
 #[case::expression_mismatch(
-    r#"SELECT lower(title) FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    r#"SELECT lower(title) FROM mixed_ff_v2 WHERE title ||| 'Title'"#,
     false
 )]
 #[case::expression_concat(
-    r#"SELECT title || ' ' || category FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    r#"SELECT title || ' ' || category FROM mixed_ff_v2 WHERE title ||| 'Title'"#,
     true
 )]
 #[case::expression_arithmetic(
-    r#"SELECT rating + 1 FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    r#"SELECT rating + 1 FROM mixed_ff_v2 WHERE title ||| 'Title'"#,
     true
 )]
-#[case::numeric_column(r#"SELECT price FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
-#[case::array_column(r#"SELECT tags FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::numeric_column(r#"SELECT price FROM mixed_ff_v2 WHERE title ||| 'Title'"#, true)]
+#[case::array_column(r#"SELECT tags FROM mixed_ff_v2 WHERE title ||| 'Title'"#, false)]
 fn test_fast_fields_cases(
     mut conn: PgConnection,
     #[case] query: &str,
@@ -411,12 +397,7 @@ fn columnar_exec_order_by(
         );
 
         CREATE INDEX test_mff_sorted_idx ON test_mff_sorted
-        USING paradedb (id, name, category, score)
-        WITH (
-            text_fields = '{{"name": {{"fast": true}}, "category": {{"fast": true, "tokenizer": {{"type": "keyword"}}}}}}',
-            numeric_fields = '{{"score": {{"fast": true}}}}',
-            sort_by = '{}'
-        );
+        USING paradedb (id, (name::pdb.unicode_words('columnar=true')), (category::pdb.literal), score) WITH (sort_by = '{}');
         "#,
         sort_by
     );
@@ -446,7 +427,7 @@ fn columnar_exec_order_by(
     let query = format!(
         r#"
         SELECT name, category, score FROM test_mff_sorted
-        WHERE name @@@ 'Item'
+        WHERE name ||| 'Item'
         ORDER BY score {} NULLS {}
         "#,
         order_by_dir,
@@ -503,12 +484,7 @@ fn columnar_disabled_still_works(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_mff_disabled_idx ON test_mff_disabled
-        USING paradedb (id, text_col, str_col, num_col)
-        WITH (
-            text_fields = '{"text_col": {"fast": true}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-            numeric_fields = '{"num_col": {"fast": true}}',
-            sort_by = 'num_col DESC NULLS LAST'
-        );
+        USING paradedb (id, (text_col::pdb.unicode_words('columnar=true')), (str_col::pdb.literal), num_col) WITH (sort_by = 'num_col DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -531,7 +507,7 @@ fn columnar_disabled_still_works(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id, num_col FROM test_mff_disabled
-        WHERE text_col @@@ 'Record'
+        WHERE text_col ||| 'Record'
         ORDER BY num_col DESC
     "#
     .fetch_one(&mut conn);
@@ -545,7 +521,7 @@ fn columnar_disabled_still_works(mut conn: PgConnection) {
 
     let results: Vec<(i32, i32)> = r#"
         SELECT id, num_col FROM test_mff_disabled
-        WHERE text_col @@@ 'Record'
+        WHERE text_col ||| 'Record'
         ORDER BY num_col DESC
     "#
     .fetch(&mut conn);

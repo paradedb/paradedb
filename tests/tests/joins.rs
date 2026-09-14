@@ -51,8 +51,8 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
 --    INSERT INTO a (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
 --    INSERT INTO b (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
         
-    CREATE INDEX idxa ON public.a USING paradedb (id, value) WITH (text_fields='{"value": {}}');
-    CREATE INDEX idxb ON public.b USING paradedb (id, value) WITH (text_fields='{"value": {}}');
+    CREATE INDEX idxa ON public.a USING paradedb (id, value);
+    CREATE INDEX idxb ON public.b USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
@@ -60,20 +60,20 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
     // the pg_search queries also ORDER BY pdb.score() to ensure we get a paradedb CustomScan
     let queries = [
         [
-            "select a.id, b.id, a.value a, b.value b from a left join b on a.id = b.id where a.value @@@   'beer'   or b.value @@@   'wine'   or a.value @@@ 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
-            "select a.id, b.id, a.value a, b.value b from a left join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id;",
+            "select a.id, b.id, a.value a, b.value b from a left join b on a.id = b.id where a.value ||| 'beer'   or b.value ||| 'wine'   or a.value ||| 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
+            "select a.id, b.id, a.value a, b.value b from a left join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id;",
         ],
         [
-            "select a.id, b.id, a.value a, b.value b from a right join b on a.id = b.id where a.value @@@   'beer'   or b.value @@@   'wine'   or a.value @@@ 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
-            "select a.id, b.id, a.value a, b.value b from a right join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id;",
+            "select a.id, b.id, a.value a, b.value b from a right join b on a.id = b.id where a.value ||| 'beer'   or b.value ||| 'wine'   or a.value ||| 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
+            "select a.id, b.id, a.value a, b.value b from a right join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id;",
         ],
         [
-            "select a.id, b.id, a.value a, b.value b from a inner join b on a.id = b.id where a.value @@@   'beer'   or b.value @@@   'wine'   or a.value @@@ 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
-            "select a.id, b.id, a.value a, b.value b from a inner join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id;",
+            "select a.id, b.id, a.value a, b.value b from a inner join b on a.id = b.id where a.value ||| 'beer'   or b.value ||| 'wine'   or a.value ||| 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
+            "select a.id, b.id, a.value a, b.value b from a inner join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id;",
         ],
         [
-            "select a.id, b.id, a.value a, b.value b from a full join b on a.id = b.id where a.value @@@   'beer'   or b.value @@@   'wine'   or a.value @@@ 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
-            "select a.id, b.id, a.value a, b.value b from a full join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value @@@ 'only_in_b' order by a.id, b.id;",
+            "select a.id, b.id, a.value a, b.value b from a full join b on a.id = b.id where a.value ||| 'beer'   or b.value ||| 'wine'   or a.value ||| 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id, pdb.score(a.id), pdb.score(b.id);",
+            "select a.id, b.id, a.value a, b.value b from a full join b on a.id = b.id where a.value ilike '%beer%' or b.value ilike '%wine%' or a.value   = 'only_in_a' or b.value ||| 'only_in_b' order by a.id, b.id;",
         ],
     ];
 
@@ -110,21 +110,21 @@ fn snippet_from_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     INSERT INTO a (id, value) VALUES (1, 'beer'), (2, 'wine'), (3, 'cheese');
     INSERT INTO b (id, value) VALUES (1, 'beer'), (2, 'wine'), (3, 'cheese');
 
-    CREATE INDEX idxa ON a USING paradedb (id, value) WITH (text_fields='{"value": {}}');
-    CREATE INDEX idxb ON b USING paradedb (id, value) WITH (text_fields='{"value": {}}');
+    CREATE INDEX idxa ON a USING paradedb (id, value);
+    CREATE INDEX idxb ON b USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
-    let (snippet, ) = r#"select pdb.snippet(a.value) from a left join b on a.id = b.id where a.value @@@ 'beer';"#
+    let (snippet, ) = r#"select pdb.snippet(a.value) from a left join b on a.id = b.id where a.value ||| 'beer';"#
         .fetch_one::<(String,)>(&mut conn);
     assert_eq!(snippet, String::from("<b>beer</b>"));
 
-    let (snippet, ) = r#"select pdb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' and b.value @@@ 'beer';"#
+    let (snippet, ) = r#"select pdb.snippet(b.value) from a left join b on a.id = b.id where a.value ||| 'beer' and b.value ||| 'beer';"#
         .fetch_one::<(String,)>(&mut conn);
     assert_eq!(snippet, String::from("<b>beer</b>"));
 
     // NB:  the result of this is wrong for now...
-    let results = r#"select a.id, b.id, pdb.snippet(a.value), pdb.snippet(b.value) from a left join b on a.id = b.id where a.value @@@ 'beer' or b.value @@@ 'wine' order by a.id, b.id;"#
+    let results = r#"select a.id, b.id, pdb.snippet(a.value), pdb.snippet(b.value) from a left join b on a.id = b.id where a.value ||| 'beer' or b.value ||| 'wine' order by a.id, b.id;"#
         .fetch_result::<(i64, i64, Option<String>, Option<String>)>(&mut conn)?;
 
     // ... this is what we'd actually expect from the above query
@@ -167,11 +167,7 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         (4,   2, 'right token', 'b', 'a004'),
         (5,   2, 'right token', 'b', 'a005');
 
-    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, ord, side)
-    WITH (
-        numeric_fields = '{"grp": {"fast": true}}',
-        text_fields = '{"ord": {"fast": true}, "side": {"fast": true}}'
-    );
+    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, (ord::pdb.unicode_words('columnar=true')), (side::pdb.unicode_words('columnar=true')));
 
     ANALYZE dup_items;
     "#
@@ -181,8 +177,8 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         SELECT a.ord AS a_ord, b.ord AS b_ord, a.id AS a_id, b.id AS b_id
         FROM dup_items a
         JOIN dup_items b ON a.grp = b.grp
-        WHERE a.body @@@ 'left'
-          AND b.body @@@ 'right'
+        WHERE a.body ||| 'left'
+          AND b.body ||| 'right'
         ORDER BY b.ord ASC, a.id ASC
         LIMIT 3
     "#;
@@ -253,11 +249,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         (4,   2, 'right token', 'b', 'a004'),
         (5,   2, 'right token', 'b', 'a005');
 
-    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, ord, side)
-    WITH (
-        numeric_fields = '{"grp": {"fast": true}}',
-        text_fields = '{"ord": {"fast": true}, "side": {"fast": true}}'
-    );
+    CREATE INDEX dup_items_idx ON dup_items USING paradedb (id, grp, body, (ord::pdb.unicode_words('columnar=true')), (side::pdb.unicode_words('columnar=true')));
 
     ANALYZE dup_items;
     "#
@@ -267,8 +259,8 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         SELECT a.ord AS a_ord, b.ord AS b_ord, a.id AS a_id, b.id AS b_id
         FROM dup_items a
         JOIN dup_items b ON a.grp = b.grp
-        WHERE a.body @@@ 'left'
-          AND b.body @@@ 'right'
+        WHERE a.body ||| 'left'
+          AND b.body ||| 'right'
         ORDER BY a.ord ASC, b.ord ASC
         LIMIT 3
     "#;
@@ -373,17 +365,10 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
         (15, 'lll_sup', 'electronics supplier fifteen');
 
     CREATE INDEX misbind_products_bm25 ON misbind_products
-    USING paradedb (id, name, description, supplier_id)
-    WITH (
-        text_fields = '{"name": {"fast": true}, "description": {"fast": true}}',
-        numeric_fields = '{"supplier_id": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), (description::pdb.unicode_words('columnar=true')), supplier_id);
 
     CREATE INDEX misbind_suppliers_bm25 ON misbind_suppliers
-    USING paradedb (id, name, info)
-    WITH (
-        text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), info);
 
     ANALYZE misbind_products;
     ANALYZE misbind_suppliers;
@@ -397,7 +382,7 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
         SELECT p.name AS p_name, s.name AS s_name
         FROM misbind_products p
         JOIN misbind_suppliers s ON p.supplier_id = s.id
-        WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+        WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
         ORDER BY p.name ASC
         LIMIT 10
     "#;

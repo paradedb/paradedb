@@ -12,7 +12,7 @@ SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
 JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures' AND f.title ||| 'Receipt' AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 
 -- Test complex join
@@ -20,7 +20,7 @@ SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
 JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures' AND f.title ||| 'Receipt' AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 
 -- Test complex join with mixed fields
@@ -28,7 +28,7 @@ SELECT pages.fileId, pages.page_number, pages.content
 FROM documents 
 JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
+WHERE documents.parents ||| 'Factures' AND files.title ||| 'Receipt' AND pages.content ||| 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
 
@@ -37,7 +37,7 @@ SELECT pages.fileId, pages.page_number, pages.content
 FROM documents 
 JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
+WHERE documents.parents ||| 'Factures' AND files.title ||| 'Receipt' AND pages.content ||| 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
 

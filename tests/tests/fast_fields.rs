@@ -27,20 +27,11 @@ fn plans_numeric_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT rating FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
 
     assert_eq!(
         Some(&Value::String("rating".into())),
@@ -53,20 +44,11 @@ fn plans_many_numeric_fast_fields(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, rating FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
 
     assert_eq!(
         Some(&Value::String("id, rating".into())),
@@ -79,20 +61,11 @@ fn plans_many_numeric_fast_fields_with_score(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, pdb.score(id), rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, pdb.score(id), rating FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("id, rating".into())),
         plan.pointer("/0/Plan/Columnar")
@@ -106,21 +79,12 @@ fn plans_string_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
 SET paradedb.enable_aggregate_custom_scan = false;
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category, count(*) FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' GROUP BY category".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category, count(*) FROM paradedb.bm25_search WHERE description ||| 'keyboard' GROUP BY category".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("category".into())),
         plan.pointer("/0/Plan/Plans/0/Plans/0/Columnar")
@@ -133,20 +97,11 @@ fn does_plan_string_fast_field(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#
     .execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("Custom Scan".into())),
         plan.pointer("/0/Plan/Node Type")
@@ -158,16 +113,7 @@ fn numeric_fast_field_in_window_func(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 CREATE INDEX idxbm25_search ON paradedb.bm25_search
-USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-WITH (
-    text_fields='{
-        "description": {},
-        "category": {"fast": true, "normalizer": "raw"}
-    }',
-    numeric_fields='{"rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {}}',
-    json_fields='{"metadata": {}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#
     .execute(&mut conn);
 
@@ -176,7 +122,7 @@ WITH (
         SELECT id,
                ROW_NUMBER() OVER (PARTITION BY rating ORDER BY id) AS rn
         FROM paradedb.bm25_search
-        WHERE id @@@ 'description:shoes'
+        WHERE description ||| 'shoes'
         )
     SELECT id
     FROM RankedContacts
@@ -216,11 +162,7 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     FROM generate_series(1, 10000) i;
 
     CREATE INDEX numeric_bytes_idx ON numeric_bytes_test
-    USING paradedb (id, description, amount, precise_value)
-    WITH (
-        text_fields = '{"description": {}}',
-        numeric_fields = '{"amount": {"fast": true}, "precise_value": {"fast": true}}'
-    );
+    USING paradedb (id, description, amount, precise_value);
     "#
     .execute(&mut conn);
 
@@ -243,7 +185,7 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     let results = r#"
     SELECT id, amount, precise_value
     FROM numeric_bytes_test
-    WHERE description @@@ 'item'
+    WHERE description ||| 'item'
     "#
     .fetch::<(i32, sqlx::types::BigDecimal, sqlx::types::BigDecimal)>(&mut conn);
 
@@ -264,7 +206,7 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     EXPLAIN (FORMAT JSON)
     SELECT id, amount, precise_value
     FROM numeric_bytes_test
-    WHERE description @@@ 'item'
+    WHERE description ||| 'item'
     "#
     .fetch_one::<(Value,)>(&mut conn);
 
@@ -312,18 +254,10 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     FROM generate_series(1, 5000) i;
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (id, product_name, total_amount)
-    WITH (
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"total_amount": {"fast": true}}'
-    );
+    USING paradedb (id, product_name, total_amount);
 
     CREATE INDEX order_items_idx ON order_items
-    USING paradedb (id, item_name, item_price)
-    WITH (
-        text_fields = '{"item_name": {}}',
-        numeric_fields = '{"item_price": {"fast": true}}'
-    );
+    USING paradedb (id, item_name, item_price);
 
     -- Enable JoinScan
     SET paradedb.enable_join_custom_scan = true;
@@ -335,7 +269,7 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     SELECT o.id, o.total_amount, oi.item_price
     FROM orders o
     JOIN order_items oi ON o.id = oi.order_id
-    WHERE o.product_name @@@ 'product' AND oi.item_name @@@ 'item'
+    WHERE o.product_name ||| 'product' AND oi.item_name ||| 'item'
     ORDER BY o.id, oi.id
     LIMIT 50
     "#
@@ -357,7 +291,7 @@ fn numeric_bytes_fast_field_joinscan(mut conn: PgConnection) {
     SELECT o.id, o.total_amount, oi.item_price
     FROM orders o
     JOIN order_items oi ON o.id = oi.order_id
-    WHERE o.product_name @@@ 'product' AND oi.item_name @@@ 'item'
+    WHERE o.product_name ||| 'product' AND oi.item_name ||| 'item'
     ORDER BY o.id, oi.id
     LIMIT 50
     "#

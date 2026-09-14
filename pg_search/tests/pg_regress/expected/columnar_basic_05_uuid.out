@@ -22,15 +22,9 @@ VALUES
     (gen_random_uuid(), gen_random_uuid(), 'bob'),
     (gen_random_uuid(), gen_random_uuid(), 'cloe'),
     (gen_random_uuid(), gen_random_uuid(), 'sally');
-CREATE INDEX idxproducts ON products USING paradedb (uuid_key, uuid, name)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }'
-);
+CREATE INDEX idxproducts ON products USING paradedb (uuid_key, (uuid::pdb.literal), (name::pdb.literal));
 -- Confirm that the UUID primary key is fast and gets MixedFF.
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid_key;
  name 
 ------
  bob
@@ -38,9 +32,9 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 (2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid_key;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: uuid_key
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -49,11 +43,11 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
          Exec Method: ColumnarExecState
          Columnar: name, uuid_key
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- And that other UUID fields do too.
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid;
  name 
 ------
  bob
@@ -61,9 +55,9 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
 (2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid;
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: uuid
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -72,7 +66,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
          Exec Method: ColumnarExecState
          Columnar: name, uuid
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 \i common/common_cleanup.sql

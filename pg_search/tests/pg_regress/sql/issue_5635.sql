@@ -47,16 +47,13 @@ SELECT
 FROM generate_series(1, 50) AS i;
 
 CREATE INDEX issue5635_documents_bm25_idx ON issue5635_documents
-USING paradedb (
-    id,
-    (category::pdb.unicode_words('columnar=true'))
-) WITH (text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+USING paradedb ((id::pdb.literal), (category::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX issue5635_files_bm25_idx ON issue5635_files
 USING paradedb (
     id,
     (document_id::pdb.literal),
-    (title::pdb.unicode_words('columnar=true'))
+    (title::pdb.literal)
 );
 
 SET paradedb.enable_join_custom_scan = on;
@@ -70,7 +67,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
 FROM issue5635_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM issue5635_documents d WHERE d.category ||| 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;
@@ -78,7 +75,7 @@ LIMIT 3;
 SELECT f.id, f.title
 FROM issue5635_files f
 WHERE f.document_id IN (
-    SELECT d.id FROM issue5635_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+    SELECT d.id FROM issue5635_documents d WHERE d.category ||| 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC
 LIMIT 3;

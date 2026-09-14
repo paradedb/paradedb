@@ -22,9 +22,8 @@ use crate::postgres::customscan::aggregatescan::{
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
-use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, contains_exec_param, extract_quals,
-};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::node::NodeExt;
 use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -94,9 +93,9 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         // evaluate them at execution time with proper parameter passing
         unsafe {
             // restrict_info is a list of RestrictInfo nodes
-            let has_correlation = restrict_info.iter_ptr().any(|rinfo| {
-                !(*rinfo).clause.is_null() && contains_exec_param((*rinfo).clause.cast())
-            });
+            let has_correlation = restrict_info
+                .iter_ptr()
+                .any(|rinfo| !(*rinfo).clause.is_null() && (*rinfo).clause.contains_exec_param());
 
             if has_correlation && !crate::gucs::enable_filter_pushdown() {
                 // Can't handle correlation without HeapFilter support

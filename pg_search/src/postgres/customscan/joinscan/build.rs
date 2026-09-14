@@ -26,6 +26,9 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::nodecast;
+use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
@@ -524,6 +527,21 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
+    pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
+        let funcoids = score_funcoids();
+        node.any(|node| {
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+                && funcoids.contains(&(*funcexpr).funcid)
+            {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                return args.len() == 1
+                    && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                        .is_some_and(|var| self.contains_rti((*var).varno as pg_sys::Index));
+            }
+            false
+        })
+    }
+
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.scan_info.heap_rti == rti

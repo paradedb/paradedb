@@ -38,19 +38,18 @@ use crate::postgres::customscan::joinscan::planning::{
     ClassifiedBaseRestrictInfo, classify_base_restrictinfo, transparent_path_subpath,
     wrap_with_semi_anti,
 };
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{
     ResolvedIndexField, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
     resolve_index_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{
-    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, contains_extern_param,
-    extract_quals,
+    PlannerContext, QualExtractState, collect_implicit_and_conjuncts, extract_quals,
 };
 use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{
-    expr_collect_rtis, expr_collect_vars, missing_partial_index_predicate,
-};
+use crate::postgres::utils::missing_partial_index_predicate;
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
@@ -398,7 +397,7 @@ unsafe fn apply_search_filter_or_decline(
     // plans retain PARAM_EXTERN nodes, but the DataFusion aggregate-on-join
     // executor has no runtime binding contract for these expressions. Preserve
     // supported PARAM_EXEC paths by rejecting only PARAM_EXTERN here.
-    if clauses.iter().any(|&clause| contains_extern_param(clause)) {
+    if clauses.iter().any(|&clause| clause.contains_extern_param()) {
         return Err(
             "generic prepared-plan parameters are not supported for aggregate joins".into(),
         );
@@ -834,7 +833,7 @@ unsafe fn extract_non_equi_filter_from_quals(
         // (not an outer join, where outer-join-delayed quals cannot be pushed down).
         // For Right, RightSemi, and RightAnti joins, quals referencing only the inner/nullable
         // side (left) are pushed into left's base rels only when the left side is a base relation.
-        let rtis = expr_collect_rtis(node);
+        let rtis = node.collect_rtis();
         let pushed_down = if rtis.is_empty() {
             false
         } else {
@@ -876,9 +875,7 @@ unsafe fn extract_non_equi_filter_from_quals(
         if !all_vars_are_fast_fields_for_agg(root, node, sources)
             || !PredicateTranslator::can_translate(Some(root), &all_sources, node, None)
         {
-            if crate::postgres::customscan::collation_semantics::expr_has_unsupported_collation(
-                node,
-            ) {
+            if node.has_unsupported_collation() {
                 return Err(
                     "join conditions on a nondeterministic collation are not supported".into(),
                 );
@@ -1209,7 +1206,7 @@ unsafe fn classify_path_restrictinfo(
 
         // No ParamListInfo binding for DataFusion join predicates; see
         // apply_search_filter_or_decline.
-        if contains_extern_param(clause) {
+        if clause.contains_extern_param() {
             info.decline(PathPredicateDeclineReason::ExternParam);
             continue;
         }
@@ -1269,7 +1266,7 @@ unsafe fn classify_path_restrictinfo(
             continue;
         }
 
-        let rtis = expr_collect_rtis(clause);
+        let rtis = clause.collect_rtis();
         if !rtis.is_empty() {
             let has_search = expr_contains_search_predicate(clause);
             let acceptable = if has_search {
@@ -1511,9 +1508,8 @@ impl FilterExpr {
                         if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                             if let Some(first_arg) = args.get_ptr(0)
-                                && let Some(var) = crate::postgres::var::find_one_var(
-                                    (*first_arg).expr as *mut pg_sys::Node,
-                                )
+                                && let Some(var) =
+                                    (*first_arg).expr.find_single_node::<pg_sys::Var>()
                             {
                                 let rti = (*var).varno as pg_sys::Index;
                                 let attno = (*var).varattno;
@@ -1751,9 +1747,9 @@ pub unsafe fn populate_required_fields(
 
     // Collect Var references from multi-table predicate clauses so their
     // columns are registered in the PgSearchTableProvider schema.
-    let multi_table_vars: Vec<crate::postgres::utils::VarRef> = multi_table_clauses
+    let multi_table_vars: Vec<crate::postgres::node::VarRef> = multi_table_clauses
         .iter()
-        .flat_map(|&clause| expr_collect_vars(clause.cast(), false))
+        .flat_map(|&clause| clause.collect_var_refs(false))
         .collect();
     let multi_table_var_positions: Vec<(usize, pg_sys::AttrNumber)> = multi_table_vars
         .iter()
@@ -1906,7 +1902,7 @@ unsafe fn all_vars_are_fast_fields_for_agg(
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
 ) -> bool {
-    let vars = expr_collect_vars(node, false);
+    let vars = node.collect_var_refs(false);
 
     for var_ref in vars {
         let mut source_found = false;
@@ -1971,7 +1967,7 @@ unsafe fn build_search_filter(
     // join with a residual cross-table predicate against the inner side.
     let output_rtis: crate::api::HashSet<pg_sys::Index> = plan.output_rtis().into_iter().collect();
     for &clause in clauses {
-        let clause_rtis = expr_collect_rtis(clause);
+        let clause_rtis = clause.collect_rtis();
         if let Some(rti) = clause_rtis.iter().find(|r| !output_rtis.contains(r)) {
             pgrx::debug1!(
                 "agg-on-join: declining; cross-table predicate references RTI {} \
@@ -2020,7 +2016,7 @@ unsafe fn collect_cross_table_search_quals(
     for conjunct in conjuncts {
         // Keep cross-table conjuncts (both @@@ and non-@@@). Single-table
         // conjuncts are already owned by the corresponding baserestrictinfo.
-        let rtis = expr_collect_rtis(conjunct);
+        let rtis = conjunct.collect_rtis();
         if rtis.len() > 1 {
             clauses.push(conjunct);
         }

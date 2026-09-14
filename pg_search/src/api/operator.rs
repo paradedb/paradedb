@@ -244,6 +244,18 @@ impl ReturnedNodePointer {
             fields.push(original_lhs);
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"original_lhs".as_ptr())).cast());
         }
+        // A predicate that stays above the Append keeps the parent partitioned index, whose
+        // storage does not exist (#4643). Ship the row's `tableoid` so execution can find
+        // the partition's own leaf index. The relkind gate keeps every other plan unchanged.
+        if !derived && is_partitioned_index(indexrel.oid()) {
+            let tableoid = system_column_var(
+                base_var,
+                pg_sys::TableOidAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::OIDOID,
+            );
+            fields.push(tableoid.cast());
+            names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
+        }
         // A non-null record preserves strictness even when the original LHS is NULL.
         args.push(
             pg_sys::RowExpr {

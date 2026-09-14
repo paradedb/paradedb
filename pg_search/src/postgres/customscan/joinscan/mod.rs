@@ -179,7 +179,7 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
+use crate::postgres::customscan::mpp::glue::{mpp_did_spill, query_allows_parallel_mode};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -1716,6 +1716,9 @@ impl CustomScan for JoinScan {
                     &plan,
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
+                    crate::postgres::customscan::datafusion::spill::notify_atomic_bool(Arc::clone(
+                        &state.custom_state().spilled,
+                    )),
                 );
                 let t_exec = std::time::Instant::now();
                 let stream = {
@@ -1860,6 +1863,25 @@ impl CustomScan for JoinScan {
             crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                 plan,
                 &leader.session.mesh,
+            );
+        }
+        // Spill warning: local flag set directly by this leader's execution, DSM flag
+        // OR'd in by any MPP worker (both via `on_spill`, see `build_task_context` above).
+        let spilled_locally = state
+            .custom_state()
+            .spilled
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let spilled_on_workers = state
+            .custom_state()
+            .mpp
+            .leader()
+            .and_then(|leader| leader.finish.as_ref())
+            .is_some_and(mpp_did_spill);
+        if spilled_locally || spilled_on_workers {
+            pgrx::warning!(
+                "query exceeded work_mem and spilled to disk; consider raising work_mem \
+                 for better performance (paradedb.spill_to_disk allowed it to complete \
+                 instead of erroring)"
             );
         }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs

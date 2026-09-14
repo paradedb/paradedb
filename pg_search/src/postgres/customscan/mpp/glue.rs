@@ -474,6 +474,29 @@ pub fn drain_worker_metrics(
     Some(())
 }
 
+/// Whether any backend (leader or a worker) spilled a DataFusion operator to disk this query.
+/// Reads the `ParallelScanState` slot the leader populated at launch.
+pub fn mpp_did_spill(finish: &crate::parallel_worker::builder::ParallelProcessFinish) -> bool {
+    match finish
+        .state_manager()
+        .slice_mut::<u8>(crate::postgres::customscan::mpp::launch::SCAN_IDX)
+    {
+        Ok(Some(s)) => unsafe {
+            (*(s.as_mut_ptr() as *mut crate::postgres::ParallelScanState)).did_spill()
+        },
+        _ => {
+            // Structurally shouldn't happen -- both launch-time readers of this same slot
+            // (`launch.rs`) treat a missing/wrong-typed region as fatal. Debug-only here
+            // because this runs at shutdown, after the query's results already exist;
+            // erroring out of teardown for an advisory warning is worse than just not
+            // warning. Release builds fall through to `false` -- a genuine DSM bug would
+            // surface elsewhere (or in debug/regress builds here) rather than only here.
+            debug_assert!(false, "mpp: parallel scan state missing at shutdown");
+            false
+        }
+    }
+}
+
 /// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].
 /// Mesh-free, so it is safe at EXPLAIN-render time, after the DSM is gone.
 ///

@@ -98,6 +98,13 @@ pub struct DataFusionAggState {
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
     pub launch_timing: Option<MppLaunchTiming>,
+    /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
+    /// leader's own local execution spills an operator to disk. Serial queries have no
+    /// `ParallelScanState` to record this in, so it's tracked here instead; `shutdown_custom_scan`
+    /// reads it directly for the serial case, and ORs it with `ParallelScanState::did_spill()`
+    /// for the MPP case, since the leader can spill locally in addition to (or instead of) any
+    /// worker.
+    pub spilled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

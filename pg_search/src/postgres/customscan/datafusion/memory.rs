@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::spill::buffile_disk_manager_mode;
+use super::spill::{SpillNotify, buffile_disk_manager_mode};
 use crate::gucs;
 use datafusion::common::DataFusionError;
 use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
@@ -127,9 +127,12 @@ pub fn create_memory_pool(
 /// `try_grow` past `work_mem` errors instead of writing untracked temp files. On: spills
 /// through Postgres's `BufFile`, so files respect `temp_file_limit`/`temp_tablespaces`
 /// and are cleaned up with the transaction.
-pub fn build_runtime_env(memory_pool: Arc<dyn MemoryPool>) -> Arc<RuntimeEnv> {
+pub fn build_runtime_env(
+    memory_pool: Arc<dyn MemoryPool>,
+    on_spill: SpillNotify,
+) -> Arc<RuntimeEnv> {
     let disk_manager_mode = if gucs::spill_to_disk() {
-        buffile_disk_manager_mode()
+        buffile_disk_manager_mode(on_spill)
     } else {
         DiskManagerMode::Disabled
     };

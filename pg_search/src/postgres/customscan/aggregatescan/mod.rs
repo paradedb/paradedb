@@ -40,6 +40,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::postgres::catalog::is_ltree_oid;
 
@@ -53,7 +54,7 @@ use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
+use crate::postgres::customscan::mpp::glue::{mpp_did_spill, query_allows_parallel_mode};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -769,6 +770,7 @@ impl CustomScan for AggregateScan {
                     mpp: MppLifecycle::Inactive,
                     parallel_mode_ok,
                     launch_timing: None,
+                    spilled: Arc::new(AtomicBool::new(false)),
                 });
                 builder.build()
             }
@@ -1032,6 +1034,9 @@ impl CustomScan for AggregateScan {
             df_state.current_batch = None;
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
+            // A rescan re-executes the plan from scratch, so whether the *previous* run
+            // spilled shouldn't carry over into the warning decision for this one.
+            df_state.spilled.store(false, Ordering::Relaxed);
             df_state.runtime = None;
         }
     }
@@ -1061,6 +1066,21 @@ impl CustomScan for AggregateScan {
                 crate::postgres::customscan::mpp::glue::drain_worker_metrics(
                     plan,
                     &leader.session.mesh,
+                );
+            }
+            // Spill warning: local flag set directly by this leader's execution, DSM flag
+            // OR'd in by any MPP worker (both via `on_spill`, see `build_task_context` below).
+            let spilled_locally = df_state.spilled.load(Ordering::Relaxed);
+            let spilled_on_workers = df_state
+                .mpp
+                .leader()
+                .and_then(|leader| leader.finish.as_ref())
+                .is_some_and(mpp_did_spill);
+            if spilled_locally || spilled_on_workers {
+                pgrx::warning!(
+                    "query exceeded work_mem and spilled to disk; consider raising work_mem \
+                     for better performance (paradedb.spill_to_disk allowed it to complete \
+                     instead of erroring)"
                 );
             }
             // Join the producer workers so their metrics land before the EXPLAIN render (which runs
@@ -2096,6 +2116,9 @@ impl AggregateScan {
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
+                crate::postgres::customscan::datafusion::spill::notify_atomic_bool(Arc::clone(
+                    &df_state.spilled,
+                )),
             );
             // Install `DistributedTaskContext` explicitly so the top boundary sees the leader's
             // `(task_index=0, task_count=1)` identity. Skipping this would let the fork's

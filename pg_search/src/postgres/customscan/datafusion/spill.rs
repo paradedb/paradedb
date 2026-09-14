@@ -71,7 +71,7 @@ use std::os::raw::c_int;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Bytes read per `BufFileRead` call when streaming a spill file back to DataFusion.
 /// Matches the 128KB DataFusion itself uses for its default OS-tempfile `SpillFile`
@@ -79,21 +79,52 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// default 8KB caused excessive per-poll overhead on multi-MB spill files.
 const READ_CHUNK_BYTES: usize = 128 * 1024;
 
+/// Fired once by [`BufFileTempFileFactory`] the first time this query actually spills.
+pub type SpillNotify = Arc<dyn Fn() + Send + Sync>;
+
+/// A [`SpillNotify`] that stores into an `Arc<AtomicBool>` -- the shape both AggregateScan's
+/// and JoinScan's leader-local execution need for their own `spilled` field.
+pub fn notify_atomic_bool(flag: Arc<AtomicBool>) -> SpillNotify {
+    Arc::new(move || flag.store(true, Ordering::Relaxed))
+}
+
 /// Returns a [`DiskManagerMode::Custom`] that spills through Postgres's `BufFile`
 /// instead of DataFusion's OS-tempdir `DiskManager`.
-pub fn buffile_disk_manager_mode() -> DiskManagerMode {
-    DiskManagerMode::Custom(Arc::new(BufFileTempFileFactory))
+pub fn buffile_disk_manager_mode(on_spill: SpillNotify) -> DiskManagerMode {
+    DiskManagerMode::Custom(Arc::new(BufFileTempFileFactory {
+        on_spill,
+        notified: AtomicBool::new(false),
+    }))
 }
 
 /// Creates `BufFile`-backed [`SpillFile`]s on request from DataFusion's `DiskManager`.
-#[derive(Debug)]
-struct BufFileTempFileFactory;
+struct BufFileTempFileFactory {
+    on_spill: SpillNotify,
+    /// Guards `on_spill` to fire at most once per factory (i.e. once per query on this
+    /// backend)
+    notified: AtomicBool,
+}
+
+impl std::fmt::Debug for BufFileTempFileFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufFileTempFileFactory")
+            .field("notified", &self.notified.load(Ordering::Relaxed))
+            .finish()
+    }
+}
 
 impl TempFileFactory for BufFileTempFileFactory {
     fn create_temp_file(
         &self,
         _description: &str,
     ) -> datafusion::common::Result<Arc<dyn SpillFile>> {
+        if self
+            .notified
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            (self.on_spill)();
+        }
         let file = unsafe { buffile::create_transaction_scoped_buffile() };
         Ok(Arc::new(BufFileSpillFile {
             file: SendSyncBufFile(file),

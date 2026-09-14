@@ -206,13 +206,11 @@ impl ReturnedNodePointer {
             );
         }
         let ctid = (!derived).then(|| {
-            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-            (*ctid).varattnosyn = (*ctid).varattno;
-            (*ctid).vartype = pg_sys::TIDOID;
-            (*ctid).vartypmod = -1;
-            (*ctid).varcollid = pg_sys::Oid::INVALID;
-            ctid
+            system_column_var(
+                base_var,
+                pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::TIDOID,
+            )
         });
 
         let mut args = PgList::<pg_sys::Node>::new();
@@ -1180,6 +1178,23 @@ unsafe fn resolve_lhs_var_for_group(
     }
 
     var
+}
+
+/// A Var for one of `base_var`'s relation's system columns, e.g. `ctid` or `tableoid`.
+unsafe fn system_column_var(
+    base_var: *mut pg_sys::Var,
+    varattno: pg_sys::AttrNumber,
+    vartype: pg_sys::Oid,
+) -> *mut pg_sys::Var {
+    unsafe {
+        let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+        (*var).varattno = varattno;
+        (*var).varattnosyn = (*var).varattno;
+        (*var).vartype = vartype;
+        (*var).vartypmod = -1;
+        (*var).varcollid = pg_sys::Oid::INVALID;
+        var
+    }
 }
 
 unsafe fn wrap_with_index(

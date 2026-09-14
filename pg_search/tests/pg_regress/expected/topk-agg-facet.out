@@ -28,7 +28,8 @@ WITH (
     text_fields='{
         "name": {},
         "description": {},
-        "brand": {"fast": true}
+        "brand": {"fast": true},
+        "category": {"fast": true}
     }',
     numeric_fields='{
         "price": {"fast": true},
@@ -1663,7 +1664,7 @@ LIMIT 3;
 
 -- =============================================================================
 -- QUERY CONTEXT FEATURE FLAG TESTS
--- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- Testing HAVING_SUPPORT, and SUBQUERY_SUPPORT feature flags
 -- =============================================================================
 -- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1677,9 +1678,8 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: products)
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (avg(price)), (count(*) OVER w1)
    ->  Sort
@@ -1688,22 +1688,18 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.categor
          ->  WindowAgg
                Output: category, (avg(price)), count(*) OVER w1
                Window: w1 AS ()
-               ->  GroupAggregate
-                     Output: category, avg(price)
-                     Group Key: products.category
-                     Filter: (avg(products.price) > '1000'::double precision)
-                     ->  Sort
-                           Output: category, price
-                           Sort Key: products.category
-                           ->  Custom Scan (ParadeDB Base Scan) on public.products
-                                 Output: category, price
-                                 Table: products
-                                 Index: products_idx
-                                 Worker Selection: Cost model
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+               ->  Custom Scan (ParadeDB Aggregate Scan)
+                     Output: category, (avg(price))
+                     Backend: DataFusion
+                     Indexes: products_idx (products)
+                     Group By: category
+                     Aggregates: AVG(price)
+                     DataFusion Physical Plan: 
+                       : FilterExec: agg_0@1 > 1000
+                       :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[avg(products_0.price) as agg_0]
+                       :     CooperativeExec
+                       :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT 
     category,
@@ -1715,13 +1711,12 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column products.category is not columnar indexed (table: products)
  category | avg_price | total_count 
 ----------+-----------+-------------
  Laptops  |      1849 |           1
 (1 row)
 
--- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+-- Test 27: Window function with JOIN (This is supported. Joinscan should engage)
 -- Create a second table for JOIN testing
 CREATE TABLE product_categories (
     name TEXT PRIMARY KEY,
@@ -1731,7 +1726,7 @@ CREATE TABLE product_categories (
 INSERT INTO product_categories VALUES 
 ('Laptops', 'Portable computing devices', 1);
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority);
+USING paradedb ((name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), priority);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     p.id,
@@ -1744,32 +1739,28 @@ JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
-   ->  Sort
-         Output: p.id, p.name, p.rating, pc.description, (count(*) OVER w1)
-         Sort Key: p.rating DESC
-         ->  WindowAgg
-               Output: p.id, p.name, p.rating, pc.description, count(*) OVER w1
-               Window: w1 AS ()
-               ->  Nested Loop
-                     Output: p.id, p.name, p.rating, pc.description
-                     Join Filter: (p.category = pc.name)
-                     ->  Seq Scan on public.product_categories pc
-                           Output: pc.name, pc.description, pc.priority
-                     ->  Custom Scan (ParadeDB Base Scan) on public.products p
-                           Output: p.id, p.name, p.rating, p.category
-                           Table: products
-                           Index: products_idx
-                           Worker Selection: Cost model
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('count(*) OVER ()'::text))
+   Relation Tree: p INNER pc
+   Join Cond: p.category = pc.name
+   Limit: 3
+   Order By: p.rating desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, rating@1 as col_3, NULL as col_4, window_agg_0@3 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=3), expr=[rating@1 DESC], preserve_partitioning=[false]
+     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     :       VisibilityFilterExec: tables=[p, pc]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@1)], projection=[ctid_0@2, rating@4, ctid_1@0]
+     :             CooperativeExec
+     :               PgSearchScan: table=pc, segments=1, query="all"
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -1785,6 +1776,142 @@ LIMIT 3;
   1 | MacBook Pro |    4.8 | Portable computing devices |           4
   5 | ASUS ROG    |    4.7 | Portable computing devices |           4
   3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
+(3 rows)
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
+-- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
+-- aggregates and computes them in its DataFusion plan (issue #5637).
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+); 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, p.name, r.score, (pdb.window_agg('count(*) OVER ()'::text)), (pdb.window_agg('sum(score) OVER ()'::text)), (pdb.window_agg('avg(score) OVER ()'::text)), (pdb.window_agg('min(score) OVER ()'::text)), (pdb.window_agg('max(score) OVER ()'::text))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, score@3 as col_3, window_agg_0@4 as col_4, window_agg_1@5 as col_5, window_agg_2@6 as col_6, window_agg_3@7 as col_7, window_agg_4@8 as col_8, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
+     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_2: Ok(Field { name: "window_agg_2", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_3: Ok(Field { name: "window_agg_3", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id |    name     | score | total_count | total_score | avg_score | min_score | max_score 
+----+-------------+-------+-------------+-------------+-----------+-----------+-----------
+  1 | MacBook Pro |    95 |           4 |         321 |     80.25 |        65 |        95
+  3 | ThinkPad X1 |    91 |           4 |         321 |     80.25 |        65 |        95
+  1 | MacBook Pro |    70 |           4 |         321 |     80.25 |        65 |        95
+(3 rows)
+
+-- Test 27c: Window aggregates embedded in target list expressions:
+-- constant arithmetic, a cast, a source column mixed with a window value,
+-- and two window functions in one entry.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, r.score, ((pdb.window_agg('count(*) OVER ()'::text) + 1)), ((pdb.window_agg('avg(score) OVER ()'::text))::double precision), ((r.score + pdb.window_agg('count(*) OVER ()'::text))), ((pdb.window_agg('count(*) OVER ()'::text) + pdb.window_agg('sum(score) OVER ()'::text)))
+   Relation Tree: p INNER r
+   Join Cond: p.id = r.product_id
+   Limit: 3
+   Order By: r.score desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, score@3 as col_2, window_agg_0@4 + 1 as col_3, pdb_eval_expr_funcexpr_956c81fe(window_agg_1@5) as col_4, score@3 + window_agg_0@4 as col_5, window_agg_0@4 + window_agg_4@6 as col_6, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=3), expr=[score@3 DESC], preserve_partitioning=[false]
+     :     WindowAggExec: wdw=[window_agg_0: Ok(Field { name: "window_agg_0", data_type: Int64 }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_1: Ok(Field { name: "window_agg_1", data_type: Float64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }, window_agg_4: Ok(Field { name: "window_agg_4", data_type: Int64, nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+     :       VisibilityFilterExec: tables=[p, r]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+ id | score | count_plus_one | avg_score | score_plus_count | count_plus_sum 
+----+-------+----------------+-----------+------------------+----------------
+  1 |    95 |              5 |     80.25 |               99 |            325
+  3 |    91 |              5 |     80.25 |               95 |            325
+  1 |    70 |              5 |     80.25 |               74 |            325
 (3 rows)
 
 -- Test 28: Window function in subquery
@@ -1939,9 +2066,8 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column p.category is not columnar indexed (table: join)
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, pc.description, (avg(p.price)), (count(*) OVER w1)
    ->  Sort
@@ -1950,27 +2076,21 @@ WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column p.category is no
          ->  WindowAgg
                Output: p.category, pc.description, (avg(p.price)), count(*) OVER w1
                Window: w1 AS ()
-               ->  GroupAggregate
-                     Output: p.category, pc.description, avg(p.price)
-                     Group Key: p.category, pc.description
-                     Filter: (avg(p.price) > '1000'::double precision)
-                     ->  Sort
-                           Output: p.category, pc.description, p.price
-                           Sort Key: p.category, pc.description
-                           ->  Nested Loop
-                                 Output: p.category, pc.description, p.price
-                                 Join Filter: (p.category = pc.name)
-                                 ->  Seq Scan on public.product_categories pc
-                                       Output: pc.name, pc.description, pc.priority
-                                 ->  Custom Scan (ParadeDB Base Scan) on public.products p
-                                       Output: p.category, p.price
-                                       Table: products
-                                       Index: products_idx
-                                       Worker Selection: Cost model
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+               ->  Custom Scan (ParadeDB Aggregate Scan)
+                     Output: p.category, pc.description, (avg(p.price))
+                     Backend: DataFusion
+                     Indexes: products_idx (p), product_categories_idx (pc)
+                     Group By: category, description
+                     Aggregates: AVG(price)
+                     DataFusion Physical Plan: 
+                       : FilterExec: agg_0@2 > 1000
+                       :   AggregateExec: mode=Single, gby=[category@0 as category, description@2 as description], aggr=[avg(p_0.price) as agg_0]
+                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, category@0)], projection=[category@2, price@3, description@0]
+                       :       CooperativeExec
+                       :         PgSearchScan: table=pc, segments=1, visibility=eager, query="all"
+                       :       CooperativeExec
+                       :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 SELECT 
     p.category,
@@ -1984,7 +2104,6 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column p.category is not columnar indexed (table: join)
  category |        description         | avg_price | total_count 
 ----------+----------------------------+-----------+-------------
  Laptops  | Portable computing devices |      1849 |           1
@@ -2485,5 +2604,6 @@ LIMIT 5;
 (4 rows)
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

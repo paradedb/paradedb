@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789408652757,
+  "lastUpdate": 1789410124602,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3712,6 +3712,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.042,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55d68f2c7029f8c3e88193c2c74d89c9b353070c",
+          "message": "fix: warn when deprecated key_field option is provided (#6324)\n\n## What\n\nPassing `key_field` to `CREATE INDEX` now emits:\n\n```text\nWARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided\n```\n\n## Why\n\nThe option is retained for compatibility, but users should know they can\nremove it.\n\n## How\n\nRegister a warning callback for the `key_field` reloption. The option\nremains ignored, including when it names a nonexistent column. Omitting\nit produces no warning.\n\n## Tests\n\n- Passed PostgreSQL 18 regressions: `deprecated_key_field` and\n`bitmap_intersection`.\n- Updated expected output and added coverage for omitting `key_field`.\n- Removed obsolete `key_field` options from the bitmap intersection\nfixtures.",
+          "timestamp": "2026-09-14T10:57:45-07:00",
+          "tree_id": "02a2fe884e7502b4a848356a468863b57beca20c",
+          "url": "https://github.com/paradedb/paradedb/commit/55d68f2c7029f8c3e88193c2c74d89c9b353070c"
+        },
+        "date": 1789410120579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6729707602339021,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.109,
             "unit": "ms"
           }
         ]

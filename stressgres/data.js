@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789344121571,
+  "lastUpdate": 1789344130842,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -200454,6 +200454,126 @@ window.BENCHMARK_DATA = {
             "value": 29.0078125,
             "unit": "median mem",
             "extra": "avg mem: 28.996433690245343, max mem: 29.6171875, count: 59305"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a",
+          "message": "test: remove key_field from test fixtures (#6304)\n\n# Ticket(s) Closed\n\n- Stacked on #6221 (`codex/keyless-01-sequential-ctids`); part of #6198.\n\n## What\n\nRemove `key_field` from current-version test fixtures throughout the\nrepository: regression SQL and shared setup, expected output, Rust\nintegration and property tests, the remaining extension unit-test\nfixture, stress suites, benchmark datasets, and documentation\nsnippet-test indexes. Indexed columns and other index options are\npreserved.\n\n## Why\n\nThe stack makes `key_field` an ignored compatibility option. The test\nfixtures should exercise index creation without it.\n\n## How\n\nRemove the option and empty `WITH` clauses, remove the query generator's\nunused primary-key lookup, and update obsolete fixture descriptions.\n\nThe six declarations in four legacy upgrade `setup.sql` files are\nintentionally retained: those files execute on released versions that\nrequire `key_field`, and the tokenizer case verifies writes to legacy\nindexes after upgrading. The current-version assertion in\n`key_field_tokenizers/queries.sql` also passes `key_field` explicitly\nand verifies that normal field tokenization is preserved.\n\nRegression output changes are limited to echoed index definitions and\nfixture descriptions. Regenerated `tokenizer-typmod.out` also resizes\nthe `pg_indexes.indexdef` table header/separator for the shorter\ndefinition. **No execution plans, errors, warnings, query results, or\nrow ordering changed** in the paired PostgreSQL 18.3 runs against the\nparent and this PR.\n\nThe raw-array error in `whole_row_search` uses terse verbosity for that\nstatement only, so CI-enabled Rust backtraces do not enter the snapshot.\nDefault verbosity is restored immediately to retain the other error-hint\nassertions.\n\n## Tests\n\n- Parent: all 358 regression cases passed. PR: 357 passed immediately;\nthe remaining case passed after regenerating the index-definition table\nwidth. Compared all 358 outputs against the parent, accounting for the\ndocumented text/formatting changes.\n- Integration and tokenizer suites: 745 passed, 0 failed, 5 ignored;\nreplication/ephemeral tests excluded using the pgrx CI filters (4 tests\nfiltered out). Includes all 16 generated-query tests.\n- Stressgres SQL scanner test, snippet-index setup, and the updated\nsubtransaction fixture's SQL assertion passed.\n- All repository pre-commit checks passed, including workspace Clippy\nwith warnings denied, compilation, formatting, and documentation with\nwarnings denied.\n\n\n- Reproduced the whole-row regression failure locally with\n`RUST_BACKTRACE=short`, then verified `setup` and `whole_row_search`\npass with the same setting after the verbosity fix.",
+          "timestamp": "2026-09-14T01:43:03+02:00",
+          "tree_id": "c24b82a2396f5ffa64b0db615c4cfb4a3364f37e",
+          "url": "https://github.com/paradedb/paradedb/commit/21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a"
+        },
+        "date": 1789344126647,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 14.069371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.95972551580514, max cpu: 33.566433, count: 59306"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 42.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.783113152020874, max mem: 42.79296875, count: 59306"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6875,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.127503530369903, max cpu: 37.684006, count: 59306"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 24.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 24.73173357512309, max mem: 24.765625, count: 59306"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6943765,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.08810469469977, max cpu: 18.832762, count: 59306"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 43.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.523577926348096, max mem: 43.546875, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 17794,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18103.663170674132, max block_count: 35301.0, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.1968235880992815, max cpu: 4.7105007, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 21.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.81589572250278, max mem: 21.828125, count: 59306"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.291032947762453, max segment_count: 38.0, count: 59306"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.27109514716003, max cpu: 23.976025, count: 59306"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 42.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.09051966706573, max mem: 42.140625, count: 59306"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.840272265474743, max cpu: 37.684006, count: 118612"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 43.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.05590160829006, max mem: 45.2578125, count: 118612"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.416381,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.671662789750727, max cpu: 23.27837, count: 59306"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 28.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.8456362051268, max mem: 29.44921875, count: 59306"
           }
         ]
       }

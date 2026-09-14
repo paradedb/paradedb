@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789344170501,
+  "lastUpdate": 1789344667427,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -365096,6 +365096,60 @@ window.BENCHMARK_DATA = {
             "value": 23.21108298705605,
             "unit": "median tps",
             "extra": "avg tps: 39.84681125190968, max tps: 613.2563179442371, count: 59230"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a",
+          "message": "test: remove key_field from test fixtures (#6304)\n\n# Ticket(s) Closed\n\n- Stacked on #6221 (`codex/keyless-01-sequential-ctids`); part of #6198.\n\n## What\n\nRemove `key_field` from current-version test fixtures throughout the\nrepository: regression SQL and shared setup, expected output, Rust\nintegration and property tests, the remaining extension unit-test\nfixture, stress suites, benchmark datasets, and documentation\nsnippet-test indexes. Indexed columns and other index options are\npreserved.\n\n## Why\n\nThe stack makes `key_field` an ignored compatibility option. The test\nfixtures should exercise index creation without it.\n\n## How\n\nRemove the option and empty `WITH` clauses, remove the query generator's\nunused primary-key lookup, and update obsolete fixture descriptions.\n\nThe six declarations in four legacy upgrade `setup.sql` files are\nintentionally retained: those files execute on released versions that\nrequire `key_field`, and the tokenizer case verifies writes to legacy\nindexes after upgrading. The current-version assertion in\n`key_field_tokenizers/queries.sql` also passes `key_field` explicitly\nand verifies that normal field tokenization is preserved.\n\nRegression output changes are limited to echoed index definitions and\nfixture descriptions. Regenerated `tokenizer-typmod.out` also resizes\nthe `pg_indexes.indexdef` table header/separator for the shorter\ndefinition. **No execution plans, errors, warnings, query results, or\nrow ordering changed** in the paired PostgreSQL 18.3 runs against the\nparent and this PR.\n\nThe raw-array error in `whole_row_search` uses terse verbosity for that\nstatement only, so CI-enabled Rust backtraces do not enter the snapshot.\nDefault verbosity is restored immediately to retain the other error-hint\nassertions.\n\n## Tests\n\n- Parent: all 358 regression cases passed. PR: 357 passed immediately;\nthe remaining case passed after regenerating the index-definition table\nwidth. Compared all 358 outputs against the parent, accounting for the\ndocumented text/formatting changes.\n- Integration and tokenizer suites: 745 passed, 0 failed, 5 ignored;\nreplication/ephemeral tests excluded using the pgrx CI filters (4 tests\nfiltered out). Includes all 16 generated-query tests.\n- Stressgres SQL scanner test, snippet-index setup, and the updated\nsubtransaction fixture's SQL assertion passed.\n- All repository pre-commit checks passed, including workspace Clippy\nwith warnings denied, compilation, formatting, and documentation with\nwarnings denied.\n\n\n- Reproduced the whole-row regression failure locally with\n`RUST_BACKTRACE=short`, then verified `setup` and `whole_row_search`\npass with the same setting after the verbosity fix.",
+          "timestamp": "2026-09-14T01:43:03+02:00",
+          "tree_id": "c24b82a2396f5ffa64b0db615c4cfb4a3364f37e",
+          "url": "https://github.com/paradedb/paradedb/commit/21f55244bbdb9340de7fa6bcf47d50cbcd8a8e9a"
+        },
+        "date": 1789344663230,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3782.8627968083047,
+            "unit": "median tps",
+            "extra": "avg tps: 3788.5232972584577, max tps: 5287.549376380206, count: 59234"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4537.824841253503,
+            "unit": "median tps",
+            "extra": "avg tps: 4593.491234181326, max tps: 7174.250896108776, count: 59234"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 95.43484801895853,
+            "unit": "median tps",
+            "extra": "avg tps: 187.67204450071492, max tps: 2694.9029908815783, count: 59234"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.25486394487477,
+            "unit": "median tps",
+            "extra": "avg tps: 39.75126800297538, max tps: 569.3654045478406, count: 59234"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.26773936737619,
+            "unit": "median tps",
+            "extra": "avg tps: 39.983690503575616, max tps: 597.4126294067984, count: 59234"
           }
         ]
       }

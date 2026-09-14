@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789403369126,
+  "lastUpdate": 1789405808045,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3614,6 +3614,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "37de6812245943977e8c1df3f7f733272325a623",
+          "message": "chore: Revert \"ci: use c7gd metal runners for benchmarks and snapshots (#6322)\" (#6329)\n\nThe smaller runners experienced errors:\nhttps://github.com/paradedb/paradedb/actions/runs/34866628585",
+          "timestamp": "2026-09-14T09:48:57-07:00",
+          "tree_id": "5f737b62550c1a9381f4538bf709508c81619aae",
+          "url": "https://github.com/paradedb/paradedb/commit/37de6812245943977e8c1df3f7f733272325a623"
+        },
+        "date": 1789405804089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.706355979818798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.993,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.249,
             "unit": "ms"
           }
         ]

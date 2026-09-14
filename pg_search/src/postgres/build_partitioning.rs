@@ -688,14 +688,14 @@ mod tests {
             SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
             CREATE INDEX sample_ctid_idx ON sample_ctid
                 USING paradedb (id, tenant_id, name)
-                WITH (partition_by = 'ctid');
+                WITH (key_field = 'id', partition_by = 'ctid');
 
             CREATE TABLE sample_multi_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
             INSERT INTO sample_multi_ctid (tenant_id, name)
             SELECT i % 10, 'row ' || i FROM generate_series(1, 1000) i;
             CREATE INDEX sample_multi_ctid_idx ON sample_multi_ctid
                 USING paradedb (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id, ctid');
+                WITH (key_field = 'id', partition_by = 'tenant_id, ctid');
             "#,
         )
         .unwrap();

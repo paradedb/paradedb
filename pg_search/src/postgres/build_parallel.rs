@@ -1929,7 +1929,7 @@ mod tests {
         // 1-dim partition_by on ctid
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, name) WITH (partition_by = 'ctid', target_segment_count = 4);",
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, name) WITH (key_field = 'id', partition_by = 'ctid', target_segment_count = 4);",
         )
         .unwrap();
 
@@ -1956,7 +1956,7 @@ mod tests {
         Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
         Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, ctid', target_segment_count = 4);",
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, tenant_id, name) WITH (key_field = 'id', partition_by = 'tenant_id, ctid', target_segment_count = 4);",
         )
         .unwrap();
 

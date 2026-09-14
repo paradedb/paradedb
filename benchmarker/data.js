@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789344202315,
+  "lastUpdate": 1789399855872,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3516,6 +3516,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.171,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a62b7a0d19eef318f9cdab6b0716c6aa6935e2b",
+          "message": "fix: vacuum stressgres tables before index-only plan assertions (#6321)\n\n## What\n\nRun `VACUUM (ANALYZE) test` during setup in\n`single-node-planner-paths.toml` and on the subscriber in\n`logical-replication-mixed-workload.toml`. Keep their `Index Only Scan`\nplan assertions.\n\n## Why\n\n[The planner-paths benchmark\nfailed](https://github.com/paradedb/paradedb/actions/runs/34760542323/job/103732492376)\nbecause PostgreSQL selected an ordinary index scan. Both suites\npreviously analyzed newly loaded tables without explicitly populating\nthe visibility map before workers started. An index-only path can\ntherefore have no estimated heap-access advantage; relying on concurrent\nvacuum or autovacuum makes the assertion depend on timing.\n\n## How\n\nReplace setup's `ANALYZE test` with `VACUUM (ANALYZE) test`, with\ncomments explaining the ordering requirement. Stressgres executes these\nsetup statements individually outside an explicit transaction and\ncompletes setup before starting workers. These are the only two suites\nthat assert an index-only plan; the other six do not need this change\nfor that assertion.\n\n## Tests\n\n- Parsed all eight suite TOML files successfully with Python `tomllib`.\n- `git diff --check` passed.\n- Reviewed setup execution ordering in `stressgres/src/runner.rs`.\n- Runtime verification pending: local PostgreSQL/Rust tools and a\nrunning Docker daemon are unavailable. CI must confirm the expected plan\nafter vacuuming.",
+          "timestamp": "2026-09-14T08:09:36-07:00",
+          "tree_id": "956e0f9886ff5e808c383f75278890fc831bfbae",
+          "url": "https://github.com/paradedb/paradedb/commit/2a62b7a0d19eef318f9cdab6b0716c6aa6935e2b"
+        },
+        "date": 1789399851418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7334066158057138,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.651,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.088,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.169,
             "unit": "ms"
           }
         ]

@@ -996,52 +996,6 @@ mod tests {
     // ---------- Test 2: JoinScan results match native PG ----------
 
     #[pg_test]
-    fn joinscan_scalar_uuid_filter() {
-        pgrx::Spi::run(
-            r#"
-            CREATE TABLE scalar_uuid_users (id bigint, name text);
-            CREATE TABLE scalar_uuid_products (id bigint, uuid uuid);
-            CREATE TABLE scalar_uuid_orders (id bigint);
-            INSERT INTO scalar_uuid_users SELECT i, 'bob' FROM generate_series(1, 6) i;
-            INSERT INTO scalar_uuid_products VALUES
-                (1, '00000000-0000-0000-0000-000000000001'),
-                (2, '00000000-0000-0000-0000-000000000001'),
-                (3, '00000000-0000-0000-0000-000000000001'),
-                (4, '00000000-0000-0000-0000-000000000001'),
-                (5, '550e8400-e29b-41d4-a716-446655440000'),
-                (6, NULL);
-            INSERT INTO scalar_uuid_orders SELECT i FROM generate_series(1, 6) i;
-            CREATE INDEX ON scalar_uuid_users USING paradedb (id, (name::pdb.literal)) WITH (key_field = 'id');
-            CREATE INDEX ON scalar_uuid_products USING paradedb (id, uuid) WITH (key_field = 'id');
-            CREATE INDEX ON scalar_uuid_orders USING paradedb (id) WITH (key_field = 'id');
-            SET paradedb.enable_custom_scan = false;
-            SET paradedb.enable_custom_scan_without_operator = false;
-            SET paradedb.enable_filter_pushdown = true;
-            SET paradedb.enable_join_custom_scan = true;
-            SET max_parallel_workers_per_gather = 0;
-            "#,
-        )
-        .unwrap();
-
-        let query = r#"
-            SELECT u.id::integer AS id, u.name FROM scalar_uuid_users u
-            JOIN scalar_uuid_products p ON u.id = p.id
-            JOIN scalar_uuid_orders o ON p.id = o.id
-            WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
-              AND u.id @@@ pdb.all()
-            ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2
-        "#;
-        let plan = explain_plan(&format!("EXPLAIN (COSTS OFF) {query}"));
-        assert!(plan.contains("ParadeDB Join Scan"), "{plan}");
-        assert!(plan.contains("pdb_eval_expr"), "{plan}");
-
-        let rows = run_ids(query);
-        pgrx::Spi::run("SET paradedb.enable_join_custom_scan = false").unwrap();
-        assert_eq!(rows, run_ids(query));
-        assert_eq!(rows, vec![3, 4]);
-    }
-
-    #[pg_test]
     fn joinscan_matches_native() {
         setup_test_tables();
         let cfg = ProptestConfig::with_cases(5);

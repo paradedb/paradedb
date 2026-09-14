@@ -1,0 +1,86 @@
+-- UUID scalar predicates must survive JoinScan's PostgreSQL-expression fallback.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE scalar_uuid_users (id bigint PRIMARY KEY, name text);
+CREATE TABLE scalar_uuid_products (id bigint PRIMARY KEY, uuid uuid);
+CREATE TABLE scalar_uuid_orders (id bigint PRIMARY KEY);
+INSERT INTO scalar_uuid_users SELECT i, 'bob' FROM generate_series(1, 6) i;
+INSERT INTO scalar_uuid_products VALUES
+    (1, '00000000-0000-0000-0000-000000000001'),
+    (2, '00000000-0000-0000-0000-000000000001'),
+    (3, '00000000-0000-0000-0000-000000000001'),
+    (4, '00000000-0000-0000-0000-000000000001'),
+    (5, '550e8400-e29b-41d4-a716-446655440000'),
+    (6, NULL);
+INSERT INTO scalar_uuid_orders SELECT i FROM generate_series(1, 6) i;
+CREATE INDEX ON scalar_uuid_users USING paradedb (id, (name::pdb.literal));
+CREATE INDEX ON scalar_uuid_products USING paradedb (id, uuid);
+CREATE INDEX ON scalar_uuid_orders USING paradedb (id);
+SET paradedb.enable_custom_scan = false;
+SET paradedb.enable_custom_scan_without_operator = false;
+SET paradedb.enable_filter_pushdown = true;
+SET paradedb.enable_join_custom_scan = true;
+SET max_parallel_workers_per_gather = 0;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT u.id, u.name FROM scalar_uuid_users u
+JOIN scalar_uuid_products p ON u.id = p.id
+JOIN scalar_uuid_orders o ON p.id = o.id
+WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
+  AND u.id @@@ pdb.all()
+ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER o
+   Join Cond: p.id = o.id, u.id = o.id, u.id = p.id
+   Join Predicate: heap:((u.id < 4) OR (p.uuid <> '550e8400-e29b-41d4-a716-446655440000'::uuid))
+   Limit: 27
+   Offset: 2
+   Order By: u.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, id@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   GlobalLimitExec: skip=2, fetch=27
+     :     SortExec: TopK(fetch=29), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :       VisibilityFilterExec: tables=[u, p, o]
+     :         TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1), (id@1, id@1)]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=id@0 < 4 OR pdb_eval_expr_opexpr_f560a0b2(CAST(uuid@1 AS Utf8)), projection=[ctid_0@3, id@4, ctid_1@0, id@1]
+     :               FilterExec: id@1 < 4 OR pdb_eval_expr_opexpr_f560a0b2(CAST(uuid@2 AS Utf8))
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, query="all"
+     :               CooperativeExec
+     :                 PgSearchScan: table=u, segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+(22 rows)
+
+SELECT u.id, u.name FROM scalar_uuid_users u
+JOIN scalar_uuid_products p ON u.id = p.id
+JOIN scalar_uuid_orders o ON p.id = o.id
+WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
+  AND u.id @@@ pdb.all()
+ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
+ id | name 
+----+------
+  3 | bob
+  4 | bob
+(2 rows)
+
+SET paradedb.enable_join_custom_scan = false;
+SELECT u.id, u.name FROM scalar_uuid_users u
+JOIN scalar_uuid_products p ON u.id = p.id
+JOIN scalar_uuid_orders o ON p.id = o.id
+WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
+  AND u.id @@@ pdb.all()
+ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
+ id | name 
+----+------
+  3 | bob
+  4 | bob
+(2 rows)
+
+DROP TABLE scalar_uuid_users, scalar_uuid_products, scalar_uuid_orders;
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_custom_scan_without_operator;
+RESET paradedb.enable_filter_pushdown;
+RESET paradedb.enable_join_custom_scan;
+RESET max_parallel_workers_per_gather;

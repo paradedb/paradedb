@@ -10,14 +10,18 @@
 -- Also checks that the same query still fails cleanly with
 -- paradedb.spill_to_disk left off (the default).
 --
--- Regarding the spill_to_disk OFF case: the error may surface as
--- "transport receiver detached before this channel's EOF; the producer went away",
--- even though the underlying cause is the same. Therefore, the test currently only
--- verifies success with spilling enabled and failure with it disabled.
+-- Regarding the spill_to_disk OFF case, the failure can currently surface
+-- through several known error paths:
+--   1. The normal work_mem error with "raise work_mem" guidance.
+--   2. RepartitionExec's SpillPool error when the DiskManager is disabled
+--      (#6326).
+--   3. An MPP "transport receiver detached" error when the failing worker
+--      exits before its TaskError reaches the leader (#6327).
+--
+-- All three are treated as expected failures. Any other error is reported
+-- as unexpected so that unrelated regressions do not silently pass.
 -- =====================================================================
 \i common/common_setup.sql
-
-CREATE EXTENSION IF NOT EXISTS pg_search;
 SET client_min_messages TO warning;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
@@ -92,8 +96,10 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- GUC off (default): the same overflow must fail
+-- GUC off (default): the same overflow must fail.
+-- The known expected failure modes are described in the header above.
 CREATE TABLE mpp_spill_guc_off_outcome (msg text);
+
 DO $$
 DECLARE
     err_text text;
@@ -103,16 +109,30 @@ BEGIN
     JOIN mpp_spill_large_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
     GROUP BY f.title;
-    INSERT INTO mpp_spill_guc_off_outcome VALUES ('unexpected success with spill_to_disk off');
-EXCEPTION WHEN OTHERS THEN
+
     INSERT INTO mpp_spill_guc_off_outcome
-        VALUES ('failed, as expected');
+        VALUES ('unexpected success with spill_to_disk off');
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS err_text = MESSAGE_TEXT;
+
+    IF err_text LIKE '%raise work_mem%'
+       OR err_text LIKE '%DiskManager is disabled%'
+       OR err_text LIKE '%transport receiver detached%'
+    THEN
+        INSERT INTO mpp_spill_guc_off_outcome
+            VALUES ('failed with an expected error');
+    ELSE
+        INSERT INTO mpp_spill_guc_off_outcome
+            VALUES ('unexpected error: ' || err_text);
+    END IF;
 END$$;
+
 SELECT msg FROM mpp_spill_guc_off_outcome;
 DROP TABLE mpp_spill_guc_off_outcome;
 
--- GUC on: the FinalPartitioned aggregate spills and completes.
+-- GUC on: the MPP path must spill at least one operator and complete.
 SET paradedb.spill_to_disk TO on;
+
 CREATE TEMP TABLE mpp_spill_explain_output AS
 SELECT line
 FROM explain_analyze_lines(
@@ -122,10 +142,12 @@ FROM explain_analyze_lines(
      WHERE f.content @@@ ''Section''
      GROUP BY f.title'
 ) AS line;
+
 SELECT bool_or(
     line ~ 'spill_count=\{?0?:?\s*[1-9]'
-) AS aggregate_spilled
+) AS something_spilled
 FROM mpp_spill_explain_output;
+
 DROP TABLE mpp_spill_explain_output;
 
 -- Correctness: exactly 80000 groups exist, and every group matches the

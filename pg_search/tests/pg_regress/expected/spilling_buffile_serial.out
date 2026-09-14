@@ -16,7 +16,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
-CREATE EXTENSION IF NOT EXISTS pg_search;
 SET client_min_messages TO warning;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
@@ -97,6 +96,7 @@ FROM explain_analyze_lines(
      WHERE f.content @@@ ''Section''
      GROUP BY f.title'
 ) AS line;
+WARNING:  query exceeded work_mem and spilled to disk; consider raising work_mem for better performance (paradedb.spill_to_disk allowed it to complete instead of erroring)
 SELECT bool_or(
     line LIKE '%AggregateExec%' AND line ~ 'spill_count=\{?0?:?\s*[1-9]'
 ) AS aggregate_spilled
@@ -123,6 +123,7 @@ FROM (
     WHERE f.content @@@ 'Section'
     GROUP BY f.id, f.title
 ) q;
+WARNING:  query exceeded work_mem and spilled to disk; consider raising work_mem for better performance (paradedb.spill_to_disk allowed it to complete instead of erroring)
  all_groups_present | all_groups_correct 
 --------------------+--------------------
  t                  | t

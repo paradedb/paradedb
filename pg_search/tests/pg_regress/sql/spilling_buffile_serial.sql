@@ -11,8 +11,6 @@
 -- paradedb.spill_to_disk left off (the default).
 -- =====================================================================
 \i common/common_setup.sql
-
-CREATE EXTENSION IF NOT EXISTS pg_search;
 SET client_min_messages TO warning;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;

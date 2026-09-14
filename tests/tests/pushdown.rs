@@ -291,7 +291,7 @@ mod pushdown_is_not_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ pdb.term(1);
+            AND id @@@ pdb.all() AND id = 1;
         "#;
 
         eprintln!("/----------/");
@@ -372,7 +372,7 @@ mod pushdown_is_not_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ pdb.parse_with_field('>2');
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -381,7 +381,7 @@ mod pushdown_is_not_null {
             SELECT *
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ pdb.parse_with_field('>2');
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(3, false, Some(String::from("bar")), Some(333))]);
@@ -504,7 +504,7 @@ mod pushdown_is_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ pdb.term(1);
+            AND id @@@ pdb.all() AND id = 1;
         "#;
 
         eprintln!("/----------/");
@@ -564,9 +564,9 @@ mod pushdown_is_null {
         let res = r#"
             SELECT *
             FROM test
-            WHERE col_int8 IS NULL
-            AND col_text IS NULL
-            AND id @@@ pdb.term(1) OR id @@@ pdb.term(2) OR id @@@ pdb.term(3) OR id @@@ pdb.term(4)
+            WHERE id @@@ pdb.all()
+            AND ((col_int8 IS NULL AND col_text IS NULL AND id = 1)
+                OR id = 2 OR id = 3 OR id = 4)
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -588,7 +588,7 @@ mod pushdown_is_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ pdb.parse_with_field('>2');
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -597,7 +597,7 @@ mod pushdown_is_null {
             SELECT id, col_boolean, col_int8
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ pdb.parse_with_field('>2');
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64, bool, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(4, false, Some(444))]);

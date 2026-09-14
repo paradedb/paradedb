@@ -58,7 +58,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating @@@ pdb.parse_with_field('>2')
+    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating > 2
     ORDER BY description
     LIMIT 5"#
         .fetch(&mut conn);
@@ -71,7 +71,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String, f32)> = r#"
     SELECT description, rating, category, pdb.score(id)
     FROM mock_items
-    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating @@@ pdb.parse_with_field('>2')
+    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating > 2
     ORDER BY score DESC, description
     LIMIT 5"#
         .fetch(&mut conn);
@@ -241,7 +241,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, String, i32)> = r#"
     SELECT id, description, rating
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.parse_with_field('>3')
+    WHERE description ||| 'shoes' AND rating > 3
     ORDER BY id
     "#
     .fetch(&mut conn);
@@ -314,7 +314,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.parse_with_field('>2')
+    WHERE description ||| 'shoes' AND rating > 2
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -323,7 +323,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.term(4)
+    WHERE description ||| 'shoes' AND rating = 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -331,7 +331,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.parse_with_field('>=4')
+    WHERE description ||| 'shoes' AND rating >= 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -340,7 +340,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND created_at @@@ pdb.parse_with_field('"2023-04-20T16:38:02Z"')
+    WHERE description ||| 'shoes' AND created_at = '2023-04-20 16:38:02'::timestamp
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -349,7 +349,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND in_stock @@@ pdb.term(true)
+    WHERE description ||| 'shoes' AND in_stock = true
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -358,7 +358,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.parse_with_field('[1 TO 4]')
+    WHERE description ||| 'shoes' AND rating BETWEEN 1 AND 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -366,7 +366,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND created_at @@@ pdb.parse_with_field('[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]')
+    WHERE description ||| 'shoes' AND created_at BETWEEN '2020-01-31'::timestamp AND '2024-01-31'::timestamp
     "#.fetch(&mut conn);
     assert_eq!(rows.len(), 3);
 
@@ -382,7 +382,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND rating @@@ pdb.term_set(ARRAY[2, 3, 4])
+    WHERE description ||| 'shoes' AND rating IN (2, 3, 4)
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -2093,7 +2093,7 @@ fn concurrent_indexing(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description ||| 'shoes' AND in_stock @@@ pdb.term(true)
+    WHERE description ||| 'shoes' AND in_stock = true
     ORDER BY rating DESC
     "#
     .fetch(&mut conn);

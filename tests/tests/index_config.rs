@@ -351,7 +351,7 @@ fn null_values(mut conn: PgConnection) {
     assert_eq!(rows[1], ("Null Item 2".into(), None, Some(2)));
 
     let rows: Vec<(bool,)> =
-        "SELECT in_stock FROM paradedb.index_config WHERE in_stock @@@ pdb.term(false)"
+        "SELECT in_stock FROM paradedb.index_config WHERE id @@@ pdb.all() AND in_stock = false"
             .fetch(&mut conn);
 
     assert_eq!(rows.len(), 13);
@@ -516,7 +516,7 @@ fn partitioned_query(mut conn: PgConnection) {
         let amount_results: Vec<(i32, String, f32)> = format!(
             r#"
             SELECT id, description, amount FROM {table}
-            WHERE amount @@@ pdb.parse_with_field('[175 TO 250]')
+            WHERE id @@@ pdb.all() AND amount BETWEEN 175 AND 250
             ORDER BY amount ASC
             "#
         )
@@ -547,7 +547,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
         FROM sales
-        WHERE id @@@ pdb.term(1);
+        WHERE id @@@ pdb.all() AND id = 1;
         "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
@@ -650,8 +650,10 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
     let uuid = uuid::Uuid::new_v4();
 
     format!("INSERT INTO issue2199(value) VALUES ('{uuid}')").execute(&mut conn);
-    let (count,) = format!("SELECT count(*) FROM issue2199 WHERE value @@@ pdb.term('{uuid}')")
-        .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = format!(
+        "SELECT count(*) FROM issue2199 WHERE value @@@ pdb.all() AND value = '{uuid}'::uuid"
+    )
+    .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =

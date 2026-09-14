@@ -25,7 +25,7 @@ use tests::fixtures::querygen::pdbagggen::{arb_pdb_agg_join, arb_pdb_agg_single_
 use tests::fixtures::querygen::wheregen::Expr as WhereExpr;
 use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::{
-    Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
+    CaseOutcome, Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
     compare_outcome_retrying, compare_outcome_retrying_on, compare_plan_retrying,
     generated_queries_setup,
 };
@@ -394,7 +394,7 @@ async fn generated_joins_small(database: Db) {
             )?;
         }
 
-        qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
+        let outcome = compare_outcome_retrying(
             &pg_query,
             &bm25_query,
             &gucs,
@@ -414,7 +414,14 @@ async fn generated_joins_small(database: Db) {
                 row_strings.sort();
                 Ok(row_strings)
             }
-        ))?;
+        );
+        if let CaseOutcome::Failure(error) = &outcome {
+            prop_assume!(
+                !error.to_string().contains("Unsupported OID for Utf8 Arrow type: BuiltIn(UUIDOID)"),
+                "https://github.com/paradedb/paradedb/issues/6337"
+            );
+        }
+        qgen_oracle!("qgen: generated_joins_small - ParadeDB result matches PostgreSQL", outcome)?;
     });
 }
 

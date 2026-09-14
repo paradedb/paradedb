@@ -43,23 +43,9 @@ pub enum Expr {
 impl Expr {
     pub fn to_sql(&self, indexed_op: &str) -> String {
         match self {
-            Expr::Atom {
-                name,
-                value,
-                sql_type,
-                is_indexed,
-            } => {
-                if *is_indexed && indexed_op == "@@@" {
-                    match sql_type.as_str() {
-                        "SERIAL8" | "BIGSERIAL" => {
-                            format!("{name} @@@ pdb.term(({value})::bigint)")
-                        }
-                        "SERIAL" | "SERIAL4" => format!("{name} @@@ pdb.term(({value})::integer)"),
-                        "TEXT" | "VARCHAR" | "TEXT[]" | "VARCHAR[]" => {
-                            format!("{name} === {value}")
-                        }
-                        _ => format!("{name} @@@ pdb.term(({value})::{sql_type})"),
-                    }
+            Expr::Atom { name, value, .. } => {
+                if indexed_op == "@@@" && self.has_search_operator() {
+                    format!("{name} === {value}")
                 } else {
                     format!("{name} = {value}")
                 }
@@ -113,10 +99,20 @@ impl Expr {
         }
     }
 
-    /// Check if this expression contains at least one search operator (`@@@`).
+    /// Check if this expression contains at least one ParadeDB search operator.
     pub fn has_search_operator(&self) -> bool {
         match self {
-            Expr::Atom { is_indexed, .. } => *is_indexed,
+            Expr::Atom {
+                is_indexed,
+                sql_type,
+                ..
+            } => {
+                *is_indexed
+                    && matches!(
+                        sql_type.as_str(),
+                        "TEXT" | "VARCHAR" | "TEXT[]" | "VARCHAR[]"
+                    )
+            }
             Expr::All { .. } => true,
             Expr::IsNull(_) | Expr::IsNotNull(_) => false,
             Expr::Not(e) => e.has_search_operator(),
@@ -312,7 +308,11 @@ mod tests {
     proptest! {
         #[test]
         fn test_arb_wheres_generates_null_checks(
-            expr in arb_wheres(vec!["users", "products"], &[Column::new("color", "VARCHAR", "'blue'").whereable(true)])
+            expr in arb_wheres(vec!["users", "products"], &[
+                Column::new("color", "VARCHAR", "'blue'").whereable(true),
+                Column::new("quantity", "INTEGER", "4").whereable(true),
+                Column::new("active", "BOOLEAN", "true").whereable(true),
+            ])
         ) {
             let sql_pg = expr.to_sql(" = ");
             let sql_bm25 = expr.to_sql("@@@");
@@ -320,6 +320,7 @@ mod tests {
             assert!(!sql_bm25.is_empty());
             assert!(expr.has_search_operator());
             assert!(sql_bm25.contains("@@@") || sql_bm25.contains("==="));
+            assert!(!sql_bm25.contains("pdb.term"));
         }
     }
 }

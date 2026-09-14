@@ -9,17 +9,6 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items USING paradedb (id, (description::pdb.literal), rating);
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * from mock_items where rating @@@ pdb.term(4);
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on mock_items
-   Table: mock_items
-   Index: search_idx
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"rating","value":4}}}}
-(6 rows)
-
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ pdb.term_set(ARRAY[1, 2]);
                                        QUERY PLAN                                        
 -----------------------------------------------------------------------------------------

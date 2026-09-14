@@ -297,5 +297,5 @@ SELECT (SELECT COUNT(*)
        (SELECT COUNT(*)
         FROM products
                  JOIN orders ON products.name = orders.name
-        WHERE (NOT (products.id @@@ pdb.term(3)))
-           OR ((products.name ||| 'bob') AND (orders.id @@@ pdb.term(3))));
+        WHERE (NOT (products.id = 3))
+           OR ((products.name ||| 'bob') AND (orders.id = 3)));

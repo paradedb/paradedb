@@ -724,13 +724,13 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id @@@ pdb.term(1) OR p.id @@@ pdb.term(1)) AND p.description ||| 'laptop';
+WHERE ((t.id @@@ pdb.all() AND t.id = 1) OR (p.id @@@ pdb.all() AND p.id = 1)) AND p.description ||| 'laptop';
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
-WHERE (t.id @@@ pdb.term(1) OR p.id @@@ pdb.term(1)) AND p.description ||| 'laptop';
+WHERE ((t.id @@@ pdb.all() AND t.id = 1) OR (p.id @@@ pdb.all() AND p.id = 1)) AND p.description ||| 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================

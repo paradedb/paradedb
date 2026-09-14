@@ -6,7 +6,7 @@
 -- and the subtraction underflows. `intersect_scorers` calls `cost()` (which
 -- calls `size_hint`) to sort sub-scorers by cost, so any intersection that
 -- involves an empty `TermSetDocSet` blows up. The shrunken qgen case is a
--- 2-way join with `(products.name ||| 'bob') AND (users.id @@@ pdb.term(4))`; the
+-- 2-way join with `(products.name ||| 'bob') AND (users.id = 4)`; the
 -- seeded random data here is what proptest landed on.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -221,7 +221,7 @@ SET paradedb.enable_columnar_exec TO false;
 SET statement_timeout TO 60000;
 
 SELECT COUNT(*) FROM users JOIN products ON users.id = products.id
-WHERE (products.name ||| 'bob') AND (users.id @@@ pdb.term(4));
+WHERE (products.name ||| 'bob') AND (users.id = 4);
 
 DROP TABLE users CASCADE;
 DROP TABLE products CASCADE;

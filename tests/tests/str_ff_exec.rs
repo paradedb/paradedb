@@ -74,7 +74,7 @@ mod string_fast_field_exec {
     fn with_filter(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2')
+            WHERE col_text IS NULL and id @@@ pdb.all() AND id > 2
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -98,7 +98,7 @@ mod string_fast_field_exec {
     fn with_not_null(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NOT NULL and id @@@ pdb.parse_with_field('>2')
+            WHERE col_text IS NOT NULL and id @@@ pdb.all() AND id > 2
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -109,7 +109,7 @@ mod string_fast_field_exec {
     fn with_null(#[from(setup_test_table)] mut conn: PgConnection) {
         let res = r#"
             SELECT * FROM test
-            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('<=2')
+            WHERE col_text IS NULL and id @@@ pdb.all() AND id <= 2
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -120,14 +120,14 @@ mod string_fast_field_exec {
     fn with_count(#[from(setup_test_table)] mut conn: PgConnection) {
         let count = r#"
             SELECT count(*) FROM test
-            WHERE col_text IS NOT NULL and id @@@ pdb.parse_with_field('>2');
+            WHERE col_text IS NOT NULL and id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
 
         let count = r#"
             SELECT count(*) FROM test
-            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2');
+            WHERE col_text IS NULL and id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -175,7 +175,7 @@ mod string_fast_field_exec {
 
         let count = r#"
             SELECT count(*) FROM another_test
-            WHERE col_text IS NULL and id @@@ pdb.parse_with_field('>2');
+            WHERE col_text IS NULL and id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(5,)]);

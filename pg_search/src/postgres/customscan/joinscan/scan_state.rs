@@ -1079,16 +1079,26 @@ fn resolve_orderby_feature(
 /// Driven by `join_clause.window_aggs` rather than the output projection:
 /// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
 /// entry — only a sentinel Var referencing the column by name.
-fn apply_window_functions(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
-    let window_exprs: Vec<Expr> = join_clause
+fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    let mut window_exprs: Vec<Expr> = Vec::new();
+    // Materialize only canonical entries: duplicates share the canonical
+    // column, and identical window expressions in one Window node trip
+    // DataFusion's CSE (see WindowAggList::canonical_index).
+    for (index, info) in join_clause
         .window_aggs
         .iter_indexed()
-        // Materialize only canonical entries: duplicates share the
-        // canonical column, and identical window expressions in one Window
-        // node trip DataFusion's CSE (see WindowAggList::canonical_index).
         .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
-        .map(|(index, info)| Ok(window_expr(info, join_clause)?.alias(index.as_col_name())))
-        .collect::<Result<Vec<Expr>>>()?;
+    {
+        let expr = window_expr(info, join_clause)?;
+        if matches!(expr, Expr::WindowFunction(_)) {
+            window_exprs.push(expr.alias(index.as_col_name()));
+        } else {
+            // A plan-time constant (the aggregate of a pruned argument
+            // column): a Window node cannot carry non-window expressions,
+            // so add it as a plain column instead.
+            df = df.with_column(&index.as_col_name(), expr)?;
+        }
+    }
 
     if window_exprs.is_empty() {
         return Ok(df);
@@ -1101,16 +1111,29 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
     let col_expr = match &info.col_info {
-        Some(ci) => {
-            let Some(ce) = resolve_var_to_df_col(join_clause, ci.rti, ci.attno) else {
+        Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
+            Some(ce) => Some(ce),
+            None => {
+                // The argument's relation participates in the join but was
+                // pruned from the output (e.g. the inner side of an Anti
+                // Join): its values are identically NULL in every output
+                // row, so the aggregate is a plan-time constant — 0 for
+                // COUNT, NULL otherwise. This is the window-input analogue
+                // of the `null_if_source_exists` fallback every other
+                // pruned-column consumer applies.
+                if null_if_source_exists(join_clause, ci.rti).is_some() {
+                    return Ok(match info.agg_type {
+                        SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
+                        _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
+                    });
+                }
                 return Err(internal_datafusion_err!(
                     "Failed to map column to fast field and column expr. rti: {}, attno: {}",
                     ci.rti,
                     ci.attno
                 ));
-            };
-            Some(ce)
-        }
+            }
+        },
         None => None,
     };
     let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;

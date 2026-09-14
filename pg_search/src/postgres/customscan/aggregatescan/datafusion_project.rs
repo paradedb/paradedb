@@ -185,6 +185,15 @@ pub fn datafusion_agg_to_datum(
     col: &dyn Array,
     row_idx: usize,
 ) -> anyhow::Result<Option<pg_sys::Datum>> {
+    // A NULL aggregate value decodes to NULL regardless of encoding. Checked
+    // up front because the numeric AVG blob arm below reads the raw bytes,
+    // where a null entry would surface as an empty (undecodable) slice.
+    // The Null *type* check is separate: a NullArray (e.g. the constant a
+    // pruned window argument becomes) has no validity bitmap, so its
+    // `is_null()` reports false even though every entry is logically null.
+    if col.data_type() == &arrow_schema::DataType::Null || col.is_null(row_idx) {
+        return Ok(None);
+    }
     let numeric_field = field_type.filter(|f| f.is_numeric());
     match (is_avg, numeric_field) {
         (true, Some(_)) => {

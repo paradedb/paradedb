@@ -271,3 +271,77 @@ fn window_aggregate_numeric_result_expression_declines(
 
     Ok(())
 }
+
+// PostgreSQL converts a LEFT JOIN whose inner side is filtered with IS NULL
+// on a strictly-joined column into an Anti Join, pruning the inner relation
+// from the join output: its columns are identically NULL in every surviving
+// row. Window aggregates over such pruned arguments are plan-time constants
+// (0 for COUNT(col), NULL otherwise), mirroring the
+// `resolve_var_or_pruned_null` semantics every other pruned-column consumer
+// applies — while COUNT(*) still counts the surviving rows for real.
+fn setup_anti_join(conn: &mut PgConnection) {
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET paradedb.enable_aggregate_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+
+    DROP TABLE IF EXISTS wja_products;
+    DROP TABLE IF EXISTS wja_orders;
+    CREATE TABLE wja_products (id bigint PRIMARY KEY, age int, description text);
+    CREATE TABLE wja_orders (id bigint PRIMARY KEY, age int, price numeric(10, 2));
+
+    INSERT INTO wja_products SELECT g, g, 'sturdy laptop' FROM generate_series(1, 5) g;
+    -- Ages 1 and 2 match, anti-filtering products 1 and 2; 3..5 survive.
+    INSERT INTO wja_orders VALUES (1, 1, 11.50), (2, 2, 22.50);
+
+    CREATE INDEX wja_products_bm25 ON wja_products
+    USING paradedb (id, age, (description::pdb.unicode_words)) WITH (key_field = 'id');
+    CREATE INDEX wja_orders_bm25 ON wja_orders
+    USING paradedb (id, age, price) WITH (key_field = 'id');
+    ANALYZE wja_products;
+    ANALYZE wja_orders;
+    "#
+    .execute(conn);
+}
+
+#[rstest]
+fn global_window_aggregates_over_pruned_anti_join(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    setup_anti_join(&mut conn);
+
+    let query = r#"
+        SELECT p.id,
+               (AVG(o.price) OVER ())::float8 AS avg_price,
+               COUNT(o.age) OVER () AS matched_count,
+               COUNT(*) OVER () AS total_count,
+               SUM(o.price) OVER () AS total_price
+        FROM wja_products p
+        LEFT JOIN wja_orders o ON p.age = o.age
+        WHERE p.description @@@ 'laptop' AND o.age IS NULL
+        ORDER BY p.id
+        LIMIT 10
+    "#;
+
+    let plan = explain(&mut conn, query);
+    assert!(plan.contains(JOIN_SCAN), "{plan}");
+    assert!(!plan.contains("WindowAgg "), "{plan}");
+    // COUNT(*) is a real window over the surviving rows; the pruned-argument
+    // aggregates are plan-time constants that never reach the window
+    // operator.
+    assert!(plan.contains("WindowAggExec"), "{plan}");
+
+    let rows = query
+        .fetch_result::<(i64, Option<f64>, i64, i64, Option<bigdecimal::BigDecimal>)>(&mut conn)?;
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec![3, 4, 5]);
+    for (_, avg_price, matched_count, total_count, total_price) in &rows {
+        assert_eq!(*avg_price, None);
+        assert_eq!(*matched_count, 0);
+        assert_eq!(*total_count, 3);
+        assert_eq!(*total_price, None);
+    }
+
+    Ok(())
+}

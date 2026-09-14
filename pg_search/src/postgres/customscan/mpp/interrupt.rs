@@ -70,9 +70,13 @@ impl HeldInterrupts {
 
 impl Drop for HeldInterrupts {
     fn drop(&mut self) {
+        // `errfinish` zeroes the count before a caught Postgres ERROR unwinds through
+        // here, so a plain decrement would underflow. Skipping it matches PG's own
+        // holdoff sections, which never resume after an ERROR either.
         #[cfg(not(test))]
         unsafe {
-            pgrx::pg_sys::InterruptHoldoffCount -= 1;
+            pgrx::pg_sys::InterruptHoldoffCount =
+                pgrx::pg_sys::InterruptHoldoffCount.saturating_sub(1);
         }
     }
 }

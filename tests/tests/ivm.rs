@@ -41,8 +41,7 @@ fn use_ivm(mut conn: PgConnection) {
     SELECT pgivm.create_immv('test_view', 'SELECT test.*, test.id + 1 as derived FROM test;');
 
     CREATE INDEX test_search_idx ON test_view
-    USING paradedb (id, content)
-    WITH (key_field='id');
+    USING paradedb (id, content);
     "#
     .execute(&mut conn);
 

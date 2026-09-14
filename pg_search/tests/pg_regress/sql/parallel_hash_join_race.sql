@@ -38,12 +38,10 @@ CREATE TABLE document_text (
 -- Create BM25 indexes BEFORE inserting data, then insert in batches
 -- to create multiple segments (critical for reproducing the race)
 CREATE INDEX idx_parade_core ON core
-USING paradedb (dwf_doid, author)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, author);
 
 CREATE INDEX idx_parade_document_text ON document_text
-USING paradedb (dwf_doid, full_text)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, full_text);
 
 -- Insert data in batches to create multiple segments
 -- Each batch creates new segments

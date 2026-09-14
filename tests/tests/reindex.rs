@@ -166,7 +166,6 @@ async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
     // Create a partial index
     r#"CREATE INDEX partial_idx ON paradedb.bm25_search
     USING paradedb (id, description, category)
-    WITH (key_field='id')
     WHERE category = 'Electronics'"#
         .execute(&mut conn);
 
@@ -248,7 +247,6 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
     r#"CREATE INDEX CONCURRENTLY bm25_search_bm25_index_2 ON paradedb.bm25_search
     USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date)
     WITH (
-        key_field='id',
         text_fields='{
             "description": {"tokenizer": {"type": "default"}},
             "category": {}

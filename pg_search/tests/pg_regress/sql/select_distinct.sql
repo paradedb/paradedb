@@ -48,7 +48,6 @@ VALUES
 CREATE INDEX dist_products_idx ON dist_products
 USING bm25 (id, name, category, brand, rating, price)
 WITH (
-    key_field = 'id',
     text_fields  = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}',
     numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}'
 );
@@ -266,7 +265,6 @@ INSERT INTO dist_regions (category, region) VALUES
 CREATE INDEX dist_regions_idx ON dist_regions
 USING bm25 (id, category, region)
 WITH (
-    key_field = 'id',
     text_fields = '{"category": {"fast": true}, "region": {"fast": true}}'
 );
 
@@ -324,8 +322,7 @@ INSERT INTO dist_urls (name, url) VALUES
 
 -- Index the url column using the pdb.literal cast expression (raw tokenizer, fast field).
 CREATE INDEX dist_urls_idx ON dist_urls
-USING bm25 (id, name, (url::pdb.literal))
-WITH (key_field = 'id');
+USING bm25 (id, name, (url::pdb.literal));
 
 ANALYZE dist_urls;
 
@@ -374,7 +371,6 @@ INSERT INTO dist_nullable (name, category) VALUES
 CREATE INDEX dist_nullable_idx ON dist_nullable
 USING bm25 (id, name, category)
 WITH (
-    key_field   = 'id',
     text_fields = '{"name": {}, "category": {"fast": true}}'
 );
 
@@ -435,8 +431,7 @@ SELECT
 FROM generate_series(1, 20) AS i;
 
 CREATE INDEX dist_highcard_idx ON dist_highcard
-USING bm25 (id, name, (url::pdb.literal))
-WITH (key_field = 'id');
+USING bm25 (id, name, (url::pdb.literal));
 
 ANALYZE dist_highcard;
 
@@ -482,7 +477,6 @@ INSERT INTO dist_expr (name, category, brand) VALUES
 CREATE INDEX dist_expr_idx ON dist_expr
 USING bm25 (id, name, category, brand)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}'
 );
 
@@ -589,7 +583,6 @@ INSERT INTO dist_regions (category, region) VALUES
 CREATE INDEX dist_regions_idx ON dist_regions
 USING bm25 (id, category, region)
 WITH (
-    key_field = 'id',
     text_fields = '{"category": {"fast": true}, "region": {"fast": true}}'
 );
 
@@ -694,7 +687,6 @@ INSERT INTO dist_cast (name, n) VALUES
 CREATE INDEX dist_cast_idx ON dist_cast
 USING bm25 (id, name, n)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {}}',
     numeric_fields = '{"n": {"fast": true}}'
 );
@@ -746,7 +738,6 @@ INSERT INTO dist_json (name, meta) VALUES
 CREATE INDEX dist_json_idx ON dist_json
 USING bm25 (id, name, meta)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {}}',
     json_fields = '{"meta": {"fast": true}}'
 );
@@ -806,7 +797,6 @@ INSERT INTO dist_ci (name, value) VALUES
 CREATE INDEX dist_ci_idx ON dist_ci
 USING bm25 (id, name, value)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {}, "value": {"fast": true}}'
 );
 
@@ -847,7 +837,7 @@ INSERT INTO dist_ci_join (label) VALUES ('one'), ('two');
 
 CREATE INDEX dist_ci_join_idx ON dist_ci_join
 USING bm25 (id, label)
-WITH (key_field = 'id', text_fields = '{"label": {"fast": true}}');
+WITH (text_fields = '{"label": {"fast": true}}');
 
 ALTER TABLE dist_ci ADD COLUMN join_id INT;
 UPDATE dist_ci SET join_id = CASE WHEN value = 'b' THEN 2 ELSE 1 END;
@@ -914,7 +904,6 @@ INSERT INTO dist_inh_child  (name, category) VALUES ('child row',  'FromChild');
 CREATE INDEX dist_inh_parent_idx ON dist_inh_parent
 USING bm25 (id, name, category)
 WITH (
-    key_field = 'id',
     text_fields = '{"name": {}, "category": {"fast": true}}'
 );
 

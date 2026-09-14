@@ -17,8 +17,7 @@ CALL paradedb.create_paradedb_test_table(
 -- Test 1: FuncExpr - upper() indexed expression gets TopN scan
 -- We search on category (separate column) and sort by upper(description).
 CREATE INDEX upper_idx ON mock_items
-    USING paradedb (id, category, (upper(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (upper(description)::pdb.literal), rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -35,8 +34,7 @@ DROP INDEX upper_idx;
 
 -- Test 2: FuncExpr - trim() to verify it's not just upper() that works
 CREATE INDEX trim_idx ON mock_items
-    USING paradedb (id, category, (trim(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (trim(description)::pdb.literal), rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -53,8 +51,7 @@ DROP INDEX trim_idx;
 
 -- Test 3: Negative test - expression NOT in index should NOT use TopN
 CREATE INDEX plain_idx ON mock_items
-    USING paradedb (id, description, rating)
-    WITH (key_field='id');
+    USING paradedb (id, description, rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -66,8 +63,7 @@ DROP INDEX plain_idx;
 
 -- Test 4: lower() still works as before (regression test)
 CREATE INDEX lower_idx ON mock_items
-    USING paradedb (id, (lower(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, (lower(description)::pdb.literal), rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -84,8 +80,7 @@ DROP INDEX lower_idx;
 
 -- Test 5: Mixed expression types - lower() + rating
 CREATE INDEX mixed_idx ON mock_items
-    USING paradedb (id, (lower(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, (lower(description)::pdb.literal), rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -102,8 +97,7 @@ DROP INDEX mixed_idx;
 
 -- Test 6: Mixed - indexed expression + plain column
 CREATE INDEX mixed_expr_idx ON mock_items
-    USING paradedb (id, category, (upper(description)::pdb.literal), rating)
-    WITH (key_field='id');
+    USING paradedb (id, category, (upper(description)::pdb.literal), rating);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating FROM mock_items
@@ -167,14 +161,12 @@ INSERT INTO expr_suppliers (id, product_id, name, contact_info) VALUES
 CREATE INDEX expr_products_bm25 ON expr_products
     USING paradedb (id, description, category, (upper(name)::pdb.literal))
     WITH (
-    key_field = 'id',
     text_fields = '{"category": {"fast": true}}'
     );
 
 CREATE INDEX expr_suppliers_bm25 ON expr_suppliers
     USING paradedb (id, product_id, name, contact_info)
     WITH (
-    key_field = 'id',
     text_fields = '{"name": {"fast": true}}',
     numeric_fields = '{"product_id": {"fast": true}}'
     );

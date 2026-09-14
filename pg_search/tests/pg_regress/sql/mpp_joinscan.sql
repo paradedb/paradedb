@@ -71,7 +71,6 @@ SET max_parallel_maintenance_workers TO 0;
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
 USING paradedb (id, title, content)
 WITH (
-    key_field='id',
     target_segment_count=3,
     partition_by='id',
     text_fields='{"title": {"fast": true}, "content": {}}'
@@ -79,7 +78,6 @@ WITH (
 CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
 USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
-    key_field='id',
     target_segment_count=3,
     partition_by='file_id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',

@@ -54,7 +54,6 @@ CREATE INDEX issue_4719_people_idx
     ON issue_4719_people
     USING paradedb (id, company_id, body)
     WITH (
-        key_field = 'id',
         numeric_fields = '{"company_id": {"fast": true}}',
         text_fields = '{"body": {"fast": true}}'
     );
@@ -63,7 +62,6 @@ CREATE INDEX issue_4719_experiences_idx
     ON issue_4719_experiences
     USING paradedb (id, person_id, company_id, body)
     WITH (
-        key_field = 'id',
         numeric_fields = '{"person_id": {"fast": true}, "company_id": {"fast": true}}',
         text_fields = '{"body": {"fast": true}}'
     );
@@ -72,7 +70,6 @@ CREATE INDEX issue_4719_companies_idx
     ON issue_4719_companies
     USING paradedb (id, body)
     WITH (
-        key_field = 'id',
         text_fields = '{"body": {"fast": true}}'
     );
 

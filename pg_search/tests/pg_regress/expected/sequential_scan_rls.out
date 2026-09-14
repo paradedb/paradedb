@@ -19,7 +19,7 @@ INSERT INTO rls_native_new_row VALUES
     (2, 'allowed', 'before');
 INSERT INTO rls_pdb_new_row TABLE rls_native_new_row;
 CREATE INDEX rls_pdb_new_row_idx ON rls_pdb_new_row
-USING paradedb (id, body) WITH (key_field = id);
+USING paradedb (id, body);
 GRANT SELECT, UPDATE ON rls_native_new_row TO rls_new_row_user;
 GRANT SELECT, UPDATE ON rls_pdb_new_row TO rls_new_row_user;
 ALTER TABLE rls_native_new_row ENABLE ROW LEVEL SECURITY;

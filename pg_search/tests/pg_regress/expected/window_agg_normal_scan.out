@@ -56,7 +56,6 @@ USING paradedb (
     (city::pdb.literal), (state::pdb.literal),
     is_irs_active
 )
-WITH (key_field = 'id')
 WHERE deleted_at IS NULL;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Test 1: pdb.agg() OVER() with ORDER BY + LIMIT (TopK path - always works)

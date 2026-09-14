@@ -74,7 +74,6 @@ USING paradedb (
     tags, process_method, currency_code, recipient_id, 
     rule_id, link_count2, removed_at, amount_value
 ) WITH (
-    key_field = 'id',
     text_fields = '{
         "notes": { 
             "normalizer": "lowercase", 

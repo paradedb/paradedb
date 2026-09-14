@@ -30,7 +30,6 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
         WITH (
-            key_field = 'id',
             text_fields = '{
                 "description": {},
                 "category": {
@@ -115,7 +114,6 @@ fn parallel_topk_limit_visibility_retry(mut conn: PgConnection) {
         CREATE EXTENSION IF NOT EXISTS pg_search;
         CREATE TABLE t (id bigint NOT NULL PRIMARY KEY, name text, sortk int);
         CREATE INDEX idx ON t USING paradedb (id, (name::pdb.literal), sortk) WITH (
-            key_field = 'id',
             sort_by = 'sortk DESC NULLS LAST',
             target_segment_count = 1
         );
@@ -169,7 +167,6 @@ fn sort_by_raw(mut conn: PgConnection) {
         CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
         WITH (
-            key_field = 'id',
             text_fields = '{
                 "description": {},
                 "category": {

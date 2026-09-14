@@ -23,7 +23,7 @@ INSERT INTO wlp
 SELECT g, 'shoes item ' || g, g, g % 4
 FROM generate_series(1, 500) g;
 
-CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp) WITH (key_field = 'id');
+CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp);
 
 -- ============================================================
 -- Pushes down: bare ranking window over the LIMIT's own ordering

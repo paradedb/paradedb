@@ -32,7 +32,6 @@ FROM generate_series(1, 2000) as i;
 CREATE INDEX table_a_idx ON table_a
 USING paradedb (id, category)
 WITH (
-    key_field = id,
     text_fields = '{
         "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
     }'
@@ -44,7 +43,6 @@ CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
 CREATE INDEX table_b_idx ON table_b
 USING paradedb (id, group_id, a_id, category)
 WITH (
-    key_field = id,
     text_fields = '{
         "group_id": {"fast": true, "tokenizer": {"type": "keyword"}},
         "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}

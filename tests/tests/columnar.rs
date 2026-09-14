@@ -136,7 +136,6 @@ fn complex_aggregation_setup() -> &'static str {
             currency,
             discarded_at
         ) with (
-            key_field = 'id',
             text_fields = '{"organization_id": {"fast":true}, "status": {"fast": true, "tokenizer": {"type": "keyword"}}, "direction": {"fast": true}, "currency": {"fast": true}}',
             boolean_fields = '{"live_mode": {"fast": true}}'
         );
@@ -289,7 +288,7 @@ fn fast_fields_setup() -> &'static str {
             (description::pdb.literal),
             ((title || ' ' || category)::pdb.literal('alias=concat_expr')),
             ((rating + 1)::pdb.alias('rating_plus_one'))
-        ) WITH (key_field = 'id');
+        );
     "#
 }
 
@@ -414,7 +413,6 @@ fn columnar_exec_order_by(
         CREATE INDEX test_mff_sorted_idx ON test_mff_sorted
         USING paradedb (id, name, category, score)
         WITH (
-            key_field = 'id',
             text_fields = '{{"name": {{"fast": true}}, "category": {{"fast": true, "tokenizer": {{"type": "keyword"}}}}}}',
             numeric_fields = '{{"score": {{"fast": true}}}}',
             sort_by = '{}'
@@ -507,7 +505,6 @@ fn columnar_disabled_still_works(mut conn: PgConnection) {
         CREATE INDEX test_mff_disabled_idx ON test_mff_disabled
         USING paradedb (id, text_col, str_col, num_col)
         WITH (
-            key_field = 'id',
             text_fields = '{"text_col": {"fast": true}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
             numeric_fields = '{"num_col": {"fast": true}}',
             sort_by = 'num_col DESC NULLS LAST'

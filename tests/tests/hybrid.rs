@@ -31,7 +31,6 @@ fn hybrid_deprecated(mut conn: PgConnection) {
     CREATE INDEX search_idx ON mock_items
     USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
     WITH (
-        key_field = 'id',
         text_fields = '{"description": {}, "category": {}}',
         numeric_fields = '{"rating": {}}',
         boolean_fields = '{"in_stock": {}}',

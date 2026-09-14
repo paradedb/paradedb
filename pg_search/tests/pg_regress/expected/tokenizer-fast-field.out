@@ -20,7 +20,7 @@ CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING paradedb (
     (t::pdb.literal),
     (t_long::pdb.literal_normalized('stopwords_language=English')),
     (metadata::pdb.literal_normalized('stopwords_language=English'))
-) WITH (key_field = 'id');
+);
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                   tokenizer                    | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+------------------------------------------------+--------+------------

@@ -39,14 +39,12 @@ CREATE TABLE mpp_wm_pages (
 CREATE INDEX mpp_wm_files_idx ON mpp_wm_files
 USING paradedb (id, title, content)
 WITH (
-    key_field='id',
     text_fields='{"title": {"fast": true}, "content": {}}'
 );
 
 CREATE INDEX mpp_wm_pages_idx ON mpp_wm_pages
 USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
-    key_field='id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields='{"page_text": {}}'
 );

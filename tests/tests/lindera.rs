@@ -41,7 +41,6 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
         CREATE INDEX korean_idx ON korean
         USING paradedb (id, author, title, message)
         WITH (
-            key_field = 'id',
             text_fields = '{
                 "author": {
                     "tokenizer": {"type": "korean_lindera"},
@@ -91,7 +90,6 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
     CREATE INDEX chinese_idx ON chinese
     USING paradedb (id, author, title, message)
     WITH (
-        key_field = 'id',
         text_fields = '{
             "author": {
                 "tokenizer": {"type": "chinese_lindera"},
@@ -142,7 +140,6 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
     CREATE INDEX japanese_idx ON japanese
     USING paradedb (id, author, title, message)
     WITH (
-        key_field = 'id',
         text_fields = '{
             "author": {
                 "tokenizer": {"type": "japanese_lindera"},

@@ -16,7 +16,7 @@ $$;
 DROP TABLE IF EXISTS dates;
 CREATE TABLE dates (id SERIAL PRIMARY KEY, d date);
 INSERT INTO dates (d) VALUES ('2025-01-01');
-CREATE INDEX idx_dates ON dates USING paradedb (id, (get_day_of_week(d)::pdb.alias('d'))) with (key_field = 'id');
+CREATE INDEX idx_dates ON dates USING paradedb (id, (get_day_of_week(d)::pdb.alias('d')));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
@@ -31,7 +31,7 @@ DROP TABLE dates;
 DROP TABLE IF EXISTS ints;
 CREATE TABLE ints (id SERIAL PRIMARY KEY, i integer);
 INSERT INTO ints (i) VALUES (1), (2), (3);
-CREATE INDEX idx_ints ON ints USING paradedb (id, ((i * 2)::pdb.alias('i'))) with (key_field = 'id');
+CREATE INDEX idx_ints ON ints USING paradedb (id, ((i * 2)::pdb.alias('i')));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
@@ -47,7 +47,7 @@ DROP TABLE ints;
 DROP TABLE IF EXISTS ints;
 CREATE TABLE ints (id SERIAL PRIMARY KEY, i integer, j integer);
 INSERT INTO ints (i, j) VALUES (1, 2), (2, 3), (3, 4);
-CREATE INDEX idx_ints ON ints USING paradedb (id, ((abs(i-j))::pdb.alias('another_name'))) with (key_field = 'id');
+CREATE INDEX idx_ints ON ints USING paradedb (id, ((abs(i-j))::pdb.alias('another_name')));
 
 -- This should NOT use the indexed abs() expression (uses heap_filter instead)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -77,8 +77,7 @@ BEGIN
         BEGIN
             EXECUTE '
                 CREATE INDEX idx_alias_test ON alias_test
-                USING paradedb (id, (col::pdb.alias(''mycol'')))
-                WITH (key_field = ''id'')';
+                USING paradedb (id, (col::pdb.alias(''mycol'')))';
         EXCEPTION
             WHEN OTHERS THEN
                 RAISE WARNING '%', SQLERRM;
@@ -94,7 +93,7 @@ CREATE TABLE alias_test (
     col smallint
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -103,7 +102,7 @@ CREATE TABLE alias_test (
     col integer
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -112,7 +111,7 @@ CREATE TABLE alias_test (
     col bigint
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -121,7 +120,7 @@ CREATE TABLE alias_test (
     col oid
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -130,7 +129,7 @@ CREATE TABLE alias_test (
     col float4
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -139,7 +138,7 @@ CREATE TABLE alias_test (
     col float8
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -148,7 +147,7 @@ CREATE TABLE alias_test (
     col numeric
 );
 INSERT INTO alias_test (col) VALUES (1);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT id, trim_scale(col) AS col FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -157,7 +156,7 @@ CREATE TABLE alias_test (
     col boolean
 );
 INSERT INTO alias_test (col) VALUES (true);
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
 DROP TABLE alias_test;
 
@@ -166,7 +165,7 @@ CREATE TABLE alias_test (
     col date
 );
 INSERT INTO alias_test (col) VALUES ('2025-01-01');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -174,7 +173,7 @@ CREATE TABLE alias_test (
     col time
 );
 INSERT INTO alias_test (col) VALUES ('00:00:00');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -182,7 +181,7 @@ CREATE TABLE alias_test (
     col timestamp
 );
 INSERT INTO alias_test (col) VALUES ('2025-01-01 00:00:00');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -190,7 +189,7 @@ CREATE TABLE alias_test (
     col timestamp with time zone
 );
 INSERT INTO alias_test (col) VALUES ('2025-01-01 00:00:00+00');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -198,7 +197,7 @@ CREATE TABLE alias_test (
     col time with time zone
 );
 INSERT INTO alias_test (col) VALUES ('00:00:00+00');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -206,7 +205,7 @@ CREATE TABLE alias_test (
     col smallint[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -215,7 +214,7 @@ CREATE TABLE alias_test (
     col integer[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -224,7 +223,7 @@ CREATE TABLE alias_test (
     col bigint[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -233,7 +232,7 @@ CREATE TABLE alias_test (
     col oid[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -242,7 +241,7 @@ CREATE TABLE alias_test (
     col float4[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -251,7 +250,7 @@ CREATE TABLE alias_test (
     col float8[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -260,7 +259,7 @@ CREATE TABLE alias_test (
     col numeric[]
 );
 INSERT INTO alias_test (col) VALUES ('{1, 2, 3}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
 DROP TABLE alias_test;
 
@@ -269,7 +268,7 @@ CREATE TABLE alias_test (
     col boolean[]
 );
 INSERT INTO alias_test (col) VALUES ('{true, false, true}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ 'true';
 DROP TABLE alias_test;
 
@@ -278,7 +277,7 @@ CREATE TABLE alias_test (
     col date[]
 );
 INSERT INTO alias_test (col) VALUES ('{2025-01-01, 2025-01-02, 2025-01-03}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -286,7 +285,7 @@ CREATE TABLE alias_test (
     col timestamp[]
 );
 INSERT INTO alias_test (col) VALUES ('{2025-01-01 00:00:00, 2025-01-02 00:00:00, 2025-01-03 00:00:00}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;
 
 CREATE TABLE alias_test (
@@ -294,5 +293,5 @@ CREATE TABLE alias_test (
     col timestamp with time zone[]
 );
 INSERT INTO alias_test (col) VALUES ('{2025-01-01 00:00:00+00, 2025-01-02 00:00:00+00, 2025-01-03 00:00:00+00}');
-CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
+CREATE INDEX idx_alias_test ON alias_test USING paradedb (id, (col::pdb.alias('mycol')));
 DROP TABLE alias_test;

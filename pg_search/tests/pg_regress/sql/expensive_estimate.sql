@@ -16,8 +16,7 @@ VACUUM FULL mock_items;
 
 CREATE INDEX idx_mock_items
 ON mock_items
-    USING paradedb (id, description, rating, category, in_stock, created_at, weight_range)
-WITH (key_field='id');
+    USING paradedb (id, description, rating, category, in_stock, created_at, weight_range);
 
 ANALYZE mock_items;
 

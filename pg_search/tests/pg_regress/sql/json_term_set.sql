@@ -21,7 +21,6 @@ INSERT INTO json_term_set_test (metadata) VALUES
 CREATE INDEX json_term_set_test_idx ON json_term_set_test
 USING paradedb (id, metadata)
 WITH (
-    key_field = 'id',
     json_fields = '{"metadata": {"fast": true}}'
 );
 

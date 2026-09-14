@@ -48,7 +48,7 @@ USING paradedb (
     id,
     (document_id::pdb.literal),
     (title::pdb.unicode_words('columnar=true'))
-) WITH (key_field = 'id');
+);
 SET paradedb.enable_join_custom_scan = on;
 -- ORDER BY on the deferred `title` column with LIMIT triggers `SegmentedTopKRule`
 -- to inject `SegmentedTopKExec` and unwrap the SortExec. The join is a

@@ -78,7 +78,6 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
     r#"CREATE INDEX chinese_texts_idx ON chinese_texts
         USING paradedb (id, content)
         WITH (
-            key_field = 'id',
             text_fields = '{
                 "content": { "tokenizer": {"type": "jieba"} }
             }'

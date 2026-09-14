@@ -8,8 +8,7 @@ CALL paradedb.create_paradedb_test_table(
 
 -- Create index with tokenizer cast on description field
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range);
 
 -- Test 1: Direct query
 SELECT id, description FROM mock_items WHERE description ||| 'shoes' ORDER BY id;

@@ -15,36 +15,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Spills DataFusion's sorts/aggregates/joins to Postgres's `BufFile` temp-file
-//! mechanism, instead of DataFusion's default bare-OS-tempfile `DiskManager`.
+//! Spills DataFusion operators to Postgres `BufFile` temp files instead of DataFusion's
+//! default OS-tempfile `DiskManager`.
 //!
-//! Routing through `BufFile` (rather than `tempfile`/`NamedTempFile`, DataFusion's
-//! default) means spill files are counted against `temp_file_limit`, land in the
-//! configured `temp_tablespaces`, and are guaranteed to be cleaned up by Postgres —
-//! via the resource-owner machinery if the query is cancelled or the backend aborts,
-//! and by the postmaster on restart if the backend crashes — none of which
-//! DataFusion's OS-tempdir path provides.
+//! Routing through `BufFile` means spill files count against `temp_file_limit`, land in
+//! the configured `temp_tablespaces`, and are cleaned up by Postgres: by the resource
+//! owner when the query is cancelled or the transaction aborts, and by the postmaster on
+//! restart after a crash. DataFusion's OS-tempdir path provides none of that.
 //!
 //! # BufFile FFI
 //!
-//! `BufFile`'s API is synchronous and not thread-safe to share across threads; a
-//! `*mut pg_sys::BufFile` created by one backend/parallel-worker must only be touched
-//! by that same backend. Within pg_search's single-threaded-per-backend Tokio runtime
-//! (`current_thread` or a dedicated worker's own runtime — see `datafusion/memory.rs`)
-//! that invariant already holds, so this module trusts it the same way
-//! `api::operator::keyset` does for its own `BufFile` usage.
+//! A `BufFile` belongs to the backend (or parallel worker) that created it and must only
+//! be touched from that process's main thread. Every DataFusion runtime in this crate is
+//! a `current_thread` tokio runtime driven by `block_on` on that thread (the scans build
+//! theirs in `joinscan` and `aggregatescan`, the workers in `mpp/launch.rs`), and
+//! `spawn_buffered` is a no-op on that flavor, so every poll of a spill stream runs
+//! inline on the backend thread. That is why the read side calls `BufFileRead` directly
+//! from `poll_fn` rather than through `spawn_blocking`, and why the `Send`/`Sync` impls
+//! on the pointer wrapper below are sound. `postgres::sequentialscan::keyset` relies on
+//! the same property for its own `BufFile`.
 //!
-//! The read side of [`SpillFile::read_stream`] is formally async (DataFusion streams
-//! spill contents back through a `Stream`), but every DataFusion stream in this crate
-//! is driven by `runtime.block_on(...)` on a `current_thread` Tokio runtime, on the
-//! same OS thread as the rest of the Postgres backend (see `mpp/interrupt.rs`'s
-//! `block_on_next`, which wraps that `block_on` in `HeldInterrupts` specifically
-//! because the poll must not move to, or yield across, another thread). So the read
-//! side here calls the blocking `BufFileRead` FFI directly and inline, via
-//! `futures::stream::poll_fn`, instead of `spawn_blocking`: `spawn_blocking` would run
-//! `BufFileRead` on a different OS thread, which is both unsound (`BufFile` and PG's
-//! memory-context/resource-owner state are backend-thread-local) and would escape the
-//! `HeldInterrupts` holdoff that the rest of the codebase relies on.
+//! pgrx guards every `BufFile` call, so a raise such as a `temp_file_limit` hit unwinds
+//! through DataFusion and tokio as a Rust panic; nothing here may add a second guard
+//! around such a call, since a panic cannot cross the outer guard's C trampoline.
+//! Closing is guarded on top of that: Postgres may
+//! release the owner's files before the Rust holder drops ([`buffile::BufFileReleaseGuard`]),
+//! and `BufFileClose` flushes, so a call that raised mid-flush leaves the file poisoned
+//! (the close would raise again). A poisoned or released file, or one dropped from
+//! abort processing, is left to the owner.
 //!
 //! # Cursor tracking
 //!
@@ -59,7 +57,7 @@
 //! `BufFileWrite`/`BufFileRead` call — never relying on the shared cursor's position
 //! surviving between calls, only ever setting it explicitly right before each use.
 
-use crate::postgres::buffile;
+use crate::postgres::buffile::{self, BufFileReleaseGuard};
 use bytes::Bytes;
 use datafusion::common::exec_datafusion_err;
 use datafusion::execution::disk_manager::DiskManagerMode;
@@ -71,6 +69,7 @@ use std::os::raw::c_int;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Bytes read per `BufFileRead` call when streaming a spill file back to DataFusion.
@@ -78,6 +77,15 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// (`ReaderStream::with_capacity` in `disk_manager.rs`) — chosen there because the
 /// default 8KB caused excessive per-poll overhead on multi-MB spill files.
 const READ_CHUNK_BYTES: usize = 128 * 1024;
+
+/// Runs one `BufFile` call that may flush the write buffer. If Postgres raises inside it
+/// the buffer stays dirty, so the flag stays set and `Drop` will not close the file.
+fn buffile_call<T>(poisoned: &AtomicBool, call: impl FnOnce() -> T) -> T {
+    poisoned.store(true, Ordering::Relaxed);
+    let result = call();
+    poisoned.store(false, Ordering::Relaxed);
+    result
+}
 
 /// Fired once by [`BufFileTempFileFactory`] the first time this query actually spills.
 pub type SpillNotify = Arc<dyn Fn() + Send + Sync>;
@@ -94,15 +102,17 @@ pub fn buffile_disk_manager_mode(on_spill: SpillNotify) -> DiskManagerMode {
     DiskManagerMode::Custom(Arc::new(BufFileTempFileFactory {
         on_spill,
         notified: AtomicBool::new(false),
+        release_guard: OnceLock::new(),
     }))
 }
 
 /// Creates `BufFile`-backed [`SpillFile`]s on request from DataFusion's `DiskManager`.
 struct BufFileTempFileFactory {
     on_spill: SpillNotify,
-    /// Guards `on_spill` to fire at most once per factory (i.e. once per query on this
-    /// backend)
+    /// Guards `on_spill` to fire at most once per factory (once per scan node execution).
     notified: AtomicBool,
+    /// Registered on the first spill, under the owner every file of this factory shares.
+    release_guard: OnceLock<Arc<BufFileReleaseGuard>>,
 }
 
 impl std::fmt::Debug for BufFileTempFileFactory {
@@ -125,18 +135,28 @@ impl TempFileFactory for BufFileTempFileFactory {
         {
             (self.on_spill)();
         }
-        let file = unsafe { buffile::create_transaction_scoped_buffile() };
+        let shared = self
+            .release_guard
+            .get_or_init(BufFileReleaseGuard::register);
+        // A file under another owner would never see that owner's release.
+        let release_guard = if shared.owner() == unsafe { pg_sys::CurrentResourceOwner } {
+            Arc::clone(shared)
+        } else {
+            BufFileReleaseGuard::register()
+        };
+        let file = unsafe { buffile::create_temp_buffile() };
         Ok(Arc::new(BufFileSpillFile {
             file: SendSyncBufFile(file),
             size: Arc::new(AtomicU64::new(0)),
+            writer_opened: AtomicBool::new(false),
+            poisoned: Arc::new(AtomicBool::new(false)),
+            release_guard,
         }))
     }
 }
 
-/// A `*mut pg_sys::BufFile` created by this backend. See the module-level `# BufFile
-/// FFI` note: it's only ever read/written inline on this backend's one OS thread, so
-/// `Send`/`Sync` just satisfy the trait bounds `SpillFile`/`SpillWriter` require —
-/// nothing here actually crosses a thread.
+/// A `*mut pg_sys::BufFile` created by this backend. `Send`/`Sync` only satisfy the
+/// `SpillFile`/`SpillWriter` bounds; see the module doc, "BufFile FFI".
 #[derive(Debug, Clone, Copy)]
 struct SendSyncBufFile(*mut pg_sys::BufFile);
 
@@ -151,22 +171,31 @@ impl SendSyncBufFile {
     }
 }
 
-// SAFETY: see the module-level `# BufFile FFI` note. Every access to the wrapped
-// pointer happens synchronously and inline on the single backend OS thread that
-// created it (inside `block_on_next`'s `HeldInterrupts` window); it is never touched
-// from another thread, so these impls only exist to satisfy the trait bounds.
+// SAFETY: see the module doc, "BufFile FFI": the pointer is only used inline on the
+// backend thread that created it.
 unsafe impl Send for SendSyncBufFile {}
 unsafe impl Sync for SendSyncBufFile {}
 
-/// A `BufFile`-backed [`SpillFile`]. Created empty; [`SpillFile::open_writer`] is
-/// called exactly once by DataFusion to populate it, then [`SpillFile::read_stream`]
-/// may be called (and re-called, for multi-pass merges) any number of times after.
-#[derive(Debug)]
+/// A `BufFile`-backed [`SpillFile`]. Created empty; DataFusion opens one writer to fill
+/// it, then reads it back any number of times (multi-pass merges re-read).
 struct BufFileSpillFile {
     file: SendSyncBufFile,
     /// Bytes written so far. `BufFile` doesn't expose a cheap "current size" query
     /// on all supported PG versions, so this is tracked on the write side instead.
     size: Arc<AtomicU64>,
+    /// A second writer would append from wherever a reader left the cursor.
+    writer_opened: AtomicBool,
+    /// Set while a call that may flush is in flight; see `buffile_call`.
+    poisoned: Arc<AtomicBool>,
+    release_guard: Arc<BufFileReleaseGuard>,
+}
+
+impl std::fmt::Debug for BufFileSpillFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufFileSpillFile")
+            .field("size", &self.size.load(Ordering::Relaxed))
+            .finish()
+    }
 }
 
 impl SpillFile for BufFileSpillFile {
@@ -186,6 +215,7 @@ impl SpillFile for BufFileSpillFile {
         Pin<Box<dyn Stream<Item = datafusion::common::Result<Bytes>> + Send>>,
     > {
         let file = self.file;
+        let poisoned = Arc::clone(&self.poisoned);
         // This pass's own read position, tracked the same way BufFileSpillWriter tracks
         // its write position: a writer interleaved with this read can (and does, under
         // RepartitionExec) move the shared BufFile cursor between our poll_fn calls, so
@@ -206,20 +236,19 @@ impl SpillFile for BufFileSpillFile {
         // BufFileRead fills it in place and we copy out only the bytes actually read.
         let mut scratch = vec![0u8; READ_CHUNK_BYTES];
         Ok(Box::pin(futures::stream::poll_fn(move |_cx| {
-            // Runs inline, synchronously, on the backend's one OS thread — see the
-            // module-level `# BufFile FFI` note. This is always polled from inside
-            // `block_on_next`'s `HeldInterrupts` window, never spawned elsewhere, so a
-            // plain blocking call here is both sound and consistent with the rest of
-            // the crate's DataFusion streams.
+            // Blocking and inline on purpose; see the module doc, "BufFile FFI".
             std::task::Poll::Ready(
                 (|| {
                     // Re-anchor before every read: an interleaved write (or another pass's
                     // read_stream) since our last read may have moved the shared cursor.
-                    unsafe {
+                    buffile_call(&poisoned, || unsafe {
                         buffile::buffile_seek(file.get(), position.fileno, position.offset, 0)
-                    }
+                    })
                     .map_err(|e| exec_datafusion_err!("failed to seek BufFile spill file: {e}"))?;
-                    match unsafe { buffile::buffile_read(file.get(), &mut scratch) } {
+                    let n = buffile_call(&poisoned, || unsafe {
+                        buffile::buffile_read(file.get(), &mut scratch)
+                    });
+                    match n {
                         0 => Ok(None),
                         n => {
                             let (fileno, offset) = unsafe { buffile::buffile_tell(file.get()) };
@@ -234,14 +263,13 @@ impl SpillFile for BufFileSpillFile {
     }
 
     fn open_writer(&self) -> datafusion::common::Result<Box<dyn SpillWriter>> {
-        // Ask PG for the true position rather than assuming (0, 0): this file was just
-        // created and nothing has written to it yet, but reading the real value here
-        // (instead of hardcoding the fresh-file case) keeps this correct even if that
-        // assumption ever stops holding.
+        let opened_before = self.writer_opened.swap(true, Ordering::Relaxed);
+        debug_assert!(!opened_before, "a spill file takes one writer");
         let (fileno, offset) = unsafe { buffile::buffile_tell(self.file.get()) };
         Ok(Box::new(BufFileSpillWriter {
             file: self.file,
             size: Arc::clone(&self.size),
+            poisoned: Arc::clone(&self.poisoned),
             position: BufFilePosition { fileno, offset },
         }))
     }
@@ -252,6 +280,7 @@ impl SpillFile for BufFileSpillFile {
 struct BufFileSpillWriter {
     file: SendSyncBufFile,
     size: Arc<AtomicU64>,
+    poisoned: Arc<AtomicBool>,
     position: BufFilePosition,
 }
 
@@ -265,18 +294,26 @@ struct BufFilePosition {
 
 impl io::Write for BufFileSpillWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unsafe {
-            // Re-anchor before writing: a read_stream() poll interleaved since our last
-            // write may have moved the shared BufFile cursor (see module-level note).
-            buffile::buffile_seek(
-                self.file.get(),
-                self.position.fileno,
-                self.position.offset,
-                0, /* SEEK_SET */
-            )
-            .map_err(|e| io::Error::other(format!("BufFile seek failed: {e}")))?;
-            buffile::buffile_write(self.file.get(), buf);
+        // DataFusion may write from a `Drop` (`SpillPoolSink` finishes its IPC stream),
+        // and a raise there is a panic in a destructor. Refuse instead of touching the
+        // file once it is poisoned, while unwinding, or outside a transaction; those
+        // callers ignore the error.
+        if self.poisoned.load(Ordering::Relaxed)
+            || std::thread::panicking()
+            || !unsafe { pg_sys::IsTransactionState() }
+        {
+            return Err(io::Error::other("BufFile spill file is no longer writable"));
         }
+        // Re-anchor before writing: a read_stream() poll interleaved since our last
+        // write may have moved the shared BufFile cursor (see module-level note).
+        let file = self.file;
+        let position = &self.position;
+        buffile_call(&self.poisoned, || {
+            unsafe { buffile::buffile_seek(file.get(), position.fileno, position.offset, 0) }
+                .map_err(|e| io::Error::other(format!("BufFile seek failed: {e}")))?;
+            unsafe { buffile::buffile_write(file.get(), buf) };
+            Ok::<(), io::Error>(())
+        })?;
         self.size.fetch_add(buf.len() as u64, Ordering::Relaxed);
         let (fileno, offset) = unsafe { buffile::buffile_tell(self.file.get()) };
         self.position = BufFilePosition { fileno, offset };
@@ -300,6 +337,8 @@ impl SpillWriter for BufFileSpillWriter {
 
 impl Drop for BufFileSpillFile {
     fn drop(&mut self) {
-        unsafe { pg_sys::BufFileClose(self.file.get()) }
+        if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {
+            unsafe { pg_sys::BufFileClose(self.file.get()) }
+        }
     }
 }

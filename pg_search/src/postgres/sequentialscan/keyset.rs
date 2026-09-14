@@ -276,7 +276,9 @@ impl Drop for Spilled {
                 Some(Self::release_resources),
                 std::ptr::from_mut(self).cast(),
             );
-            if !self.released.get() && !std::thread::panicking() {
+            // Abort processing drops this before the owner releases the file, and the
+            // close flushes a dirty tail that can raise again. The owner removes it.
+            if !self.released.get() && !std::thread::panicking() && pg_sys::IsTransactionState() {
                 pg_sys::BufFileClose(self.file);
             }
         }

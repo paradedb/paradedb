@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789399855872,
+  "lastUpdate": 1789403369126,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -3565,6 +3565,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.169,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "104281681+Tyagiquamar@users.noreply.github.com",
+            "name": "Mohd Quamar Tyagi",
+            "username": "Tyagiquamar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a7db311723c2d4997b37b541d222755ea73126f",
+          "message": "fix(pg_search): return EmptyQuery in phrase_prefix query builder when terms are empty (#6206) (#6308)\n\n### Summary\nFixes an issue where \\phrase_prefix\\ query builder constructs a\n\\PhrasePrefixQuery\\ with empty terms when phrase evaluation produces\nzero terms, causing Tantivy scorer panics on zero-doc segment lookups.\n\n### Changes\n- Check if \\ erms.is_empty()\\ in \\phrase_prefix\\ and return\n\\Box::new(EmptyQuery)\\ consistent with \\ okenized_phrase\\.\n\nCloses #6206\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-09-14T09:05:55-07:00",
+          "tree_id": "5f737b62550c1a9381f4538bf709508c81619aae",
+          "url": "https://github.com/paradedb/paradedb/commit/2a7db311723c2d4997b37b541d222755ea73126f"
+        },
+        "date": 1789403364400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.7098264866417816,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.646,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 2.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.024,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.13,
             "unit": "ms"
           }
         ]

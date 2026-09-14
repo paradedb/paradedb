@@ -79,6 +79,7 @@ unsafe extern "C" {
         lockmode: pg_sys::LOCKMODE,
         numparents: *mut *mut pg_sys::List,
     ) -> *mut pg_sys::List;
+    fn get_partition_ancestors(relid: pg_sys::Oid) -> *mut pg_sys::List;
 }
 
 /// Whether `index_oid` names a partitioned index, which has no storage of its own.
@@ -110,4 +111,26 @@ pub fn leaf_partition_indexes(
         .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
         .collect::<Vec<_>>()
         .into_iter()
+}
+
+/// The member of `parent_index_oid` attached to the partition `child_heap_oid`, however
+/// deeply the partition is nested. `None` if the partition has no valid member of that
+/// index (e.g. one left invalid by a failed `CREATE INDEX`).
+pub fn partition_member_index(
+    child_heap_oid: pg_sys::Oid,
+    parent_index_oid: pg_sys::Oid,
+) -> Option<PgSearchRelation> {
+    let child_heap = PgSearchRelation::with_lock(child_heap_oid, pg_sys::AccessShareLock as _);
+    child_heap
+        .indices(pg_sys::AccessShareLock as _)
+        .find(|index| {
+            if !unsafe { pg_sys::get_index_isvalid(index.oid()) } {
+                return false;
+            }
+            let ancestors =
+                unsafe { PgList::<pg_sys::Oid>::from_pg(get_partition_ancestors(index.oid())) };
+            ancestors
+                .iter_oid()
+                .any(|ancestor| ancestor == parent_index_oid)
+        })
 }

@@ -28,12 +28,8 @@ jobs:
 
       # The `skip` parameter is a total mess, read up before adding.
       # https://github.com/codespell-project/codespell/issues/1915
-      - name: Check Typo using codespell
-        uses: codespell-project/actions-codespell@v2
+      - name: Check Typo
+        uses: paradedb/actions/check-typo@v12
         with:
-          check_filenames: true
-          ignore_words_file: .codespellignore
-          skip: "Cargo.lock,./tests,./pg_search/tests/pg_regress,./nix"
-        env:
-          DOCKER_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          ignore-words-file: .codespellignore
+          skip: Cargo.lock,./tests,./pg_search/tests/pg_regress,./nix

@@ -38,7 +38,7 @@ container_cpu_count() {
 
   if [ -r /sys/fs/cgroup/cpu.max ]; then
     # cgroup v2: "max" means there is no quota, only the scheduler default.
-    read -r quota period < /sys/fs/cgroup/cpu.max
+    read -r quota period </sys/fs/cgroup/cpu.max
     [ "$quota" = "max" ] && quota=""
   elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
     # cgroup v1: a negative quota means the CPU quota is unlimited.

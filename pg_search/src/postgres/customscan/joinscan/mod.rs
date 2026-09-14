@@ -177,7 +177,7 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::{mpp_did_spill, query_allows_parallel_mode};
+use crate::postgres::customscan::mpp::glue::{query_allows_parallel_mode, warn_if_spilled};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -1884,25 +1884,6 @@ impl CustomScan for JoinScan {
                 &leader.session.mesh,
             );
         }
-        // Spill warning: local flag set directly by this leader's execution, DSM flag
-        // OR'd in by any MPP worker (both via `on_spill`, see `build_task_context` above).
-        let spilled_locally = state
-            .custom_state()
-            .spilled
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let spilled_on_workers = state
-            .custom_state()
-            .mpp
-            .leader()
-            .and_then(|leader| leader.finish.as_ref())
-            .is_some_and(mpp_did_spill);
-        if spilled_locally || spilled_on_workers {
-            pgrx::warning!(
-                "query exceeded work_mem and spilled to disk; consider raising work_mem \
-                 for better performance (paradedb.spill_to_disk allowed it to complete \
-                 instead of erroring)"
-            );
-        }
         // Join the producer workers so their metrics land before the EXPLAIN render (which runs
         // before end_custom_scan, where the context is finally destroyed). A worker error is
         // re-raised from inside `recv`.
@@ -1911,6 +1892,12 @@ impl CustomScan for JoinScan {
         {
             let _ = finish.recv();
         }
+        // Must come after the join; see `warn_if_spilled`.
+        let cs = state.custom_state();
+        warn_if_spilled(
+            &cs.spilled,
+            cs.mpp.leader().and_then(|leader| leader.finish.as_ref()),
+        );
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {

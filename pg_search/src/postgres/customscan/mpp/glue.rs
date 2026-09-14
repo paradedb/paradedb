@@ -32,6 +32,7 @@
 
 use std::ffi::c_void;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use pgrx::pg_sys;
 
@@ -40,6 +41,7 @@ use datafusion_distributed::shm::{self, Interrupt, LeaderSession, MppMesh, Wakeu
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
+use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::pg_seams::{PgInterrupt, PgWakeup, pack_receiver};
 
 /// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
@@ -476,7 +478,7 @@ pub fn drain_worker_metrics(
 
 /// Whether any backend (leader or a worker) spilled a DataFusion operator to disk this query.
 /// Reads the `ParallelScanState` slot the leader populated at launch.
-pub fn mpp_did_spill(finish: &crate::parallel_worker::builder::ParallelProcessFinish) -> bool {
+pub fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     match finish
         .state_manager()
         .slice_mut::<u8>(crate::postgres::customscan::mpp::launch::SCAN_IDX)
@@ -494,6 +496,21 @@ pub fn mpp_did_spill(finish: &crate::parallel_worker::builder::ParallelProcessFi
             debug_assert!(false, "mpp: parallel scan state missing at shutdown");
             false
         }
+    }
+}
+
+/// Emits the once-per-query spill warning. `spilled_locally` is the leader's own flag; the
+/// worker flag lives in the DSM behind `finish`, so this must run after the workers are
+/// joined. Before the join a worker can still be executing (an early-terminated `LIMIT`
+/// query, for one) and spill after the load, and the join is also what orders a worker's
+/// relaxed store before this relaxed load.
+pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
+    if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
+        pgrx::warning!(
+            "query exceeded work_mem and spilled to disk; consider raising work_mem \
+             for better performance (paradedb.spill_to_disk allowed it to complete \
+             instead of erroring)"
+        );
     }
 }
 

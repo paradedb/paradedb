@@ -144,7 +144,7 @@ pub extern "C-unwind" fn amrescan(
         assert!(!scan.is_null());
         let scan = unsafe { &mut *scan };
         assert!(!scan.indexRelation.is_null());
-        assert!(nkeys > 0);
+        assert!(nkeys >= 0);
 
         amendscan(scan);
 

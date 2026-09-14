@@ -81,7 +81,6 @@ pub fn window_agg_oid() -> pg_sys::Oid {
 /// Returns `None` when the placeholder function doesn't exist yet (during
 /// extension creation) or `text_arg` contains an interior NUL.
 ///
-/// # Safety
 /// Must be called in a memory context suitable for plan-node allocation.
 pub fn make_window_agg_placeholder(
     text_arg: &str,

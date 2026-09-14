@@ -362,7 +362,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::scan::info::{FieldInfo, RowEstimate};
+use crate::scan::info::RowEstimate;
 
 /// Source information collected during planning.
 ///
@@ -378,7 +378,6 @@ pub struct JoinSourceCandidate {
     pub has_search_predicate: bool,
     pub alias: Option<String>,
     pub score_needed: bool,
-    pub fields: Vec<FieldInfo>,
     pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
     pub estimate_from_total_docs: bool,
@@ -396,7 +395,6 @@ impl JoinSourceCandidate {
             has_search_predicate: false,
             alias: None,
             score_needed: false,
-            fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: None,
             estimate_from_total_docs: false,
@@ -621,7 +619,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 mvcc_visibility: crate::api::MvccVisibility::default(),
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
-                fields: candidate.fields,
+                fields: Vec::new(),
                 partition_by: candidate.partition_by,
                 estimate: candidate.estimate.ok_or_else(|| {
                     anyhow!(

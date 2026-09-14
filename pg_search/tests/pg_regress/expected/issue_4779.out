@@ -68,12 +68,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec
@@ -140,12 +140,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec
@@ -177,12 +177,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec

@@ -77,7 +77,7 @@ impl MemoryPool for WorkMemMemoryPool {
     ) -> Result<(), DataFusionError> {
         self.pool.try_grow(reservation, additional).map_err(|_| {
             DataFusionError::ResourcesExhausted(format!(
-                "query exceeded the work_mem limit of {} bytes; raise work_mem to run it",
+                "query exceeded the work_mem limit of {} bytes; raise work_mem or enable paradedb.spill_to_disk to run it",
                 self.limit
             ))
         })

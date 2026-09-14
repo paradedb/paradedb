@@ -34,14 +34,12 @@ CREATE TABLE spill_small_pages (
 CREATE INDEX spill_small_files_idx ON spill_small_files
 USING bm25 (id, title, content)
 WITH (
-    key_field = 'id',
     text_fields = '{"title": {"fast": true}, "content": {}}'
 );
 
 CREATE INDEX spill_small_pages_idx ON spill_small_pages
 USING bm25 (id, file_id, page_text, size_bytes)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields = '{"page_text": {}}'
 );

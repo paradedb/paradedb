@@ -35,13 +35,11 @@ CREATE TABLE spill_small_pages (
 CREATE INDEX spill_small_files_idx ON spill_small_files
 USING bm25 (id, title, content)
 WITH (
-    key_field = 'id',
     text_fields = '{"title": {"fast": true}, "content": {}}'
 );
 CREATE INDEX spill_small_pages_idx ON spill_small_pages
 USING bm25 (id, file_id, page_text, size_bytes)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
     text_fields = '{"page_text": {}}'
 );
@@ -84,7 +82,7 @@ WHERE f.content @@@ 'Section'
 GROUP BY f.id, f.title;
 ERROR:  DataFusion aggregate execution failed: Single hash aggregate cannot spill because temporary files are not enabled in the DiskManager
 caused by
-Resources exhausted: query exceeded the work_mem limit of 2621440 bytes; raise work_mem to run it
+Resources exhausted: query exceeded the work_mem limit of 2621440 bytes; raise work_mem or enable paradedb.spill_to_disk to run it
 -- GUC on: the aggregate spills and completes.
 SET paradedb.spill_to_disk TO on;
 CREATE TEMP TABLE spill_explain_output AS

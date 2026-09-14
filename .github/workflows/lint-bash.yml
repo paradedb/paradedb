@@ -31,5 +31,3 @@ jobs:
 
       - name: Lint Bash
         uses: paradedb/actions/lint-bash@v12
-        with:
-          strict-mode-exclude: docker/bootstrap_official.sh

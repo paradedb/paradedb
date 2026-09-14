@@ -50,7 +50,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
+      - family=c7gd.metal # Cheapest known metal instance (as of September 2026), chosen for its performance and consistency across hosts
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.

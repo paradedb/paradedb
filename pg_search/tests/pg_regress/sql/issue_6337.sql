@@ -23,26 +23,13 @@ SET paradedb.enable_filter_pushdown = true;
 SET paradedb.enable_join_custom_scan = true;
 SET max_parallel_workers_per_gather = 0;
 
--- Serialized expression hashes can differ between PostgreSQL builds.
-CREATE FUNCTION pg_temp.issue_6337_explain(query text) RETURNS SETOF text
-LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, 'pdb_eval_expr_opexpr_[0-9a-f]{8}', 'pdb_eval_expr_opexpr_HASH', 'g');
-    END LOOP;
-END;
-$$;
-
-SELECT * FROM pg_temp.issue_6337_explain($query$
+EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT u.id, u.name FROM scalar_uuid_users u
 JOIN scalar_uuid_products p ON u.id = p.id
 JOIN scalar_uuid_orders o ON p.id = o.id
 WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
   AND u.id @@@ pdb.all()
-ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2
-$query$) AS "QUERY PLAN";
+ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
 
 SELECT u.id, u.name FROM scalar_uuid_users u
 JOIN scalar_uuid_products p ON u.id = p.id
@@ -59,7 +46,6 @@ WHERE NOT (u.id >= 4 AND p.uuid = '550e8400-e29b-41d4-a716-446655440000'::uuid)
   AND u.id @@@ pdb.all()
 ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
 
-DROP FUNCTION pg_temp.issue_6337_explain(text);
 DROP TABLE scalar_uuid_users, scalar_uuid_products, scalar_uuid_orders;
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;

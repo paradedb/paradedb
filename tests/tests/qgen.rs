@@ -27,8 +27,9 @@ use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::windowgen::arb_window_targets;
 use tests::fixtures::querygen::{
     Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
-    compare_outcome_retrying, compare_outcome_retrying_on, compare_plan_retrying,
-    generated_queries_setup,
+    compare_mpp_analyzed_plan_retrying, compare_outcome_retrying, compare_outcome_retrying_on,
+    compare_plan_retrying, compare_text_plan_retrying, generated_queries_setup,
+    generated_queries_setup_partitioned,
 };
 
 use tests::fixtures::*;
@@ -54,6 +55,21 @@ fn qgen_proptest_config() -> proptest::test_runner::Config {
         config.source_file = Some("tests/tests/qgen.rs");
     }
     config
+}
+
+fn partition_by_join_gucs(mut gucs: PgGucs) -> PgGucs {
+    gucs.custom_scan = true;
+    gucs.custom_scan_without_operator = true;
+    gucs.join_custom_scan = true;
+    gucs.parallel_workers = true;
+    gucs.parallel_leader_participation = true;
+    gucs.range_partitioned_join = true;
+    gucs.force_mpp = true;
+    gucs
+}
+
+fn partition_by_join_sides(gucs: &PgGucs) -> Sides {
+    Sides::postgres_vs(gucs)
 }
 
 /// Report one case outcome as a per-test Antithesis property, then collapse it to a proptest
@@ -474,6 +490,163 @@ async fn generated_joins_small(database: Db) {
                 Ok(row_strings)
             }
         ))?;
+    });
+}
+
+/// A `partition_by` index changes physical segment placement, not SQL semantics. Exercise a real
+/// co-partitioned join once, then compare randomized filters, ordering, limits, and execution GUCs
+/// against PostgreSQL's heap-backed result.
+#[rstest]
+#[tokio::test]
+async fn generated_partition_by_inner_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("partitioned_left", 500), ("partitioned_right", 500)];
+    let columns = columns_named(vec!["id", "name", "color", "age", "quantity"]);
+    // The fixture sorts by the first numeric fast field (`age`), while this test partitions and
+    // joins on `quantity`. Keeping those axes distinct proves range partitioning does not depend
+    // on the partition key also being the physical sort key. `quantity` also contains NULLs.
+    let setup_sql =
+        generated_queries_setup_partitioned(&pool, &tables_and_sizes, &columns, "quantity");
+
+    // This fixed probe proves both execution claims: the range rule aligned the two scans without
+    // a shuffle, and at least one MPP producer actually attached. A serial fallback omits the
+    // runtime-only `MPP Launch` line entirely.
+    let fixed_gucs = partition_by_join_gucs(PgGucs::pg_search_disabled());
+    let fixed_sides = partition_by_join_sides(&fixed_gucs);
+    let fixed_pg_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        ORDER BY partitioned_left.id, partitioned_right.id
+        LIMIT 50";
+    let fixed_bm25_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        WHERE partitioned_left.id @@@ pdb.all()
+          AND partitioned_right.id @@@ pdb.all()
+        ORDER BY partitioned_left.id, partitioned_right.id
+        LIMIT 50";
+
+    compare_mpp_analyzed_plan_retrying(
+        fixed_pg_query,
+        fixed_bm25_query,
+        &fixed_gucs,
+        &pool,
+        &setup_sql,
+        &[
+            "DistributedExec",
+            "HashJoinExec: mode=Partitioned",
+            "partition=quantity[",
+        ],
+        &["NetworkShuffleExec"],
+    )
+    .into_test_result()
+    .unwrap();
+
+    // Each table receives row 502 after CREATE INDEX and after randomized deletes. The row is
+    // therefore held outside the persisted segments built with partition metadata; retaining this
+    // pair proves that range routing fails open for the later mutable segment.
+    let inserted_pg_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        WHERE partitioned_left.id = 502 AND partitioned_right.id = 502
+        LIMIT 1";
+    let inserted_bm25_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        WHERE partitioned_left.id @@@ pdb.all()
+          AND partitioned_right.id @@@ pdb.all()
+          AND partitioned_left.id = 502 AND partitioned_right.id = 502
+        LIMIT 1";
+    compare_text_plan_retrying(
+        inserted_pg_query,
+        inserted_bm25_query,
+        &fixed_gucs,
+        &pool,
+        &setup_sql,
+        &["HashJoinExec: mode=Partitioned", "partition=quantity["],
+        &["NetworkShuffleExec"],
+    )
+    .into_test_result()
+    .unwrap();
+    compare_outcome_retrying_on(
+        &fixed_sides,
+        inserted_pg_query,
+        inserted_bm25_query,
+        &fixed_gucs,
+        &pool,
+        &setup_sql,
+        |query, _, conn| query.fetch_result::<(i64, i64)>(conn),
+    )
+    .into_test_result()
+    .unwrap();
+    compare_outcome_retrying_on(
+        &fixed_sides,
+        fixed_pg_query,
+        fixed_bm25_query,
+        &fixed_gucs,
+        &pool,
+        &setup_sql,
+        |query, _, conn| query.fetch_result::<(i64, i64)>(conn),
+    )
+    .into_test_result()
+    .unwrap();
+
+    let table_names = tables_and_sizes
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>();
+    let filter_columns = columns_named(vec!["name", "color", "age", "quantity"]);
+    proptest!(qgen_proptest_config(), |(
+        where_expr in arb_wheres(table_names.clone(), &filter_columns),
+        descending in any::<bool>(),
+        limit in 1..=50usize,
+        offset in 0..=10usize,
+        gucs in any::<PgGucs>(),
+    )| {
+        let gucs = partition_by_join_gucs(gucs);
+        let sides = partition_by_join_sides(&gucs);
+        let direction = if descending { "DESC" } else { "ASC" };
+        let pg_query = format!(
+            "SELECT partitioned_left.id, partitioned_right.id
+             FROM partitioned_left
+             JOIN partitioned_right USING (quantity)
+             WHERE {}
+             ORDER BY partitioned_left.id {direction}, partitioned_right.id {direction}
+             LIMIT {limit} OFFSET {offset}",
+            where_expr.to_sql(" = "),
+        );
+        let bm25_query = format!(
+            "SELECT partitioned_left.id, partitioned_right.id
+             FROM partitioned_left
+             JOIN partitioned_right USING (quantity)
+             WHERE ({})
+               AND partitioned_left.id @@@ pdb.all()
+               AND partitioned_right.id @@@ pdb.all()
+             ORDER BY partitioned_left.id {direction}, partitioned_right.id {direction}
+             LIMIT {limit} OFFSET {offset}",
+            where_expr.to_sql("@@@"),
+        );
+
+        qgen_oracle!(
+            "qgen: generated_partition_by_inner_join - partitioned result matches PostgreSQL",
+            compare_outcome_retrying_on(
+                &sides,
+                &pg_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, _, conn| query.fetch_result::<(i64, i64)>(conn),
+            )
+        )?;
     });
 }
 

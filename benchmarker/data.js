@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789429596646,
+  "lastUpdate": 1789435498626,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4006,6 +4006,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.21,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9ed7f7cf5b53125c58923d9a1a77c6cbb02f467",
+          "message": "fix: support UUID scalar filters in JoinScan (#6338)\n\n# Ticket(s) Closed\n\n- Closes #6337\n\n## What\n\nFix JoinScan scalar UUID predicates failing with `Unsupported OID for\nUtf8 Arrow type`, and make their expression UDF names consistent across\nPostgreSQL builds.\n\n## Why\n\nThe PostgreSQL-expression fallback casts UUID inputs to `Utf8`, whose\nconversion match was missing a UUID arm.\n\nThe regression also exposed platform-dependent UDF names: PostgreSQL's\n`outDatum` prints bytes through C `char`. The same UUID serializes with\nnegative byte values on signed-char builds and positive values on\nunsigned-char builds. Hashing these representations reproduces the exact\nlocal/CI suffixes, `f560a0b2` and `53ac39d1`.\n\n## How\n\nAdd the UUID arm to the existing `Utf8` conversion match, using the same\ndecoding as `Utf8View`.\n\nUse PostgreSQL's `datum_image_hash` to hash constant values directly. On\na copy of the expression tree, replace those values with NULL before\nhashing the remaining structure. This avoids platform-dependent byte\nspelling while preserving the original expression for execution.\n\nAdd `issue_6337.sql` with its full, unmasked EXPLAIN output. It compares\nJoinScan results with PostgreSQL execution for matching, nonmatching,\nand NULL UUIDs. Keep the full UDF names in the expected output; no SQL\nmasking or serialized-byte parsing is needed.\n\n## Tests\n\n- SQL regressions passed on PostgreSQL 18.3: `issue_6337`,\n`join_semi_anti_disjunctive`, `join_semi_anti_disjunctive_parallel`,\n`join_predicates`, `topk-agg-facet`, `join_distinct_expr`, and\n`expr_translator_debug`.\n- The three cases with updated hash suffixes (`issue_6337`,\n`join_distinct_expr`, `expr_translator_debug`) each passed twice against\nthe updated expected output.\n- `cargo clippy -p pg_search --lib --tests -- -D warnings` — passed.\n- Rust formatting and source whitespace checks passed.\n- Previously verified the same SQL regression fails on main with the\nUUID conversion error.\n\nLocal commit hooks were bypassed because Markdown linter dependency\ninstallation fails with the installed Node version.",
+          "timestamp": "2026-09-14T18:04:02-07:00",
+          "tree_id": "097add2bb536bd5b4443ef0579579f58948fccf6",
+          "url": "https://github.com/paradedb/paradedb/commit/b9ed7f7cf5b53125c58923d9a1a77c6cbb02f467"
+        },
+        "date": 1789435494756,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6773557860323296,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.958,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.026,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.105,
             "unit": "ms"
           }
         ]

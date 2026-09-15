@@ -41,6 +41,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::postgres::catalog::is_ltree_oid;
 
@@ -54,7 +55,7 @@ use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
+use crate::postgres::customscan::mpp::glue::{query_allows_parallel_mode, warn_if_spilled};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -731,6 +732,7 @@ impl CustomScan for AggregateScan {
                     mpp: MppLifecycle::Inactive,
                     parallel_mode_ok,
                     launch_timing: None,
+                    spilled: Arc::new(AtomicBool::new(false)),
                 });
                 builder.build()
             }
@@ -984,10 +986,12 @@ impl CustomScan for AggregateScan {
             unsafe { bitmap_exec.rescan() };
         }
         state.custom_state_mut().state = ExecutionState::NotStarted;
-        // Reset DataFusion state so rescan rebuilds the plan and stream.
-        // Drop stream before runtime to avoid tokio panics.
+        // Reset DataFusion state so rescan rebuilds the plan and stream. The stream
+        // goes before the runtime (tokio). `spilled` stays: the warning covers the
+        // whole `ExecutorRun`, and a rescan is part of it.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
@@ -1030,6 +1034,14 @@ impl CustomScan for AggregateScan {
             {
                 let _ = finish.recv();
             }
+            // Must come after the join; see `warn_if_spilled`.
+            warn_if_spilled(
+                &df_state.spilled,
+                df_state
+                    .mpp
+                    .leader()
+                    .and_then(|leader| leader.finish.as_ref()),
+            );
         }
     }
 
@@ -1050,9 +1062,12 @@ impl CustomScan for AggregateScan {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
-            // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
-            // (physical plan, session) via `drop(df_state)`, before destroying the DSM below.
+            // Drop order: the physical plan and session hold a mesh reference, so both
+            // must go before the DSM is destroyed below, and the stream must go before
+            // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
+            // to `drop(df_state)` so the order doesn't depend on struct field order.
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.runtime = None;
             drop(df_state);
@@ -2060,6 +2075,9 @@ impl AggregateScan {
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
+                crate::postgres::customscan::datafusion::spill::notify_atomic_bool(Arc::clone(
+                    &df_state.spilled,
+                )),
             );
             // Install `DistributedTaskContext` explicitly so the top boundary sees the leader's
             // `(task_index=0, task_count=1)` identity. Skipping this would let the fork's

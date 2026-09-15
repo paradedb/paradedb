@@ -70,7 +70,9 @@ use datafusion_distributed::shm::SetPlanFrame;
 pub(crate) struct MppWorkerInputs {
     /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
     /// Not optional: a dispatched fragment scanning without it would search every segment and
-    /// duplicate rows across the mesh, so the entrypoint refuses to start without one.
+    /// duplicate rows across the mesh, so the entrypoint refuses to start without one. Valid
+    /// for this worker's whole lifetime: PostgreSQL doesn't destroy a `ParallelContext`'s DSM
+    /// until `WaitForParallelWorkersToFinish` returns, i.e. after every worker has exited.
     pub parallel_state: *mut ParallelScanState,
     /// Total number of sources in the plan. Used to size the codec's per-source segment-ID Vec.
     pub plan_sources_count: usize,
@@ -258,6 +260,7 @@ fn spawn_fragment_execution_task(
                         Ok(res) => res,
                         Err(payload) => {
                             if let Some(msg) = downcast_pgrx_panic_payload(&*payload) {
+                                HeldInterrupts::reassert();
                                 Err(datafusion::common::DataFusionError::Execution(msg))
                             } else {
                                 std::panic::resume_unwind(payload);
@@ -269,6 +272,23 @@ fn spawn_fragment_execution_task(
         )
         .await
     })
+}
+/// Lets `mark_spilled()` cross into the `on_spill` closure, which must be `Send + Sync`.
+/// Does not expose the pointer itself -- only this one operation.
+///
+/// SAFETY: `mark_spilled` is a single relaxed atomic store into the DSM, valid for this
+/// worker's whole lifetime (see `MppWorkerInputs::parallel_state`'s field doc). This type must
+/// not gain more methods without re-checking that argument.
+#[derive(Clone, Copy)]
+struct SpillNotifier(*mut ParallelScanState);
+
+unsafe impl Send for SpillNotifier {}
+unsafe impl Sync for SpillNotifier {}
+
+impl SpillNotifier {
+    fn mark_spilled(self) {
+        unsafe { (*self.0).mark_spilled() }
+    }
 }
 
 /// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
@@ -482,11 +502,15 @@ pub(crate) fn run_mpp_worker(
                 }));
             let memory_pool =
                 create_memory_pool(frag_plan, work_mem_bytes, hash_mem_multiplier);
+            let spill_state = SpillNotifier(parallel_state);
             let task_ctx = Arc::new(
                 TaskContext::default()
                     .with_session_config(cfg)
-                    .with_runtime(build_runtime_env(memory_pool)),
-            );
+                    .with_runtime(build_runtime_env(
+                        memory_pool,
+                        Arc::new(move || spill_state.mark_spilled()),
+                    )),
+                );
 
             // The fragment arrives ready-to-run: the leader serialized it with nested stages
             // already `Remote`, so its boundary leaves read the mesh through the session's

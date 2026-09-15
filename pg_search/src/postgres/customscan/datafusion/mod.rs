@@ -38,6 +38,7 @@ pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
+pub mod spill;
 pub mod timestamp_to_date;
 pub mod translator;
 

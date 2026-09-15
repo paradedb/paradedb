@@ -372,6 +372,12 @@ pub struct JoinScanState {
     /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
     pub parallel_mode_ok: bool,
+
+    /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
+    /// leader's own local execution spills an operator to disk. Mirrors
+    /// `DataFusionAggState::spilled` in AggregateScan -- see its doc comment for why this lives
+    /// here rather than solely in `ParallelScanState`.
+    pub spilled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl JoinScanState {
@@ -396,7 +402,6 @@ impl JoinScanState {
         self.output_batch_col_indices.clear();
         self.launch_timing = None;
         self.stream_built_at = None;
-
         // base_join_clause is only populated (in create_custom_scan_state) when the plan
         // actually has parameters/postgres expressions; None means there's nothing to
         // restore, so the compiler-enforced match replaces the old "left at default and
@@ -604,12 +609,13 @@ pub fn build_task_context(
     plan: &Arc<dyn ExecutionPlan>,
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
+    on_spill: crate::postgres::customscan::datafusion::spill::SpillNotify,
 ) -> Arc<TaskContext> {
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
     Arc::new(
         TaskContext::default()
             .with_session_config(ctx.state().config().clone())
-            .with_runtime(build_runtime_env(memory_pool)),
+            .with_runtime(build_runtime_env(memory_pool, on_spill)),
     )
 }
 

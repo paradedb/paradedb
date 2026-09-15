@@ -177,7 +177,9 @@ use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
+use crate::postgres::customscan::mpp::glue::{
+    query_allows_parallel_mode, record_worker_spill, warn_if_spilled,
+};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -1027,7 +1029,12 @@ impl JoinScan {
             cs.physical_plan = None;
             cs.runtime = None;
         }
-        if let Some(finish) = finish {
+        if let Some(mut finish) = finish {
+            // Join first: a producer can still spill while it winds down, and the join
+            // is what orders its store before this load. `recv` is idempotent, so the
+            // one inside `wait_for_finish` returns at once.
+            let _ = finish.recv();
+            record_worker_spill(&state.custom_state().spilled, &finish);
             finish.wait_for_finish();
         }
     }
@@ -1702,6 +1709,9 @@ impl CustomScan for JoinScan {
                     &plan,
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
+                    crate::postgres::customscan::datafusion::spill::notify_atomic_bool(Arc::clone(
+                        &state.custom_state().spilled,
+                    )),
                 );
                 let t_exec = std::time::Instant::now();
                 let stream = {
@@ -1861,6 +1871,12 @@ impl CustomScan for JoinScan {
         {
             let _ = finish.recv();
         }
+        // Must come after the join; see `warn_if_spilled`.
+        let cs = state.custom_state();
+        warn_if_spilled(
+            &cs.spilled,
+            cs.mpp.leader().and_then(|leader| leader.finish.as_ref()),
+        );
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {

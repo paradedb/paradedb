@@ -680,18 +680,49 @@ impl JoinScan {
                     let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
                     let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
                     let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                        .is_none()
-                        || resolve_fast_field(
-                            jk.inner_attno as i32,
-                            &inner_hr.tuple_desc(),
-                            &inner_ir,
-                        )
-                        .is_none()
-                    {
-                        return Err(JoinDeclineReason::new(
-                            "JoinScan not used: join conditions must reference columnar indexed fields",
-                        ));
+                    let outer_ff = resolve_fast_field(
+                        jk.outer_attno as i32,
+                        &outer_hr.tuple_desc(),
+                        &outer_ir,
+                    );
+                    let inner_ff = resolve_fast_field(
+                        jk.inner_attno as i32,
+                        &inner_hr.tuple_desc(),
+                        &inner_ir,
+                    );
+                    match (&outer_ff, &inner_ff) {
+                        (Some(outer_ff), Some(inner_ff)) => {
+                            // Numeric64 fast fields are stored as scaled Int64 values
+                            // (e.g. numeric(10,2) 1.23 -> 123, numeric(10,3) 1.230 ->
+                            // 1230). If both sides of the join key are Numeric64 but
+                            // have different scales, comparing the raw Int64 values
+                            // directly (as HashJoinExec does) silently produces wrong
+                            // results: logically-equal decimals with different scales
+                            // would never compare equal, and unrelated values could
+                            // spuriously collide. Rather than rescale one side inside
+                            // the generated plan, we conservatively decline the
+                            // pushdown here and fall back to normal Postgres join
+                            // execution, which compares NUMERIC values correctly.
+                            // See: https://github.com/paradedb/paradedb/issues/6100
+                            let outer_scale =
+                                outer_ff.field_type().and_then(|ft| ft.numeric_scale());
+                            let inner_scale =
+                                inner_ff.field_type().and_then(|ft| ft.numeric_scale());
+                            if let (Some(outer_scale), Some(inner_scale)) =
+                                (outer_scale, inner_scale)
+                            {
+                                if outer_scale != inner_scale {
+                                    return Err(JoinDeclineReason::new(
+                                        "JoinScan not used: join conditions compare NUMERIC columns with different scales",
+                                    ));
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(JoinDeclineReason::new(
+                                "JoinScan not used: join conditions must reference columnar indexed fields",
+                            ));
+                        }
                     }
                 }
                 _ => {

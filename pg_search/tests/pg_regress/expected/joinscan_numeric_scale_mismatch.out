@@ -1,0 +1,135 @@
+-- =====================================================================
+-- Regression: https://github.com/paradedb/paradedb/issues/6100
+--
+-- NUMERIC fast fields with precision <= 18 are represented internally
+-- as `SearchFieldType::Numeric64`, a scaled `Int64` (e.g. numeric(10,2)
+-- value 1.10 is stored as the raw integer 110; numeric(10,3) value
+-- 1.100 is stored as 1100). Both `numeric(10,2)` and `numeric(10,3)`
+-- map to the same Arrow `DataType::Int64`, so nothing at the Arrow
+-- schema level distinguishes them.
+--
+-- Pre-fix behavior: `validate_and_build_clause` only confirmed both
+-- sides of a join key resolved to a columnar indexed fast field; it
+-- never compared their `Numeric64` scales. JoinScan would build a
+-- DataFusion `HashJoinExec` that equates the two sides' *raw, unscaled*
+-- Int64 values. Comparing scale-2 `110` against scale-3 `1100` for the
+-- logically-equal decimals `1.10` and `1.100` always returns false,
+-- silently dropping valid join matches.
+--
+-- Post-fix behavior: the join-key validation loop now inspects each
+-- side's `SearchFieldType::numeric_scale()`. If both sides are
+-- Numeric64 with different scales, JoinScan declines the pushdown for
+-- that join key and Postgres falls back to its native join executor,
+-- which compares NUMERIC values correctly regardless of scale.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+DROP TABLE IF EXISTS jsm_items CASCADE;
+DROP TABLE IF EXISTS jsm_prices CASCADE;
+-- Outer: numeric(10,2) join key, all rows searchable via txt @@@ 'match'.
+CREATE TABLE jsm_items (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(10,2) NOT NULL
+);
+INSERT INTO jsm_items (id, txt, amt) VALUES
+    (1, 'match', 1.10),
+    (2, 'match', 2.20),
+    (3, 'match', 3.30),
+    (4, 'match', 4.40),
+    (5, 'match', 5.50);
+-- Inner: numeric(10,3) join key. Values are logically equal to
+-- jsm_items.amt but stored at a different scale (extra trailing zero).
+CREATE TABLE jsm_prices (
+    id  serial PRIMARY KEY,
+    amt numeric(10,3) NOT NULL
+);
+INSERT INTO jsm_prices (amt) VALUES
+    (1.100),
+    (2.200),
+    (3.300),
+    (4.400),
+    (5.500);
+CREATE INDEX jsm_items_idx ON jsm_items USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_idx ON jsm_prices USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_items;
+ANALYZE jsm_prices;
+-- =====================================================================
+-- Test 1 — Postgres ground truth (all custom scans off, including
+-- AggregateScan: a bare `COUNT(*)` over this join is otherwise
+-- intercepted by AggregateScan, which has the same unfixed
+-- unscaled-Int64 comparison bug this test is not exercising here).
+-- NUMERIC equality is scale-agnostic, so every item matches exactly
+-- one price row: expect 5.
+-- =====================================================================
+SET paradedb.enable_custom_scan           TO off;
+SET paradedb.enable_join_custom_scan      TO off;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*) AS expected_five
+FROM jsm_items i
+JOIN jsm_prices p ON i.amt = p.amt
+WHERE i.txt @@@ 'match';
+ expected_five 
+---------------
+             5
+(1 row)
+
+-- =====================================================================
+-- Test 2 — JoinScan enabled. Must also return 5.
+-- Pre-fix this returned 0 (every raw-Int64 comparison between scale-2
+-- and scale-3 representations of the same decimal value failed).
+-- Post-fix, the scale mismatch is detected and JoinScan declines the
+-- pushdown for this join key, so Postgres's native join executes
+-- instead and produces the correct answer.
+-- =====================================================================
+SET paradedb.enable_custom_scan      TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SELECT COUNT(*) AS joinscan_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+WARNING:  JoinScan not used: join conditions compare NUMERIC columns with different scales (tables: i, p)
+ joinscan_result 
+-----------------
+               5
+(1 row)
+
+-- =====================================================================
+-- Test 3 — Sanity/positive control: same-scale NUMERIC join keys are
+-- unaffected by the fix and continue to match correctly (whether or
+-- not JoinScan pushdown engages for them).
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_samescale CASCADE;
+CREATE TABLE jsm_prices_samescale (
+    id  serial PRIMARY KEY,
+    amt numeric(10,2) NOT NULL
+);
+INSERT INTO jsm_prices_samescale (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+CREATE INDEX jsm_prices_samescale_idx ON jsm_prices_samescale USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_samescale;
+SELECT COUNT(*) AS samescale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_samescale p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+ samescale_result 
+------------------
+                5
+(1 row)
+
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;
+DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale CASCADE;

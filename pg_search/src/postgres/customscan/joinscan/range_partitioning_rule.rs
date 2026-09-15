@@ -274,6 +274,23 @@ fn apply_split_points_to_scan(
     Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
 }
 
+/// Returns whether the plan contains at least one `PgSearchTableProvider` configured for MPP
+/// (`source_idx.is_some()`). Serial scans (`source_idx.is_none()`) never use range partitioning.
+fn plan_has_mpp_provider(plan: &LogicalPlan) -> bool {
+    let mut has_mpp = false;
+    let _ = plan.apply(|node| {
+        if let LogicalPlan::TableScan(scan) = node
+            && let Some(provider) = pg_search_provider_from_scan(scan)
+            && provider.source_idx().is_some()
+        {
+            has_mpp = true;
+            return Ok(TreeNodeRecursion::Stop);
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    has_mpp
+}
+
 impl OptimizerRule for RangePartitioningRule {
     fn name(&self) -> &str {
         "RangePartitioningRule"
@@ -290,6 +307,7 @@ impl OptimizerRule for RangePartitioningRule {
     ) -> Result<Transformed<LogicalPlan>> {
         if !crate::gucs::enable_range_partitioned_join()
             || !crate::postgres::customscan::mpp::glue::mpp_is_active()
+            || !plan_has_mpp_provider(&plan)
         {
             return Ok(Transformed::no(plan));
         }
@@ -309,6 +327,9 @@ impl OptimizerRule for RangePartitioningRule {
                         if let (Some((l_prov, l_field_opt)), Some((r_prov, r_field_opt))) =
                             (l_res, r_res)
                         {
+                            if l_prov.source_idx().is_none() || r_prov.source_idx().is_none() {
+                                return Ok(TreeNodeRecursion::Continue);
+                            }
                             let l_rti = l_prov.scan_info.heap_rti;
                             let r_rti = r_prov.scan_info.heap_rti;
                             providers.entry(l_rti).or_insert_with(|| l_prov.clone());
@@ -613,7 +634,9 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        if !crate::gucs::enable_range_partitioned_join() {
+        if !crate::gucs::enable_range_partitioned_join()
+            || !crate::postgres::customscan::mpp::glue::mpp_is_active()
+        {
             return Ok(plan);
         }
 

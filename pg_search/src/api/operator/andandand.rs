@@ -14,11 +14,23 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::FieldName;
 use crate::api::operator::ReturnedNodePointer;
+use crate::api::operator::SearchOperator;
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
-use crate::query::pdb_query::pdb;
-use pgrx::{AnyElement, extension_sql, opname, pg_operator};
+use crate::query::SearchQueryInput;
+use crate::query::pdb_query::{pdb, to_search_query_input};
+use pgrx::{AnyElement, extension_sql, opname, pg_extern, pg_operator};
+
+/// Runtime classification for `&&&` expressions that cannot be folded during planning.
+#[pg_extern(immutable, parallel_safe)]
+pub fn match_conjunction_search_query_input(
+    field: FieldName,
+    query: pdb::Query,
+) -> SearchQueryInput {
+    to_search_query_input(field, SearchOperator::Conjunction.classify_query(query))
+}
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.&&&)]

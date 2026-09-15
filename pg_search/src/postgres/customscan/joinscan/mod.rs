@@ -692,28 +692,49 @@ impl JoinScan {
                     );
                     match (&outer_ff, &inner_ff) {
                         (Some(outer_ff), Some(inner_ff)) => {
-                            // Numeric64 fast fields are stored as scaled Int64 values
-                            // (e.g. numeric(10,2) 1.23 -> 123, numeric(10,3) 1.230 ->
-                            // 1230). If both sides of the join key are Numeric64 but
-                            // have different scales, comparing the raw Int64 values
-                            // directly (as HashJoinExec does) silently produces wrong
-                            // results: logically-equal decimals with different scales
-                            // would never compare equal, and unrelated values could
-                            // spuriously collide. Rather than rescale one side inside
-                            // the generated plan, we conservatively decline the
-                            // pushdown here and fall back to normal Postgres join
-                            // execution, which compares NUMERIC values correctly.
-                            // See: https://github.com/paradedb/paradedb/issues/6100
-                            let outer_scale =
-                                outer_ff.field_type().and_then(|ft| ft.numeric_scale());
-                            let inner_scale =
-                                inner_ff.field_type().and_then(|ft| ft.numeric_scale());
-                            if let (Some(outer_scale), Some(inner_scale)) =
-                                (outer_scale, inner_scale)
-                            {
-                                if outer_scale != inner_scale {
+                            // NUMERIC fast fields are stored either as scaled Int64
+                            // values (Numeric64, e.g. numeric(10,2) 1.23 -> 123,
+                            // numeric(10,3) 1.230 -> 1230) or as lexicographically
+                            // sortable bytes (NumericBytes, used for precision > 18 or
+                            // unbounded NUMERIC). Comparing two Numeric64 sides with
+                            // different scales via the generated HashJoinExec's raw
+                            // Int64 equality silently produces wrong results:
+                            // logically-equal decimals at different scales never
+                            // compare equal. See: https://github.com/paradedb/paradedb/issues/6100
+                            //
+                            // A NUMERIC side whose scale can't be resolved (NumericBytes
+                            // with no declared scale, i.e. unbounded NUMERIC) is also
+                            // unsafe to admit here: pairing it with a Numeric64 side
+                            // means comparing an Int64 column against a BinaryView
+                            // column, which DataFusion's type coercion rejects outright
+                            // (a hard query-time error instead of a graceful fallback to
+                            // Postgres's native join). This mirrors the codebase's
+                            // existing convention of rejecting unbounded-NUMERIC
+                            // pushdown at planning time rather than letting the
+                            // DataFusion plan bake fail (see e.g.
+                            // `window_func::numeric_window_field`).
+                            //
+                            // So: only admit the pushdown when both sides are
+                            // non-numeric (nothing to check), or both resolve to the
+                            // *same* known scale. Any other combination - scales that
+                            // differ, or either side's scale unresolvable - declines
+                            // the pushdown and falls back to normal Postgres join
+                            // execution, which compares NUMERIC values correctly
+                            // regardless of scale or storage representation.
+                            let outer_ft = outer_ff.field_type();
+                            let inner_ft = inner_ff.field_type();
+                            let outer_is_numeric = outer_ft.is_some_and(|ft| ft.is_numeric());
+                            let inner_is_numeric = inner_ft.is_some_and(|ft| ft.is_numeric());
+                            if outer_is_numeric || inner_is_numeric {
+                                let outer_scale = outer_ft.and_then(|ft| ft.numeric_scale());
+                                let inner_scale = inner_ft.and_then(|ft| ft.numeric_scale());
+                                let scales_match = matches!(
+                                    (outer_scale, inner_scale),
+                                    (Some(o), Some(i)) if o == i
+                                );
+                                if !scales_match {
                                     return Err(JoinDeclineReason::new(
-                                        "JoinScan not used: join conditions compare NUMERIC columns with different scales",
+                                        "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched scale",
                                     ));
                                 }
                             }

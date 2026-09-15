@@ -17,10 +17,24 @@
 -- silently dropping valid join matches.
 --
 -- Post-fix behavior: the join-key validation loop now inspects each
--- side's `SearchFieldType::numeric_scale()`. If both sides are
--- Numeric64 with different scales, JoinScan declines the pushdown for
--- that join key and Postgres falls back to its native join executor,
--- which compares NUMERIC values correctly regardless of scale.
+-- side's `SearchFieldType::numeric_scale()`. If either side is NUMERIC
+-- and the two sides don't resolve to the same known scale, JoinScan
+-- declines the pushdown for that join key and Postgres falls back to
+-- its native join executor, which compares NUMERIC values correctly
+-- regardless of scale or storage representation.
+--
+-- Test 4 below covers a second variant of this bug found during code
+-- review: an unbounded NUMERIC column (declared as plain `NUMERIC`,
+-- with no precision/scale) has no statically known scale and is stored
+-- as `SearchFieldType::NumericBytes` with `scale = None`. Pairing it
+-- with a Numeric64 (`numeric(p,s)`, p <= 18) join key means comparing
+-- an Int64 Arrow column against a BinaryView Arrow column. A guard that
+-- only fires when *both* sides' scales resolve to `Some` (as an earlier
+-- version of this fix did) skips this pairing entirely, and DataFusion
+-- rejects the resulting Int64 = BinaryView comparison with a hard
+-- "Cannot infer common argument type" error instead of falling back to
+-- Postgres's native join. The fix instead declines whenever either side
+-- is NUMERIC and the two scales aren't both known and equal.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -126,9 +140,42 @@ SELECT COUNT(*) AS samescale_result FROM (
   LIMIT 1000
 ) sub;
 
+-- =====================================================================
+-- Test 4 — Numeric64 vs. unbounded-NUMERIC (NumericBytes, scale = None).
+-- Pre-second-fix: the guard only fired when BOTH sides' scales resolved
+-- to `Some`, so this pairing (one Numeric64 `Some(scale)`, one
+-- NumericBytes `None`) skipped the check entirely and JoinScan
+-- attempted the pushdown, which DataFusion then rejected with a hard
+-- "Cannot infer common argument type for comparison operation Int64 =
+-- BinaryView" error instead of gracefully falling back.
+-- Post-fix: the pushdown is declined at planning time whenever either
+-- side is NUMERIC and the scales aren't both known and equal, so this
+-- query succeeds via Postgres's native join instead of erroring.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_unbounded CASCADE;
+CREATE TABLE jsm_prices_unbounded (
+    id  serial PRIMARY KEY,
+    amt numeric NOT NULL  -- unbounded: typmod -1, scale unresolvable (None)
+);
+INSERT INTO jsm_prices_unbounded (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_prices_unbounded_idx ON jsm_prices_unbounded USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_unbounded;
+
+SELECT COUNT(*) AS unbounded_scale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_unbounded p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;
 
-DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale CASCADE;
+DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded CASCADE;

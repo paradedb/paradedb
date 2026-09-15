@@ -134,7 +134,7 @@ pub(crate) fn find_matching_fast_field(
                 && let Some(field_type) =
                     field_type_for_pullup(search_field.field_type(), data.is_array)
             {
-                return Some(WhichFastField::Named(
+                return Some(WhichFastField::eager(
                     search_field.field_name().to_string(),
                     field_type,
                 ));
@@ -372,7 +372,7 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     // Count columns that we have fast fields for (excluding system/junk fields)
     let fast_field_column_count = which_fast_fields
         .iter()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
+        .filter(|ff| ff.is_eager_named())
         .count();
 
     // If we're missing any columns, we can't use fast field execution
@@ -398,7 +398,7 @@ pub fn is_columnar_capable(privdata: &PrivateData) -> bool {
     let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     let named_field_count = which_fast_fields
         .iter()
-        .filter(|wff| matches!(wff, WhichFastField::Named(_, _)))
+        .filter(|wff| wff.is_eager_named())
         .count();
 
     0 < named_field_count && named_field_count < gucs::columnar_exec_column_threshold()
@@ -429,7 +429,7 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         // Get all fast fields used, sorted for deterministic output
         let mut fields: Vec<_> = which_fast_fields
             .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
+            .filter(|ff| ff.is_eager_named())
             .map(|ff| ff.name())
             .collect();
         fields.sort();

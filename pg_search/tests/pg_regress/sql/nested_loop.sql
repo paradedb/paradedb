@@ -7,19 +7,19 @@ SET max_parallel_workers_per_gather = 0;
 
 DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR, age VARCHAR);
-CREATE INDEX idxusers ON users USING paradedb (id, name, color, age) WITH (text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal), (color::pdb.literal), age);
 INSERT INTO users (name, color, age) VALUES ('bob', 'blue', '20');
 ANALYZE;
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxproducts ON products USING paradedb (id, name, color) WITH (text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), (color::pdb.literal));
 INSERT INTO products (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE orders (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
-CREATE INDEX idxorders ON orders USING paradedb (id, name, color) WITH (text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+CREATE INDEX idxorders ON orders USING paradedb (id, (name::pdb.literal), (color::pdb.literal));
 INSERT INTO orders (name, color) VALUES ('bob', 'blue');
 ANALYZE;
 
@@ -30,12 +30,12 @@ SET work_mem TO '64MB';
 EXPLAIN
 SELECT users.name, users.color, users.age
 FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
-WHERE ((orders.id @@@ '3') AND (orders.color @@@ 'blue')) OR ((users.color @@@ 'blue') AND (users.id @@@ '3'))
+WHERE ((orders.id = 3) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id = 3))
 LIMIT 10;
 
 SELECT users.name, users.color, users.age
 FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
-WHERE ((orders.id @@@ '3') AND (orders.color @@@ 'blue')) OR ((users.color @@@ 'blue') AND (users.id @@@ '3'))
+WHERE ((orders.id = 3) AND (orders.color ||| 'blue')) OR ((users.color ||| 'blue') AND (users.id = 3))
 LIMIT 10;
 
 -- Cleanup

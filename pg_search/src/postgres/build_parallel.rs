@@ -1858,11 +1858,10 @@ mod tests {
             "serial partitioned build indexes every row"
         );
 
-        let matches: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
-        )
-        .unwrap()
-        .unwrap();
+        let matches: i64 =
+            Spi::get_one("SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';")
+                .unwrap()
+                .unwrap();
         assert_eq!(
             matches, 20000,
             "search through the serial partitioned index"
@@ -1906,7 +1905,7 @@ mod tests {
             );
 
             let matches: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
+                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';",
             )
             .unwrap()
             .unwrap();
@@ -2039,7 +2038,7 @@ mod tests {
             assert_eq!(num_docs, 20005, "every row is indexed once");
 
             let lone: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND partitioned_lone_partition @@@ 'name:lone';",
+                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND name ||| 'lone';",
             )
             .unwrap()
             .unwrap();
@@ -2097,7 +2096,7 @@ mod tests {
         );
 
         let visible: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE partitioned_deleted @@@ 'name:lorem';",
+            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE name ||| 'lorem';",
         )
         .unwrap()
         .unwrap();
@@ -2187,14 +2186,14 @@ mod tests {
         .unwrap();
 
         let fresh: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:freshmarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'freshmarker';",
         )
         .unwrap()
         .unwrap();
         assert_eq!(fresh, 1, "the live row version must be indexed");
 
         let stale: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:stalemarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'stalemarker';",
         )
         .unwrap()
         .unwrap();
@@ -2268,7 +2267,7 @@ mod tests {
         let ids_for = |query: &str| -> String {
             Spi::get_one::<String>(&format!(
                 "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') \
-                 FROM partitioned_parity WHERE partitioned_parity @@@ '{query}';"
+                 FROM partitioned_parity WHERE partitioned_parity @@@ pdb.parse('{query}');"
             ))
             .unwrap()
             .unwrap()
@@ -2277,7 +2276,7 @@ mod tests {
         // Ground truth: a non-partitioned index over the same rows.
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true')));",
         )
         .unwrap();
         let expected_alpha = ids_for("message:alpha");
@@ -2306,7 +2305,7 @@ mod tests {
                 "{label}: full set differs"
             );
         };
-        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true'))) WITH (partition_by = 'tenant_id, message', target_segment_count = 8);";
 
         // Serial build.
         Spi::run(create_partitioned).unwrap();

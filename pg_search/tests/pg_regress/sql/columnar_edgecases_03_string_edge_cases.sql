@@ -8,13 +8,13 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, string_field1, string_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'edge case'
+WHERE content ||| 'edge case'
 ORDER BY id;
 
 -- Test query
 SELECT id, string_field1, string_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'edge case'
+WHERE content ||| 'edge case'
 ORDER BY id;
 
 \i common/columnar_edgecases_cleanup.sql

@@ -93,7 +93,7 @@ ANALYZE;
 
 SELECT count(*) FROM (
     SELECT id FROM lp_items
-    WHERE description @@@ 'searchable'
+    WHERE description ||| 'searchable'
       AND (category_id IS NULL
            OR category_id IN (
                SELECT id FROM lp_categories
@@ -105,7 +105,7 @@ SELECT count(*) FROM (
 -- Verify EXPLAIN shows NormalScanExecState, not TopKScanExecState
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM lp_items
-WHERE description @@@ 'searchable'
+WHERE description ||| 'searchable'
   AND (category_id IS NULL
        OR category_id IN (
            SELECT id FROM lp_categories
@@ -120,7 +120,7 @@ LIMIT 50;
 
 SELECT count(*) FROM (
     SELECT id FROM lp_items
-    WHERE description @@@ 'searchable'
+    WHERE description ||| 'searchable'
       AND (category_id IS NULL
            OR category_id IN (
                SELECT id FROM lp_categories
@@ -134,7 +134,7 @@ SELECT count(*) FROM (
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM lp_items
-WHERE description @@@ 'searchable' LIMIT 100;
+WHERE description ||| 'searchable' LIMIT 100;
 
 -- ============================================================
 -- Test 4: Parameterized limit via prepared statement
@@ -142,7 +142,7 @@ WHERE description @@@ 'searchable' LIMIT 100;
 
 PREPARE lp_q(int) AS
 SELECT id FROM lp_items
-WHERE description @@@ 'searchable'
+WHERE description ||| 'searchable'
   AND (category_id IS NULL
        OR category_id IN (
            SELECT id FROM lp_categories WHERE name = 'rare_category'))
@@ -187,7 +187,7 @@ ANALYZE;
 -- Query partition directly (not the parent table)
 SELECT count(*) FROM (
     SELECT id FROM lp_items_part_1
-    WHERE description @@@ 'partitioned'
+    WHERE description ||| 'partitioned'
       AND (status IS NULL
            OR status IN (SELECT s FROM lp_active_statuses))
     LIMIT 100
@@ -195,7 +195,7 @@ SELECT count(*) FROM (
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM lp_items_part_1
-WHERE description @@@ 'partitioned'
+WHERE description ||| 'partitioned'
   AND (status IS NULL
        OR status IN (SELECT s FROM lp_active_statuses))
 LIMIT 100;
@@ -210,7 +210,7 @@ SELECT count(*) FROM (
     SELECT l.id FROM lp_left_table l
     LEFT JOIN LATERAL (
         SELECT * FROM lp_items i
-        WHERE i.fk = l.id AND i.description @@@ 'searchable'
+        WHERE i.fk = l.id AND i.description ||| 'searchable'
     ) sub ON true
     WHERE l.status IN (SELECT s FROM lp_active_statuses)
     LIMIT 50
@@ -221,7 +221,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT l.id FROM lp_left_table l
 LEFT JOIN LATERAL (
     SELECT * FROM lp_items i
-    WHERE i.fk = l.id AND i.description @@@ 'searchable'
+    WHERE i.fk = l.id AND i.description ||| 'searchable'
 ) sub ON true
 WHERE l.status IN (SELECT s FROM lp_active_statuses)
 LIMIT 50;
@@ -257,14 +257,14 @@ SET ROLE lp_restricted_user;
 -- With the RLS policy active, TopK should be suppressed
 SELECT count(*) FROM (
     SELECT id FROM lp_items
-    WHERE description @@@ 'searchable'
+    WHERE description ||| 'searchable'
     ORDER BY paradedb.score(id) DESC
     LIMIT 100
 ) sub;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM lp_items
-WHERE description @@@ 'searchable'
+WHERE description ||| 'searchable'
 ORDER BY paradedb.score(id) DESC
 LIMIT 100;
 

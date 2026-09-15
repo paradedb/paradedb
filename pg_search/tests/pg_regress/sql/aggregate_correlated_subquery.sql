@@ -46,34 +46,11 @@ CREATE TABLE pages (
 );
 
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb (id, (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
 
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX files_search ON files USING paradedb (id, (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
 
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX pages_search ON pages USING paradedb (id, (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
@@ -105,10 +82,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 -- Execute the query
@@ -116,10 +93,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 \echo '==========================================';
@@ -133,10 +110,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 -- Re-enable aggregate custom scan
@@ -147,10 +124,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 \echo '==========================================';
@@ -166,7 +143,7 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id AND f.file_size > 500
     ) AS large_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 -- Execute the query
@@ -177,7 +154,7 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id AND f.file_size > 500
     ) AS large_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 \echo '==========================================';
@@ -189,10 +166,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'NonExistent'
+        WHERE f.documentId = d.id AND f.title ||| 'NonExistent'
     ) AS nonexistent_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 \echo '==========================================';
@@ -207,7 +184,7 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id
     ) AS all_file_count
 FROM documents d
-WHERE d.parents @@@ 'Contracts' OR d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Contracts' OR d.parents ||| 'Factures'
 ORDER BY d.id;
 
 -- Cleanup

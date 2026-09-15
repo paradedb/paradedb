@@ -1,3 +1,4 @@
+-- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -24,14 +25,14 @@ INSERT INTO organisations VALUES
     (20, '2023-01-01 00:00:00'::timestamp, NULL);
 
 CREATE INDEX researchers_idx ON researchers
-USING bm25 (super_researcher_id, super_organisation_id, country)
+USING paradedb (super_researcher_id, super_organisation_id, country)
 WITH (
-    numeric_fields = '{"super_organisation_id": {"fast": true}}',
+
     text_fields = '{"country": {"fast": true, "tokenizer": {"type": "keyword"}}}'
 );
 
 CREATE INDEX organisations_idx ON organisations
-USING bm25 (super_organisation_id, super_organisation_name)
+USING paradedb (super_organisation_id, super_organisation_name)
 WITH (
     text_fields = '{"super_organisation_name": {"fast": true, "tokenizer": {"type": "keyword"}}}'
 );
@@ -77,12 +78,12 @@ EXPLAIN (COSTS OFF)
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
-WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
+WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NULL);
 
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
-WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
+WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NULL);
 
 -- Clean up
 DROP TABLE researchers CASCADE;

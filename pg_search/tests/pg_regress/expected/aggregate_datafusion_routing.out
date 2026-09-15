@@ -152,12 +152,12 @@ GROUP BY cat, sub ORDER BY cat, sub LIMIT 5;
 -- Selective filter: only a few rows match, so few groups are possible even
 -- though cat has 50 distinct values overall — stays on the fast Tantivy path.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ '7' GROUP BY cat;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+SELECT cat, COUNT(*) FROM routing_test WHERE id @@@ pdb.all() AND id = 7 GROUP BY cat;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on routing_test
    Index: routing_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"7","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"id","value":7}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: cat
      Aggregate Definition: {"grouped":{"terms":{"field":"cat","segment_size":10,"size":10}}}

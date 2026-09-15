@@ -15,19 +15,7 @@ CREATE TABLE users (
 );
 
 -- Create BM25 index with fast fields (exact reproduction)
-CREATE INDEX idxusers ON users USING paradedb (id, uuid, name, color, age, price, rating)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "color": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{
-        "age": { "fast": true },
-        "price": { "fast": true },
-        "rating": { "fast": true }
-    }'
-);
+CREATE INDEX idxusers ON users USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), age, price, rating);
 
 -- Insert test data (deterministic version instead of gen_random_uuid)
 INSERT INTO users (uuid, name, color, age, price, rating)
@@ -48,13 +36,13 @@ FROM generate_series(1, 100) AS i;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT name, SUM(price), MAX(rating), AVG(age) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name;
 
 -- execute the failing query
 SELECT name, SUM(price), MAX(rating), AVG(age) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name
 ORDER BY name;
 
@@ -66,12 +54,12 @@ ORDER BY name;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT name, COUNT(*), SUM(price), MAX(rating) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name;
 
 SELECT name, COUNT(*), SUM(price), MAX(rating) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name
 ORDER BY name;
 
@@ -79,12 +67,12 @@ ORDER BY name;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT name, COUNT(*), MAX(rating), AVG(age) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name;
 
 SELECT name, COUNT(*), MAX(rating), AVG(age) 
 FROM users 
-WHERE color @@@ 'blue' 
+WHERE color ||| 'blue'
 GROUP BY name
 ORDER BY name;
 

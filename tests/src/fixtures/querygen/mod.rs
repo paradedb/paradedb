@@ -47,19 +47,11 @@ use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
 
-#[derive(Debug, Clone)]
-pub struct BM25Options {
-    /// "text_fields" or "numeric_fields"
-    pub field_type: &'static str,
-    /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
-    pub config_json: &'static str,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexExpression {
-    /// V2 expression index: `(upper({column})::pdb.literal)`
+    Literal,
+    UnicodeWordsColumnar,
     Upper,
-    /// V2 expression index: `({column}::pdb.literal_normalized)`
     LiteralNormalized,
 }
 
@@ -67,6 +59,10 @@ impl IndexExpression {
     /// Generate the column definition for `CREATE INDEX ... USING paradedb(...)`
     pub fn to_index_sql(&self, column_name: &str) -> String {
         match self {
+            Self::Literal => format!("({column_name}::pdb.literal)"),
+            Self::UnicodeWordsColumnar => {
+                format!("({column_name}::pdb.unicode_words('columnar=true'))")
+            }
             Self::Upper => format!("(upper({column_name})::pdb.literal)"),
             Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
         }
@@ -83,10 +79,7 @@ pub struct Column {
     pub is_whereable: bool,
     pub is_indexed: bool,
     pub is_orderable: Option<bool>,
-    pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
-    /// V2 syntax: typed expression to use in index column list, e.g. `IndexExpression::Upper`.
-    /// When set, this is used instead of bm25_options JSON config.
     pub index_expression: Option<IndexExpression>,
 }
 
@@ -105,7 +98,6 @@ impl Column {
             is_whereable: true,
             is_indexed: true,
             is_orderable: None,
-            bm25_options: None,
             random_generator_sql: "NULL",
             index_expression: None,
         }
@@ -154,39 +146,13 @@ impl Column {
             || ty.starts_with("TIME")
     }
 
-    pub const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "text_fields",
-            config_json,
-        });
-        self
-    }
-
-    pub const fn bm25_numeric_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "numeric_fields",
-            config_json,
-        });
-        self
-    }
-
-    pub const fn bm25_json_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "json_fields",
-            config_json,
-        });
-        self
-    }
-
     /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
         self
     }
 
-    /// V2 syntax: set index expression using typed `IndexExpression`
-    /// When set, this is used instead of bm25_options JSON config.
-    pub const fn bm25_v2_expression(mut self, expression: IndexExpression) -> Self {
+    pub const fn index_expression(mut self, expression: IndexExpression) -> Self {
         self.index_expression = Some(expression);
         self
     }
@@ -301,9 +267,7 @@ fn generated_queries_setup_inner(
         .collect::<Vec<_>>()
         .join(", \n");
 
-    // For bm25 index
-    // Columns with index_expression use v2 syntax, others use just the name
-    let bm25_columns = columns_def
+    let index_columns = columns_def
         .iter()
         .filter(|c| c.is_indexed)
         .map(|c| {
@@ -315,35 +279,6 @@ fn generated_queries_setup_inner(
         })
         .collect::<Vec<_>>()
         .join(", ");
-
-    // Only include columns without index_expression in text_fields (v1 syntax)
-    let text_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "text_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    // Only include columns without index_expression in numeric_fields (v1 syntax)
-    let numeric_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "numeric_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    let json_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "json_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
 
     // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
     let sortable_types = [
@@ -365,12 +300,7 @@ fn generated_queries_setup_inner(
                 .iter()
                 .any(|t| c.sql_type.to_uppercase().contains(t))
         })
-        .filter_map(|c| {
-            c.bm25_options
-                .as_ref()
-                .filter(|o| o.config_json.contains(r#""fast": true"#))
-                .map(|_| c.name)
-        })
+        .map(|c| c.name)
         .next();
 
     // For INSERT statements
@@ -407,7 +337,6 @@ fn generated_queries_setup_inner(
         // `current_segments <= target`) and the chunks survive as distinct
         // segments instead of being merged back into one.
         let target_segments = bulk_inserts.get() + 1;
-        let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
 
         let bulk_insert_sql = build_bulk_inserts(
             tname,
@@ -423,10 +352,8 @@ CREATE TABLE {tname} (
     {column_definitions}
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
+CREATE INDEX idx{tname} ON {tname} USING paradedb ({index_columns}) WITH (
+    target_segment_count = {target_segments}{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});

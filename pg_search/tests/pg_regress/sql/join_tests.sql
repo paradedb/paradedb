@@ -144,7 +144,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
+WHERE (a.bio ||| 'science' OR b.content ||| 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 1.2: LEFT JOIN with equi-join condition
@@ -155,7 +155,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
+WHERE (a.bio ||| 'mystery' OR b.content ||| 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 1.3: RIGHT JOIN with equi-join condition
@@ -166,7 +166,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
+WHERE (a.bio ||| 'fiction' OR b.content ||| 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 1.4: Multiple equi-join conditions with AND
@@ -177,7 +177,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
-WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
+WHERE (a.bio ||| 'writer' OR b.content ||| 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- =============================================================================
@@ -192,7 +192,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
+WHERE (a.bio ||| 'author' OR b.content ||| 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 
@@ -204,7 +204,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
-WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
+WHERE (a.bio ||| 'fiction' OR b.content ||| 'love')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 2.3: INNER JOIN with complex non-equi condition
@@ -215,7 +215,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
-WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
+WHERE (a.bio ||| 'writer' OR b.content ||| 'programming')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 2.4: INNER JOIN with BETWEEN condition (range, non-equi)
@@ -226,7 +226,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
+WHERE (a.bio ||| 'author' OR b.content ||| 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- =============================================================================
@@ -241,7 +241,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR b.content @@@ 'performance')
+WHERE (a.bio ||| 'smartphone' OR b.content ||| 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 
@@ -256,7 +256,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 CROSS JOIN categories c
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR c.description @@@ 'technology')
+WHERE (a.bio ||| 'author' OR b.content ||| 'science' OR c.description ||| 'technology')
 ORDER BY a.id, b.id, c.id, author_score DESC, book_score DESC, category_score DESC
 LIMIT 10;
 
@@ -269,7 +269,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR a.country @@@ 'British' OR b.content @@@ 'performance')
+WHERE (a.bio ||| 'smartphone' OR a.country ||| 'British' OR b.content ||| 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
 
@@ -285,7 +285,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
+WHERE (a.bio ||| 'science' OR b.content ||| 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 4.2: Nested AND/OR combinations
@@ -296,8 +296,8 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
-   OR (b.content @@@ 'magic' AND b.publication_year > 1980)
+WHERE (a.bio ||| 'smartphone' AND a.birth_year > 1950)
+   OR (b.content ||| 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 4.3: Complex boolean logic across three tables
@@ -311,8 +311,8 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN reviews r ON b.id = r.book_id
-WHERE (a.bio @@@ 'British' AND b.is_published = true) 
-   OR (b.content @@@ 'horror' AND r.score >= 4)
+WHERE (a.bio ||| 'British' AND b.is_published = true)
+   OR (b.content ||| 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
 
 -- Test 4.4: Intelligent partial salvage of AND expressions
@@ -321,9 +321,9 @@ SELECT
     pdb.score(a.id) as author_score
 FROM authors a
 JOIN categories c ON a.id = c.id
-WHERE (a.bio @@@ 'laptop')
+WHERE (a.bio ||| 'laptop')
   AND (a.birth_year > 1000)
-  AND (c.name @@@ 'Electronics')
+  AND (c.name ||| 'Electronics')
 ORDER BY a.id, author_score DESC;
 
 -- =============================================================================
@@ -338,7 +338,7 @@ SELECT
     pdb.score(a2.id) as author2_score
 FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
-WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
+WHERE (a1.bio ||| 'fiction' OR a2.bio ||| 'mystery')
 ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
 
 -- Test 5.2: Variable scope violation test
@@ -349,7 +349,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author' AND b.category_id = 1
+WHERE a.bio ||| 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 5.3: LEFT JOIN semantics test
@@ -360,7 +360,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
+WHERE a.bio ||| 'author' OR b.content ||| 'story'
 ORDER BY a.id, b.id;
 
 -- Test 5.4: NULL-generating join test
@@ -374,8 +374,8 @@ SELECT
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
-WHERE a.bio @@@ 'author' 
-   OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
+WHERE a.bio ||| 'author'
+   OR (b.content ||| 'story' AND c.name ||| 'Fantasy')
 ORDER BY a.id, b.id, c.id
 LIMIT 15;
 
@@ -389,7 +389,7 @@ SELECT
 FROM authors a
 JOIN bridge_table br ON a.id = br.author_id
 JOIN books b ON b.id = br.book_id
-WHERE (a.bio @@@ 'smartphone' AND b.content @@@ 'advanced')
+WHERE (a.bio ||| 'smartphone' AND b.content ||| 'advanced')
    OR (a.birth_year > 1900 AND b.rating > 4.0)
 ORDER BY a.id, b.id, author_score DESC;
 
@@ -402,7 +402,7 @@ SELECT
     a.name as author_name,
     pdb.score(a.id) as author_score
 FROM authors a
-WHERE a.bio @@@ 'author'
+WHERE a.bio ||| 'author'
 ORDER BY a.id, author_score DESC;
 
 SELECT 
@@ -410,7 +410,7 @@ SELECT
     pdb.score(a.id) as author_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author'
+WHERE a.bio ||| 'author'
 ORDER BY a.id, author_score DESC;
 
 -- Test 6.2: Performance vs correctness trade-off
@@ -420,7 +420,7 @@ SELECT
     AVG(pdb.score(b.id)) as avg_book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
+WHERE (a.bio ||| 'author' OR b.content ||| 'story')
   AND (a.is_active = true OR b.is_published = true);
 
 -- Test 6.3: Unsafe conditions that cannot be pushed down
@@ -431,7 +431,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR a.birth_year = b.publication_year)
+WHERE (a.bio ||| 'smartphone' OR a.birth_year = b.publication_year)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 5;
 
@@ -451,9 +451,9 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 LEFT JOIN reviews r ON b.id = r.book_id
 WHERE (
-    (a.bio @@@ 'laptop' AND a.birth_year > 1000)
+    (a.bio ||| 'laptop' AND a.birth_year > 1000)
     OR 
-    (b.content @@@ 'Electronics' AND r.score > 4)
+    (b.content ||| 'Electronics' AND r.score > 4)
     OR
     (a.is_active = true AND b.is_published = true)
 )
@@ -469,8 +469,8 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN categories c ON b.category_id = c.id
-WHERE (a.bio @@@ 'smartphone')    -- Safe condition on authors
-   OR (c.description @@@ 'electronic')    -- External condition on categories
+WHERE (a.bio ||| 'smartphone')    -- Safe condition on authors
+   OR (c.description ||| 'electronic')    -- External condition on categories
 ORDER BY a.id, c.id, author_score DESC, category_score DESC;
 
 -- =============================================================================
@@ -481,12 +481,12 @@ ORDER BY a.id, c.id, author_score DESC, category_score DESC;
 SELECT 'Single table A - smartphone' as query_type, 
        a.name, pdb.score(a.id) as score
 FROM authors a 
-WHERE a.bio @@@ 'smartphone'
+WHERE a.bio ||| 'smartphone'
 UNION ALL
 SELECT 'Single table B - performance' as query_type,
        b.title, pdb.score(b.id) as score
 FROM books b
-WHERE b.content @@@ 'performance'
+WHERE b.content ||| 'performance'
 ORDER BY score DESC;
 
 -- Test 8.2: Complex real-world scenario
@@ -503,10 +503,10 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
 LEFT JOIN publishers p ON b.publisher_id = p.id
-WHERE (a.bio @@@ 'technology' OR a.country @@@ 'British')
-   OR (b.content @@@ 'performance' OR b.title @@@ 'magic')
-   OR (c.description @@@ 'innovation' OR c.name @@@ 'Fantasy')
-   OR (p.description @@@ 'technology' OR p.name @@@ 'Academic')
+WHERE (a.bio ||| 'technology' OR a.country ||| 'British')
+   OR (b.content ||| 'performance' OR b.title ||| 'magic')
+   OR (c.description ||| 'innovation' OR c.name ||| 'Fantasy')
+   OR (p.description ||| 'technology' OR p.name ||| 'Academic')
 ORDER BY a.id, b.id, c.id, p.id, author_score DESC, book_score DESC
 LIMIT 15;
 
@@ -519,4 +519,4 @@ DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS authors;
 
 RESET max_parallel_workers_per_gather;
-RESET enable_indexscan; 
+RESET enable_indexscan;

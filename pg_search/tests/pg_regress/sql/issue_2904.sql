@@ -11,5 +11,5 @@ VALUES ('hello');
 
 CREATE INDEX test_idx ON test USING paradedb (id, description);
 
-SELECT * FROM test WHERE description @@@ 'hello';
+SELECT * FROM test WHERE description ||| 'hello';
 DROP TABLE test;

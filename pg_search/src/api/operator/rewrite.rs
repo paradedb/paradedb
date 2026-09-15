@@ -70,6 +70,22 @@ impl SearchOperator {
         }
     }
 
+    /// `regprocedure` of the runtime classification function that mirrors this operator's
+    /// const-fold path, used when the RHS is a `pdb.query` that planning cannot fold.
+    fn query_input_fn(self) -> &'static std::ffi::CStr {
+        match self {
+            Self::Conjunction => {
+                c"paradedb.match_conjunction_search_query_input(paradedb.fieldname, pdb.query)"
+            }
+            Self::Disjunction => {
+                c"paradedb.match_disjunction_search_query_input(paradedb.fieldname, pdb.query)"
+            }
+            Self::Term => c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
+            Self::Phrase => c"paradedb.phrase_search_query_input(paradedb.fieldname, pdb.query)",
+            Self::Parse => unreachable!("`@@@` rewrites before reaching the shared path"),
+        }
+    }
+
     pub(super) fn classify_query(self, query: pdb::Query) -> pdb::Query {
         let (query, score) = match query {
             pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
@@ -239,16 +255,9 @@ impl SearchOperator {
             };
         }
         let field = self.require_field(lhs, field);
-        if self == Self::Term {
-            let rhs_type = get_expr_result_type(rhs);
-            if is_pdb_query_castable(rhs_type) {
-                return build_pdb_query_funcexpr(
-                    field,
-                    rhs,
-                    rhs_type,
-                    c"paradedb.term_search_query_input(paradedb.fieldname, pdb.query)",
-                );
-            }
+        let rhs_type = get_expr_result_type(rhs);
+        if is_pdb_query_castable(rhs_type) {
+            return build_pdb_query_funcexpr(field, rhs, rhs_type, self.query_input_fn());
         }
         let (text_fn, array_fn) = match self {
             Self::Conjunction => (

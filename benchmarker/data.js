@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789440296928,
+  "lastUpdate": 1789501306273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4104,6 +4104,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.253,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6659c5693b07f4e5f856365caa6eab4af7d40a38",
+          "message": "fix: allow benchmarker Go toolchain upgrades (#6355)\n\n## What\n\nSet `GOTOOLCHAIN=auto` for the benchmarker build step so Go can download\nand use the toolchain required by `xk6@latest`.\n\n## Why\n\nThe [enterprise benchmark\nrun](https://github.com/paradedb/paradedb-enterprise/actions/runs/35008928196/job/104515667380)\nfailed because setup-go selected Go 1.25.0 from benchmarker's `go.mod`,\nwhile xk6 v1.4.13 requires Go 1.26.0. The build inherited\n`GOTOOLCHAIN=local`, preventing the automatic upgrade.\n\n## How\n\nOverride toolchain selection only for `make`, including its child Go\ncommands. Keep the initial Go version and cache configuration sourced\nfrom benchmarker. No change to `paradedb/actions` is needed.\n\n## Tests\n\n- `actionlint -shellcheck= .github/workflows/benchmark-benchmarker.yml`\npassed.\n- `git diff --check` passed.\n- Confirmed the selected Go version and `GOTOOLCHAIN=local` in the\nfailed job log; checked automatic switching behavior against [Go's\ntoolchain documentation](https://go.dev/doc/toolchain).\n- Full benchmark execution remains to be validated in CI.",
+          "timestamp": "2026-09-15T12:20:22-07:00",
+          "tree_id": "b16f83a1b107ec55f7ea116095c5c8d6ebbc6dcc",
+          "url": "https://github.com/paradedb/paradedb/commit/6659c5693b07f4e5f856365caa6eab4af7d40a38"
+        },
+        "date": 1789501302061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.664922685314677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.602,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.156,
             "unit": "ms"
           }
         ]

@@ -29,7 +29,11 @@ runs:
         cache_prefix_key: "v2-benchmarks-rust-cache"
         cache_save: "true"
         cache_on_failure: "true"
-        extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector
+        extra_packages: lld libopenblas-dev postgresql-${{ inputs.pg_version }}-pgvector gdb
+
+    - name: Enable Crash Dumps
+      shell: bash
+      run: ./.github/scripts/setup_crashdumps.sh
 
     - name: Compile and Install pg_search
       shell: bash

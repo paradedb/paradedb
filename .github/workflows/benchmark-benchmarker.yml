@@ -251,8 +251,7 @@ jobs:
 
       - name: Publish Latency (mean + percentiles)
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
-        # paradedb fork: shallow-clones only the gh-pages branch on publish.
-        uses: paradedb/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-ci (latency)"
           ref: ${{ steps.determine-ref.outputs.ref }}

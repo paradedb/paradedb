@@ -161,9 +161,9 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
     planner_estimated_rows: u64,
-    /// Number of segments this plan will process, derived at construction time
-    /// from ParallelScanState or the reader, and kept around for EXPLAIN after
-    /// the state is consumed.
+    /// Number of segments this plan may process after applying its static execution-time proof.
+    /// Kept around for EXPLAIN after the state is consumed. The reader still retains the full
+    /// manifest/DSM view; this is an estimate and never a segment-identity authority.
     segment_count: usize,
     /// Number of partitions in the scan before task specialization. A specialized variant's
     /// `output_partitioning` is always one, so this count is serialized separately and used to
@@ -295,10 +295,7 @@ impl PgSearchScanPlan {
             .unwrap_or(0);
         let segment_count = state
             .as_ref()
-            .map(|s| match parallel_state {
-                Some(ps) => unsafe { (*ps).source_segment_count(s.source_idx.unwrap_or(0)) },
-                None => s.reader.segment_ids().len(),
-            })
+            .map(|s| s.reader.segment_pruning_estimate().candidate_segments)
             .unwrap_or(0);
 
         if range_split_points.is_none() {
@@ -1162,7 +1159,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
-
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
@@ -1180,7 +1176,8 @@ impl ExecutionPlan for PgSearchScanPlan {
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
             let mut reader = match &range_boundaries {
-                Some(rb) => reader.and_query_input(&rb.partition_bounds(target_partition)),
+                Some(rb) => reader
+                    .and_range_partition_bounds(&rb.partition_bounds(target_partition)),
                 None => reader,
             };
 
@@ -1321,6 +1318,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                         break;
                     }
                 }
+            }
+            let range_filters_removed = reader.range_filters_removed();
+            if range_filters_removed > 0 {
+                MetricBuilder::new(&plan_metrics)
+                    .counter("range_filters_removed", target_partition)
+                    .add(range_filters_removed);
             }
             baseline_metrics.done();
         };

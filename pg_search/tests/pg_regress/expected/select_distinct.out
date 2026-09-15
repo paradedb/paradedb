@@ -54,8 +54,8 @@ SELECT DISTINCT category
 FROM dist_products
 WHERE name @@@ 'laptop OR jacket OR shoes'
 ORDER BY category;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -65,7 +65,7 @@ ORDER BY category;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=dist_products, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 SELECT DISTINCT category
@@ -206,8 +206,8 @@ SELECT DISTINCT category, brand
 FROM dist_products
 WHERE name @@@ 'laptop OR keyboard OR headphones'
 ORDER BY category, brand;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category, brand
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -217,7 +217,7 @@ ORDER BY category, brand;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category, brand@1 as brand], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=dist_products, segments=1, eager=[category, brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR headphones","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 SELECT DISTINCT category, brand
@@ -370,8 +370,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM dist_products
 ORDER BY category;
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -381,7 +381,7 @@ ORDER BY category;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_products, segments=1, visibility=eager, query="all"
+           :     PgSearchScan: table=dist_products, segments=1, eager=[category], visibility=eager, query="all"
 (10 rows)
 
 SELECT DISTINCT category
@@ -496,8 +496,8 @@ SELECT DISTINCT url
 FROM dist_urls
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -507,7 +507,7 @@ ORDER BY url;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_urls, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=dist_urls, segments=1, eager=[url], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 SELECT DISTINCT url
@@ -563,8 +563,8 @@ SELECT DISTINCT category
 FROM dist_nullable
 WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
 ORDER BY category;
-                                                                                                                             QUERY PLAN                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -574,7 +574,7 @@ ORDER BY category;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_nullable, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=dist_nullable, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR keyboard OR widget OR gadget OR thingamajig","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
@@ -641,8 +641,8 @@ SELECT DISTINCT url
 FROM dist_highcard
 WHERE name @@@ 'Page'
 ORDER BY url;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: url
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -652,7 +652,7 @@ ORDER BY url;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[url@0 as url], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_highcard, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=dist_highcard, segments=1, eager=[url], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
 -- Verify all 20 distinct values are returned, not just 10.
@@ -1355,8 +1355,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM ONLY dist_inh_parent
 ORDER BY category;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -1366,7 +1366,7 @@ ORDER BY category;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=dist_inh_parent, segments=1, visibility=eager, query="all"
+           :     PgSearchScan: table=dist_inh_parent, segments=1, eager=[category], visibility=eager, query="all"
 (10 rows)
 
 SELECT DISTINCT category

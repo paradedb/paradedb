@@ -468,8 +468,19 @@ impl<'a> PredicateTranslator<'a> {
         let pg_expr_string = CStr::from_ptr(node_str).to_string_lossy().into_owned();
         pg_sys::pfree(node_str.cast());
 
+<<<<<<< HEAD
         let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), &pg_expr_string);
         let udf = PgExprUdf::new(udf_name, pg_expr_string, input_vars, result_type_oid);
+=======
+        let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), node);
+        let udf = PgExprUdf::new(
+            udf_name,
+            pg_expr_string,
+            input_vars,
+            input_decodes,
+            result_type_oid,
+        );
+>>>>>>> b9ed7f7cf (fix: support UUID scalar filters in JoinScan (#6338))
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(udf)),

@@ -21,6 +21,7 @@ use crate::index::segment_pruning::predicate::{
     term_truth, terms_truth, truths_for_field,
 };
 use crate::index::stats::EmpiricalStats;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use tantivy::index::SegmentReader;
 use tantivy::query::{
@@ -221,6 +222,24 @@ impl<'a> PruningQueryBuilder<'a> {
     fn eligible_value_field(&self, field: &FieldName) -> Option<SearchField> {
         self.eligible_field(field)
             .filter(Self::value_stats_order_compatible)
+    }
+
+    /// Build a proof from the exact storage values used to construct the paired Tantivy query.
+    /// This path never reinterprets those values, so the proof and query stay aligned.
+    pub(crate) fn truth_for_canonical_terms(
+        &self,
+        field_name: &str,
+        terms: Vec<PdbOwnedValue>,
+    ) -> Arc<SegmentTruthTable> {
+        let field = FieldName::from(field_name);
+        let truths = match self.eligible_value_field(&field) {
+            Some(search_field) => {
+                let terms = SortedTerms::new(terms);
+                self.for_field(&search_field, |stats| terms_truth(stats, &terms))
+            }
+            None => self.uniform(SegmentTruth::Maybe),
+        };
+        SegmentTruthTable::new(Arc::clone(&self.snapshot), truths)
     }
 
     fn uniform(&self, truth: SegmentTruth) -> Truths {

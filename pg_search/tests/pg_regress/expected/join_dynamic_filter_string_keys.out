@@ -70,9 +70,9 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], projection=[ctid_0@0, ordinal@2, ctid_1@3], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :           CooperativeExec
-     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20, segments_pruned_dynamic_range=0]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1632.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT b.ordinal
@@ -119,9 +119,9 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], projection=[ctid_0@0, ordinal@2, ctid_1@3], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :           CooperativeExec
-     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
+     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20, segments_pruned_dynamic_range=0]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"amount","lower_bound":{"included":0},"upper_bound":null}}, metrics=[output_rows=20, output_bytes=1504.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT b.ordinal

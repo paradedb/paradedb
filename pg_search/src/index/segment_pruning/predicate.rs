@@ -12,6 +12,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use super::snapshot::SegmentStatsSnapshot;
+use crate::api::HashSet;
 use crate::index::stats::{EmpiricalStats, comparable};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchField;
@@ -100,6 +101,19 @@ impl SegmentTruthTable {
     pub(crate) fn uniform(snapshot: Arc<SegmentStatsSnapshot>, truth: SegmentTruth) -> Arc<Self> {
         let len = snapshot.len();
         Self::new(snapshot, std::iter::repeat_n(truth, len))
+    }
+
+    pub(crate) fn rejected(&self, negated: bool) -> HashSet<SegmentId> {
+        let rejected = if negated {
+            SegmentTruth::Always
+        } else {
+            SegmentTruth::Never
+        };
+        self.snapshot
+            .segment_ids()
+            .zip(self.values.iter())
+            .filter_map(|(id, truth)| (*truth == rejected).then_some(id))
+            .collect()
     }
 
     /// Rebase onto `additional`'s snapshot and conjoin a newly resolved predicate.
@@ -313,6 +327,40 @@ pub(crate) fn truths_for_field(
         .collect()
 }
 
+fn table_for_field(
+    snapshot: Arc<SegmentStatsSnapshot>,
+    field: &SearchField,
+    truth: impl Fn(Option<&EmpiricalStats>) -> SegmentTruth,
+) -> Arc<SegmentTruthTable> {
+    let values = truths_for_field(&snapshot, field, truth);
+    SegmentTruthTable::new(snapshot, values)
+}
+
+pub(crate) fn table_for_range(
+    snapshot: Arc<SegmentStatsSnapshot>,
+    field: &SearchField,
+    lower: &Bound<PdbOwnedValue>,
+    upper: &Bound<PdbOwnedValue>,
+) -> Arc<SegmentTruthTable> {
+    table_for_field(snapshot, field, |stats| range_truth(stats, lower, upper))
+}
+
+pub(crate) fn table_for_terms(
+    snapshot: Arc<SegmentStatsSnapshot>,
+    field: &SearchField,
+    terms: Vec<PdbOwnedValue>,
+) -> Arc<SegmentTruthTable> {
+    let terms = SortedTerms::new(terms);
+    table_for_field(snapshot, field, |stats| terms_truth(stats, &terms))
+}
+
+pub(crate) fn table_for_exists(
+    snapshot: Arc<SegmentStatsSnapshot>,
+    field: &SearchField,
+) -> Arc<SegmentTruthTable> {
+    table_for_field(snapshot, field, exists_truth)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,6 +543,22 @@ mod tests {
         let additional = SegmentTruthTable::uniform(Arc::clone(&snapshot), SegmentTruth::Never);
         let possible = SegmentTruthTable::uniform(snapshot, SegmentTruth::Maybe);
         assert_eq!(possible.conjunction(&additional).at(0), SegmentTruth::Never);
+    }
+
+    #[test]
+    fn composed_dynamic_proofs_expose_only_rejections() {
+        let snapshot = one_segment_snapshot();
+        let never = SegmentTruthTable::uniform(Arc::clone(&snapshot), SegmentTruth::Never);
+        let always = SegmentTruthTable::uniform(Arc::clone(&snapshot), SegmentTruth::Always);
+        assert_eq!(never.rejected(false).len(), 1);
+        assert_eq!(always.rejected(false).len(), 0);
+        assert_eq!(always.rejected(true).len(), 1);
+        assert_eq!(
+            SegmentTruthTable::uniform(snapshot, SegmentTruth::Maybe)
+                .rejected(true)
+                .len(),
+            0
+        );
     }
 
     fn truth_from_mask(mask: u8) -> SegmentTruth {

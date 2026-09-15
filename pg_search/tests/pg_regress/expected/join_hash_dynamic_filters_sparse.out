@@ -148,7 +148,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=25.8 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
+     :             PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=25.8 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
 (15 rows)
 
 -- Block B: correctness. Run the same query with gallop disabled and
@@ -226,9 +226,9 @@ LIMIT 10;
      :             CooperativeExec
      :               PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
      :             CooperativeExec
-     :               PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
+     :               PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=34.4 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
      :           CooperativeExec
-     :             PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+     :             PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
 (18 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
@@ -307,11 +307,11 @@ LIMIT 10;
      :               CooperativeExec
      :                 PgSearchScan: table=t2_a, segments=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1]
      :               CooperativeExec
-     :                 PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K]
+     :                 PgSearchScan: table=t1, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"doc","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.10 K, output_bytes=43.0 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
      :             CooperativeExec
-     :               PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K]
+     :               PgSearchScan: table=t2_b, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.10 K, output_bytes=17.2 KB, output_batches=1, rows_pruned=0, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
      :           CooperativeExec
-     :             PgSearchScan: table=t2_c, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K]
+     :             PgSearchScan: table=t2_c, segments=1, dynamic_filters=1, query="all", metrics=[output_rows=1.09 K, output_bytes=17.1 KB, output_batches=1, rows_pruned=6, rows_scanned=1.10 K, segments_pruned_dynamic_range=0]
 (21 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;

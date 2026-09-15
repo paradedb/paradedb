@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789435498626,
+  "lastUpdate": 1789440296928,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4055,6 +4055,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.105,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b29ed13bc301be52e6a55e86342b39e806676550",
+          "message": "feat: add BufFile-backed spilling (#5953)\n\nThis PR adds `paradedb.spill_to_disk`, an opt-in GUC that lets\nDataFusion operators under `JoinScan`, `AggregateScan`, and the MPP\nworkers spill to Postgres `BufFile` temp files instead of failing on\n`work_mem`.\n\nCloses #4064.\n\nWithout it, an operator whose state exceeds `work_mem` fails with\n`ResourcesExhausted`, whatever the query shape. That matters most for\n`GROUP BY`, where the hash table size follows data cardinality. Spilling\nlets these queries complete in bounded memory. It stays off by default.\nSpilling keeps a query alive, but it isn't something to rely on for\nlow-latency execution, so a query that spills also emits a `WARNING`\nthat names `work_mem` as the setting to raise.\n\n## How\n\n### Spill backend (`datafusion/spill.rs`)\nImplements DataFusion's `TempFileFactory` / `SpillFile` / `SpillWriter`\ntraits over `BufFile`, so spill files count against `temp_file_limit`,\nland in `temp_tablespaces`, and are removed at transaction end (and by\nthe postmaster on restart after a crash). The `BufFile` FFI shims are\nshared with the key-set filter through the new `postgres/buffile.rs`.\n\nClosing is guarded. Postgres releases a resource owner's temp files\nitself, and under SPI a subtransaction abort does that before it frees\nthe scan state; `BufFileClose` also flushes, so it must not run while an\nerror is unwinding (a `temp_file_limit` hit raises mid-spill).\n`BufFileReleaseGuard` in `postgres/buffile.rs` records the owner, learns\nfrom a resource-release callback when the files are gone, and lets\n`Drop` close only when it is safe: not released, not unwinding, inside a\ntransaction, and not after a call that raised. `keyset.rs` gets the same\ntransaction-state guard.\n\nOne pre-existing bug surfaced: `HeldInterrupts` in `mpp/interrupt.rs`\ndecremented `InterruptHoldoffCount` in its `Drop`, but `errfinish`\nzeroes that count before an ERROR is re-thrown, so the first Postgres\nERROR raised from inside a DataFusion poll underflowed it and aborted\nthe backend. It now decrements saturating, which is what PG's own\nholdoff sections amount to after an ERROR.\n\nA `BufFile` has one cursor, and DataFusion's `SpillPool` (behind\n`RepartitionExec`) reads a file while its writer still appends. The\nwriter and every `read_stream()` therefore track their own `(fileno,\noffset)` and seek before each call; `BufFileSeek` and `BufFileRead`\nflush a dirty buffer when they reposition, so the interleaving is safe.\nReads run inline on the backend thread rather than on a blocking pool:\nevery DataFusion runtime here is a current-thread tokio runtime, and\n`BufFile` is backend-thread-local.\n\n### Memory pool (`datafusion/memory.rs`)\n`build_runtime_env` picks the `BufFile` disk manager when the GUC is on.\n`WorkMemMemoryPool` now reports its finite limit through\n`memory_limit()`, which DataFusion 55 uses only to keep the\n`PartialReduce` fast path off a bounded pool; the spilling aggregate\nstreams key off `tmp_files_enabled()`. With the GUC off, the pool's\nerror now also mentions `paradedb.spill_to_disk`.\n\n### Spill warning\n`BufFileTempFileFactory` fires a `SpillNotify` callback on its first\n`create_temp_file`. The leader records it in an `AtomicBool` on its scan\nstate; an MPP worker sets a flag in the DSM-shared `ParallelScanState`.\n`warn_if_spilled` in `mpp/glue.rs` ORs both after the workers are joined\nand warns once per scan node. DataFusion 55 creates spill files lazily\n(`SortExec` inside its spill append, `RepartitionExec` only when\n`try_grow` fails), so the warning means a real spill.\n\n## Tests\n- `spilling_buffile_serial`: 20k groups at `work_mem = 1.25MB`. Checks\nthe GUC-off error text, that `AggregateExec` reports a nonzero\n`spill_count` with the GUC on, that every group is correct after\nspilling, that the same plan with enough `work_mem` neither spills nor\nwarns, and that a spill which trips `temp_file_limit` fails as a normal\nerror both as a plain statement and inside a `DO` block, with the\nbackend still alive after.\n- `spilling_buffile_mpp`: 80k groups, 3 workers, `work_mem = 2.5MB`,\nwhich drives `RepartitionExec`'s reader and writer through the shared\n`BufFile` cursor. The GUC-off case accepts the three known error shapes\n(#6326, #6327) and surfaces any other error.\n\n`HashJoinExec` has no spill path in DataFusion 55, so most equi-joins\nstill error on `work_mem` with the GUC on; the docs say so.\n\n## Docs\nA changelog fragment. The reads page doesn't get a section: the error a\nquery gets when it exceeds `work_mem` now names\n`paradedb.spill_to_disk`, and that is where a user meets it.\n\nFollow-ups: #6326 (`SpillPool` errors lack the `work_mem` hint), #6327\n(MPP failures surface as \"transport receiver detached\").\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-09-14T19:24:01-07:00",
+          "tree_id": "efbb58319ea3c51f6eb7aa6896e688012a608075",
+          "url": "https://github.com/paradedb/paradedb/commit/b29ed13bc301be52e6a55e86342b39e806676550"
+        },
+        "date": 1789440292912,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6618966826761703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.955,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.253,
             "unit": "ms"
           }
         ]

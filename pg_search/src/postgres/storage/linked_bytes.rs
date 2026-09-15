@@ -107,7 +107,7 @@ impl<T> UnsafeCache<T> {
 pub struct LinkedBytesList {
     bman: BufferManager,
     pub header_blockno: pg_sys::BlockNumber,
-    blocklist_reader: OnceLock<blocklist::reader::BlockList>,
+    blocklist_reader: OnceLock<blocklist::reader::LazyBlockList>,
     cache: UnsafeCache<CacheEntry>,
 }
 
@@ -225,12 +225,9 @@ impl LinkedList for LinkedBytesList {
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
         self.blocklist_reader
             .get_or_init(|| {
-                blocklist::reader::BlockList::new(
-                    &self.bman,
-                    self.get_linked_list_data().blocklist_start,
-                )
+                blocklist::reader::LazyBlockList::new(self.get_linked_list_data().blocklist_start)
             })
-            .get(ord)
+            .get(ord, &self.bman)
     }
 }
 
@@ -334,15 +331,14 @@ impl LinkedBytesList {
     ///
     /// We take care of this, elsewhere, through our constructs like the `PinCushion`, the `MergeLock`,
     /// and atomically managing the segment entries list through an atomic copy-on-write approach.
-    pub fn freeable_blocks(mut self) -> impl Iterator<Item = pg_sys::BlockNumber> {
+    pub fn freeable_blocks(self) -> impl Iterator<Item = pg_sys::BlockNumber> {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
 
         let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
-        self.blocklist_reader
-            .take()
-            .unwrap_or_else(|| blocklist::reader::BlockList::new(&self.bman, blocklist_blockno))
+        // (eager materialization is fine here: freeing is a cold path that needs every block)
+        blocklist::reader::BlockList::new(&self.bman, blocklist_blockno)
             .into_iter()
             // include our header page
             .chain(std::iter::once(self.header_blockno))

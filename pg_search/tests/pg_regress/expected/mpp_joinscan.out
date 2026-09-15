@@ -951,8 +951,8 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.title, p.size_bytes
    Relation Tree: f INNER p
@@ -965,9 +965,9 @@ LIMIT 10;
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=3, partition_by=id, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=3, partition_by=file_id, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=p, segments=3, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT f.title, p.size_bytes

@@ -807,6 +807,18 @@ impl PgSearchTableProvider {
 
         let segment_count = reader.segment_readers().len();
         let target_partitions = state.config().target_partitions();
+        if self.range_split_points.is_some() {
+            if target_partitions <= 1 {
+                return Err(DataFusionError::Plan(
+                    "PgSearchTableProvider: range partitioning is configured but target_partitions <= 1; range partitioning requires MPP execution".to_string(),
+                ));
+            }
+            if self.source_idx.is_none() {
+                return Err(DataFusionError::Plan(
+                    "PgSearchTableProvider: range partitioning is configured but source_idx is None; range partitioning requires an MPP source".to_string(),
+                ));
+            }
+        }
         // The output partitions of the scan default to min(segments, target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.

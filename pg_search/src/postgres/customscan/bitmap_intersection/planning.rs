@@ -579,8 +579,8 @@ impl BitmapPlanner {
     /// first bitmap in an intersection, and the fraction its predecessors kept for
     /// every bitmap after it.
     ///
-    /// Cost: building the bitmap (`indextotalcost`) plus converting its entries into
-    /// the probe-able set, which does not shrink as the intersection grows.
+    /// Cost: `cost_bitmap_tree_node`'s total for the bitmap, which does not shrink as
+    /// the intersection grows.
     fn ledger(&self, candidate: &Candidate, reachable_rows: f64, per_row_saved: f64) -> f64 {
         reachable_rows * (1.0 - candidate.selectivity) * per_row_saved - candidate.build_cost
     }

@@ -17,7 +17,7 @@
 use pgrx::{IntoDatum, direct_function_call, pg_sys};
 use std::ptr::addr_of_mut;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(transparent)]
 pub struct Spinlock(pg_sys::slock_t);
 

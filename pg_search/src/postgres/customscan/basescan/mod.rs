@@ -183,7 +183,7 @@ impl BaseScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if state.custom_state().need_snippets() {
-            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> = state
+            let mut snippet_generators: HashMap<SnippetType, Vec<SnippetGenerator>> = state
                 .custom_state_mut()
                 .snippet_generators
                 .drain()
@@ -204,18 +204,18 @@ impl BaseScan {
                     None
                 };
 
-            for (snippet_type, generator) in &mut snippet_generators {
+            for (snippet_type, generators) in &mut snippet_generators {
                 // Use enhanced query if available, otherwise use base query
                 let query_to_use = enhanced_query_for_snippets
                     .as_ref()
                     .unwrap_or_else(|| state.custom_state().search_query_input());
 
-                let mut new_generator = state
+                let mut new_generators = state
                     .custom_state()
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(
+                    .snippet_generators(
                         snippet_type.field().root(),
                         query_to_use,
                         std::ptr::NonNull::new(expr_context),
@@ -223,10 +223,15 @@ impl BaseScan {
 
                 unsafe {
                     let estate = (*csstate).ss.ps.state;
-                    snippet_type.configure_generator(&mut new_generator.1, estate);
+                    for (_, generator) in &mut new_generators {
+                        snippet_type.configure_generator(generator, estate);
+                    }
                 }
 
-                *generator = Some(new_generator.1);
+                *generators = new_generators
+                    .into_iter()
+                    .map(|(_, generator)| generator)
+                    .collect();
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;
@@ -1392,7 +1397,7 @@ impl CustomScan for BaseScan {
             snippet_positions_funcoids,
         )
         .into_iter()
-        .map(|snippet_type| (snippet_type, None))
+        .map(|snippet_type| (snippet_type, Vec::new()))
         .collect();
 
         builder.custom_state().ambulkdelete_epoch = builder.custom_private().ambulkdelete_epoch();

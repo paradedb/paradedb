@@ -44,14 +44,13 @@ use crate::postgres::customscan::opexpr::{
     expr_matches_node, vars_equal_ignoring_varno, UnwrapFromExpr,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-use crate::postgres::var::{
-    find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
-};
+use crate::postgres::var::{find_json_path, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -459,7 +458,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     if !type_can_be_tokenized((*var).vartype) {
         return false;
     }
-    let vars = find_vars(expr.cast());
+    let vars = expr.collect_nodes::<pg_sys::Var>();
     if vars.len() != 1 {
         return false;
     }
@@ -664,7 +663,8 @@ pub unsafe fn field_name_from_node(
                         let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                         let typmod = unsafe { pg_sys::exprTypmod(indexed_expression.cast()) };
                         try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
-                            find_one_var(indexed_expression.cast())
+                            indexed_expression
+                                .find_single_node::<pg_sys::Var>()
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })
                     } else {
@@ -771,7 +771,7 @@ unsafe fn make_lhs_var(
     let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
-    let vars = find_vars(lhs);
+    let vars = lhs.collect_nodes::<pg_sys::Var>();
     if vars.is_empty() {
         panic!("provided lhs does not contain a Var")
     }
@@ -1125,7 +1125,7 @@ unsafe fn find_node_relation(
     pg_sys::AttrNumber,
     Option<PgList<pg_sys::TargetEntry>>,
 ) {
-    let var = find_vars(node);
+    let var = node.collect_nodes::<pg_sys::Var>();
     if var.is_empty() {
         panic!("cannot determine relation: node does not contain a Var");
     }

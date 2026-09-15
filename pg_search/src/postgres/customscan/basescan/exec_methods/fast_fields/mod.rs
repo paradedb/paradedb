@@ -28,16 +28,18 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
 use pgrx::{pg_sys, PgList};
@@ -47,7 +49,7 @@ use pgrx::{pg_sys, PgList};
 /// If an expression contains variables from other relations, it cannot be evaluated
 /// by the current scan and must be evaluated by an upper node.
 unsafe fn can_scan_evaluate_expr(rti: pg_sys::Index, expr: *mut pg_sys::Expr) -> bool {
-    let vars = find_vars(expr as *mut pg_sys::Node);
+    let vars = expr.collect_nodes::<pg_sys::Var>();
     // It is evaluatable by the scan if ALL vars belong to this scan (rti).
     // Note: Constants (no vars) are also considered evaluatable by the scan (locally).
     vars.iter().all(|var| (**var).varno as pg_sys::Index == rti)
@@ -219,7 +221,7 @@ pub unsafe fn pullup_fast_fields(
         }
 
         let maybe_var = if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
-            if let Some(var) = find_one_var((*te).expr.cast()) {
+            if let Some(var) = (*te).expr.find_single_node::<pg_sys::Var>() {
                 if (*var).varno as i32 != rti as i32 {
                     // We expect all Vars in the target list to be from the same range table as the
                     // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -267,7 +269,10 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
+        if (*te)
+            .expr
+            .contains_score_for_relation(score_funcoids(), rti)
+        {
             // we can only pull up a score if the score is:
             // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
             // 2. a call to `pdb.score` inside of an expression which will be solved by a

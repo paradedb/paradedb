@@ -78,13 +78,29 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// default 8KB caused excessive per-poll overhead on multi-MB spill files.
 const READ_CHUNK_BYTES: usize = 128 * 1024;
 
-/// Runs one `BufFile` call that may flush the write buffer. If Postgres raises inside it
-/// the buffer stays dirty, so the flag stays set and `Drop` will not close the file.
-fn buffile_call<T>(poisoned: &AtomicBool, call: impl FnOnce() -> T) -> T {
-    poisoned.store(true, Ordering::Relaxed);
-    let result = call();
-    poisoned.store(false, Ordering::Relaxed);
-    result
+/// Poisons the file if a Postgres error unwinds through a `BufFile` call, the way
+/// `std::sync::Mutex` poisons on a panic. The write buffer is then dirty, so a later
+/// `BufFileClose` would flush and raise again.
+struct PoisonOnUnwind<'a> {
+    poisoned: &'a AtomicBool,
+    panicking_before: bool,
+}
+
+impl<'a> PoisonOnUnwind<'a> {
+    fn guard(poisoned: &'a AtomicBool) -> Self {
+        Self {
+            poisoned,
+            panicking_before: std::thread::panicking(),
+        }
+    }
+}
+
+impl Drop for PoisonOnUnwind<'_> {
+    fn drop(&mut self) {
+        if !self.panicking_before && std::thread::panicking() {
+            self.poisoned.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Fired once by [`BufFileTempFileFactory`] the first time this query actually spills.
@@ -185,7 +201,7 @@ struct BufFileSpillFile {
     size: Arc<AtomicU64>,
     /// A second writer would append from wherever a reader left the cursor.
     writer_opened: AtomicBool,
-    /// Set while a call that may flush is in flight; see `buffile_call`.
+    /// Set when a call that may flush raised; see `PoisonOnUnwind`.
     poisoned: Arc<AtomicBool>,
     release_guard: Arc<BufFileReleaseGuard>,
 }
@@ -241,13 +257,12 @@ impl SpillFile for BufFileSpillFile {
                 (|| {
                     // Re-anchor before every read: an interleaved write (or another pass's
                     // read_stream) since our last read may have moved the shared cursor.
-                    buffile_call(&poisoned, || unsafe {
+                    let _poison = PoisonOnUnwind::guard(&poisoned);
+                    unsafe {
                         buffile::buffile_seek(file.get(), position.fileno, position.offset, 0)
-                    })
+                    }
                     .map_err(|e| exec_datafusion_err!("failed to seek BufFile spill file: {e}"))?;
-                    let n = buffile_call(&poisoned, || unsafe {
-                        buffile::buffile_read(file.get(), &mut scratch)
-                    });
+                    let n = unsafe { buffile::buffile_read(file.get(), &mut scratch) };
                     match n {
                         0 => Ok(None),
                         n => {
@@ -308,12 +323,12 @@ impl io::Write for BufFileSpillWriter {
         // write may have moved the shared BufFile cursor (see module-level note).
         let file = self.file;
         let position = &self.position;
-        buffile_call(&self.poisoned, || {
+        {
+            let _poison = PoisonOnUnwind::guard(&self.poisoned);
             unsafe { buffile::buffile_seek(file.get(), position.fileno, position.offset, 0) }
                 .map_err(|e| io::Error::other(format!("BufFile seek failed: {e}")))?;
             unsafe { buffile::buffile_write(file.get(), buf) };
-            Ok::<(), io::Error>(())
-        })?;
+        }
         self.size.fetch_add(buf.len() as u64, Ordering::Relaxed);
         let (fileno, offset) = unsafe { buffile::buffile_tell(self.file.get()) };
         self.position = BufFilePosition { fileno, offset };

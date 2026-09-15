@@ -18,6 +18,7 @@
 //! Wraps Postgres's `BufFile*` C API. Some of these signatures differ across supported PG
 //! versions; the rest are thin safety wrappers over the same underlying calls.
 
+use pgrx::PgMemoryContexts;
 use pgrx::pg_sys;
 use std::ffi::c_void;
 use std::os::raw::c_int;
@@ -86,13 +87,8 @@ pub unsafe fn buffile_seek(
 /// `BufFileCreateTemp` raises rather than returning NULL. If it raises with the context
 /// swapped in, the abort path resets `CurrentMemoryContext`, so no unwind handling.
 pub unsafe fn create_temp_buffile() -> *mut pg_sys::BufFile {
-    unsafe {
-        let saved_cxt = pg_sys::CurrentMemoryContext;
-        pg_sys::CurrentMemoryContext = pg_sys::CurTransactionContext;
-        let file = pg_sys::BufFileCreateTemp(false);
-        pg_sys::CurrentMemoryContext = saved_cxt;
-        file
-    }
+    PgMemoryContexts::CurTransactionContext
+        .switch_to(|_| unsafe { pg_sys::BufFileCreateTemp(false) })
 }
 
 /// Tracks whether the resource owner that some `BufFile`s were created under has released

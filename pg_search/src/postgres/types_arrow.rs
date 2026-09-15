@@ -119,6 +119,13 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
                     datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
                 }
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid = uuid::Uuid::parse_str(s)
+                        .map_err(|e| anyhow!("Failed to decode as UUID: {e}"))?;
+                    datum::Uuid::from_slice(uuid.as_bytes())
+                        .map_err(anyhow::Error::msg)?
+                        .into_datum()
+                }
                 _ => return Err(anyhow!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }

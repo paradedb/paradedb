@@ -18,8 +18,6 @@ The `deprecated_*` compatibility tests deliberately retain old syntax where curr
 
 Dedicated compatibility tests also cover the old access-method name, ignored key/datetime options, and rejected legacy operator arguments. These are not examples for new queries. Parser-specific tests use explicit parser functions; this includes phrases with stopwords, whose position gaps are currently lost by `###`. JSON query serialization tests exercise typed query objects rather than query-string syntax.
 
-`generated_joins_small` temporarily rejects cases that hit the UUID-to-Arrow conversion error tracked in [#6337](https://github.com/paradedb/paradedb/issues/6337). Other UUID scalar filters remain enabled.
-
 ## Client Property Tests
 
 Client property tests are a particularly interesting subcategory of integration tests. Most live in [`qgen.rs`](tests/qgen.rs), but other files also use `crate::fixtures::querygen` to generate tests.

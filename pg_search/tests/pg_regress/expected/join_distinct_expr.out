@@ -350,7 +350,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@4 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@4 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, name@2]
@@ -882,7 +882,7 @@ ORDER BY p.name
    Order By: p.name asc
    DataFusion Physical Plan: 
      : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_6978d23a(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]

@@ -112,26 +112,25 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
     }
 
     pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
-        unsafe {
-            PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
-                csstate: pg_sys::CustomScanState {
-                    ss: pg_sys::ScanState {
-                        ps: pg_sys::PlanState {
-                            type_: pg_sys::NodeTag::T_CustomScanState,
-                            ..Default::default()
-                        },
+        let flags = unsafe { (*self.args.cscan).flags };
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
+            csstate: pg_sys::CustomScanState {
+                ss: pg_sys::ScanState {
+                    ps: pg_sys::PlanState {
+                        type_: pg_sys::NodeTag::T_CustomScanState,
                         ..Default::default()
                     },
-                    flags: (*self.args.cscan).flags,
-                    custom_ps: std::ptr::null_mut(),
-                    pscan_len: 0,
-                    methods: CS::custom_exec_methods(),
-                    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                    slotOps: std::ptr::null_mut(),
+                    ..Default::default()
                 },
-                custom_state: self.custom_state,
-                runtime_context: std::ptr::null_mut(),
-            })
-        }
+                flags,
+                custom_ps: std::ptr::null_mut(),
+                pscan_len: 0,
+                methods: CS::custom_exec_methods(),
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                slotOps: std::ptr::null_mut(),
+            },
+            custom_state: self.custom_state,
+            runtime_context: std::ptr::null_mut(),
+        })
     }
 }

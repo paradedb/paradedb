@@ -240,10 +240,33 @@ pub fn generated_queries_setup(
     tables: &[(&str, usize)],
     columns_def: &[Column],
 ) -> SetupScript {
+    generated_queries_setup_with_partition_by(pool, tables, columns_def, None)
+}
+
+/// [`generated_queries_setup`] with every BM25 index built over its existing rows and physically
+/// partitioned by `field`. Building after the initial inserts is essential: an index created empty
+/// records no split points for range-partitioned execution to consume. One live row is then
+/// inserted after the build so a segment without stamped bounds is present too; each task filters
+/// every segment by its value range, so that row must still reach its partition.
+pub fn generated_queries_setup_partitioned(
+    pool: &MutexObjectPool<PgConnection>,
+    tables: &[(&str, usize)],
+    columns_def: &[Column],
+    field: &'static str,
+) -> SetupScript {
+    generated_queries_setup_with_partition_by(pool, tables, columns_def, Some(field))
+}
+
+fn generated_queries_setup_with_partition_by(
+    pool: &MutexObjectPool<PgConnection>,
+    tables: &[(&str, usize)],
+    columns_def: &[Column],
+    partition_by: Option<&'static str>,
+) -> SetupScript {
     use crate::fixtures::fault_grace::{RetryError, sql_attempt};
     let attempt = |conn: &mut PgConnection| -> Result<SetupScript, sqlx::Error> {
         "BEGIN;".execute_result(conn)?;
-        match generated_queries_setup_inner(conn, tables, columns_def) {
+        match generated_queries_setup_inner(conn, tables, columns_def, partition_by) {
             Ok(setup_script) => {
                 "COMMIT;".execute_result(conn)?;
                 Ok(setup_script)
@@ -271,6 +294,7 @@ fn generated_queries_setup_inner(
     conn: &mut PgConnection,
     tables: &[(&str, usize)],
     columns_def: &[Column],
+    partition_by: Option<&'static str>,
 ) -> Result<SetupScript, sqlx::Error> {
     "CREATE EXTENSION IF NOT EXISTS vector;".execute_result(conn)?;
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute_result(conn)?;
@@ -401,13 +425,15 @@ fn generated_queries_setup_inner(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
-        // Total commits per table = the sample-row `INSERT` + `bulk_inserts`
-        // bulk chunks. Pin `target_segment_count` to that so the layered merge
-        // policy short-circuits (it returns empty layer sizes when
-        // `current_segments <= target`) and the chunks survive as distinct
-        // segments instead of being merged back into one.
+        // In incremental mode this equals the insert-commit count, preventing the generated
+        // segments from immediately merging together. In partitioned mode it is the number of
+        // output partitions requested from CREATE INDEX.
         let target_segments = bulk_inserts.get() + 1;
         let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
+
+        let partition_by_clause = partition_by
+            .map(|field| format!(",\n    partition_by = '{field}'"))
+            .unwrap_or_default();
 
         let bulk_insert_sql = build_bulk_inserts(
             tname,
@@ -417,21 +443,32 @@ fn generated_queries_setup_inner(
             bulk_inserts,
         );
 
+        let create_index_sql = format!(
+            r#"CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
+    text_fields = '{{ {text_fields} }}',
+    numeric_fields = '{{ {numeric_fields} }}',
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}{partition_by_clause}
+);
+"#,
+        );
+        let (index_before_data, index_after_data) = if partition_by.is_some() {
+            ("", create_index_sql.as_str())
+        } else {
+            (create_index_sql.as_str(), "")
+        };
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
     {column_definitions}
 );
--- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
-);
+{index_before_data}
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
+
+{index_after_data}
 
 {b_tree_indexes}
 
@@ -458,6 +495,19 @@ ANALYZE {tname};
         let sql = format!("DELETE FROM {tname} WHERE random() < 0.01;\n");
         sql.as_str().execute_result(conn)?;
         setup_sql.push_str(&sql);
+    }
+
+    // A partitioned CREATE INDEX stamps bounds only on the segments it builds. Keep one later row
+    // live so generated queries also cover a segment the value-range filter must include without
+    // stamped bounds.
+    if partition_by.is_some() {
+        for (tname, _) in tables {
+            let sql = format!(
+                "INSERT into {tname} ({insert_columns}) VALUES ({sample_values});\nANALYZE {tname};\n"
+            );
+            sql.as_str().execute_result(conn)?;
+            setup_sql.push_str(&sql);
+        }
     }
 
     let table_names = tables
@@ -539,6 +589,12 @@ pub struct PgGucs {
     pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
     pub columnar_exec: bool,
+    /// Enable range co-partitioning for joins whose indexes declare compatible `partition_by`
+    /// fields. Kept false by the general generator and enabled by focused partition tests.
+    pub range_partitioned_join: bool,
+    /// Disable the source-row threshold so a focused test can require an MPP plan independently
+    /// of its deliberately small generated tables.
+    pub force_mpp: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -658,6 +714,8 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
+                    range_partitioned_join: false,
+                    force_mpp: false,
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -682,6 +740,8 @@ impl PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
+            range_partitioned_join: false,
+            force_mpp: false,
         }
     }
 
@@ -697,6 +757,8 @@ impl PgGucs {
             parallel_workers,
             parallel_leader_participation,
             columnar_exec,
+            range_partitioned_join,
+            force_mpp,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -743,6 +805,16 @@ impl PgGucs {
             "SET paradedb.enable_columnar_exec TO {columnar_exec};"
         )
         .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
+        )
+        .unwrap();
+        if *force_mpp {
+            writeln!(gucs, "SET paradedb.mpp_min_rows TO 0;").unwrap();
+        } else {
+            writeln!(gucs, "RESET paradedb.mpp_min_rows;").unwrap();
+        }
         // Pin `min_rows_per_worker` low when we want parallel workers to be used.
         if *parallel_workers {
             writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
@@ -945,8 +1017,60 @@ pub fn compare_plan_retrying(
     expected_any: &[&str],
     forbidden_any: &[&str],
 ) -> CaseOutcome {
+    compare_plan_retrying_inner(
+        pg_query,
+        bm25_query,
+        gucs,
+        pool,
+        setup,
+        expected_any,
+        forbidden_any,
+        PlanCheck::JsonAny,
+    )
+}
+
+/// Check every expected marker in the text `EXPLAIN` output.
+pub fn compare_text_plan_retrying(
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    pool: &MutexObjectPool<PgConnection>,
+    setup: &SetupScript,
+    expected_all: &[&str],
+    forbidden_any: &[&str],
+) -> CaseOutcome {
+    compare_plan_retrying_inner(
+        pg_query,
+        bm25_query,
+        gucs,
+        pool,
+        setup,
+        expected_all,
+        forbidden_any,
+        PlanCheck::TextAll,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum PlanCheck {
+    JsonAny,
+    TextAll,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compare_plan_retrying_inner(
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    pool: &MutexObjectPool<PgConnection>,
+    setup: &SetupScript,
+    expected: &[&str],
+    forbidden_any: &[&str],
+    plan_check: PlanCheck,
+) -> CaseOutcome {
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
+    let candidate_settings = gucs.set();
     let fail = |msg: String| {
         CaseOutcome::Failure(handle_compare_error(
             TestCaseError::fail(msg),
@@ -958,13 +1082,29 @@ pub fn compare_plan_retrying(
     };
 
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
-        sql_attempt(gucs.set().execute_result(conn).and_then(|()| {
-            format!("EXPLAIN (FORMAT JSON) {bm25_query}")
-                .fetch_one_result::<(serde_json::Value,)>(conn)
-        }))
+        sql_attempt(
+            candidate_settings
+                .as_str()
+                .execute_result(conn)
+                .and_then(|()| match plan_check {
+                    PlanCheck::JsonAny => format!("EXPLAIN (FORMAT JSON) {bm25_query}")
+                        .fetch_one_result::<(serde_json::Value,)>(conn)
+                        .map(|(plan,)| format!("{plan:#?}")),
+                    // The physical plan is emitted as repeated properties under one key, and
+                    // serde_json keeps only the last duplicate, so read the text rows instead.
+                    PlanCheck::TextAll => format!("EXPLAIN {bm25_query}")
+                        .fetch_result::<(String,)>(conn)
+                        .map(|rows| {
+                            rows.into_iter()
+                                .map(|(line,)| line)
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }),
+                }),
+        )
     });
 
-    let plan = match outcome {
+    let plan_str = match outcome {
         Ok(Ok(plan)) => plan,
         Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{bm25_query}'")),
         Err(RetryError::TimedOutUnderPause(e)) => {
@@ -975,14 +1115,15 @@ pub fn compare_plan_retrying(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = format!("{:#?}", plan.0);
-    if !expected_any
-        .iter()
-        .any(|expected| plan_str.contains(expected))
-    {
-        let expected_desc = expected_any.join(" or ");
+    let expected_matches = |needle: &&str| plan_str.contains(*needle);
+    let (expected_plan, joiner) = match plan_check {
+        PlanCheck::JsonAny => (expected.iter().any(expected_matches), " or "),
+        PlanCheck::TextAll => (expected.iter().all(expected_matches), " and "),
+    };
+    if !expected_plan {
         return fail(format!(
-            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+            "Query should use {} but got plan: {plan_str}\nQuery: {bm25_query}",
+            expected.join(joiner)
         ));
     }
 

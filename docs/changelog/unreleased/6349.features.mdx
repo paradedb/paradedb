@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added a `search_mode` option to the Jieba tokenizer. Search mode, which emits a compound's parts alongside the whole, remains the default and is what an index wants; setting `search_mode=false` analyses text without decomposition, which is what a query wants when a compound should not be matched by its pieces.

@@ -25,6 +25,7 @@ pub mod orderbygen;
 pub mod pagegen;
 pub mod pdbagggen;
 pub mod wheregen;
+pub mod windowgen;
 
 use std::fmt::{Debug, Write};
 use std::num::NonZeroUsize;
@@ -314,11 +315,6 @@ fn generated_queries_setup_inner(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let key_field = columns_def
-        .iter()
-        .find(|c| c.is_primary_key)
-        .map(|c| c.name)
-        .expect("At least one column must be a primary key");
 
     // Only include columns without index_expression in text_fields (v1 syntax)
     let text_fields = columns_def
@@ -428,7 +424,6 @@ CREATE TABLE {tname} (
 );
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
 CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',
     json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
@@ -948,6 +943,7 @@ pub fn compare_plan_retrying(
     pool: &MutexObjectPool<PgConnection>,
     setup: &SetupScript,
     expected_any: &[&str],
+    forbidden_any: &[&str],
 ) -> CaseOutcome {
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
@@ -987,6 +983,15 @@ pub fn compare_plan_retrying(
         let expected_desc = expected_any.join(" or ");
         return fail(format!(
             "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+        ));
+    }
+
+    if let Some(forbidden) = forbidden_any
+        .iter()
+        .find(|forbidden| plan_str.contains(**forbidden))
+    {
+        return fail(format!(
+            "Query should not use {forbidden} but got plan: {plan_str}\nQuery: {bm25_query}"
         ));
     }
 

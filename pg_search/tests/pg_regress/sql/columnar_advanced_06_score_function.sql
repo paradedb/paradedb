@@ -47,7 +47,6 @@ DROP INDEX IF EXISTS score_test_idx;
 CREATE INDEX score_test_idx ON score_test
 USING paradedb (id, title, content, author, rating, views, is_featured)
 WITH (
-    key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"rating": {"fast": true}, "views": {"fast": true}}',
     boolean_fields = '{"is_featured": {"fast": true}}'

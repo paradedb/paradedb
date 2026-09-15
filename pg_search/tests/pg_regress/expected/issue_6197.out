@@ -19,7 +19,7 @@ ON issue_6197_json_fast_field_repro USING paradedb (
     id,
     body,
     (custom::pdb.simple('columnar=true'))
-) WITH (key_field = 'id');
+);
 VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT count(*), min(s), max(s)
@@ -111,7 +111,7 @@ ON issue_6197_json_fast_field_repro USING paradedb (
     id,
     body,
     (((custom->>'score')::bigint)::pdb.alias('score'))
-) WITH (key_field = 'id');
+);
 VACUUM (ANALYZE) issue_6197_json_fast_field_repro;
 SELECT name, field_type, fast
 FROM paradedb.schema('issue_6197_json_path_repro_idx')

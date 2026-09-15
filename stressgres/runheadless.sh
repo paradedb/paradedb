@@ -6,7 +6,7 @@ PGVER=18.6
 EXTENSION=pg_search
 PGRX_HOME=~/.pgrx
 
-if (( $# < 3 )); then
+if (($# < 3)); then
   echo "usage: runheadless.sh <crate-name> <suite.toml> <timeout_ms> [logfile]"
   exit 1
 fi

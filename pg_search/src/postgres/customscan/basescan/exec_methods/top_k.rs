@@ -297,41 +297,37 @@ impl ExecMethod for TopKScanExecState {
         // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
         // sees resolved values without us holding a separate copy.
         if self.limit.is_none() {
-            unsafe {
-                let estate = (*cstate).ss.ps.state;
-                if let ExecMethodType::TopK {
-                    ref mut limit_offset,
-                    ..
-                } = state.exec_method_type
-                {
-                    self.limit = limit_offset
-                        .resolve_mut(estate)
-                        .expect("LIMIT must be resolvable from EState (param missing or NULL)")
-                        .static_fetch();
-                }
+            let estate = unsafe { (*cstate).ss.ps.state };
+            if let ExecMethodType::TopK {
+                ref mut limit_offset,
+                ..
+            } = state.exec_method_type
+            {
+                self.limit = limit_offset
+                    .resolve_mut(estate)
+                    .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                    .static_fetch();
             }
         }
 
         // handle parameterized vectors
-        unsafe {
-            let estate = (*cstate).ss.ps.state;
-            let planstate = std::ptr::addr_of_mut!((*cstate).ss.ps);
-            if !estate.is_null() {
-                let resolve = |infos: &mut [OrderByInfo]| {
-                    for info in infos.iter_mut() {
-                        info.resolve_query_vector(estate, planstate);
-                    }
-                };
-                if let ExecMethodType::TopK {
-                    orderby_info: Some(infos),
-                    ..
-                } = &mut state.exec_method_type
-                {
-                    resolve(infos);
+        let estate = unsafe { (*cstate).ss.ps.state };
+        let planstate = unsafe { std::ptr::addr_of_mut!((*cstate).ss.ps) };
+        if !estate.is_null() {
+            let resolve = |infos: &mut [OrderByInfo]| {
+                for info in infos.iter_mut() {
+                    unsafe { info.resolve_query_vector(estate, planstate) };
                 }
-                if let Some(infos) = self.orderby_info.as_mut() {
-                    resolve(infos);
-                }
+            };
+            if let ExecMethodType::TopK {
+                orderby_info: Some(infos),
+                ..
+            } = &mut state.exec_method_type
+            {
+                resolve(infos);
+            }
+            if let Some(infos) = self.orderby_info.as_mut() {
+                resolve(infos);
             }
         }
 
@@ -453,13 +449,12 @@ impl ExecMethod for TopKScanExecState {
                         .as_ref()
                         .expect("Should have claimed segments while running.")
                         .len();
-                    unsafe {
-                        (*parallel_state)
-                            .aggregation_append(agg_result, segment_count)
-                            .expect("Failed to append aggregation result");
+                    let parallel_state = unsafe { &mut *parallel_state };
+                    parallel_state
+                        .aggregation_append(agg_result, segment_count)
+                        .expect("Failed to append aggregation result");
 
-                        (*parallel_state).aggregation_wait()
-                    }
+                    parallel_state.aggregation_wait()
                 } else {
                     agg_result
                 }

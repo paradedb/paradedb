@@ -19,8 +19,7 @@ CREATE TABLE sj (
     name TEXT COLLATE "C"
 );
 
-CREATE INDEX sj_idx ON sj USING paradedb (id, message, ref_id, (name::pdb.literal))
-WITH (key_field = 'id');
+CREATE INDEX sj_idx ON sj USING paradedb (id, message, ref_id, (name::pdb.literal));
 
 INSERT INTO sj (message, ref_id, name)
 SELECT (ARRAY['beer wine','beer','wine','cheese'])[1 + (i % 4)] || ' ' || i::text,

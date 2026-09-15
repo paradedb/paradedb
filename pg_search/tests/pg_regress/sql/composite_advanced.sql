@@ -34,7 +34,7 @@ FROM generate_series(1, 35000) AS i;
 -- Multiple segments indicate parallel workers were used
 CREATE INDEX idx_parallel ON parallel_test USING paradedb (
     id, (ROW(f1, f2, f3)::parallel_comp)
-) WITH (key_field='id', target_segment_count=4);
+) WITH (target_segment_count=4);
 
 -- Verify parallel build created multiple segments (proves parallel workers were used)
 SELECT COUNT(*) AS segment_count FROM paradedb.index_info('idx_parallel');
@@ -75,7 +75,7 @@ INSERT INTO mvcc_test (content) VALUES
 -- Create index
 CREATE INDEX idx_mvcc ON mvcc_test USING paradedb (
     id, (ROW(content)::mvcc_comp)
-) WITH (key_field='id');
+);
 
 -- Verify segment count after initial insert (should be at least 1)
 SELECT COUNT(*) AS initial_segment_count FROM paradedb.index_info('idx_mvcc');
@@ -148,7 +148,7 @@ INSERT INTO catchup_test (content) VALUES ('inserted_six');
 -- NOW create index - must catch up with all modifications
 CREATE INDEX idx_catchup ON catchup_test USING paradedb (
     id, (ROW(content)::catchup_comp)
-) WITH (key_field='id');
+);
 
 -- Verify index structure via paradedb.index_info (should have at least 1 segment)
 SELECT COUNT(*) AS segment_count FROM paradedb.index_info('idx_catchup');
@@ -217,7 +217,7 @@ CREATE INDEX idx_fast_50 ON fast_test_50 USING paradedb (
     id, (ROW(t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17,t18,t19,t20,
              t21,t22,t23,t24,t25,t26,t27,t28,t29,t30,t31,t32,t33,t34,t35,t36,t37,t38,t39,t40,
              n01,n02,n03,n04,n05,n06,n07,n08,n09,n10)::fast_comp_50)
-) WITH (key_field='id');
+);
 
 -- Insert test data with values in first, middle, and last fields
 INSERT INTO fast_test_50 (t01, t20, t40, n01, n05, n10) VALUES
@@ -310,7 +310,7 @@ BEGIN
     row_expr := row_expr || ')::max_fields_comp';
 
     -- Create index
-    idx_sql := format('CREATE INDEX idx_max_fields ON max_fields_test USING paradedb (id, (%s)) WITH (key_field=''id'')', row_expr);
+    idx_sql := format('CREATE INDEX idx_max_fields ON max_fields_test USING paradedb (id, (%s))', row_expr);
     EXECUTE idx_sql;
 
     -- Insert test data
@@ -409,7 +409,7 @@ BEGIN
     row_b := row_b || ')::composite_adv.comp_b_400';
 
     -- Create index with both composites
-    idx_sql := format('CREATE INDEX idx_dual_comp ON dual_comp_test USING paradedb (id, (%s), (%s)) WITH (key_field=''id'')', row_a, row_b);
+    idx_sql := format('CREATE INDEX idx_dual_comp ON dual_comp_test USING paradedb (id, (%s), (%s))', row_a, row_b);
     EXECUTE idx_sql;
 END $$;
 
@@ -549,7 +549,6 @@ INSERT INTO columnar_comp_test (content, priority, created_at) VALUES
 CREATE INDEX columnar_comp_test_idx ON columnar_comp_test
 USING paradedb (id, content, (ROW(priority, created_at)::columnar_comp))
 WITH (
-    key_field = 'id',
     sort_by = 'priority DESC NULLS LAST'
 );
 
@@ -588,8 +587,7 @@ CREATE TABLE expr_test (id SERIAL PRIMARY KEY, a INT, b INT, name TEXT);
 INSERT INTO expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo'), (5, 6, 'bar');
 
 CREATE INDEX expr_test_idx ON expr_test
-USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')))
-WITH (key_field = 'id');
+USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')));
 
 -- Currently uses NormalScanExecState because a + b is not in the scan target list.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -599,7 +597,7 @@ SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
 DROP INDEX expr_test_idx;
 CREATE INDEX expr_test_idx ON expr_test
 USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')))
-WITH (key_field = 'id', sort_by = 'sum_val DESC NULLS LAST');
+WITH (sort_by = 'sum_val DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -616,7 +614,7 @@ INSERT INTO comp_test (priority, created, name) VALUES (10, '2024-01-01', 'foo')
 
 CREATE INDEX comp_test_idx ON comp_test
 USING paradedb (id, name, (ROW(priority, created)::my_comp))
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
+WITH (sort_by = 'priority DESC NULLS LAST');
 
 -- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -634,7 +632,7 @@ INSERT INTO comp_expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo');
 
 CREATE INDEX comp_expr_test_idx ON comp_expr_test
 USING paradedb (id, name, (ROW(a + b)::comp_expr))
-WITH (key_field = 'id', sort_by = 'sum_val DESC NULLS LAST');
+WITH (sort_by = 'sum_val DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -652,7 +650,7 @@ INSERT INTO comp_mixed_test (a, b, priority, name) VALUES (1, 2, 10, 'foo'), (3,
 
 CREATE INDEX comp_mixed_idx ON comp_mixed_test
 USING paradedb (id, name, (ROW(a + b, priority)::comp_mixed))
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
+WITH (sort_by = 'priority DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState; a + b is not matched, so a Sort remains.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -668,7 +666,7 @@ INSERT INTO func_expr_test (val, name) VALUES (-5, 'foo'), (10, 'foo');
 
 CREATE INDEX func_expr_idx ON func_expr_test
 USING paradedb (id, name, (ABS(val)::pdb.alias('abs_val')))
-WITH (key_field = 'id', sort_by = 'abs_val DESC NULLS LAST');
+WITH (sort_by = 'abs_val DESC NULLS LAST');
 
 -- ColumnarExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

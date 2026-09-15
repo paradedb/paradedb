@@ -11,11 +11,11 @@ CREATE TABLE mdo_items (id bigint PRIMARY KEY, txt text NOT NULL);
 CREATE TABLE mdo_excl  (id bigint PRIMARY KEY, val bigint);
 CREATE TABLE mdo_small (id bigint PRIMARY KEY, val bigint NOT NULL, txt text NOT NULL);
 CREATE INDEX mdo_items_idx ON mdo_items USING paradedb (id, (txt::pdb.literal))
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+  WITH (target_segment_count = 8, background_layer_sizes = '0');
 CREATE INDEX mdo_excl_idx ON mdo_excl USING paradedb (id, val)
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+  WITH (target_segment_count = 8, background_layer_sizes = '0');
 CREATE INDEX mdo_small_idx ON mdo_small USING paradedb (id, val, (txt::pdb.literal))
-  WITH (key_field = 'id', target_segment_count = 8, background_layer_sizes = '0');
+  WITH (target_segment_count = 8, background_layer_sizes = '0');
 -- Two committed batches per table: two immutable segments per index.
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mdo_items SELECT s, 'match' FROM generate_series(1, 2000) s;

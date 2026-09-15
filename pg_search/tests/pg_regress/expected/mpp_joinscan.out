@@ -57,7 +57,6 @@ SET max_parallel_maintenance_workers TO 0;
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
 USING paradedb (id, title, content)
 WITH (
-    key_field='id',
     target_segment_count=3,
     partition_by='id',
     text_fields='{"title": {"fast": true}, "content": {}}'
@@ -66,7 +65,6 @@ WARNING:  only 0 parallel workers were available for index build
 CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
 USING paradedb (id, file_id, page_text, size_bytes)
 WITH (
-    key_field='id',
     target_segment_count=3,
     partition_by='file_id',
     numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
@@ -95,10 +93,10 @@ LIMIT 10;
    Limit: 10
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f, p]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :         CooperativeExec
      :           PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
@@ -146,15 +144,15 @@ LIMIT 10;
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], fetch=10
+     : │ ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], fetch=10
      : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ LocalLimitExec: fetch=10
      :   │   TantivyDecodeExec: decode=[title]
-     :   │     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f, p]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
+     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │         DistributedLeafExec:
      :   │           t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :   │           t1: PgSearchScan: table=f, segments=3, partition=id[68..134), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
@@ -269,15 +267,15 @@ LIMIT 10;
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], fetch=10
+     : │ ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], fetch=10
      : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ LocalLimitExec: fetch=10
      :   │   TantivyDecodeExec: decode=[title]
-     :   │     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f, p]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
+     :   │       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │         DistributedLeafExec:
      :   │           t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
      :   │           t1: PgSearchScan: table=f, segments=3, partition=id[68..134), fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
@@ -331,10 +329,10 @@ LIMIT 10;
    Limit: 10
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f, p]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :         CooperativeExec
      :           PgSearchScan: table=f, segments=3, fetch=[title], query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(title) > 6)"}]}}]}}
      :         CooperativeExec
@@ -384,27 +382,27 @@ LIMIT 10;
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], fetch=10
+     : │ ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], fetch=10
      : │     [Stage 3] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 3 ── tasks=3, partitions=4
      :   │ LocalLimitExec: fetch=10
      :   │   TantivyDecodeExec: decode=[title]
-     :   │     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f]
+     :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([id@0], 12), input_partitions=1
+     :     │ RepartitionExec: partitioning=Hash([id@1], 12), input_partitions=1
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     │     t1: PgSearchScan: table=f, segments=3, partition=id[68..134), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     │     t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
      :     ┌───── Stage 2 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([file_id@0], 12), input_partitions=4
+     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
      :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
      :     │     DistributedLeafExec:
      :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
@@ -451,27 +449,27 @@ LIMIT 10;
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     : │   SortPreservingMergeExec: [title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], fetch=10
+     : │ ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], fetch=10
      : │     [Stage 3] => NetworkCoalesceExec: output_partitions=12, input_tasks=3
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 3 ── tasks=3, partitions=4
      :   │ LocalLimitExec: fetch=10
      :   │   TantivyDecodeExec: decode=[title]
-     :   │     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f]
-     :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :   │     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f]
+     :   │       HashJoinExec: mode=Partitioned, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :   │         [Stage 1] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   │         [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=3
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([id@0], 12), input_partitions=1
+     :     │ RepartitionExec: partitioning=Hash([id@1], 12), input_partitions=1
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     │     t1: PgSearchScan: table=f, segments=3, partition=id[68..134), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     │     t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :     └──────────────────────────────────────────────────
      :     ┌───── Stage 2 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([file_id@0], 12), input_partitions=4
+     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
      :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
      :     │     DistributedLeafExec:
      :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
@@ -559,7 +557,7 @@ LIMIT 5;
                  :     ┌───── Stage 1 ── tasks=3, partitions=9
                  :     │ RepartitionExec: partitioning=Hash([title@0], 9), input_partitions=1
                  :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
-                 :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :     │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
                  :     │       DistributedLeafExec:
                  :     │         t0: PgSearchScan: table=f, segments=3, partition=id[-∞..68), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
                  :     │         t1: PgSearchScan: table=f, segments=3, partition=id[68..134), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
@@ -964,10 +962,10 @@ LIMIT 10;
    Limit: 10
    Order By: f.title asc, p.size_bytes asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[title@0 as col_1, size_bytes@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
+     : ProjectionExec: expr=[title@1 as col_1, size_bytes@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@0 ASC NULLS LAST, size_bytes@2 ASC NULLS LAST], k=10, visibility_checks=[f, p]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, ctid_0@2, size_bytes@4, ctid_1@5]
+     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :         CooperativeExec
      :           PgSearchScan: table=f, segments=3, partition_by=id, fetch=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec

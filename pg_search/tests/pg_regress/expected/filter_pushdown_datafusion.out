@@ -51,9 +51,9 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (5, 'PowerTech', 'Power and charging solutions', 'USA', 4);
 -- Create BM25 indexes
 CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
+WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
-WITH (key_field = 'id', numeric_fields = '{"rating": {"fast": true}}');
+WITH (numeric_fields = '{"rating": {"fast": true}}');
 -- Enable JoinScan
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -84,11 +84,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@3, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -128,11 +128,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@3, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -174,11 +174,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@0, price@2, ctid_0@3, ctid_1@6]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":{"excluded":"100"},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -219,11 +219,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@2, projection=[id@3, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@2, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -265,11 +265,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@0, price@2, ctid_0@3, ctid_1@6]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"stock","lower_bound":{"included":25},"upper_bound":null}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -314,11 +314,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@0, ctid_0@2, ctid_1@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@0, id@2, ctid_1@4]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -360,11 +360,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@3 AND __p_0_tag_2@2, projection=[id@0, ctid_0@2, ctid_1@7]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@3 AND __p_0_tag_2@2, projection=[ctid_0@0, id@2, ctid_1@6]
      :           FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4 OR __p_0_tag_2@5
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}, tag_2={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}
@@ -406,11 +406,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], projection=[id@0, ctid_0@2, ctid_1@4]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -452,11 +452,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@0)], filter=__p_0_tag_0@0 AND __s_1_tag_0@2 OR __p_0_tag_1@1 AND __s_1_tag_1@3, projection=[id@0, ctid_0@2, ctid_1@6]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 AND __s_1_tag_0@2 OR __p_0_tag_1@1 AND __s_1_tag_1@3, projection=[ctid_0@0, id@2, ctid_1@5]
      :           FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4
      :             CooperativeExec
      :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}
@@ -499,11 +499,11 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, NULL as col_3, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[id@3, ctid_0@5, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec

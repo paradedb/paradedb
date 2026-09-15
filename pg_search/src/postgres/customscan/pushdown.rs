@@ -22,20 +22,21 @@ use crate::nodecast;
 use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
-use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::{VarContext, find_json_path, find_vars};
+use crate::postgres::var::{VarContext, find_json_path};
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_guard, pg_sys};
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
 /// Returns `true` when `opno` is the ltree descendant operator `<@` applied to
 /// ltree operands on both sides, e.g. `path <@ 'Top.Science'::ltree`.
-unsafe fn is_ltree_descendant_operator(
+fn is_ltree_descendant_operator(
     opno: pg_sys::Oid,
     lhs: *mut pg_sys::Node,
     rhs: *mut pg_sys::Node,
@@ -44,18 +45,18 @@ unsafe fn is_ltree_descendant_operator(
         return false;
     }
 
-    let lhs_type = pg_sys::exprType(lhs);
-    let rhs_type = pg_sys::exprType(rhs);
+    let lhs_type = unsafe { pg_sys::exprType(lhs) };
+    let rhs_type = unsafe { pg_sys::exprType(rhs) };
     if !is_ltree_oid(lhs_type) || !is_ltree_oid(rhs_type) {
         return false;
     }
 
-    let op_name = pg_sys::get_opname(opno);
+    let op_name = unsafe { pg_sys::get_opname(opno) };
     if op_name.is_null() {
         return false;
     }
 
-    CStr::from_ptr(op_name).to_bytes() == b"<@"
+    unsafe { CStr::from_ptr(op_name) }.to_bytes() == b"<@"
 }
 
 /// Pushdown PostgreSQL ltree descendant operator `<@` to the ParadeDB index.
@@ -198,7 +199,7 @@ impl PushdownField {
             let search_field = schema.search_field(field_name.root())?;
             // an indexed expression could have more than one var, but we only need to check the first one
             // since they all come from the same relation and we use `varno` to determine if the field is in the same rti
-            let vars = find_vars(var);
+            let vars = var.collect_nodes::<pg_sys::Var>();
             if vars.is_empty() {
                 return None;
             }
@@ -267,7 +268,7 @@ pub unsafe fn try_build_pushdown_qual(
     // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
     // are evaluated in BeginCustomScan.
     if let Some(root) = context.planner_info()
-        && contains_correlated_param(root, rhs) {
+        && rhs.contains_correlated_param(root) {
             return None;
         }
 
@@ -330,7 +331,7 @@ pub unsafe fn try_build_pushdown_qual(
                     field_is_array,
                 )?;
                 // It's in this RTI, so we can use it directly.
-                if !is_complex(pushed_down_funcexpr.cast()) {
+                if !pushed_down_funcexpr.is_complex() {
                     Some(Qual::PushdownExpr { funcexpr: pushed_down_funcexpr })
                 } else {
                     Some(Qual::Expr {
@@ -384,7 +385,7 @@ unsafe fn try_pushdown_jsonb_exists(
     }
 
     // Check if field belongs to this relation or is from a join
-    let varno = (**find_vars(lhs).first()?).varno as pg_sys::Index;
+    let varno = (**lhs.collect_nodes::<pg_sys::Var>().first()?).varno as pg_sys::Index;
     if varno != rti {
         return Some(Qual::ExternalVar);
     }
@@ -399,21 +400,21 @@ unsafe fn try_pushdown_jsonb_exists(
 }
 
 /// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
-unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
-    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
+    if node.is_null() || unsafe { pg_sys::exprType(node) } != pg_sys::BOOLOID || node.is_complex() {
         return None;
     }
 
-    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
-    let expr_context = pg_sys::CreateStandaloneExprContext();
+    let expr_state = unsafe { pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut()) };
+    let expr_context = unsafe { pg_sys::CreateStandaloneExprContext() };
     let mut is_null = false;
-    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
-    pg_sys::FreeExprContext(expr_context, false);
+    let datum = unsafe { pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null) };
+    unsafe { pg_sys::FreeExprContext(expr_context, false) };
 
     if is_null {
         None
     } else {
-        match bool::from_datum(datum, false) {
+        match unsafe { bool::from_datum(datum, false) } {
             Some(true) => Some(Qual::All),
             Some(false) => Some(Qual::Not(Box::new(Qual::All))),
             None => None,
@@ -502,23 +503,4 @@ unsafe fn make_opexpr(
     };
 
     Some(paradedb_funcexpr)
-}
-
-pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        _data: *mut core::ffi::c_void,
-    ) -> bool {
-        nodecast!(Var, T_Var, node).is_some()
-            || nodecast!(Param, T_Param, node).is_some()
-            || pg_sys::contain_volatile_functions(node)
-            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
-    }
-
-    if root.is_null() {
-        return false;
-    }
-
-    walker(root, std::ptr::null_mut())
 }

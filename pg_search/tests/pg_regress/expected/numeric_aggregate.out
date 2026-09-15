@@ -36,7 +36,7 @@ CREATE INDEX numagg_idx ON numagg USING paradedb (
     (description::pdb.unicode_words),
     (category::pdb.literal),
     price, weight, amount, free
-) WITH (key_field = 'id');
+);
 -- Deterministic worker selection in fallback EXPLAINs
 ANALYZE numagg;
 -- ============================================================================
@@ -685,7 +685,7 @@ INSERT INTO numagg_lines (numagg_id, note) VALUES
     (3, 'fourth line');
 CREATE INDEX numagg_lines_idx ON numagg_lines USING paradedb (
     id, numagg_id, (note::pdb.unicode_words)
-) WITH (key_field = 'id');
+);
 ANALYZE numagg_lines;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_lines l ON l.numagg_id = n.id WHERE n.description ||| 'apple OR basket';
@@ -704,7 +704,7 @@ SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_line
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[numeric64_sum(n_0.price, 2) as agg_0, numeric_bytes_sum(n_0.amount) as agg_1, min(n_0.weight) as agg_2]
-     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@0)], projection=[price@2, weight@3, amount@4]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(numagg_id@0, id@3)], projection=[price@1, amount@2, weight@3]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
      :   │     DistributedLeafExec:

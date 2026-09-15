@@ -1,4 +1,4 @@
--- Tests that MixedFF is used for UUIDs in the key field or in other fields.
+-- Tests that MixedFF is used for UUID primary keys and other UUID fields.
 
 \i common/common_setup.sql
 
@@ -23,20 +23,19 @@ VALUES
 
 CREATE INDEX idxproducts ON products USING paradedb (uuid_key, uuid, name)
 WITH (
-    key_field = 'uuid_key',
     text_fields = '{
         "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }
     }'
 );
 
--- Confirm that the UUID key_field is fast and gets MixedFF.
+-- Confirm that the UUID primary key is fast and gets MixedFF.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 
--- And that non-key UUID fields do too.
+-- And that other UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

@@ -33,7 +33,6 @@ INSERT INTO sorted_scan_test (content, category, priority, score) VALUES
 CREATE INDEX sorted_scan_test_idx ON sorted_scan_test
 USING paradedb (id, content, category, priority, score)
 WITH (
-    key_field = 'id',
     sort_by = 'priority DESC NULLS LAST',
     mutable_segment_rows = 5
 );
@@ -154,7 +153,7 @@ INSERT INTO asc_sort_test (description, value) VALUES
 
 CREATE INDEX asc_sort_test_idx ON asc_sort_test
 USING paradedb (id, description, value)
-WITH (key_field = 'id', sort_by = 'value ASC NULLS FIRST');
+WITH (sort_by = 'value ASC NULLS FIRST');
 
 \echo 'Test 2.1: ORDER BY ASC NULLS FIRST (exact match)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
@@ -222,7 +221,7 @@ INSERT INTO dtype_float_test (content, rating) VALUES
 
 CREATE INDEX dtype_float_test_idx ON dtype_float_test
 USING paradedb (id, content, rating)
-WITH (key_field = 'id', sort_by = 'rating DESC NULLS LAST');
+WITH (sort_by = 'rating DESC NULLS LAST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
@@ -247,7 +246,7 @@ INSERT INTO dtype_ts_test (content, created_at) VALUES
 
 CREATE INDEX dtype_ts_test_idx ON dtype_ts_test
 USING paradedb (id, content, created_at)
-WITH (key_field = 'id', sort_by = 'created_at DESC NULLS LAST');
+WITH (sort_by = 'created_at DESC NULLS LAST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
@@ -272,7 +271,7 @@ INSERT INTO dtype_date_test (content, event_date) VALUES
 
 CREATE INDEX dtype_date_test_idx ON dtype_date_test
 USING paradedb (id, content, event_date)
-WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
+WITH (sort_by = 'event_date ASC NULLS FIRST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
@@ -298,7 +297,7 @@ INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
 
 CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
 USING paradedb (id, content, (uuid_col::pdb.literal))
-WITH (key_field = 'id', sort_by = 'uuid_col ASC NULLS FIRST');
+WITH (sort_by = 'uuid_col ASC NULLS FIRST');
 
 -- Select the native UUID column (no ::text cast) so ORDER BY resolves to the
 -- base Var and matches the index pathkey on uuid_col.
@@ -328,7 +327,7 @@ INSERT INTO dtype_numeric_test (content, amount) VALUES
 
 CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
 USING paradedb (id, content, amount)
-WITH (key_field = 'id', sort_by = 'amount ASC NULLS FIRST');
+WITH (sort_by = 'amount ASC NULLS FIRST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
@@ -353,7 +352,7 @@ CREATE TABLE edge_case_test (
 INSERT INTO edge_case_test (content, value) VALUES ('searchable', 100);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 SELECT id, value FROM edge_case_test WHERE content @@@ 'nonexistent' ORDER BY value DESC NULLS LAST;
 
@@ -372,7 +371,7 @@ INSERT INTO edge_case_test (content, value) VALUES
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 SELECT id, value FROM edge_case_test WHERE content @@@ 'doc' ORDER BY value DESC NULLS LAST;
 
@@ -389,7 +388,7 @@ INSERT INTO edge_case_test (content, value) VALUES
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 SELECT id, value FROM edge_case_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
 
@@ -403,7 +402,7 @@ INSERT INTO edge_case_test (content, value) VALUES ('unique', 42), ('other', 99)
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 SELECT id, value FROM edge_case_test WHERE content @@@ 'unique' ORDER BY value DESC NULLS LAST;
 
@@ -448,7 +447,7 @@ CREATE TABLE multi_segment_test (
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
 
 -- Insert batches to create multiple segments
 INSERT INTO multi_segment_test (content, priority)
@@ -495,7 +494,7 @@ TRUNCATE multi_segment_test RESTART IDENTITY;
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
+WITH (sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
 
 -- Insert interleaved values across segments
 INSERT INTO multi_segment_test (content, priority) VALUES ('item', 10);
@@ -552,7 +551,7 @@ CREATE TABLE mod_test (
 
 CREATE INDEX mod_test_idx ON mod_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 -- Initial data
 INSERT INTO mod_test (content, value) VALUES
@@ -599,7 +598,7 @@ INSERT INTO exec_method_test (content, fast_field, non_fast_field) VALUES
 
 CREATE INDEX exec_method_test_idx ON exec_method_test
 USING paradedb (id, content, fast_field)
-WITH (key_field = 'id', sort_by = 'fast_field DESC NULLS LAST');
+WITH (sort_by = 'fast_field DESC NULLS LAST');
 
 \echo 'Test 10.1: Fast fields only - should use sorted path (no Sort node)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
@@ -679,8 +678,7 @@ CREATE TABLE no_sortby_test (
 
 -- Index WITHOUT sort_by option
 CREATE INDEX no_sortby_test_idx ON no_sortby_test
-USING paradedb (id, content, value)
-WITH (key_field = 'id');
+USING paradedb (id, content, value);
 
 INSERT INTO no_sortby_test (content, value) VALUES
     ('test data one', 5),
@@ -722,7 +720,7 @@ CREATE TABLE parallel_sorted_test (
 
 CREATE INDEX parallel_sorted_test_idx ON parallel_sorted_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert enough data across multiple segments for meaningful parallel test
 INSERT INTO parallel_sorted_test (content, priority)
@@ -821,7 +819,7 @@ CREATE TABLE lazy_checkout_test (
 
 CREATE INDEX lazy_checkout_test_idx ON lazy_checkout_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert multiple batches to create segments
 INSERT INTO lazy_checkout_test (content, priority)

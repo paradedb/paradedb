@@ -71,7 +71,7 @@ use crate::scan::info::{RowEstimate, ScanInfo};
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
-const SCAN_IDX: usize = 1;
+pub(super) const SCAN_IDX: usize = 1;
 const GO_IDX: usize = 2;
 
 /// Go-flag states. The leader sets `RUN` once the mesh is initialized, or `ABORT` if too few

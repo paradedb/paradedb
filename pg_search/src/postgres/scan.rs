@@ -139,23 +139,26 @@ pub extern "C-unwind" fn amrescan(
         }
     }
 
-    let (indexrel, keys) = unsafe {
+    let (indexrel, keys) = {
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
-        assert!(!(*scan).indexRelation.is_null());
+        let scan = unsafe { &mut *scan };
+        assert!(!scan.indexRelation.is_null());
         assert!(nkeys >= 0);
 
         amendscan(scan);
 
-        let indexrel = (*scan).indexRelation;
+        let indexrel = scan.indexRelation;
         let keys = if nkeys == 0 {
             &[]
         } else {
             assert!(!keys.is_null());
-            std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+            unsafe {
+                std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize)
+            }
         };
 
-        ((PgSearchRelation::from_pg(indexrel)), keys)
+        (unsafe { PgSearchRelation::from_pg(indexrel) }, keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
@@ -189,71 +192,68 @@ pub extern "C-unwind" fn amrescan(
     // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
     // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple/amgetbitmap,
     // which would leave claimed segments unprocessed, causing data loss.
-    let search_reader = unsafe {
-        let is_parallel = !(*scan).parallel_scan.is_null();
-        let is_worker = pg_sys::ParallelWorkerNumber >= 0;
+    let is_parallel = unsafe { !(*scan).parallel_scan.is_null() };
+    let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
 
-        if is_parallel && is_worker {
-            // Workers use ParallelWorker visibility with the segment IDs from shared state.
-            // This is because workers pick specific segments to query that are known to be
-            // held open/pinned by the leader, but might not pass a ::Snapshot visibility
-            // test due to concurrent merges/garbage collects.
-            let view = wait_for_segment_view(scan);
-            SearchIndexReader::open(
-                &indexrel,
-                search_query_input,
-                false,
-                MvccSatisfies::ParallelWorker(view),
-            )
-            .expect("amrescan: worker should be able to open a SearchIndexReader")
-        } else {
-            // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
-            // visibility to see all currently snapshot-visible segments.
-            let reader = SearchIndexReader::open(
-                &indexrel,
-                search_query_input,
-                false,
-                MvccSatisfies::Snapshot,
-            )
-            .expect("amrescan: should be able to open a SearchIndexReader");
+    let search_reader = if is_parallel && is_worker {
+        // Workers use ParallelWorker visibility with the segment IDs from shared state.
+        // This is because workers pick specific segments to query that are known to be
+        // held open/pinned by the leader, but might not pass a ::Snapshot visibility
+        // test due to concurrent merges/garbage collects.
+        let view = unsafe { wait_for_segment_view(scan) };
+        SearchIndexReader::open(
+            &indexrel,
+            search_query_input,
+            false,
+            MvccSatisfies::ParallelWorker(view),
+        )
+        .expect("amrescan: worker should be able to open a SearchIndexReader")
+    } else {
+        // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
+        // visibility to see all currently snapshot-visible segments.
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            search_query_input,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .expect("amrescan: should be able to open a SearchIndexReader");
 
-            // For parallel scans, leader initializes shared state with its segment list
-            if is_parallel {
-                parallel::maybe_init_parallel_scan(scan, &reader);
-            }
-
-            reader
+        // For parallel scans, leader initializes shared state with its segment list
+        if is_parallel {
+            unsafe { parallel::maybe_init_parallel_scan(scan, &reader) };
         }
+
+        reader
     };
 
-    unsafe {
-        let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan - search all segments
-            Some(search_reader.search())
-        } else {
-            // parallel scan: DON'T claim segments here
-            // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
-            None
-        };
+    let scan = unsafe { &mut *scan };
+    let results = if scan.parallel_scan.is_null() {
+        // not a parallel scan - search all segments
+        Some(search_reader.search())
+    } else {
+        // parallel scan: DON'T claim segments here
+        // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
+        None
+    };
 
-        let natts = (*(*scan).xs_hitupdesc).natts as usize;
-        let index_only = if (*scan).xs_want_itup {
-            Some(IndexOnlyScanState::new(&search_reader, &indexrel, natts))
-        } else {
-            None
-        };
-        let scan_state = Bm25ScanState {
-            reader: search_reader,
-            results,
-            index_only,
-            ambulkdelete_epoch,
-            ctid_cache: None,
-        };
+    let natts = unsafe { (*scan.xs_hitupdesc).natts as usize };
+    let index_only = if scan.xs_want_itup {
+        Some(IndexOnlyScanState::new(&search_reader, &indexrel, natts))
+    } else {
+        None
+    };
+    let scan_state = Bm25ScanState {
+        reader: search_reader,
+        results,
+        index_only,
+        ambulkdelete_epoch,
+        ctid_cache: None,
+    };
 
-        (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
-            .leak_and_drop_on_delete(Some(scan_state))
-            .cast();
-    }
+    scan.opaque = PgMemoryContexts::CurrentMemoryContext
+        .leak_and_drop_on_delete(Some(scan_state))
+        .cast();
 }
 
 #[pg_guard]

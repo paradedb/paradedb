@@ -53,21 +53,18 @@ INSERT INTO agg_nonequi_tiers (description, tier_name, threshold_price) VALUES
 CREATE INDEX agg_nonequi_products_idx ON agg_nonequi_products
 USING paradedb (id, description, category, price, rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "category": {"fast": true}}',
     numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
 );
 CREATE INDEX agg_nonequi_promos_idx ON agg_nonequi_promos
 USING paradedb (id, description, promo_code, min_price, max_price, min_rating)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "promo_code": {"fast": true}}',
     numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
 );
 CREATE INDEX agg_nonequi_tiers_idx ON agg_nonequi_tiers
 USING paradedb (id, description, tier_name, threshold_price)
 WITH (
-    key_field = 'id',
     text_fields = '{"description": {}, "tier_name": {"fast": true}}',
     numeric_fields = '{"threshold_price": {"fast": true}}'
 );
@@ -151,7 +148,7 @@ WHERE p.description @@@ 'keyboard OR laptop';
    Aggregates: COUNT(*), SUM(price), MIN(rating), MAX(rating)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1, min(p_0.rating) as agg_2, max(p_0.rating) as agg_3]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=price@0 <= max_price@1, projection=[price@1, rating@2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@2, promo_code@0)], filter=price@0 <= max_price@1, projection=[price@0, rating@1]
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard OR laptop","lenient":null,"conjunction_mode":null}}}}
      :     CooperativeExec
@@ -271,7 +268,7 @@ WHERE p.description @@@ 'laptop OR jacket OR keyboard';
    Aggregates: COUNT(*), COUNT(id), SUM(price)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0, count(pr_1.id) as agg_1, sum(p_0.price) as agg_2]
-     :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@0)], filter=price@0 > max_price@1, projection=[price@4, id@0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(promo_code@1, category@1)], filter=price@0 > max_price@1, projection=[price@3, id@0]
      :     CooperativeExec
      :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
      :     CooperativeExec
@@ -352,7 +349,7 @@ ORDER BY t.tier_name;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[tier_name@1 as tier_name], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
            :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= threshold_price@1, projection=[price@0, tier_name@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, promo_code@0)], filter=price@0 <= max_price@1, projection=[price@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@1, promo_code@0)], filter=price@0 <= max_price@1, projection=[price@0]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec

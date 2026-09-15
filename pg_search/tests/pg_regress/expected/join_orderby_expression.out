@@ -39,13 +39,11 @@ ALTER TABLE companies ADD COLUMN big_id BIGINT;
 UPDATE companies SET big_id = id;
 CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"big_id": {"fast": true}}'
 );
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
 USING paradedb (id, company_id, amount, (round_type::pdb.literal))
 WITH (
-    key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
 );
 SET paradedb.enable_join_custom_scan = on;
@@ -72,11 +70,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -121,11 +119,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -205,11 +203,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 - 0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 - 0 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -254,11 +252,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -303,11 +301,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -352,11 +350,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -402,11 +400,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 + 0 as col_3, ctid_0@2 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 + 0 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -434,11 +432,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.big_id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, big_id@1 as col_3, ctid_0@2 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[big_id@1 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -466,11 +464,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, 0 + id@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, 0 + id@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -498,11 +496,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -757,11 +755,11 @@ LIMIT 10;
    Limit: 10
    Order By: c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, id@0 + 0 as col_3, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@1 + 0 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
      :           CooperativeExec
@@ -845,7 +843,6 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (205, 4, 'completed', 2000);
 CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total)
 WITH (
-    key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'
 );
 -- Complex query with multiple IN subqueries and NOT EXISTS

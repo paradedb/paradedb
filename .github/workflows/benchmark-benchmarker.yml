@@ -251,8 +251,7 @@ jobs:
 
       - name: Publish Latency (mean + percentiles)
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
-        # paradedb fork: shallow-clones only the gh-pages branch on publish.
-        uses: paradedb/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-ci (latency)"
           ref: ${{ steps.determine-ref.outputs.ref }}
@@ -332,7 +331,7 @@ jobs:
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'
-        uses: paradedb/actions/slack-alert@v10
+        uses: paradedb/actions/slack-alert@v12
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

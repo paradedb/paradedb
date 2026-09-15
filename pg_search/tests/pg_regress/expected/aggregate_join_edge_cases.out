@@ -49,21 +49,18 @@ INSERT INTO ec_suppliers (category, supplier_name) VALUES
 CREATE INDEX ec_products_idx ON ec_products
 USING paradedb (id, description, category, price, (metadata::pdb.literal_normalized))
 WITH (
-    key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"price": {"fast": true}}'
 );
 CREATE INDEX ec_reviews_idx ON ec_reviews
 USING paradedb (id, category, rating, reviewer)
 WITH (
-    key_field='id',
     text_fields='{"category": {"fast": true}, "reviewer": {"fast": true}}',
     numeric_fields='{"rating": {"fast": true}}'
 );
 CREATE INDEX ec_suppliers_idx ON ec_suppliers
 USING paradedb (id, category, supplier_name)
 WITH (
-    key_field='id',
     text_fields='{"category": {"fast": true}, "supplier_name": {"fast": true}}'
 );
 -- =====================================================================
@@ -126,7 +123,7 @@ ORDER BY p.category;
          Aggregates: COUNT(*), SUM(rating), AVG(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
@@ -201,7 +198,7 @@ ORDER BY p.category;
          Aggregates: COUNT(*), COUNT(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
@@ -263,8 +260,8 @@ ORDER BY p.category;
          Aggregates: COUNT(*), SUM(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@1, category@0)], projection=[category@0, rating@2]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@2, category@0)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -326,8 +323,8 @@ ORDER BY p.category;
          Aggregates: COUNT(*), COUNT(rating), COUNT(supplier_name)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1, count(s_2.supplier_name) as agg_2]
-           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@1, supplier_name@3]
-           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1, supplier_name@2]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -425,7 +422,7 @@ ORDER BY 1;
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@0, category@0)], projection=[metadata.brand@1]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec

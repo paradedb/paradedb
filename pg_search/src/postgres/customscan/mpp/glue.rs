@@ -32,6 +32,7 @@
 
 use std::ffi::c_void;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use pgrx::pg_sys;
 
@@ -40,6 +41,7 @@ use datafusion_distributed::shm::{self, Interrupt, LeaderSession, MppMesh, Wakeu
 use datafusion_proto::physical_plan::DefaultPhysicalProtoConverter;
 
 use crate::gucs::mpp_queue_size as gucs_mpp_queue_size;
+use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::pg_seams::{PgInterrupt, PgWakeup, pack_receiver};
 
 /// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
@@ -472,6 +474,53 @@ pub fn drain_worker_metrics(
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     Some(())
+}
+
+/// Whether any backend (leader or a worker) spilled a DataFusion operator to disk this query.
+/// Reads the `ParallelScanState` slot the leader populated at launch.
+fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
+    match finish
+        .state_manager()
+        .slice_mut::<u8>(crate::postgres::customscan::mpp::launch::SCAN_IDX)
+    {
+        Ok(Some(s)) => unsafe {
+            (*(s.as_mut_ptr() as *mut crate::postgres::ParallelScanState)).did_spill()
+        },
+        _ => {
+            // Structurally shouldn't happen -- both launch-time readers of this same slot
+            // (`launch.rs`) treat a missing/wrong-typed region as fatal. Debug-only here
+            // because this runs at shutdown, after the query's results already exist;
+            // erroring out of teardown for an advisory warning is worse than just not
+            // warning. Release builds fall through to `false` -- a genuine DSM bug would
+            // surface elsewhere (or in debug/regress builds here) rather than only here.
+            debug_assert!(false, "mpp: parallel scan state missing at shutdown");
+            false
+        }
+    }
+}
+
+/// Folds the workers' DSM spill flag into the leader's own flag. Call it before the
+/// leader finishes (and so destroys) a launch whose flag `warn_if_spilled` will not see,
+/// such as a relaunch on rescan.
+pub fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
+    if mpp_did_spill(finish) {
+        spilled.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Emits the spill warning, once per scan node per `ExecutorRun`. `spilled_locally` is
+/// the leader's own flag, sticky across rescans; the worker flag lives in the DSM behind
+/// `finish`, so this must run after the workers are joined. Before the join a worker can
+/// still be executing (an early-terminated `LIMIT` query, for one) and spill after the
+/// load, and the join is also what orders a worker's relaxed store before this load.
+pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
+    if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
+        pgrx::warning!(
+            "query exceeded work_mem and spilled to disk; consider raising work_mem \
+             for better performance (paradedb.spill_to_disk allowed it to complete \
+             instead of erroring)"
+        );
+    }
 }
 
 /// Rewrite the executed plan with the worker metrics collected by [`drain_worker_metrics`].

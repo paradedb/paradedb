@@ -26,8 +26,7 @@ VACUUM FULL recursive_test.estimate_items;
 -- Create index for recursive estimates testing
 CREATE INDEX idx_recursive_estimates
     ON recursive_test.estimate_items
-        USING paradedb (id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
-    WITH (key_field='id');
+        USING paradedb (id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range);
 -- Update statistics for consistent query planning
 ANALYZE recursive_test.estimate_items;
 -- Enable recursive estimates feature
@@ -919,7 +918,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
    Buffers: shared hit=23
  Planning:
-   Buffers: shared hit=49
+   Buffers: shared hit=45
 (14 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates

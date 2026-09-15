@@ -58,7 +58,7 @@ PGVER=${PGVER:-18.6}
 
 # Extract major version and set port and feature flag
 BASEVER=${PGVER%%.*}
-PORT=288${BASEVER} # pgrx prefixes the PostgreSQL major version with 288 (e.g., 28818)
+PORT=288${BASEVER}   # pgrx prefixes the PostgreSQL major version with 288 (e.g., 28818)
 FEATURE=pg${BASEVER} # Feature flag (e.g., pg18)
 
 # Enable command echo for debugging the setup steps below. It is disabled again

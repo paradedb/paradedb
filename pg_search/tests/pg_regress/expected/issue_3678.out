@@ -57,7 +57,7 @@ CREATE INDEX nhfs_big_bm25_idx ON nhfs_big USING paradedb (
     ((company_name)::pdb.ngram('3', '6')),
     profile_id,
     group_id
-) WITH (key_field = id)
+)
 WHERE (deleted_at IS NULL);
 RESET client_min_messages;
 ANALYZE nhfs_big;

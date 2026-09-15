@@ -33,15 +33,14 @@ use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-use crate::postgres::var::{
-    VarContext, find_json_path, find_one_var, find_var_relation, find_vars,
-};
+use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
@@ -135,7 +134,7 @@ impl ReturnedNodePointer {
             .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
             .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
         let lhs = original_lhs.unwrap_or(lhs);
-        let Some(base_var) = find_vars(lhs).into_iter().next() else {
+        let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
             return Self::unsupported();
         };
         // Retain the field binding while EXISTS conversion or subquery pushdown can
@@ -456,21 +455,7 @@ impl SearchPredicate {
 }
 
 pub(crate) unsafe fn expr_contains_search_predicate(node: *mut pg_sys::Node) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        if SearchPredicate::from_node(node).is_some() {
-            return true;
-        }
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    walker(node, std::ptr::null_mut())
+    node.any(|node| SearchPredicate::from_node(node).is_some())
 }
 
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
@@ -518,41 +503,41 @@ pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
 /// The left-type check prevents false positives against built-in operators with the same
 /// name (e.g., PostgreSQL's geometric ## or tsvector @@@).
 pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
-    unsafe {
-        let opertup = pg_sys::SearchSysCache1(
+    let opertup = unsafe {
+        pg_sys::SearchSysCache1(
             pg_sys::SysCacheIdentifier::OPEROID as _,
             opno.into_datum().unwrap(),
-        );
+        )
+    };
 
-        if opertup.is_null() {
-            return false;
+    if opertup.is_null() {
+        return false;
+    }
+
+    let operform = unsafe { &*(pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator) };
+    let opername = pgrx::name_data_to_str(&operform.oprname);
+    let oprleft = operform.oprleft;
+
+    let is_ours = match opername {
+        // These have anyelement as the left type.
+        // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
+        "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+
+        // Proximity operators use proximityclause (a ParadeDB type) on the left.
+        // No built-in collision risk, but we still verify it's not a geometric ##
+        // by confirming the left type is NOT a built-in geometric type.
+        "##" | "##>" => {
+            oprleft != pg_sys::POINTOID
+                && oprleft != pg_sys::LINEOID
+                && oprleft != pg_sys::LSEGOID
+                && oprleft != pg_sys::BOXOID
         }
 
-        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
-        let opername = pgrx::name_data_to_str(&(*operform).oprname);
-        let oprleft = (*operform).oprleft;
+        _ => false,
+    };
 
-        let is_ours = match opername {
-            // These have anyelement as the left type.
-            // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
-            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
-
-            // Proximity operators use proximityclause (a ParadeDB type) on the left.
-            // No built-in collision risk, but we still verify it's not a geometric ##
-            // by confirming the left type is NOT a built-in geometric type.
-            "##" | "##>" => {
-                oprleft != pg_sys::POINTOID
-                    && oprleft != pg_sys::LINEOID
-                    && oprleft != pg_sys::LSEGOID
-                    && oprleft != pg_sys::BOXOID
-            }
-
-            _ => false,
-        };
-
-        pg_sys::ReleaseSysCache(opertup);
-        is_ours
-    }
+    unsafe { pg_sys::ReleaseSysCache(opertup) };
+    is_ours
 }
 
 /// Look up the name of a PostgreSQL operator by its OID. Returns "unknown" if the OID
@@ -805,8 +790,8 @@ pub unsafe fn tantivy_field_name_from_node(
     });
 
     let (field_node, context) = if targetlist.is_some() {
-        let node = pg_sys::copyObjectImpl(node.cast()).cast();
-        for var in find_vars(node) {
+        let node = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
+        for var in node.collect_nodes::<pg_sys::Var>() {
             let (relation, attribute, _) = find_var_relation(var, root);
             if relation != heaprelid {
                 return None;
@@ -854,7 +839,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     if !type_can_be_tokenized((*var).vartype) {
         return false;
     }
-    let vars = find_vars(expr.cast());
+    let vars = expr.collect_nodes::<pg_sys::Var>();
     if vars.len() != 1 {
         return false;
     }
@@ -1054,7 +1039,8 @@ pub unsafe fn field_name_from_node(
                         let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                         let typmod = unsafe { pg_sys::exprTypmod(indexed_expression.cast()) };
                         try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
-                            find_one_var(indexed_expression.cast())
+                            indexed_expression
+                                .find_single_node::<pg_sys::Var>()
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })
                     } else {
@@ -1124,7 +1110,7 @@ impl SearchLhs {
                     .expect("first index attribute should have an expression")
             };
             let expression = pg_sys::copyObjectImpl(expression.cast()).cast::<pg_sys::Node>();
-            for var in find_vars(expression) {
+            for var in expression.collect_nodes::<pg_sys::Var>() {
                 (*var).varno = (*base_var).varno;
                 (*var).varnosyn = (*base_var).varnosyn;
                 (*var).varlevelsup = (*base_var).varlevelsup;
@@ -1522,7 +1508,7 @@ unsafe fn find_node_relation(
     pg_sys::AttrNumber,
     Option<PgList<pg_sys::TargetEntry>>,
 ) {
-    let var = find_vars(node);
+    let var = node.collect_nodes::<pg_sys::Var>();
     if var.is_empty() {
         panic!("cannot determine relation: node does not contain a Var");
     }

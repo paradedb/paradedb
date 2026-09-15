@@ -52,7 +52,6 @@ CREATE INDEX documents_search ON documents USING paradedb (
     parents,
     content
 ) WITH (
-    key_field = 'id',
     text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
@@ -63,7 +62,6 @@ CREATE INDEX files_search ON files USING paradedb (
     file_path,
     file_size
 ) WITH (
-    key_field = 'id',
     text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
 );
 
@@ -73,7 +71,6 @@ CREATE INDEX pages_search ON pages USING paradedb (
     content,
     page_number
 ) WITH (
-    key_field = 'id',
     text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
     numeric_fields = '{"page_number": {"fast": true}}'
 );

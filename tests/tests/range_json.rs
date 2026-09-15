@@ -39,8 +39,7 @@ fn integer_range(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON public.test_table
-    USING paradedb (id, value_int4, value_int8)
-    WITH (key_field = 'id');
+    USING paradedb (id, value_int4, value_int8);
     "#
     .execute(&mut conn);
 
@@ -90,8 +89,7 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     .execute(&mut conn);
     r#"
     CREATE INDEX test_index ON public.test_table
-    USING paradedb (id, value_int4, value_int8)
-    WITH (key_field = 'id');
+    USING paradedb (id, value_int4, value_int8);
     "#
     .execute(&mut conn);
 
@@ -179,8 +177,7 @@ fn float_range(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON public.test_table
-    USING paradedb (id, value_float4, value_float8, value_numeric)
-    WITH (key_field = 'id');
+    USING paradedb (id, value_float4, value_float8, value_numeric);
     "#
     .execute(&mut conn);
 
@@ -247,8 +244,7 @@ fn datetime_range(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON public.test_table
-    USING paradedb (id, value_date, value_timestamp, value_timestamptz)
-    WITH (key_field = 'id');
+    USING paradedb (id, value_date, value_timestamp, value_timestamptz);
     "#
     .execute(&mut conn);
 

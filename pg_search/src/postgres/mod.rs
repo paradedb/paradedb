@@ -19,6 +19,7 @@ use std::alloc::Layout;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::ops::Range;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
@@ -41,6 +42,7 @@ mod delete;
 pub mod deparse;
 pub mod insert;
 mod merge;
+pub(crate) mod node;
 pub mod options;
 mod ps_status;
 mod range;
@@ -49,6 +51,7 @@ pub mod shared_threshold;
 mod vacuum;
 mod validate;
 
+pub mod buffile;
 mod build_parallel;
 mod build_partitioning;
 pub mod catalog;
@@ -714,6 +717,10 @@ pub struct ParallelScanState {
     /// Condition variable for waiting on the bitmap build.
     bitmap_cv: ConditionVariable,
 
+    /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
+    /// once, after joining the workers, and folds it into its own sticky flag.
+    spilled: AtomicU32,
+
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
@@ -776,6 +783,7 @@ impl ParallelScanState {
         self.bitmap_build_state = BitmapBuildState::NotBuilt;
         self.bitmap_area_handle = 0;
         self.bitmap_table = 0;
+        self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,
@@ -783,6 +791,14 @@ impl ParallelScanState {
             args.with_aggregates,
             args.with_segment_info,
         );
+    }
+
+    pub fn mark_spilled(&self) {
+        self.spilled.store(1, Ordering::Relaxed);
+    }
+
+    pub fn did_spill(&self) -> bool {
+        self.spilled.load(Ordering::Relaxed) != 0
     }
 
     pub fn publish_bitmap_handle(&mut self, handle: Option<SharedBitmapHandle>) {

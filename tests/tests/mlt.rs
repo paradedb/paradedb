@@ -48,8 +48,7 @@ fn mlt_datetime_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    r#"CREATE INDEX test_more_like_this_index on more_like_this_dt USING paradedb (id, created_at)
-    WITH (key_field='id');
+    r#"CREATE INDEX test_more_like_this_index on more_like_this_dt USING paradedb (id, created_at);
     "#
     .execute(&mut conn);
 
@@ -79,8 +78,7 @@ fn mlt_mixed_case_key_field_issue5065(mut conn: PgConnection) {
         ('ddd eee fff'),
         ('aaa aaa');
     CREATE INDEX mlt_mixed_case_idx ON mlt_mixed_case
-        USING paradedb ("Id", "Content")
-        WITH (key_field = 'Id');
+        USING paradedb ("Id", "Content");
     "#
     .execute(&mut conn);
 

@@ -30,11 +30,11 @@ INSERT INTO products (name, description, category, brand, price, rating, in_stoc
 CREATE INDEX products_idx ON products
 USING paradedb (id, name, description, category, brand, price, rating, in_stock, sales)
 WITH (
-    key_field='id',
     text_fields='{
         "name": {},
         "description": {},
-        "brand": {"fast": true}
+        "brand": {"fast": true},
+        "category": {"fast": true}
     }',
     numeric_fields='{
         "price": {"fast": true},
@@ -889,7 +889,7 @@ LIMIT 3;
 
 -- =============================================================================
 -- QUERY CONTEXT FEATURE FLAG TESTS
--- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- Testing HAVING_SUPPORT, and SUBQUERY_SUPPORT feature flags
 -- =============================================================================
 
 -- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
@@ -916,7 +916,7 @@ HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
 
--- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+-- Test 27: Window function with JOIN (This is supported. Joinscan should engage)
 
 -- Create a second table for JOIN testing
 CREATE TABLE product_categories (
@@ -929,8 +929,7 @@ INSERT INTO product_categories VALUES
 ('Laptops', 'Portable computing devices', 1);
 
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority)
-WITH (key_field='name');
+USING paradedb ((name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), priority);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -945,7 +944,7 @@ WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -955,6 +954,93 @@ FROM products p
 JOIN product_categories pc ON p.category = pc.name
 WHERE p.description @@@ 'laptop'
 ORDER BY p.rating DESC
+LIMIT 3;
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
+-- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
+-- aggregates and computes them in its DataFusion plan (issue #5637).
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+); 
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Test 27c: Window aggregates embedded in target list expressions:
+-- constant arithmetic, a cast, a source column mixed with a window value,
+-- and two window functions in one entry.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop'
+ORDER BY r.score DESC
 LIMIT 3;
 
 -- Test 28: Window function in subquery
@@ -1314,5 +1400,6 @@ ORDER BY rating DESC
 LIMIT 5;
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

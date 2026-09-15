@@ -219,6 +219,22 @@ impl fmt::Display for KdTree {
     }
 }
 
+struct DimValueDisplay<'a> {
+    dim: &'a FieldName,
+    value: &'a PdbOwnedValue,
+}
+
+impl fmt::Display for DimValueDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.dim.is_ctid()
+            && let PdbOwnedValue::U64(v) = self.value
+        {
+            return write!(f, "{}", crate::postgres::utils::format_u64_ctid(*v));
+        }
+        write!(f, "{}", self.value.plain_display())
+    }
+}
+
 struct BoundsListing<'a>(&'a KdTree);
 
 impl fmt::Display for BoundsListing<'_> {
@@ -234,11 +250,15 @@ impl fmt::Display for BoundsListing<'_> {
                 .expect("partitions are numbered contiguously");
             for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
                 match lower {
-                    Bound::Included(v) => write!(f, " {dim}=[{}", v.plain_display())?,
+                    Bound::Included(ref v) => {
+                        write!(f, " {dim}=[{}", DimValueDisplay { dim, value: v })?
+                    }
                     _ => write!(f, " {dim}=[..")?,
                 }
                 match upper {
-                    Bound::Excluded(v) => write!(f, ", {})", v.plain_display())?,
+                    Bound::Excluded(ref v) => {
+                        write!(f, ", {})", DimValueDisplay { dim, value: v })?
+                    }
                     _ => write!(f, ", ..)")?,
                 }
             }
@@ -258,9 +278,9 @@ fn fmt_node(node: &KdNode, tree: &KdTree, depth: usize, f: &mut fmt::Formatter<'
         } => {
             let indent = "  ".repeat(depth);
             let dim = &tree.dims[*dim];
-            write!(f, "\n{indent}{dim} < {}", value.plain_display())?;
+            write!(f, "\n{indent}{dim} < {}", DimValueDisplay { dim, value })?;
             fmt_node(left, tree, depth + 1, f)?;
-            write!(f, "\n{indent}{dim} >= {}", value.plain_display())?;
+            write!(f, "\n{indent}{dim} >= {}", DimValueDisplay { dim, value })?;
             fmt_node(right, tree, depth + 1, f)
         }
     }
@@ -771,6 +791,27 @@ mod tests {
             tree.bounds_listing().to_string(),
             "partition 0: day=[.., 2000-02-20T00:00:00+00:00) key=[.., ..)\n\
              partition 1: day=[2000-02-20T00:00:00+00:00, ..) key=[.., ..)"
+        );
+
+        // Ctids render as (block, offset) tuples.
+        let sample: Vec<Point> = (0..100)
+            .map(|i| {
+                let block = i as u64;
+                let offset = 1u64;
+                vec![PdbOwnedValue::U64((block << 16) | offset)]
+            })
+            .collect();
+        let tree = KdTree::from_sample(dims(&["ctid"]), sample, 2);
+        assert_eq!(
+            tree.bounds_listing().to_string(),
+            "partition 0: ctid=[.., (50,1))\n\
+             partition 1: ctid=[(50,1), ..)"
+        );
+        assert_eq!(
+            tree.to_string(),
+            "partition_by=[ctid], partitions=2\n\
+             ctid < (50,1) -> 0\n\
+             ctid >= (50,1) -> 1"
         );
     }
 }

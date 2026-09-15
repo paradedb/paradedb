@@ -69,8 +69,7 @@ FROM generate_series(1, 1000) i;
 
 -- Make the BM25 index
 CREATE INDEX lp_items_bm25 ON lp_items
-USING paradedb (id, category_id, tenant_id, status, fk, description)
-WITH (key_field = 'id');
+USING paradedb (id, category_id, tenant_id, status, fk, description);
 
 -- Active statuses for lateral/partitioned tests
 INSERT INTO lp_active_statuses VALUES ('active');
@@ -179,9 +178,9 @@ SELECT i,
 FROM generate_series(1, 1000) i;
 
 CREATE INDEX lp_items_part_1_bm25 ON lp_items_part_1
-USING paradedb (id, status, description) WITH (key_field = 'id');
+USING paradedb (id, status, description);
 CREATE INDEX lp_items_part_2_bm25 ON lp_items_part_2
-USING paradedb (id, status, description) WITH (key_field = 'id');
+USING paradedb (id, status, description);
 
 ANALYZE;
 

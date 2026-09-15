@@ -525,22 +525,45 @@ async fn generated_partition_by_inner_join(database: Db) {
           AND partitioned_right.id @@@ pdb.all()
         ORDER BY partitioned_left.id, partitioned_right.id
         LIMIT 50";
+    // A range on the partition key is what segment pruning reads; it must keep the same shape.
+    let ranged_pg_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        WHERE partitioned_left.quantity BETWEEN 20 AND 60
+        ORDER BY partitioned_left.id, partitioned_right.id
+        LIMIT 50";
+    let ranged_bm25_query = "
+        SELECT partitioned_left.id, partitioned_right.id
+        FROM partitioned_left
+        JOIN partitioned_right USING (quantity)
+        WHERE partitioned_left.quantity BETWEEN 20 AND 60
+          AND partitioned_left.id @@@ pdb.all()
+          AND partitioned_right.id @@@ pdb.all()
+        ORDER BY partitioned_left.id, partitioned_right.id
+        LIMIT 50";
+    let fixed_queries = [
+        (fixed_pg_query, fixed_bm25_query),
+        (ranged_pg_query, ranged_bm25_query),
+    ];
 
-    compare_text_plan_retrying(
-        fixed_pg_query,
-        fixed_bm25_query,
-        &fixed_gucs,
-        &pool,
-        &setup_sql,
-        &[
-            "DistributedExec",
-            "HashJoinExec: mode=Partitioned",
-            "partition=quantity[",
-        ],
-        &["NetworkShuffleExec"],
-    )
-    .into_test_result()
-    .unwrap();
+    for (pg_query, bm25_query) in fixed_queries {
+        compare_text_plan_retrying(
+            pg_query,
+            bm25_query,
+            &fixed_gucs,
+            &pool,
+            &setup_sql,
+            &[
+                "DistributedExec",
+                "HashJoinExec: mode=Partitioned",
+                "partition=quantity[",
+            ],
+            &["NetworkShuffleExec"],
+        )
+        .into_test_result()
+        .unwrap();
+    }
 
     // Each table receives row 502 after CREATE INDEX and after the randomized deletes, so it lives
     // in a segment with no stamped bounds. Retaining the pair proves the value-range filter still
@@ -580,24 +603,30 @@ async fn generated_partition_by_inner_join(database: Db) {
     )
     .into_test_result()
     .unwrap();
-    compare_outcome_retrying(
-        fixed_pg_query,
-        fixed_bm25_query,
-        &fixed_gucs,
-        &pool,
-        &setup_sql,
-        |query, _, conn| query.fetch_result::<(i64, i64)>(conn),
-    )
-    .into_test_result()
-    .unwrap();
+    for (pg_query, bm25_query) in fixed_queries {
+        compare_outcome_retrying(
+            pg_query,
+            bm25_query,
+            &fixed_gucs,
+            &pool,
+            &setup_sql,
+            |query, _, conn| query.fetch_result::<(i64, i64)>(conn),
+        )
+        .into_test_result()
+        .unwrap();
+    }
 
     let table_names = tables_and_sizes
         .iter()
         .map(|(name, _)| *name)
         .collect::<Vec<_>>();
     let filter_columns = columns_named(vec!["name", "color", "age", "quantity"]);
+    let partition_columns = columns_named(vec!["quantity"]);
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(table_names.clone(), &filter_columns),
+        // Comparisons, BETWEEN, and IN lists on the partition key: the predicate shapes that
+        // segment pruning reads, so a pruned segment shows up as a result mismatch.
+        key_expr in arb_numeric_expr(table_names.clone(), &partition_columns),
         descending in any::<bool>(),
         limit in 1..=50usize,
         offset in 0..=10usize,
@@ -605,11 +634,12 @@ async fn generated_partition_by_inner_join(database: Db) {
     )| {
         let gucs = partition_by_join_gucs(gucs);
         let direction = if descending { "DESC" } else { "ASC" };
+        let key_where = key_expr.to_sql();
         let pg_query = format!(
             "SELECT partitioned_left.id, partitioned_right.id
              FROM partitioned_left
              JOIN partitioned_right USING (quantity)
-             WHERE {}
+             WHERE ({}) AND ({key_where})
              ORDER BY partitioned_left.id {direction}, partitioned_right.id {direction}
              LIMIT {limit} OFFSET {offset}",
             where_expr.to_sql(" = "),
@@ -618,7 +648,7 @@ async fn generated_partition_by_inner_join(database: Db) {
             "SELECT partitioned_left.id, partitioned_right.id
              FROM partitioned_left
              JOIN partitioned_right USING (quantity)
-             WHERE ({})
+             WHERE ({}) AND ({key_where})
                AND partitioned_left.id @@@ pdb.all()
                AND partitioned_right.id @@@ pdb.all()
              ORDER BY partitioned_left.id {direction}, partitioned_right.id {direction}

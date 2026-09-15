@@ -310,6 +310,30 @@ fn test_group_by_date_function(mut conn: PgConnection) {
         "DataFusion TopK must retain the NULL date group"
     );
 
+    // ORDER BY the transformed DATE group key should resolve the post-aggregate
+    // UDF output and apply the limit inside DataFusion.
+    let group_key_topk_query = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt \
+                                FROM date_pushdown_events \
+                                WHERE id @@@ pdb.all() \
+                                GROUP BY DATE(created_at) \
+                                ORDER BY DATE(created_at) DESC \
+                                LIMIT 2";
+
+    let plan_lines: Vec<String> =
+        format!("EXPLAIN (COSTS OFF, VERBOSE) {group_key_topk_query}").fetch_scalar(&mut conn);
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.contains("SortExec: TopK(fetch=2)"),
+        "expected transformed group-key TopK in DataFusion plan:\n{plan}"
+    );
+
+    let group_key_topk_rows = group_key_topk_query.fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        group_key_topk_rows,
+        vec![(None, 2), (Some(date!(2024 - 01 - 05)), 1)],
+        "DATE group-key TopK must preserve descending NULL ordering"
+    );
+
     // Parity: the same query planned by Postgres must give the same answer.
     "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
     assert_uses_custom_scan(&mut conn, false, query);
@@ -324,6 +348,13 @@ fn test_group_by_date_function(mut conn: PgConnection) {
     assert_eq!(
         topk_rows, topk_fallback,
         "DataFusion TopK must match Postgres exactly"
+    );
+
+    let group_key_topk_fallback =
+        format!("{group_key_topk_query} -- fallback").fetch::<(Option<Date>, i64)>(&mut conn);
+    assert_eq!(
+        group_key_topk_rows, group_key_topk_fallback,
+        "DATE group-key TopK must match Postgres exactly"
     );
 }
 

@@ -7,4 +7,6 @@ See GitHub release: [v0.25.6](https://github.com/paradedb/paradedb/releases/tag/
 
 ## Other Changes 🛠️
 
+- Fixed range-partitioned scans omitting rows whose partition key is NULL, which dropped
+  preserved rows from range-partitioned `LEFT JOIN`s.
 - Automated release note and SQL upgrade script assembly to improve the reliability of extension schema changes.

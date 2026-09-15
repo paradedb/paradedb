@@ -220,7 +220,7 @@ fn max_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwn
 
 /// Whether `total_cmp` ranks these two values by value. The derived order it falls back to
 /// ranks by variant, so a bound of one kind against a statistic of another says nothing.
-fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
+pub(crate) fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
     use PdbOwnedValue::*;
     matches!(
         (a, b),
@@ -299,7 +299,7 @@ impl EmpiricalStats {
 
     /// Datetimes of a recent index sit in an `I64` column; a query bound on that field is a
     /// `Date`, so lift the statistics the way `FFType` lifts the column's values.
-    fn into_dates(self) -> Option<Self> {
+    pub(crate) fn into_dates(self) -> Option<Self> {
         let lift = |v: PdbOwnedValue| match v {
             PdbOwnedValue::I64(raw) => PostgresDateTime::try_from_raw(raw)
                 .ok()
@@ -315,6 +315,7 @@ impl EmpiricalStats {
 }
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
+#[derive(Debug)]
 pub(crate) struct SegmentStats {
     file: CompositeFile,
 }

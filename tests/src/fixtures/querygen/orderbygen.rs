@@ -20,6 +20,7 @@ use proptest::prelude::*;
 #[derive(Clone, Copy, Debug)]
 enum JoinScanOrderKind {
     Columns,
+    ColumnarText,
     IndexedExpression,
     QuantityIsNull,
     QuantityIsNotNull,
@@ -31,6 +32,9 @@ fn order_parts(kind: JoinScanOrderKind, tables: &[String]) -> Vec<String> {
     let first_table = tables.first().expect("a join must use at least one table");
     let mut parts = match kind {
         JoinScanOrderKind::Columns => Vec::new(),
+        // A plain columnar text key is the only one an outer join's null-extended side keeps
+        // deferred on every Postgres version, so it is what reaches the segmented Top-K there.
+        JoinScanOrderKind::ColumnarText => vec![format!("{first_table}.name")],
         JoinScanOrderKind::IndexedExpression => {
             vec![format!("upper({first_table}.category)")]
         }
@@ -63,10 +67,10 @@ fn order_parts(kind: JoinScanOrderKind, tables: &[String]) -> Vec<String> {
 
 /// Generate deterministic JoinScan `ORDER BY` parts that are valid for the selected projection.
 ///
-/// When restricted, only projected ID columns are used. Unrestricted cases preserve all six
-/// combinations (regular columns, indexed expression, and nullable predicates). When DISTINCT
-/// is active, the caller projects any expression present in `ORDER BY` to satisfy PostgreSQL's
-/// projection requirements.
+/// When restricted, only projected ID columns are used. Unrestricted cases cover regular
+/// columns, a columnar text column, an indexed expression, and the nullable predicates. The
+/// caller always projects the first table's `name`, and when DISTINCT is active it projects any
+/// expression present in `ORDER BY`, to satisfy PostgreSQL's projection requirements.
 pub fn arb_joinscan_order_parts(
     tables: Vec<String>,
     restrict_to_projected_columns: bool,
@@ -76,6 +80,7 @@ pub fn arb_joinscan_order_parts(
     } else {
         prop_oneof![
             Just(JoinScanOrderKind::Columns),
+            Just(JoinScanOrderKind::ColumnarText),
             Just(JoinScanOrderKind::IndexedExpression),
             Just(JoinScanOrderKind::QuantityIsNull),
             Just(JoinScanOrderKind::QuantityIsNotNull),

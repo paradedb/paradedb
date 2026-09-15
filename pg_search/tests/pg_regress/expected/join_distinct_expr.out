@@ -386,7 +386,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     TantivyDecodeExec: decode=[name]
                              :       TantivyFetchExec: fetch=[name]
                              :         VisibilityFilterExec: tables=[s, p]
@@ -963,7 +963,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     TantivyDecodeExec: decode=[name]
                              :       TantivyFetchExec: fetch=[name]
                              :         VisibilityFilterExec: tables=[s, p]

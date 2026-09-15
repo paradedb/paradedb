@@ -73,10 +73,10 @@ DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", t
            :   GlobalLimitExec: skip=0, fetch=5
            :     VisibilityFilterExec: tables=[i]
            :       TantivyFetchExec: fetch=[ctid_0]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
+           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_ab8e5591(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
            :           CooperativeExec
            :             PgSearchScan: table=i, segments=1, query={"with_index":{"query":"all"}}
-           :           ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_927de030(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
+           :           ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_ab8e5591(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_ab8e5591(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
            :             CooperativeExec
            :               PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
 (16 rows)

@@ -468,7 +468,7 @@ impl<'a> PredicateTranslator<'a> {
         let pg_expr_string = CStr::from_ptr(node_str).to_string_lossy().into_owned();
         pg_sys::pfree(node_str.cast());
 
-        let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), &pg_expr_string);
+        let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), node);
         let udf = PgExprUdf::new(udf_name, pg_expr_string, input_vars, result_type_oid);
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(

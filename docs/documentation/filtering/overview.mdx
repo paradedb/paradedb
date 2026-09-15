@@ -19,3 +19,13 @@ This is the right path for most built-in scalar column types, including numbers,
 The exception to this rule is when the filter depends on a specialized data type or search method that is not natively supported by the ParadeDB index.
 Common examples include `ltree` path queries or PostGIS spatial filters.
 See [External Indexes](/documentation/filtering/external-indexes) for examples and limitations.
+
+## Segment Pruning with Partitioning (Beta)
+
+<Warning>
+  `partition_by` is currently a Beta feature under active development.
+</Warning>
+
+For tables where queries frequently filter on specific high-selectivity columns (such as tenant IDs or creation timestamps), indexing with [`partition_by`](/documentation/indexing/partition-by) enables segment pruning. ParadeDB evaluates query filters against per-segment metadata bounds, skipping non-matching segments entirely before opening posting lists or columnar storage.
+
+See the [Partitioning Guide](/documentation/indexing/partition-by) for details on column selection and pruning behavior.

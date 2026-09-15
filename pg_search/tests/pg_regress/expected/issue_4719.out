@@ -99,11 +99,11 @@ LIMIT 26;
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@0)]
            :         VisibilityFilterExec: tables=[p]
            :           TantivyFetchExec: fetch=[ctid_0]
-           :             HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)], null_aware
-           :               CooperativeExec
-           :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+           :             HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@2)], null_aware
            :               CooperativeExec
            :                 PgSearchScan: table=x, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
            :         CooperativeExec
            :           PgSearchScan: table=c, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (23 rows)

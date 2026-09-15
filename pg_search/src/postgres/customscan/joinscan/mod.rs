@@ -156,6 +156,7 @@ use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::schema::SearchFieldType;
 use crate::postgres::node::NodeExt;
@@ -534,7 +535,7 @@ pub unsafe fn try_create_subplan_join_paths(
 /// lexicographically sortable bytes (`NumericBytes`) and lower to Arrow
 /// `DataType::BinaryView`.
 ///
-/// Two hazards follow from this:
+/// Three hazards follow from this:
 /// - Two `Numeric64` sides with *different* scales: the generated
 ///   `HashJoinExec` compares raw, unscaled Int64 values directly, so
 ///   logically-equal decimals at different scales never compare equal.
@@ -546,27 +547,39 @@ pub unsafe fn try_create_subplan_join_paths(
 ///   ("Cannot infer common argument type for comparison operation Int64
 ///   = BinaryView") - a hard query-time error instead of a graceful
 ///   fallback to Postgres's native join.
+/// - Two `NumericBytes` sides whose indexes encode negative values
+///   differently (see `planning::numeric_bytes_layouts_differ`): the
+///   byte encoding itself is incompatible, regardless of declared scale.
 ///
-/// So this only returns `true` when both sides are specifically
-/// `Numeric64` with the same scale. Any `NumericBytes` side declines
-/// unconditionally: byte-layout compatibility between two `NumericBytes`
-/// sides is a separate, existing concern (see `numeric_bytes_layouts_differ`
-/// in `planning.rs`, which only guards negative-value encoding, not
-/// declared scale) and out of scope for this check. This mirrors the
-/// codebase's existing convention of rejecting unbounded-NUMERIC pushdown
-/// at planning time rather than letting the DataFusion plan bake fail
-/// (see `numeric_window_field` in `scan_state.rs`).
+/// So this returns `true` in exactly two cases: both sides `Numeric64`
+/// with an equal scale, or both sides `NumericBytes` with a compatible
+/// byte layout (declared scale doesn't matter here - `NumericBytes` uses
+/// `decimal-bytes`'s arbitrary-precision, lexicographically sortable
+/// encoding, which is value-based rather than scaled-integer, so two
+/// `NumericBytes` sides with *different* declared scales are still safe
+/// to compare byte-for-byte as long as their layout matches). Anything
+/// else - a `Numeric64`/`NumericBytes` mismatch, incompatible
+/// `NumericBytes` layouts, or an unresolvable scale - declines. This
+/// mirrors the codebase's existing convention of rejecting
+/// unbounded-NUMERIC pushdown at planning time rather than letting the
+/// DataFusion plan bake fail (see `numeric_window_field` in
+/// `scan_state.rs`).
 fn numeric_pushdown_safe(
-    outer_ft: Option<&SearchFieldType>,
-    inner_ft: Option<&SearchFieldType>,
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
 ) -> bool {
-    matches!(
-        (outer_ft, inner_ft),
+    match (outer_ff.field_type(), inner_ff.field_type()) {
         (
             Some(SearchFieldType::Numeric64(_, outer_scale)),
             Some(SearchFieldType::Numeric64(_, inner_scale)),
-        ) if outer_scale == inner_scale
-    )
+        ) => outer_scale == inner_scale,
+        (Some(SearchFieldType::NumericBytes(..)), Some(SearchFieldType::NumericBytes(..))) => {
+            !planning::numeric_bytes_layouts_differ(outer_ff, outer_ir, inner_ff, inner_ir)
+        }
+        _ => false,
+    }
 }
 
 impl JoinScan {
@@ -738,11 +751,15 @@ impl JoinScan {
                     );
                     match (&outer_ff, &inner_ff) {
                         (Some(outer_ff), Some(inner_ff)) => {
-                            let outer_ft = outer_ff.field_type();
-                            let inner_ft = inner_ff.field_type();
-                            let either_numeric = outer_ft.is_some_and(|ft| ft.is_numeric())
-                                || inner_ft.is_some_and(|ft| ft.is_numeric());
-                            if either_numeric && !numeric_pushdown_safe(outer_ft, inner_ft) {
+                            let either_numeric = outer_ff
+                                .field_type()
+                                .is_some_and(|ft| ft.is_numeric())
+                                || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                            if either_numeric
+                                && !numeric_pushdown_safe(
+                                    outer_ff, &outer_ir, inner_ff, &inner_ir,
+                                )
+                            {
                                 return Err(JoinDeclineReason::new(
                                     "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
                                 ));

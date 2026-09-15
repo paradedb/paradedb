@@ -2663,9 +2663,24 @@ unsafe fn detect_join_aggregate_topk(
         .iter()
         .position(|gc| gc.output_index == pos)
     {
-        // The sort expression must be a simple Var (group column reference).
-        if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
-            return None;
+        let gc = &targetlist.group_columns[gc_idx];
+        match gc.transform {
+            GroupingTransform::Identity => {
+                // The sort expression must be a simple Var (group column reference).
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+                    return None;
+                }
+            }
+            GroupingTransform::TimestampToDate => {
+                if (*sort_expr).type_ != pg_sys::NodeTag::T_FuncExpr {
+                    return None;
+                }
+
+                let func_expr = sort_expr.cast::<pg_sys::FuncExpr>();
+                if (*func_expr).funcid.to_u32() != pg_sys::F_DATE_TIMESTAMP {
+                    return None;
+                }
+            }
         }
 
         // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering

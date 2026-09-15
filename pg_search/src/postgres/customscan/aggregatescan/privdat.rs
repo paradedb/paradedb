@@ -17,7 +17,10 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    GroupingTransform, JoinAggregateTargetList,
+};
+use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DATE_UDF_NAME;
 use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
@@ -107,11 +110,14 @@ pub enum TopKSortTarget {
 }
 
 impl TopKSortTarget {
-    /// Resolve the DataFusion column name for the sort target.
+    /// Resolve the DataFusion column reference for the sort target.
     ///
     /// Aggregate targets use the `agg_{idx}` alias assigned during aggregate
-    /// expression building. Group column targets resolve to `{table_alias}.{field}`
-    /// via the join plan's source metadata.
+    /// expression building.
+    /// Group targets first resolve their underlying qualified
+    /// source column through the join plan. An identity transform keeps that name.
+    /// A timestamp-to-date transform instead uses the UDF output schema name,
+    /// quoted so DataFusion treats it as one field.
     pub fn resolve_sort_col_name(
         &self,
         targetlist: &JoinAggregateTargetList,
@@ -127,7 +133,14 @@ impl TopKSortTarget {
                 } else {
                     format!("unknown_plan_position_{}", gc.plan_position)
                 };
-                format!("{}.{}", alias, gc.field_name)
+
+                let column_name = format!("{}.{}", alias, gc.field_name);
+                match gc.transform {
+                    GroupingTransform::Identity => column_name,
+                    GroupingTransform::TimestampToDate => {
+                        format!(r#""{TIMESTAMP_TO_DATE_UDF_NAME}({column_name})""#)
+                    }
+                }
             }
         }
     }

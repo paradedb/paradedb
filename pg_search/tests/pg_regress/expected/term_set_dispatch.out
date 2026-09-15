@@ -101,7 +101,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_unique.id
@@ -144,7 +144,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":5}}}]}}, metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5, output_bytes=120.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5]
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5, output_bytes=120.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_unique.id
@@ -187,7 +187,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":6}}}]}}, metrics=[output_rows=6, output_bytes=96.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=6]
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=6, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_unique.id
@@ -233,7 +233,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":50}}}]}}, metrics=[output_rows=50, output_bytes=800.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5.00 K, output_bytes=117.2 KB, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5.00 K]
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=5.00 K, output_bytes=117.2 KB, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=5.00 K, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_multi.id
@@ -281,7 +281,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.92 K, output_bytes=115.3 KB, output_batches=2, rows_pruned=5.08 K, rows_scanned=10.00 K]
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.92 K, output_bytes=115.3 KB, output_batches=2, rows_pruned=5.08 K, rows_scanned=10.00 K, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_multi.id
@@ -330,7 +330,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=100, output_bytes=2.3 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=100]
+     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=100, output_bytes=2.3 KB, output_batches=1, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=100, segments_pruned_dynamic_range=0]
 (15 rows)
 
 SELECT ts_outer.id, ts_sorted.id
@@ -379,7 +379,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=4]
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, rows_pruned=0, rows_scanned=4, segments_pruned_dynamic_range=0]
 (15 rows)
 
 RESET paradedb.term_set_bitset_max_density_unique;
@@ -410,7 +410,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":20}}}]}}, metrics=[output_rows=20, output_bytes=320.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20]
+     :             PgSearchScan: table=ts_unique, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=20, output_bytes=480.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=20, segments_pruned_dynamic_range=0]
 (15 rows)
 
 RESET paradedb.term_set_bitset_max_density_unique;
@@ -442,7 +442,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":40}}}]}}, metrics=[output_rows=40, output_bytes=640.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=2, rows_pruned=6.00 K, rows_scanned=10.00 K]
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4.00 K, output_bytes=93.8 KB, output_batches=2, rows_pruned=6.00 K, rows_scanned=10.00 K, segments_pruned_dynamic_range=0]
 (15 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
@@ -474,7 +474,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=8.19 K, output_bytes=192.0 KB, output_batches=2, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=1.81 K, rows_scanned=10.00 K]
+     :             PgSearchScan: table=ts_multi, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=8.19 K, output_bytes=192.0 KB, output_batches=2, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=1.81 K, rows_scanned=10.00 K, segments_pruned_dynamic_range=0]
 (15 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
@@ -507,7 +507,7 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"doc","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":4}}}]}}, metrics=[output_rows=4, output_bytes=64.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4]
+     :             PgSearchScan: table=ts_sorted, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=4, output_bytes=96.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=4, segments_pruned_dynamic_range=0]
 (15 rows)
 
 RESET paradedb.term_set_gallop_enabled;

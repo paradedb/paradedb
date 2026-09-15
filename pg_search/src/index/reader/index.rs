@@ -35,6 +35,7 @@ use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -238,6 +239,14 @@ pub struct MultiSegmentSearchResults {
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
+    /// Execution-time dynamic proofs are replaced as Top-K thresholds evolve. Deferred scorers
+    /// consult this set before opening; an already-active segment is dropped at the next batch
+    /// boundary if it has become impossible.
+    runtime_rejected: HashSet<SegmentId>,
+    /// Segments this scan would have opened but dropped because of `runtime_rejected`. Counted
+    /// where the skip happens so statically pruned segments and segments owned by other parallel
+    /// workers are never reported.
+    runtime_skipped: usize,
 }
 
 /// A score which sorts in ascending direction.
@@ -263,13 +272,24 @@ impl Iterator for TopKSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
-        if self.iterators.is_empty()
-            && let Some(ref mut lazy) = self.lazy_iterators
-            && let Some(next_iter) = lazy.next()
-        {
-            self.iterators.push(next_iter);
+        loop {
+            if let Some(current) = self.iterators.last()
+                && self.runtime_rejected.contains(&current.segment_id())
+            {
+                self.iterators.pop();
+                self.runtime_skipped += 1;
+                continue;
+            }
+            if !self.iterators.is_empty() {
+                return self.iterators.last_mut();
+            }
+            let next = self.lazy_iterators.as_mut()?.next()?;
+            if self.runtime_rejected.contains(&next.segment_id()) {
+                self.runtime_skipped += 1;
+                continue;
+            }
+            self.iterators.push(next);
         }
-        self.iterators.last_mut()
     }
 
     pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
@@ -278,6 +298,19 @@ impl MultiSegmentSearchResults {
 
     pub fn segment_ids(&self) -> Vec<SegmentId> {
         self.iterators.iter().map(|it| it.segment_id()).collect()
+    }
+
+    pub(crate) fn replace_runtime_rejected(&mut self, rejected: HashSet<SegmentId>) {
+        assert!(
+            rejected.is_superset(&self.runtime_rejected),
+            "execution-time segment rejection requires a monotonic dynamic-filter source"
+        );
+        self.runtime_rejected = rejected;
+    }
+
+    /// Segments skipped because of runtime rejection since the last call.
+    pub(crate) fn take_runtime_skipped(&mut self) -> usize {
+        std::mem::take(&mut self.runtime_skipped)
     }
 
     /// Returns the total estimated number of documents across all segments in these results.
@@ -313,6 +346,8 @@ impl MultiSegmentSearchResults {
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            runtime_rejected: Default::default(),
+            runtime_skipped: 0,
         }
     }
 
@@ -391,6 +426,13 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
+/// One inverted-index pushdown and the canonical values used to prove its segment rejections.
+pub(crate) struct PushedDownInList {
+    pub(crate) query: Box<dyn Query>,
+    pub(crate) field_name: String,
+    pub(crate) canonical_terms: Vec<PdbOwnedValue>,
+}
+
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
 /// AggregateScan sources without requiring executor state. Clones are cheap handles to the same
 /// backend-local components, keeping the captured segment set and its pins alive together.
@@ -452,9 +494,9 @@ pub(crate) mod test_support {
         with_mutable: bool,
     ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
         let mut sql = format!(
-            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL, title text NOT NULL);
              CREATE INDEX {name}_idx ON {name}
-             USING paradedb (id, (title::pdb.unicode_words('columnar=true')))
+             USING paradedb (id, bucket, (title::pdb.unicode_words('columnar=true')))
              WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
@@ -466,14 +508,14 @@ pub(crate) mod test_support {
                 "quiet river"
             };
             sql.push_str(&format!(
-                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+                "INSERT INTO {name} SELECT g, g * 10, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
             ));
         }
         if with_mutable {
             let lo = immutable_batches * 10 + 1;
             sql.push_str(&format!(
                 "SET paradedb.global_mutable_segment_rows = 10000;
-                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                 INSERT INTO {name} SELECT g, g * 10, 'mutable ' || g FROM generate_series({lo}, {}) g;",
                 lo + 4
             ));
         }
@@ -1031,6 +1073,8 @@ impl SearchIndexReader {
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            runtime_rejected: Default::default(),
+            runtime_skipped: 0,
         }
     }
 
@@ -1118,6 +1162,8 @@ impl SearchIndexReader {
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
+            runtime_rejected: Default::default(),
+            runtime_skipped: 0,
         }
     }
 
@@ -2151,10 +2197,62 @@ mod tests {
     use crate::index::stats::SegmentStats;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
+    use crate::scan::pre_filter::{
+        DynamicSegmentPruner, dynamically_rejected_segments, try_dynamic_filter_pushdown,
+    };
     use crate::scan::range_partitioning::RangePartitioning;
+    use datafusion::arrow::array::Float64Array;
+    use datafusion::arrow::datatypes::{DataType, Field as ArrowField, Schema as ArrowSchema};
+    use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::common::ScalarValue;
+    use datafusion::logical_expr::Operator;
+    use datafusion::physical_expr::PhysicalExpr;
+    use datafusion::physical_expr::expressions::{
+        BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, Literal, in_list, is_null, lit,
+    };
     use pgrx::prelude::*;
     use std::ops::Bound;
     use tantivy::index::SegmentComponent;
+
+    fn column(name: &str, index: usize) -> Arc<dyn PhysicalExpr> {
+        Arc::new(Column::new(name, index))
+    }
+
+    fn int_literal(value: i64) -> Arc<dyn PhysicalExpr> {
+        lit(ScalarValue::Int64(Some(value)))
+    }
+
+    fn binary(
+        left: Arc<dyn PhysicalExpr>,
+        op: Operator,
+        right: Arc<dyn PhysicalExpr>,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(BinaryExpr::new(left, op, right))
+    }
+
+    fn dynamic_i64_bound(
+        op: Operator,
+        value: i64,
+    ) -> (Arc<DynamicFilterPhysicalExpr>, Arc<dyn PhysicalExpr>) {
+        let column = column("id", 0);
+        let expression = binary(Arc::clone(&column), op, int_literal(value));
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(vec![column], expression));
+        (Arc::clone(&dynamic), dynamic as Arc<dyn PhysicalExpr>)
+    }
+
+    fn dynamic_schema() -> Arc<ArrowSchema> {
+        Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("id", DataType::Int64, false),
+            ArrowField::new("bucket", DataType::Int64, false),
+        ]))
+    }
+
+    fn rejected_segments(
+        reader: &SearchIndexReader,
+        filters: &[Arc<dyn PhysicalExpr>],
+    ) -> HashSet<SegmentId> {
+        dynamically_rejected_segments(reader, filters, &dynamic_schema())
+    }
 
     fn range_query(field: &str, lower: i64, upper: i64) -> SearchQueryInput {
         SearchQueryInput::FieldedQuery {
@@ -3147,5 +3245,343 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
+    }
+
+    #[pg_test]
+    fn evolving_dynamic_range_skips_deferred_and_active_scorers() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+
+        let (index_rel, _heap) = segmented_index_fixture("evolving_range_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let (dynamic, dynamic_expr) = dynamic_i64_bound(Operator::Gt, 0);
+
+        assert!(rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]).is_empty());
+        dynamic
+            .update(binary(column("id", 0), Operator::Gt, int_literal(25)))
+            .unwrap();
+        let rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]);
+        assert_eq!(rejected.len(), 2, "1..20 cannot satisfy id > 25");
+
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        let mut remaining = reader.search();
+        remaining.replace_runtime_rejected(rejected);
+        assert_eq!(
+            remaining.by_ref().count(),
+            20,
+            "only the two possible segments open"
+        );
+        assert_eq!(
+            SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "dynamically rejected deferred scorers must never open"
+        );
+        assert_eq!(
+            remaining.take_runtime_skipped(),
+            2,
+            "each rejected deferred segment is skipped exactly once"
+        );
+        assert_eq!(remaining.take_runtime_skipped(), 0);
+
+        // Activate one scorer, then choose a direction whose tighter bound rejects that segment.
+        // This models a Top-K cutoff becoming selective between scanner batches.
+        let mut active = reader.search();
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        let (_, first_address) = active.next().expect("one segment scorer becomes active");
+        let active_segment = reader
+            .searcher()
+            .segment_reader(first_address.segment_ord)
+            .segment_id();
+        let gt_rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]);
+        let (op, broad, tight) = if gt_rejected.contains(&active_segment) {
+            (Operator::Gt, 0, 25)
+        } else {
+            (Operator::Lt, 100, 15)
+        };
+        dynamic
+            .update(binary(column("id", 0), op, int_literal(broad)))
+            .unwrap();
+        assert!(rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]).is_empty());
+        dynamic
+            .update(binary(column("id", 0), op, int_literal(tight)))
+            .unwrap();
+        let rejected = rejected_segments(&reader, &[dynamic_expr]);
+        assert_eq!(rejected.len(), 2);
+        assert!(
+            rejected.contains(&active_segment),
+            "the tightened bound must make the active segment impossible"
+        );
+        active.replace_runtime_rejected(rejected);
+        assert_eq!(active.by_ref().count(), 20);
+        assert_eq!(
+            SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
+            3,
+            "one active scorer plus two possible segments; the fourth never opens"
+        );
+        assert_eq!(
+            active.take_runtime_skipped(),
+            2,
+            "the abandoned active segment and the never-opened segment are both skipped"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_in_list_proofs_reject_segments() {
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_in_list_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let membership = |negated: bool| {
+            let id = column("id", 0);
+            let members = vec![int_literal(15), int_literal(16)];
+            Arc::new(DynamicFilterPhysicalExpr::new(
+                vec![Arc::clone(&id)],
+                in_list(id, members, &negated, &dynamic_schema()).unwrap(),
+            )) as Arc<dyn PhysicalExpr>
+        };
+
+        let rejected = rejected_segments(&reader, &[membership(false)]);
+        assert_eq!(
+            rejected.len(),
+            3,
+            "only the segment holding 11..20 can contain 15 or 16"
+        );
+        assert!(
+            rejected_segments(&reader, &[membership(true)]).is_empty(),
+            "NOT IN can only reject a segment whose every row equals a member"
+        );
+
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        assert_eq!(results.by_ref().count(), 10);
+        assert_eq!(results.take_runtime_skipped(), 3);
+    }
+
+    #[pg_test]
+    fn skipped_in_list_pushdown_keeps_its_dynamic_proof() {
+        let (index_rel, _heap) = segmented_index_fixture("skip_in_list_pruning_test", 4, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+
+        // A dense membership set confined to the segment holding 11..20.
+        let id = column("id", 0);
+        let members = (11..=20).map(int_literal).collect();
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&id)],
+            in_list(id, members, &false, &dynamic_schema()).unwrap(),
+        ));
+        let mut filters = vec![Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>];
+        let mut pruner = DynamicSegmentPruner::new(&filters);
+
+        // Density 10/10 exceeds any gate at zero, so the pushdown takes `Skip`.
+        Spi::run("SET paradedb.term_set_bitset_max_density_multi = 0").unwrap();
+        let pushed = try_dynamic_filter_pushdown(&mut reader, &mut filters, None);
+        Spi::run("RESET paradedb.term_set_bitset_max_density_multi").unwrap();
+        assert!(!pushed, "Skip must not install a Tantivy term set");
+        assert_eq!(
+            reader.segment_pruning_estimate().candidate_segments,
+            4,
+            "the reader's static proof is untouched by a skipped pushdown"
+        );
+        assert!(
+            filters[0].downcast_ref::<Literal>().is_some(),
+            "the skipped membership predicate is rewritten out of the row filter"
+        );
+
+        let rejected = pruner
+            .refresh(&reader, &dynamic_schema())
+            .expect("the original source still publishes the membership predicate");
+        assert_eq!(
+            rejected.len(),
+            3,
+            "every segment outside 11..20 is impossible"
+        );
+
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        assert_eq!(results.by_ref().count(), 10);
+        assert_eq!(results.take_runtime_skipped(), 3);
+    }
+
+    #[pg_test]
+    fn dynamic_multi_field_proofs_share_the_execution_snapshot() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_segment_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let (_, id_filter) = dynamic_i64_bound(Operator::Gt, 20);
+        let bucket = column("bucket", 1);
+        let bucket_filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&bucket)],
+            binary(bucket, Operator::Lt, int_literal(300)),
+        )) as Arc<dyn PhysicalExpr>;
+        let rejected = rejected_segments(&reader, &[id_filter, bucket_filter]);
+        assert_eq!(rejected.len(), 3);
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(results.count(), 10);
+        assert_eq!(SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        let bucket = column("bucket", 1);
+        let null_filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&bucket)],
+            is_null(bucket).unwrap(),
+        )) as Arc<dyn PhysicalExpr>;
+        assert_eq!(
+            rejected_segments(&reader, &[null_filter]).len(),
+            4,
+            "IS NULL rejects every segment whose statistics prove bucket is always present"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_numeric64_comparisons_use_storage_scale() {
+        Spi::run(
+            "CREATE TABLE dynamic_numeric64_pruning_test (
+                 id bigint PRIMARY KEY,
+                 price numeric(10, 2) NOT NULL
+             );
+             CREATE INDEX dynamic_numeric64_pruning_test_idx
+             ON dynamic_numeric64_pruning_test
+             USING paradedb (id, price)
+             WITH (target_segment_count = 8,
+                   background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_numeric64_pruning_test
+             SELECT g, g::numeric(10, 2) FROM generate_series(10, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'dynamic_numeric64_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let price_field = reader.schema().search_field("price").unwrap();
+        assert!(
+            matches!(price_field.field_type(), SearchFieldType::Numeric64(_, 2)),
+            "the fixture must exercise the scaled Numeric64 representation"
+        );
+        let snapshot = reader.segment_stats_snapshot();
+        assert!(snapshot.len() > 0, "the fixture must contain a segment");
+        assert!(
+            (0..snapshot.len()).all(|idx| snapshot.empirical(idx, &price_field).is_some()),
+            "the fixture must have readable Numeric64 statistics so missing stats cannot make the test pass"
+        );
+
+        // DataFusion exposes Numeric64 fast fields as storage-scaled Int64 values. For scale 2,
+        // 15.00 arrives as 1500. Treating 1500 as a logical value would scale it again to 150000
+        // and incorrectly reject the segment containing prices 10.00 through 20.00.
+        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "price",
+            DataType::Int64,
+            false,
+        )]));
+        let price_above = |storage_value: i64| {
+            let price = column("price", 0);
+            Arc::new(DynamicFilterPhysicalExpr::new(
+                vec![Arc::clone(&price)],
+                binary(price, Operator::Gt, int_literal(storage_value)),
+            )) as Arc<dyn PhysicalExpr>
+        };
+
+        let rejected = dynamically_rejected_segments(&reader, &[price_above(1500)], &schema);
+        assert!(
+            rejected.is_empty(),
+            "a storage-scaled bound inside the segment's range must not reject it"
+        );
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        assert_eq!(results.count(), 11);
+
+        let rejected = dynamically_rejected_segments(&reader, &[price_above(2000)], &schema);
+        assert_eq!(
+            rejected.len(),
+            snapshot.len(),
+            "a storage-scaled bound above the segment's maximum rejects it"
+        );
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        assert_eq!(results.count(), 0);
+    }
+
+    #[pg_test]
+    fn dynamic_cast_comparisons_fail_open() {
+        Spi::run(
+            "CREATE TABLE dynamic_cast_pruning_test (
+                 id bigint PRIMARY KEY,
+                 f double precision NOT NULL
+             );
+             CREATE INDEX dynamic_cast_pruning_test_idx
+             ON dynamic_cast_pruning_test
+             USING paradedb (id, f)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_cast_pruning_test VALUES (1, 2.1);
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'dynamic_cast_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let search_field = reader.schema().search_field("f").unwrap();
+        assert!(
+            matches!(search_field.field_type(), SearchFieldType::F64(_)),
+            "the fixture must exercise raw floating-point statistics"
+        );
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 1, "the fixture must contain one segment");
+        assert!(
+            snapshot.empirical(0, &search_field).is_some(),
+            "the fixture must have readable statistics so missing stats cannot make the test pass"
+        );
+
+        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "f",
+            DataType::Float64,
+            false,
+        )]));
+        let f = column("f", 0);
+        let cast =
+            Arc::new(CastExpr::new(Arc::clone(&f), DataType::Int64, None)) as Arc<dyn PhysicalExpr>;
+        let predicate = binary(cast, Operator::Eq, int_literal(2));
+
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![2.1]))],
+        )
+        .unwrap();
+        let evaluated = predicate.evaluate(&batch).unwrap().into_array(1).unwrap();
+        let evaluated = evaluated
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+            .unwrap();
+        assert!(
+            evaluated.value(0),
+            "the authoritative DataFusion predicate must match 2.1 after casting to BIGINT"
+        );
+
+        let dynamic =
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![f], predicate)) as Arc<dyn PhysicalExpr>;
+        let rejected = dynamically_rejected_segments(&reader, &[dynamic], &schema);
+        assert!(
+            rejected.is_empty(),
+            "a casted comparison must not reject a segment using raw-column statistics"
+        );
+
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected);
+        assert_eq!(
+            results.count(),
+            1,
+            "failing open must retain the matching row"
+        );
     }
 }

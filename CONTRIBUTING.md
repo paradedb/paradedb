@@ -71,6 +71,10 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
        Multiple dependencies can be comma-separated: `-- depends-on: 1234, 5678`.
 
      - **Backport Constraints:** A fragment declaring `-- depends-on: <PR>` cannot be backported to a stable branch unless that dependency PR is already present on the branch.
+     - **Local Linting & Preview:**
+       - Run `cargo pgrx migrate check --package pg_search` (or `./scripts/release.sh lint-fragments`) to validate DAG syntax, object references, and missing dependencies locally.
+       - Run `cargo pgrx migrate info --package pg_search` to preview the ordered migration plan and target version.
+     - **Testing Migrations Locally:** Running `cargo pgrx install --package pg_search` (or `./scripts/pg_search_run.sh`) automatically mounts unreleased fragments ephemerally into your active Postgres installation without modifying the Git working tree. The control file and base schema are automatically synchronized so that both fresh `CREATE EXTENSION` and in-place `ALTER EXTENSION ... UPDATE;` work immediately on existing development databases.
 
 7. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 8. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.

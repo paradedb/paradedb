@@ -5129,9 +5129,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d7e6f85d841cd9c01092ad3b9d60fc778bf54dc6174bbd24126250659af7d91"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "bitflags 2.13.1",
  "bitvec",
@@ -5150,9 +5149,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81cd392ab2e05995ebecf15bd562d7eb666a1ced11b3e39ef910212d6b67f2a9"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "bindgen",
  "cc",
@@ -5169,9 +5167,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aefe3297831869ac1e3fc62045a0181cd9f3ba3e3ad3ed56b9d89ae899170581"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -5181,9 +5178,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41dd7c6196fcd41f76240f721b6373dc9c080489c87194e3ffb8f924a8fef4e0"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "cargo_toml",
  "codepage",
@@ -5201,9 +5197,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8f2ee0cc6c14ebd3b91aa7d4576b45dc87945e905a53343ef50e2509e928c94"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "cee-scape",
  "libc",
@@ -5215,9 +5210,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48447cd6f7e60929d14ca24d3507c357d16a531dff896f9be921b59c03022759"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "convert_case",
  "eyre",
@@ -5231,9 +5225,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf2bd839c188294cff06e8f0e4267f2d6e9fbdce634c05bffb970b55e6682f58"
+version = "0.19.3-paradedb.1"
+source = "git+https://github.com/paradedb/pgrx.git?branch=stuhood.migration-fragments#5b38cc2c0054d6b0aca30d1d1b903dcb05332a99"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -7334,7 +7327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

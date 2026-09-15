@@ -116,8 +116,9 @@ runs:
       run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
     - name: Install the pgrx version for ParadeDB
-      shell: bash
-      run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
+      uses: ./.github/actions/install-cargo-pgrx
+      with:
+        version: ${{ steps.pgrx.outputs.version }}
 
     - name: Initialize pgrx Environment for ParadeDB
       shell: bash

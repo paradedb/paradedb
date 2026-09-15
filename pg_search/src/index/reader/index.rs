@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -25,12 +25,13 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
+use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -52,7 +53,7 @@ use tantivy::collector::sort_key::{
     SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
-use tantivy::index::{Index, Order, SegmentId};
+use tantivy::index::{Index, Order, Segment, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
@@ -362,6 +363,8 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
+    /// Statistics of the exact segment set this reader's Searcher sees, opened lazily.
+    segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -408,6 +411,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
+            segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
@@ -439,8 +443,9 @@ pub(crate) mod test_support {
         with_mutable: bool,
     ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
         let mut sql = format!(
-            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
-             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL, title text NOT NULL);
+             CREATE INDEX {name}_idx ON {name}
+             USING paradedb (id, bucket, (title::pdb.unicode_words('columnar=true')))
              WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
@@ -452,14 +457,14 @@ pub(crate) mod test_support {
                 "quiet river"
             };
             sql.push_str(&format!(
-                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+                "INSERT INTO {name} SELECT g, g * 10, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
             ));
         }
         if with_mutable {
             let lo = immutable_batches * 10 + 1;
             sql.push_str(&format!(
                 "SET paradedb.global_mutable_segment_rows = 10000;
-                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                 INSERT INTO {name} SELECT g, g * 10, 'mutable ' || g FROM generate_series({lo}, {}) g;",
                 lo + 4
             ));
         }
@@ -484,6 +489,10 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
+    /// Lightweight handles for the exact visible segment generation. Statistics are read
+    /// through these handles, never through `SegmentReader`, so consulting them does not require
+    /// opening a segment's searchable components.
+    segments: Vec<Segment>,
     reader: IndexReader,
     searcher: Searcher,
     total_segment_count: usize,
@@ -514,16 +523,27 @@ impl SearchIndexReader {
             setup_tokenizers(index_relation, &mut index)?;
         }
 
+        let segments = index.searchable_segments()?;
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
+        debug_assert_eq!(
+            segments.iter().map(Segment::id).collect::<Vec<_>>(),
+            searcher
+                .segment_readers()
+                .iter()
+                .map(SegmentReader::segment_id)
+                .collect::<Vec<_>>(),
+            "lightweight segment handles and SegmentReaders must name the same frozen manifest",
+        );
 
         Ok(IndexComponents {
             cleanup_lock,
             directory,
             index,
+            segments,
             reader,
             searcher,
             total_segment_count,
@@ -626,6 +646,7 @@ impl SearchIndexReader {
             cleanup_lock,
             directory,
             index,
+            segments,
             reader,
             searcher,
             total_segment_count,
@@ -635,6 +656,7 @@ impl SearchIndexReader {
 
         let index_created_by_version = index_relation.created_by_version();
         let need_scores = need_scores || search_query_input.need_scores();
+        let segment_stats_snapshot = SegmentStatsSnapshot::capture_segments(&directory, &segments);
         let query = {
             search_query_input
                 .into_tantivy_query(
@@ -668,6 +690,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
+            segment_stats_snapshot,
             need_scores,
             total_segment_count,
             total_docs,
@@ -865,6 +888,10 @@ impl SearchIndexReader {
     /// Returns the total number of docs in the index, according to the MVCC directory.
     pub fn total_docs(&self) -> u64 {
         self.total_docs
+    }
+
+    pub(crate) fn segment_stats_snapshot(&self) -> Arc<SegmentStatsSnapshot> {
+        Arc::clone(&self.segment_stats_snapshot)
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -1647,7 +1674,7 @@ impl SearchIndexReader {
         // collects them. Asking per field would re-walk the tree once per column, and a proximity
         // clause would re-expand its regex every time.
         let (any_field, _) = self.schema.fields().next()?;
-        let mut terms: HashSet<Term> = HashSet::new();
+        let mut terms: HashSet<Term> = HashSet::default();
         self.query.query_terms(
             any_field,
             segment_reader,
@@ -2037,7 +2064,18 @@ impl ErasedFeatures {
 mod tests {
     use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
+    use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use pgrx::prelude::*;
+    use std::ops::Bound;
+
+    fn open_snapshot_reader(
+        index_rel: &PgSearchRelation,
+        query: SearchQueryInput,
+        need_scores: bool,
+    ) -> SearchIndexReader {
+        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
+    }
 
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
     /// still install the index's tokenizers: the `Parse` query below matches rows only if
@@ -2115,6 +2153,69 @@ mod tests {
                 .get("test_probe")
                 .is_some(),
             "the fast-field manager must be shared the same way"
+        );
+    }
+
+    #[pg_test]
+    fn unreadable_stats_fail_open() {
+        let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let id = probe.schema().search_field("id").unwrap();
+        // No fixture row has an id in this range, so readable statistics rule every segment out.
+        let (lower, upper) = (
+            Bound::Included(PdbOwnedValue::I64(100)),
+            Bound::Included(PdbOwnedValue::I64(200)),
+        );
+        let snapshot = probe.segment_stats_snapshot();
+        assert!(
+            (0..snapshot.segment_ids().len())
+                .all(|idx| !snapshot.may_intersect_partition(idx, &id, &lower, &upper, false)),
+            "the fixture must have readable statistics so missing stats cannot make the test pass"
+        );
+        let segment = snapshot.segment_ids().next().unwrap();
+        for failure in [InjectedStatsFailure::Open, InjectedStatsFailure::Read] {
+            let _failure = inject_stats_failure(segment, failure);
+            let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+            let snapshot = reader.segment_stats_snapshot();
+            let idx = snapshot.segment_ids().position(|id| id == segment).unwrap();
+            assert!(
+                snapshot.may_intersect_partition(idx, &id, &lower, &upper, false),
+                "a segment without readable statistics may hold any partition"
+            );
+        }
+    }
+
+    #[pg_test]
+    fn stats_are_opened_only_when_read() {
+        let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
+
+        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        assert_eq!(reader.search().count(), 40);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "opening and searching a reader must not open any .stats component"
+        );
+
+        let snapshot = reader.segment_stats_snapshot();
+        let id = reader.schema().search_field("id").unwrap();
+        let (lower, upper) = (Bound::Unbounded, Bound::Unbounded);
+        let consult = || {
+            (0..snapshot.segment_ids().len())
+                .all(|idx| snapshot.may_intersect_partition(idx, &id, &lower, &upper, false))
+        };
+        assert!(consult());
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            4,
+            "the first read of each immutable segment opens its .stats exactly once"
+        );
+        assert!(consult());
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            4,
+            "later reads reuse the opened component"
         );
     }
 }

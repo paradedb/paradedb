@@ -32,9 +32,10 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb::Query;
 
-/// Defines the logical boundary split points for scanning the index. When provided,
-/// the DataFusion execution plan uses these points to statically partition the scan
-/// into sequential chunks, rather than relying on dynamic segment checkout.
+/// Defines value-space split points for scanning the index. When provided, the DataFusion
+/// execution plan turns them into exhaustive query ranges and maps the current execution segments
+/// to those ranges, rather than retaining planner-time segment ownership or relying on dynamic
+/// segment checkout.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RangePartitioning {
     /// The index field used to define the boundaries.
@@ -59,7 +60,7 @@ impl RangePartitioning {
     /// rule reads it from here.
     pub const NULL_PARTITION: usize = 0;
 
-    /// Returns the static boundary constraint for the given partition as a single RangeQuery.
+    /// Returns the value-space constraint for the given partition as a single RangeQuery.
     ///
     /// **Consumer Caveats**:
     /// - A row whose partition field is NULL will be deterministically routed to

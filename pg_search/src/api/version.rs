@@ -98,8 +98,9 @@ pub const fn parse_version_component(s: &str) -> u16 {
     result
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+// These are ordinary Rust unit tests; a `pg_test` library build removes `#[test]` functions and
+// would otherwise leave the module's imports unused.
+#[cfg(test)]
 mod tests {
     use super::*;
 

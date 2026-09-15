@@ -153,13 +153,13 @@ use self::planning::{
 };
 use self::privdat::PrivateData;
 use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
-use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::schema::SearchFieldType;
 use crate::postgres::node::NodeExt;
+use crate::schema::SearchFieldType;
 
 use self::scan_state::{
     JoinScanState, build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -751,14 +751,11 @@ impl JoinScan {
                     );
                     match (&outer_ff, &inner_ff) {
                         (Some(outer_ff), Some(inner_ff)) => {
-                            let either_numeric = outer_ff
-                                .field_type()
-                                .is_some_and(|ft| ft.is_numeric())
-                                || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                            let either_numeric =
+                                outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
+                                    || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
                             if either_numeric
-                                && !numeric_pushdown_safe(
-                                    outer_ff, &outer_ir, inner_ff, &inner_ir,
-                                )
+                                && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
                             {
                                 return Err(JoinDeclineReason::new(
                                     "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",

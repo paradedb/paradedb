@@ -10,7 +10,7 @@ The primary use case for the all query is to force the query to be executed by t
 Because ParadeDB executes a query only when a ParadeDB operator is present in the query, the all query injects an operator into the query
 without changing the query's meaning.
 
-To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
+To use it, pass a column to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
 
 <CodeGroup>
 ```sql SQL

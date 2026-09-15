@@ -11,8 +11,7 @@ To enable, append `alpha_num_only=true` to the tokenizer's arguments.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('alpha_num_only=true')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('alpha_num_only=true')));
 ```
 
 To demonstrate this token filter, let's compare the output of the following two statements:

@@ -13,20 +13,17 @@ As of version 0.22.4, whitespace is removed by default. On earlier versions it i
 <CodeGroup>
 ```sql Chinese Lindera
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.lindera(chinese)))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.lindera(chinese)));
 ```
 
 ```sql Korean Lindera
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.lindera(korean)))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.lindera(korean)));
 ```
 
 ```sql Japanese Lindera
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.lindera(japanese)))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.lindera(japanese)));
 ```
 
 </CodeGroup>

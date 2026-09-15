@@ -23,7 +23,7 @@ CREATE INDEX search_idx ON products
 USING paradedb (
   id,
   (title::pdb.edge_ngram(1, 10))
-) WITH (key_field='id', search_tokenizer='unicode_words');
+) WITH (search_tokenizer='unicode_words');
 ```
 
 With this configuration:
@@ -51,7 +51,7 @@ INSERT INTO products (title) VALUES
 
 CREATE INDEX idx_products ON products USING paradedb
     (id, (title::pdb.edge_ngram(1, 10)))
-    WITH (key_field = 'id', search_tokenizer = 'unicode_words');
+    WITH (search_tokenizer = 'unicode_words');
 
 -- "sho" stays as one token → matches shoes, shorts, shoelaces
 SELECT id, title FROM products WHERE title ||| 'sho' ORDER BY id;

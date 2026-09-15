@@ -7,7 +7,7 @@ canonical: https://www.paradedb.com/docs/documentation/query-builder/compound/qu
 The parse query accepts a [Tantivy query string](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html).
 The intended use case is for accepting raw query strings provided by the end user.
 
-To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.parse('<query>')` to the right-hand side.
+To use it, pass a column to the left-hand side of `@@@` and `pdb.parse('<query>')` to the right-hand side.
 
 <CodeGroup>
 ```sql SQL

@@ -10,8 +10,7 @@ The following code block creates a ParadeDB index over several columns in the `m
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category)
-WITH (key_field='id');
+USING paradedb (id, description, category);
 ```
 
 ```ts Drizzle
@@ -35,7 +34,6 @@ with connection.schema_editor() as schema_editor:
                 "description": {},
                 "category": {},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -51,7 +49,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.description),
     indexing.ParadeDBField(MockItem.category),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -66,7 +63,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     description: {},
     category: {}
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -146,8 +142,7 @@ For instance, if a column contains multiple languages, the ICU tokenizer may be 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.icu), category)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.icu), category);
 ```
 
 ```ts Drizzle
@@ -176,7 +171,6 @@ with connection.schema_editor() as schema_editor:
                 "description": {"tokenizer": Tokenizer.icu()},
                 "category": {},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -195,7 +189,6 @@ idx = Index(
     ),
     indexing.ParadeDBField(MockItem.category),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -210,7 +203,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     description: { tokenizer: ParadeDB::Tokenizer.icu() },
     category: {}
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -230,8 +222,7 @@ including columns used for sorting, grouping, filtering, and aggregations.
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
+USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
 ```
 
 ```ts Drizzle
@@ -269,7 +260,6 @@ with connection.schema_editor() as schema_editor:
                 "metadata": {},
                 "weight_range": {},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -290,7 +280,6 @@ idx = Index(
     indexing.ParadeDBField(MockItem.metadata_),
     indexing.ParadeDBField(MockItem.weight_range),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -310,7 +299,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     metadata: {},
     weight_range: {}
   },
-  key_field: :id,
   name: :search_idx
 )
 ```
@@ -343,17 +331,6 @@ FROM pg_stat_progress_create_index;
 Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
 `blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
 
-## Choosing a Key Field
-
-In the `CREATE INDEX` statement above, note the mandatory `key_field` option.
-Every ParadeDB index needs a `key_field`, which is the name of a column that will function as a row’s unique identifier within the index.
-
-The `key_field` must:
-
-1. Have a `UNIQUE` constraint. Usually this means the table's `PRIMARY KEY`.
-2. Be the first column in the column list.
-3. Be untokenized, if it is a text field.
-
 ## Token Filters
 
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
@@ -362,8 +339,7 @@ For example, the following code block adds English stemming to `description`:
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('stemmer=english')), category)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('stemmer=english')), category);
 ```
 
 ```ts Drizzle
@@ -399,7 +375,6 @@ with connection.schema_editor() as schema_editor:
                 },
                 "category": {},
             },
-            key_field="id",
             name="search_idx",
         ),
     )
@@ -418,7 +393,6 @@ idx = Index(
     ),
     indexing.ParadeDBField(MockItem.category),
     postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
 )
 
 with engine.begin() as conn:
@@ -435,7 +409,6 @@ ActiveRecord::Base.connection.add_paradedb_index(
     },
     category: {}
   },
-  key_field: :id,
   name: :search_idx
 )
 ```

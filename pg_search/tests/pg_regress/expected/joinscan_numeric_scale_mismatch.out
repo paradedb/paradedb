@@ -23,18 +23,32 @@
 -- its native join executor, which compares NUMERIC values correctly
 -- regardless of scale or storage representation.
 --
--- Test 4 below covers a second variant of this bug found during code
--- review: an unbounded NUMERIC column (declared as plain `NUMERIC`,
--- with no precision/scale) has no statically known scale and is stored
--- as `SearchFieldType::NumericBytes` with `scale = None`. Pairing it
--- with a Numeric64 (`numeric(p,s)`, p <= 18) join key means comparing
--- an Int64 Arrow column against a BinaryView Arrow column. A guard that
--- only fires when *both* sides' scales resolve to `Some` (as an earlier
--- version of this fix did) skips this pairing entirely, and DataFusion
--- rejects the resulting Int64 = BinaryView comparison with a hard
--- "Cannot infer common argument type" error instead of falling back to
--- Postgres's native join. The fix instead declines whenever either side
--- is NUMERIC and the two scales aren't both known and equal.
+-- Tests 4 and 5 below cover two further variants of this bug found
+-- during code review, both rooted in the same fact: `numeric_scale()`
+-- alone doesn't determine whether two NUMERIC sides share an Arrow
+-- physical type. Precision <= 18 NUMERIC is `Numeric64` (Arrow Int64);
+-- precision > 18, or unbounded, NUMERIC is `NumericBytes` (Arrow
+-- BinaryView). Comparing an Int64 column against a BinaryView column is
+-- rejected outright by DataFusion's type coercion ("Cannot infer common
+-- argument type for comparison operation Int64 = BinaryView") - a hard
+-- query-time error instead of a graceful fallback to Postgres's native
+-- join.
+--
+-- Test 4: an unbounded NUMERIC column (plain `NUMERIC`, no
+-- precision/scale) has no statically known scale and is
+-- `NumericBytes(None)`. A guard that only fires when *both* sides'
+-- scales resolve to `Some` skips this pairing entirely (Numeric64
+-- `Some(scale)` vs NumericBytes `None`).
+--
+-- Test 5: a numeric(20,2) column (precision > 18) is
+-- `NumericBytes(Some(2))` - the *same scale number* as a numeric(10,2)
+-- Numeric64 column, but still a different Arrow physical type. A guard
+-- that compares scale numbers alone (rather than requiring both sides
+-- be specifically Numeric64) would incorrectly consider this pairing
+-- safe.
+--
+-- The fix declines whenever either side is NUMERIC and the two sides
+-- aren't both `Numeric64` with an equal scale.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
@@ -108,7 +122,7 @@ SELECT COUNT(*) AS joinscan_result FROM (
   ORDER BY i.id
   LIMIT 1000
 ) sub;
-WARNING:  JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched scale (tables: i, p)
+WARNING:  JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation (tables: i, p)
  joinscan_result 
 -----------------
                5
@@ -172,14 +186,55 @@ SELECT COUNT(*) AS unbounded_scale_result FROM (
   ORDER BY i.id
   LIMIT 1000
 ) sub;
-WARNING:  JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched scale (tables: i, p)
+WARNING:  JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation (tables: i, p)
  unbounded_scale_result 
 ------------------------
                       5
+(1 row)
+
+-- =====================================================================
+-- Test 5 — Numeric64 vs. NumericBytes with the SAME known scale.
+-- numeric(10,2) (precision <= 18) resolves to Numeric64(scale=2); a
+-- numeric(20,2) column (precision > 18) resolves to
+-- NumericBytes(Some(2)) - same scale number, but a different physical
+-- SearchFieldType (Int64 vs BinaryView Arrow types).
+--
+-- A guard that only compared *scale numbers* (an earlier version of
+-- this fix) would see scale=Some(2) on both sides, consider them
+-- equal, and admit the pushdown - which DataFusion then rejects with
+-- the same "Cannot infer common argument type for comparison operation
+-- Int64 = BinaryView" error as Test 4, since Numeric64 and NumericBytes
+-- never share an Arrow physical type regardless of declared scale.
+-- Post-fix: the pushdown is only admitted when both sides are
+-- specifically Numeric64 (not merely NUMERIC with matching scale), so
+-- this pairing declines and falls back to Postgres's native join.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_prices_bignumeric CASCADE;
+CREATE TABLE jsm_prices_bignumeric (
+    id  serial PRIMARY KEY,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_prices_bignumeric (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+CREATE INDEX jsm_prices_bignumeric_idx ON jsm_prices_bignumeric USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_prices_bignumeric;
+SELECT COUNT(*) AS numeric_bytes_samescale_result FROM (
+  SELECT i.id
+  FROM jsm_items i
+  JOIN jsm_prices_bignumeric p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+WARNING:  JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation (tables: i, p)
+ numeric_bytes_samescale_result 
+--------------------------------
+                              5
 (1 row)
 
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;
-DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded CASCADE;
+DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded, jsm_prices_bignumeric CASCADE;

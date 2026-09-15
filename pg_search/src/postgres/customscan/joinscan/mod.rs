@@ -157,6 +157,7 @@ use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::schema::SearchFieldType;
 use crate::postgres::node::NodeExt;
 
 use self::scan_state::{
@@ -523,6 +524,51 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 }
 
+/// Whether a NUMERIC join key pair is safe to push down into JoinScan's
+/// generated DataFusion plan.
+///
+/// NUMERIC fast fields with precision <= 18 are stored as scaled Int64
+/// values (`Numeric64`, e.g. numeric(10,2) 1.23 -> 123, numeric(10,3)
+/// 1.230 -> 1230) and lower to Arrow `DataType::Int64`. NUMERIC fields
+/// with precision > 18, or unbounded NUMERIC, are stored as
+/// lexicographically sortable bytes (`NumericBytes`) and lower to Arrow
+/// `DataType::BinaryView`.
+///
+/// Two hazards follow from this:
+/// - Two `Numeric64` sides with *different* scales: the generated
+///   `HashJoinExec` compares raw, unscaled Int64 values directly, so
+///   logically-equal decimals at different scales never compare equal.
+///   See <https://github.com/paradedb/paradedb/issues/6100>.
+/// - A `Numeric64` side paired with a `NumericBytes` side (even with an
+///   equal, known scale - e.g. numeric(10,2) vs numeric(20,2)): the two
+///   sides lower to different Arrow physical types (Int64 vs
+///   BinaryView), which DataFusion's type coercion rejects outright
+///   ("Cannot infer common argument type for comparison operation Int64
+///   = BinaryView") - a hard query-time error instead of a graceful
+///   fallback to Postgres's native join.
+///
+/// So this only returns `true` when both sides are specifically
+/// `Numeric64` with the same scale. Any `NumericBytes` side declines
+/// unconditionally: byte-layout compatibility between two `NumericBytes`
+/// sides is a separate, existing concern (see `numeric_bytes_layouts_differ`
+/// in `planning.rs`, which only guards negative-value encoding, not
+/// declared scale) and out of scope for this check. This mirrors the
+/// codebase's existing convention of rejecting unbounded-NUMERIC pushdown
+/// at planning time rather than letting the DataFusion plan bake fail
+/// (see `numeric_window_field` in `scan_state.rs`).
+fn numeric_pushdown_safe(
+    outer_ft: Option<&SearchFieldType>,
+    inner_ft: Option<&SearchFieldType>,
+) -> bool {
+    matches!(
+        (outer_ft, inner_ft),
+        (
+            Some(SearchFieldType::Numeric64(_, outer_scale)),
+            Some(SearchFieldType::Numeric64(_, inner_scale)),
+        ) if outer_scale == inner_scale
+    )
+}
+
 impl JoinScan {
     /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
@@ -692,51 +738,14 @@ impl JoinScan {
                     );
                     match (&outer_ff, &inner_ff) {
                         (Some(outer_ff), Some(inner_ff)) => {
-                            // NUMERIC fast fields are stored either as scaled Int64
-                            // values (Numeric64, e.g. numeric(10,2) 1.23 -> 123,
-                            // numeric(10,3) 1.230 -> 1230) or as lexicographically
-                            // sortable bytes (NumericBytes, used for precision > 18 or
-                            // unbounded NUMERIC). Comparing two Numeric64 sides with
-                            // different scales via the generated HashJoinExec's raw
-                            // Int64 equality silently produces wrong results:
-                            // logically-equal decimals at different scales never
-                            // compare equal. See: https://github.com/paradedb/paradedb/issues/6100
-                            //
-                            // A NUMERIC side whose scale can't be resolved (NumericBytes
-                            // with no declared scale, i.e. unbounded NUMERIC) is also
-                            // unsafe to admit here: pairing it with a Numeric64 side
-                            // means comparing an Int64 column against a BinaryView
-                            // column, which DataFusion's type coercion rejects outright
-                            // (a hard query-time error instead of a graceful fallback to
-                            // Postgres's native join). This mirrors the codebase's
-                            // existing convention of rejecting unbounded-NUMERIC
-                            // pushdown at planning time rather than letting the
-                            // DataFusion plan bake fail (see e.g.
-                            // `window_func::numeric_window_field`).
-                            //
-                            // So: only admit the pushdown when both sides are
-                            // non-numeric (nothing to check), or both resolve to the
-                            // *same* known scale. Any other combination - scales that
-                            // differ, or either side's scale unresolvable - declines
-                            // the pushdown and falls back to normal Postgres join
-                            // execution, which compares NUMERIC values correctly
-                            // regardless of scale or storage representation.
                             let outer_ft = outer_ff.field_type();
                             let inner_ft = inner_ff.field_type();
-                            let outer_is_numeric = outer_ft.is_some_and(|ft| ft.is_numeric());
-                            let inner_is_numeric = inner_ft.is_some_and(|ft| ft.is_numeric());
-                            if outer_is_numeric || inner_is_numeric {
-                                let outer_scale = outer_ft.and_then(|ft| ft.numeric_scale());
-                                let inner_scale = inner_ft.and_then(|ft| ft.numeric_scale());
-                                let scales_match = matches!(
-                                    (outer_scale, inner_scale),
-                                    (Some(o), Some(i)) if o == i
-                                );
-                                if !scales_match {
-                                    return Err(JoinDeclineReason::new(
-                                        "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched scale",
-                                    ));
-                                }
+                            let either_numeric = outer_ft.is_some_and(|ft| ft.is_numeric())
+                                || inner_ft.is_some_and(|ft| ft.is_numeric());
+                            if either_numeric && !numeric_pushdown_safe(outer_ft, inner_ft) {
+                                return Err(JoinDeclineReason::new(
+                                    "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
+                                ));
                             }
                         }
                         _ => {

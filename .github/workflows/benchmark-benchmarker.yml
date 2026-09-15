@@ -143,6 +143,9 @@ jobs:
 
       - name: Build benchmarker (k6 + loader)
         working-directory: benchmarker
+        env:
+          # xk6@latest can require a newer Go version than benchmarker's go.mod.
+          GOTOOLCHAIN: auto
         run: make
 
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)

@@ -532,7 +532,8 @@ impl BitmapPlanner {
 
     /// Estimated number of TIDs a bitmap of this selectivity holds.
     fn bitmap_rows(&self, selectivity: f64) -> f64 {
-        unsafe { selectivity * (*self.rel).tuples.max(1.0) }
+        let tuples = unsafe { (*self.rel).tuples };
+        selectivity * tuples.max(1.0)
     }
 
     /// Cost of producing the probe-able set, and the fraction of the heap it selects.
@@ -587,10 +588,8 @@ impl BitmapPlanner {
     /// A bitmap whose estimated TID count can't fit in `work_mem` degrades to lossy
     /// pages, which cannot reject anything.
     fn overflows_work_mem(&self, selectivity: f64) -> bool {
-        unsafe {
-            let work_mem_kb = *std::ptr::addr_of!(pg_sys::work_mem) as f64;
-            self.bitmap_rows(selectivity) * 8.0 > work_mem_kb * 1024.0
-        }
+        let work_mem_kb = unsafe { *std::ptr::addr_of!(pg_sys::work_mem) } as f64;
+        self.bitmap_rows(selectivity) * 8.0 > work_mem_kb * 1024.0
     }
 
     unsafe fn heap_path(&self, bitmapqual: *mut pg_sys::Path) -> *mut pg_sys::BitmapHeapPath {

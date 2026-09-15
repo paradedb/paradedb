@@ -61,7 +61,9 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
 };
-use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
+use crate::scan::physical_codec::{
+    PgSearchPhysicalExtensionCodec, deserialize_physical_plan_with_runtime,
+};
 use datafusion_distributed::shm::SetPlanFrame;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan
@@ -166,6 +168,7 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
+        .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
         .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
         .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
         .with_distributed_desired_task_count_handler(n_workers)

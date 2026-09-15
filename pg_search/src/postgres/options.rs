@@ -955,6 +955,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     target_segment_count: 0,
     background_layer_sizes_offset: 0,
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+    mutable_segment_bytes_offset: 0,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,

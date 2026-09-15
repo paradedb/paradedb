@@ -192,7 +192,7 @@ ORDER BY pr.promo_code;
            : AggregateExec: mode=Single, gby=[promo_code@1 as promo_code], aggr=[count(1) as agg_0, sum(p_0.price) as agg_1]
            :   NestedLoopJoinExec: join_type=Inner, filter=price@0 >= min_price@1 AND price@0 <= max_price@2, projection=[price@3, promo_code@0]
            :     CooperativeExec
-           :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
+           :       PgSearchScan: table=pr, segments=1, eager=[promo_code], visibility=eager, query="all"
            :     CooperativeExec
            :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
@@ -219,8 +219,8 @@ WHERE p.description @@@ 'laptop OR jacket OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -236,7 +236,7 @@ ORDER BY p.category;
            :       CooperativeExec
            :         PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT p.category, COUNT(*), AVG(p.price)
@@ -295,8 +295,8 @@ LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -311,7 +311,7 @@ ORDER BY p.category;
            :     CooperativeExec
            :       PgSearchScan: table=pr, segments=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT p.category, COUNT(*), COUNT(pr.id)
@@ -358,7 +358,7 @@ ORDER BY t.tier_name;
            :       CooperativeExec
            :         PgSearchScan: table=pr, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=t, segments=1, visibility=eager, query="all"
+           :       PgSearchScan: table=t, segments=1, eager=[tier_name], visibility=eager, query="all"
 (18 rows)
 
 SELECT t.tier_name, COUNT(*), SUM(p.price)

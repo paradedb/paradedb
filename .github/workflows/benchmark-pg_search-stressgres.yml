@@ -211,8 +211,11 @@ jobs:
           cache_save: "true"
           cache_on_failure: "true"
           extra_packages: >-
-            lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld
+            lsof fontconfig pkg-config libfontconfig1-dev libopenblas-dev lld gdb
             postgresql-${{ env.pg_version }}-pgvector
+
+      - name: Enable Crash Dumps
+        run: ./.github/scripts/setup_crashdumps.sh
 
       - name: Compile and Install pg_search
         run: >-
@@ -273,6 +276,12 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Print Crashdump Stacktrace
+        if: always()
+        env:
+          PG_VERSION: ${{ env.pg_version }}
+        run: ./.github/scripts/render_crashdump.sh
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

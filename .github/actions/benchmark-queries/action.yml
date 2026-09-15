@@ -94,6 +94,13 @@ runs:
       shell: bash
       run: cat ~/.pgrx/${{ env.pg_version }}.log
 
+    - name: Print Crashdump Stacktrace
+      if: always()
+      shell: bash
+      env:
+        PG_VERSION: ${{ env.pg_version }}
+      run: ./.github/scripts/render_crashdump.sh
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash

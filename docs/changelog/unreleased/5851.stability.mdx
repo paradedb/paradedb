@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Prepared statements no longer fail on the `&&&`, `|||` and `###` operators when the right-hand side is a `pdb.query` value (for example `pdb.fuzzy`) and Postgres switches to a generic plan.

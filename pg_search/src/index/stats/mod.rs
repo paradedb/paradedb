@@ -222,7 +222,7 @@ fn max_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwn
 
 /// Whether `total_cmp` ranks these two values by value. The derived order it falls back to
 /// ranks by variant, so a bound of one kind against a statistic of another says nothing.
-fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
+pub(crate) fn comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
     use PdbOwnedValue::*;
     matches!(
         (a, b),

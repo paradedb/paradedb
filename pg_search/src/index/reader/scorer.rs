@@ -20,6 +20,14 @@ use std::sync::{Arc, OnceLock};
 use tantivy::query::{PruningScorer, Query, Scorer, Weight};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
+#[cfg(any(test, feature = "pg_test"))]
+pub(crate) mod test_support {
+    use std::sync::atomic::AtomicUsize;
+
+    /// Number of deferred per-segment scorers that crossed the actual Tantivy open boundary.
+    pub(crate) static SCORERS_OPENED: AtomicUsize = AtomicUsize::new(0);
+}
+
 /// Lazily builds one [`Weight`] and shares it across a search's segments.
 ///
 /// A scored weight aggregates corpus-level term statistics: `doc_freq` walks every
@@ -82,6 +90,8 @@ impl DeferredScorer {
     #[inline(always)]
     fn scorer(&self) -> &dyn PruningScorer {
         self.scorer.get_or_init(|| {
+            #[cfg(any(test, feature = "pg_test"))]
+            test_support::SCORERS_OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.weight
                 .get()
                 .pruning_scorer(&self.segment_reader, 1.0, Score::MIN)

@@ -1552,42 +1552,22 @@ fn range_contains(
     ])))
 }
 
-/// Creates a range query for the given field and bounds.
-///
-/// # JSON Numeric Range Queries and Fast Fields
-///
-/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
-/// Fast field storage has important limitations for JSON numeric values:
-///
-/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
-/// - Column type is determined at index time based on values stored:
-///   - All integers that fit in i64 → I64 column
-///   - All non-negative integers, some exceeding i64::MAX → U64 column
-///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
-/// - When column is F64, integers > 2^53 lose precision (e.g., 9007199254740993 → 9007199254740992.0)
-///
-/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
-/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
-///
-/// References:
-/// - Fast field column type selection: tantivy columnar/src/columnar/writer/column_writers.rs
-fn range(
-    field: &FieldName,
-    schema: &SearchIndexSchema,
+/// Canonicalize range endpoints into the storage-level scalar representation used by `range`.
+/// Consumers such as segment pruning must call this helper rather than maintaining a second
+/// field-specific conversion path.
+pub(crate) fn canonicalize_range_bounds_for_field(
+    search_field: &SearchField,
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<Box<dyn TantivyQuery>> {
-    let search_field = schema
-        .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+) -> anyhow::Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>)> {
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies
     // Also handle string-encoded numeric values for JSON and other numeric fields
-    let (lower_bound, upper_bound) = match search_field_type {
+    let bounds = match search_field_type {
         SearchFieldType::Numeric64(_, scale) => {
             // Scale bounds for I64 fixed-point storage
             let lower = scale_numeric_bound(lower_bound, scale)?;
@@ -1628,6 +1608,42 @@ fn range(
             check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?
         }
     };
+    Ok(bounds)
+}
+
+/// Creates a range query for the given field and bounds.
+///
+/// # JSON Numeric Range Queries and Fast Fields
+///
+/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
+/// Fast field storage has important limitations for JSON numeric values:
+///
+/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
+/// - Column type is determined at index time based on values stored:
+///   - All integers that fit in i64 → I64 column
+///   - All non-negative integers, some exceeding i64::MAX → U64 column
+///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
+/// - When column is F64, integers > 2^53 lose precision (e.g. 9007199254740993 → 9007199254740992.0)
+///
+/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
+/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
+fn range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
+    let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
+        &search_field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )?;
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(

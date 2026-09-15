@@ -240,46 +240,33 @@ pub fn generated_queries_setup(
     tables: &[(&str, usize)],
     columns_def: &[Column],
 ) -> SetupScript {
-    generated_queries_setup_with_index_build(pool, tables, columns_def, IndexBuild::Incremental)
+    generated_queries_setup_with_partition_by(pool, tables, columns_def, None)
 }
 
 /// [`generated_queries_setup`] with every BM25 index built over its existing rows and physically
 /// partitioned by `field`. Building after the initial inserts is essential: an index created empty
-/// has no persisted partition bounds for range-partitioned execution to consume. One live row is
-/// then inserted after the index build to exercise the fail-open path for data not covered by those
-/// persisted bounds.
+/// records no split points for range-partitioned execution to consume. One live row is then
+/// inserted after the build so a segment without stamped bounds is present too; each task filters
+/// every segment by its value range, so that row must still reach its partition.
 pub fn generated_queries_setup_partitioned(
     pool: &MutexObjectPool<PgConnection>,
     tables: &[(&str, usize)],
     columns_def: &[Column],
     field: &'static str,
 ) -> SetupScript {
-    generated_queries_setup_with_index_build(
-        pool,
-        tables,
-        columns_def,
-        IndexBuild::Partitioned { field },
-    )
+    generated_queries_setup_with_partition_by(pool, tables, columns_def, Some(field))
 }
 
-#[derive(Clone, Copy)]
-enum IndexBuild {
-    /// Create the index first so each subsequent insert commit creates another segment.
-    Incremental,
-    /// Load the table first so CREATE INDEX can choose and persist partition bounds.
-    Partitioned { field: &'static str },
-}
-
-fn generated_queries_setup_with_index_build(
+fn generated_queries_setup_with_partition_by(
     pool: &MutexObjectPool<PgConnection>,
     tables: &[(&str, usize)],
     columns_def: &[Column],
-    index_build: IndexBuild,
+    partition_by: Option<&'static str>,
 ) -> SetupScript {
     use crate::fixtures::fault_grace::{RetryError, sql_attempt};
     let attempt = |conn: &mut PgConnection| -> Result<SetupScript, sqlx::Error> {
         "BEGIN;".execute_result(conn)?;
-        match generated_queries_setup_inner(conn, tables, columns_def, index_build) {
+        match generated_queries_setup_inner(conn, tables, columns_def, partition_by) {
             Ok(setup_script) => {
                 "COMMIT;".execute_result(conn)?;
                 Ok(setup_script)
@@ -307,7 +294,7 @@ fn generated_queries_setup_inner(
     conn: &mut PgConnection,
     tables: &[(&str, usize)],
     columns_def: &[Column],
-    index_build: IndexBuild,
+    partition_by: Option<&'static str>,
 ) -> Result<SetupScript, sqlx::Error> {
     "CREATE EXTENSION IF NOT EXISTS vector;".execute_result(conn)?;
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute_result(conn)?;
@@ -444,10 +431,9 @@ fn generated_queries_setup_inner(
         let target_segments = bulk_inserts.get() + 1;
         let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
 
-        let partition_by_clause = match index_build {
-            IndexBuild::Incremental => String::new(),
-            IndexBuild::Partitioned { field } => format!(",\n    partition_by = '{field}'"),
-        };
+        let partition_by_clause = partition_by
+            .map(|field| format!(",\n    partition_by = '{field}'"))
+            .unwrap_or_default();
 
         let bulk_insert_sql = build_bulk_inserts(
             tname,
@@ -465,9 +451,10 @@ fn generated_queries_setup_inner(
 );
 "#,
         );
-        let (index_before_data, index_after_data) = match index_build {
-            IndexBuild::Incremental => (create_index_sql.as_str(), ""),
-            IndexBuild::Partitioned { .. } => ("", create_index_sql.as_str()),
+        let (index_before_data, index_after_data) = if partition_by.is_some() {
+            ("", create_index_sql.as_str())
+        } else {
+            (create_index_sql.as_str(), "")
         };
 
         let sql = format!(
@@ -510,10 +497,10 @@ ANALYZE {tname};
         setup_sql.push_str(&sql);
     }
 
-    // A partitioned CREATE INDEX chooses bounds from the rows that exist at build time. Keep one
-    // later row live so generated queries also prove that a mutable/unpartitioned segment is not
-    // lost by range routing.
-    if matches!(index_build, IndexBuild::Partitioned { .. }) {
+    // A partitioned CREATE INDEX stamps bounds only on the segments it builds. Keep one later row
+    // live so generated queries also cover a segment the value-range filter must include without
+    // stamped bounds.
+    if partition_by.is_some() {
         for (tname, _) in tables {
             let sql = format!(
                 "INSERT into {tname} ({insert_columns}) VALUES ({sample_values});\nANALYZE {tname};\n"
@@ -1033,7 +1020,6 @@ pub fn compare_plan_retrying(
     compare_plan_retrying_inner(
         pg_query,
         bm25_query,
-        &gucs.set(),
         gucs,
         pool,
         setup,
@@ -1043,8 +1029,7 @@ pub fn compare_plan_retrying(
     )
 }
 
-/// Check every expected marker in ordinary text `EXPLAIN`. Unlike JSON output, text retains
-/// repeated physical-plan properties emitted by a CustomScan.
+/// Check every expected marker in the text `EXPLAIN` output.
 pub fn compare_text_plan_retrying(
     pg_query: &str,
     bm25_query: &str,
@@ -1057,7 +1042,6 @@ pub fn compare_text_plan_retrying(
     compare_plan_retrying_inner(
         pg_query,
         bm25_query,
-        &gucs.set(),
         gucs,
         pool,
         setup,
@@ -1067,43 +1051,16 @@ pub fn compare_text_plan_retrying(
     )
 }
 
-/// Execute the candidate under verbose `EXPLAIN ANALYZE`, require a positive MPP worker count,
-/// then check every expected marker. The runtime-only `MPP Launch: workers=N` property appears
-/// only after workers attach.
-pub fn compare_mpp_analyzed_plan_retrying(
-    pg_query: &str,
-    bm25_query: &str,
-    gucs: &PgGucs,
-    pool: &MutexObjectPool<PgConnection>,
-    setup: &SetupScript,
-    expected_all: &[&str],
-    forbidden_any: &[&str],
-) -> CaseOutcome {
-    compare_plan_retrying_inner(
-        pg_query,
-        bm25_query,
-        &gucs.set(),
-        gucs,
-        pool,
-        setup,
-        expected_all,
-        forbidden_any,
-        PlanCheck::AnalyzeVerboseMppAll,
-    )
-}
-
 #[derive(Clone, Copy)]
 enum PlanCheck {
     JsonAny,
     TextAll,
-    AnalyzeVerboseMppAll,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn compare_plan_retrying_inner(
     pg_query: &str,
     bm25_query: &str,
-    candidate_settings: &str,
     gucs: &PgGucs,
     pool: &MutexObjectPool<PgConnection>,
     setup: &SetupScript,
@@ -1113,6 +1070,7 @@ fn compare_plan_retrying_inner(
 ) -> CaseOutcome {
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
+    let candidate_settings = gucs.set();
     let fail = |msg: String| {
         CaseOutcome::Failure(handle_compare_error(
             TestCaseError::fail(msg),
@@ -1124,36 +1082,29 @@ fn compare_plan_retrying_inner(
     };
 
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
-        sql_attempt(candidate_settings.execute_result(conn).and_then(|()| {
-            match plan_check {
-                PlanCheck::JsonAny => format!("EXPLAIN (FORMAT JSON) {bm25_query}")
-                    .fetch_one_result::<(serde_json::Value,)>(conn)
-                    .map(|(plan,)| format!("{plan:#?}")),
-                // Physical plans contain repeated text properties. PostgreSQL's JSON
-                // representation collapses those keys, so retain every text row.
-                PlanCheck::TextAll => format!("EXPLAIN {bm25_query}")
-                    .fetch_result::<(String,)>(conn)
-                    .map(|rows| {
-                        rows.into_iter()
-                            .map(|(line,)| line)
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    }),
-                PlanCheck::AnalyzeVerboseMppAll => {
-                    format!("EXPLAIN (ANALYZE, VERBOSE) {bm25_query}")
+        sql_attempt(
+            candidate_settings
+                .as_str()
+                .execute_result(conn)
+                .and_then(|()| match plan_check {
+                    PlanCheck::JsonAny => format!("EXPLAIN (FORMAT JSON) {bm25_query}")
+                        .fetch_one_result::<(serde_json::Value,)>(conn)
+                        .map(|(plan,)| format!("{plan:#?}")),
+                    // The physical plan is emitted as repeated properties under one key, and
+                    // serde_json keeps only the last duplicate, so read the text rows instead.
+                    PlanCheck::TextAll => format!("EXPLAIN {bm25_query}")
                         .fetch_result::<(String,)>(conn)
                         .map(|rows| {
                             rows.into_iter()
                                 .map(|(line,)| line)
                                 .collect::<Vec<_>>()
                                 .join("\n")
-                        })
-                }
-            }
-        }))
+                        }),
+                }),
+        )
     });
 
-    let plan = match outcome {
+    let plan_str = match outcome {
         Ok(Ok(plan)) => plan,
         Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{bm25_query}'")),
         Err(RetryError::TimedOutUnderPause(e)) => {
@@ -1164,34 +1115,16 @@ fn compare_plan_retrying_inner(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = plan;
     let expected_matches = |needle: &&str| plan_str.contains(*needle);
-    let expected_plan = match plan_check {
-        PlanCheck::JsonAny => expected.iter().any(expected_matches),
-        PlanCheck::TextAll | PlanCheck::AnalyzeVerboseMppAll => {
-            expected.iter().all(expected_matches)
-        }
+    let (expected_plan, joiner) = match plan_check {
+        PlanCheck::JsonAny => (expected.iter().any(expected_matches), " or "),
+        PlanCheck::TextAll => (expected.iter().all(expected_matches), " and "),
     };
     if !expected_plan {
-        let expected_desc = match plan_check {
-            PlanCheck::JsonAny => expected.join(" or "),
-            PlanCheck::TextAll | PlanCheck::AnalyzeVerboseMppAll => expected.join(" and "),
-        };
         return fail(format!(
-            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+            "Query should use {} but got plan: {plan_str}\nQuery: {bm25_query}",
+            expected.join(joiner)
         ));
-    }
-
-    if matches!(plan_check, PlanCheck::AnalyzeVerboseMppAll) {
-        let workers = plan_str
-            .split_once("MPP Launch: workers=")
-            .and_then(|(_, suffix)| suffix.split_whitespace().next())
-            .and_then(|workers| workers.parse::<u32>().ok());
-        if !matches!(workers, Some(1..)) {
-            return fail(format!(
-                "Query should launch at least one MPP producer but got plan: {plan_str}\nQuery: {bm25_query}"
-            ));
-        }
     }
 
     if let Some(forbidden) = forbidden_any

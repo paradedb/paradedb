@@ -27,9 +27,8 @@ use tests::fixtures::querygen::wheregen::arb_wheres;
 use tests::fixtures::querygen::windowgen::arb_window_targets;
 use tests::fixtures::querygen::{
     Column, IndexExpression, PgGucs, QuerySide, Sides, arb_joins_and_wheres,
-    compare_mpp_analyzed_plan_retrying, compare_outcome_retrying, compare_outcome_retrying_on,
-    compare_plan_retrying, compare_text_plan_retrying, generated_queries_setup,
-    generated_queries_setup_partitioned,
+    compare_outcome_retrying, compare_outcome_retrying_on, compare_plan_retrying,
+    compare_text_plan_retrying, generated_queries_setup, generated_queries_setup_partitioned,
 };
 
 use tests::fixtures::*;
@@ -66,10 +65,6 @@ fn partition_by_join_gucs(mut gucs: PgGucs) -> PgGucs {
     gucs.range_partitioned_join = true;
     gucs.force_mpp = true;
     gucs
-}
-
-fn partition_by_join_sides(gucs: &PgGucs) -> Sides {
-    Sides::postgres_vs(gucs)
 }
 
 /// Report one case outcome as a per-test Antithesis property, then collapse it to a proptest
@@ -493,9 +488,9 @@ async fn generated_joins_small(database: Db) {
     });
 }
 
-/// A `partition_by` index changes physical segment placement, not SQL semantics. Exercise a real
-/// co-partitioned join once, then compare randomized filters, ordering, limits, and execution GUCs
-/// against PostgreSQL's heap-backed result.
+/// A `partition_by` index changes physical segment placement, not SQL semantics. Require the
+/// planned co-partitioned join shape once, then compare randomized filters, ordering, limits, and
+/// execution GUCs against PostgreSQL's heap-backed result.
 #[rstest]
 #[tokio::test]
 async fn generated_partition_by_inner_join(database: Db) {
@@ -512,11 +507,10 @@ async fn generated_partition_by_inner_join(database: Db) {
     let setup_sql =
         generated_queries_setup_partitioned(&pool, &tables_and_sizes, &columns, "quantity");
 
-    // This fixed probe proves both execution claims: the range rule aligned the two scans without
-    // a shuffle, and at least one MPP producer actually attached. A serial fallback omits the
-    // runtime-only `MPP Launch` line entirely.
+    // Plain EXPLAIN proves the range rule aligned the two scans without a shuffle. Whether
+    // producers attach at execution depends on the cluster's shared worker pool, so executed
+    // launches are asserted in pg_regress (mpp_range_boundary, mpp_worker_sizing), not here.
     let fixed_gucs = partition_by_join_gucs(PgGucs::pg_search_disabled());
-    let fixed_sides = partition_by_join_sides(&fixed_gucs);
     let fixed_pg_query = "
         SELECT partitioned_left.id, partitioned_right.id
         FROM partitioned_left
@@ -532,7 +526,7 @@ async fn generated_partition_by_inner_join(database: Db) {
         ORDER BY partitioned_left.id, partitioned_right.id
         LIMIT 50";
 
-    compare_mpp_analyzed_plan_retrying(
+    compare_text_plan_retrying(
         fixed_pg_query,
         fixed_bm25_query,
         &fixed_gucs,
@@ -548,9 +542,9 @@ async fn generated_partition_by_inner_join(database: Db) {
     .into_test_result()
     .unwrap();
 
-    // Each table receives row 502 after CREATE INDEX and after randomized deletes. The row is
-    // therefore held outside the persisted segments built with partition metadata; retaining this
-    // pair proves that range routing fails open for the later mutable segment.
+    // Each table receives row 502 after CREATE INDEX and after the randomized deletes, so it lives
+    // in a segment with no stamped bounds. Retaining the pair proves the value-range filter still
+    // routes that segment's rows to their partition.
     let inserted_pg_query = "
         SELECT partitioned_left.id, partitioned_right.id
         FROM partitioned_left
@@ -576,8 +570,7 @@ async fn generated_partition_by_inner_join(database: Db) {
     )
     .into_test_result()
     .unwrap();
-    compare_outcome_retrying_on(
-        &fixed_sides,
+    compare_outcome_retrying(
         inserted_pg_query,
         inserted_bm25_query,
         &fixed_gucs,
@@ -587,8 +580,7 @@ async fn generated_partition_by_inner_join(database: Db) {
     )
     .into_test_result()
     .unwrap();
-    compare_outcome_retrying_on(
-        &fixed_sides,
+    compare_outcome_retrying(
         fixed_pg_query,
         fixed_bm25_query,
         &fixed_gucs,
@@ -612,7 +604,6 @@ async fn generated_partition_by_inner_join(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         let gucs = partition_by_join_gucs(gucs);
-        let sides = partition_by_join_sides(&gucs);
         let direction = if descending { "DESC" } else { "ASC" };
         let pg_query = format!(
             "SELECT partitioned_left.id, partitioned_right.id
@@ -637,8 +628,7 @@ async fn generated_partition_by_inner_join(database: Db) {
 
         qgen_oracle!(
             "qgen: generated_partition_by_inner_join - partitioned result matches PostgreSQL",
-            compare_outcome_retrying_on(
-                &sides,
+            compare_outcome_retrying(
                 &pg_query,
                 &bm25_query,
                 &gucs,

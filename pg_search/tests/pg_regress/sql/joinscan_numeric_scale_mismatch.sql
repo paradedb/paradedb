@@ -225,9 +225,73 @@ SELECT COUNT(*) AS numeric_bytes_samescale_result FROM (
   LIMIT 1000
 ) sub;
 
+-- =====================================================================
+-- Test 6 — Positive control: two NumericBytes sides (both
+-- numeric(20,2), precision > 18) with a compatible byte layout. Unlike
+-- Tests 4 and 5, this pairing IS safe: `NumericBytes` uses
+-- `decimal-bytes`'s value-based, lexicographically sortable encoding
+-- (not a fixed external scale like Numeric64), so two NumericBytes
+-- sides compare correctly byte-for-byte as long as their indexes agree
+-- on negative-value encoding (`numeric_bytes_layouts_differ`). Both
+-- indexes here are freshly built by the same server, so their layouts
+-- always agree.
+--
+-- This guards against over-correcting the fix into declining every
+-- NumericBytes pairing: the query below must show NO decline WARNING
+-- and the plan must show `Custom Scan (ParadeDB Join Scan)` engaging,
+-- not a fallback to a plain Postgres Hash/Nested Loop Join.
+-- =====================================================================
+DROP TABLE IF EXISTS jsm_items_bignumeric CASCADE;
+DROP TABLE IF EXISTS jsm_prices_bignumeric2 CASCADE;
+
+CREATE TABLE jsm_items_bignumeric (
+    id  bigint PRIMARY KEY,
+    txt text NOT NULL,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_items_bignumeric (id, txt, amt) VALUES
+    (1, 'match', 1.10),
+    (2, 'match', 2.20),
+    (3, 'match', 3.30),
+    (4, 'match', 4.40),
+    (5, 'match', 5.50);
+
+CREATE TABLE jsm_prices_bignumeric2 (
+    id  serial PRIMARY KEY,
+    amt numeric(20,2) NOT NULL  -- precision > 18 -> NumericBytes(Some(2))
+);
+INSERT INTO jsm_prices_bignumeric2 (amt) VALUES
+    (1.10), (2.20), (3.30), (4.40), (5.50);
+
+CREATE INDEX jsm_items_bignumeric_idx ON jsm_items_bignumeric USING paradedb (id, txt, amt)
+  WITH (text_fields='{"txt":{"fast":true}}', numeric_fields='{"amt":{"fast":true}}');
+CREATE INDEX jsm_prices_bignumeric2_idx ON jsm_prices_bignumeric2 USING paradedb (id, amt)
+  WITH (numeric_fields='{"amt":{"fast":true}}');
+ANALYZE jsm_items_bignumeric;
+ANALYZE jsm_prices_bignumeric2;
+
+EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM (
+  SELECT i.id
+  FROM jsm_items_bignumeric i
+  JOIN jsm_prices_bignumeric2 p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
+SELECT COUNT(*) AS numeric_bytes_pushdown_result FROM (
+  SELECT i.id
+  FROM jsm_items_bignumeric i
+  JOIN jsm_prices_bignumeric2 p ON i.amt = p.amt
+  WHERE i.txt @@@ 'match'
+  ORDER BY i.id
+  LIMIT 1000
+) sub;
+
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;
 
-DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded, jsm_prices_bignumeric CASCADE;
+DROP TABLE jsm_items, jsm_prices, jsm_prices_samescale, jsm_prices_unbounded, jsm_prices_bignumeric,
+           jsm_items_bignumeric, jsm_prices_bignumeric2 CASCADE;

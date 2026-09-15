@@ -26,3 +26,35 @@ SELECT 'Hello world! 你好!'::pdb.jieba::text[];
  {hello," ",world,!," ",你好,!}
 (1 row)
 ```
+
+## Search mode
+
+By default Jieba runs in search mode, which emits a compound's parts alongside
+the whole, so a document is findable by either. That is what an index wants. A
+query wants the opposite: decomposing it turns a search for one compound into a
+search for any of its pieces.
+
+Set `search_mode=false` on the query side to analyse it without decomposition,
+while the index keeps the default.
+
+```sql
+SELECT '南京市长江大桥'::pdb.jieba::text[];
+```
+
+```ini Expected Response
+                      text
+------------------------------------------------
+ {南京,京市,南京市,长江,大桥,长江大桥}
+(1 row)
+```
+
+```sql
+SELECT '南京市长江大桥'::pdb.jieba('search_mode=false')::text[];
+```
+
+```ini Expected Response
+        text
+---------------------
+ {南京市,长江大桥}
+(1 row)
+```

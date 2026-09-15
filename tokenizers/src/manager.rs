@@ -404,6 +404,12 @@ pub enum SearchTokenizer {
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
         chinese_convert: Option<ConvertMode>,
+        /// jieba's search mode, which emits a compound's parts alongside the
+        /// whole. Wanted when indexing, so either can find a document; not
+        /// wanted when analysing a query, where the parts turn a search for one
+        /// identifier into a search for any of its pieces. Defaults to true,
+        /// which is the behaviour before this option existed.
+        search_mode: bool,
         filters: SearchTokenizerFilters,
     },
     LinderaDeprecated(LinderaLanguage, SearchTokenizerFilters),
@@ -528,8 +534,16 @@ impl SearchTokenizer {
                         })?,
                     )
                 };
+                let search_mode: bool = if value["search_mode"].is_null() {
+                    true
+                } else {
+                    serde_json::from_value(value["search_mode"].clone()).map_err(|_| {
+                        anyhow::anyhow!("jieba tokenizer requires a boolean 'search_mode' field")
+                    })?
+                };
                 Ok(SearchTokenizer::Jieba {
                     chinese_convert,
+                    search_mode,
                     filters,
                 })
             }
@@ -695,20 +709,19 @@ impl SearchTokenizer {
             }
             SearchTokenizer::Jieba {
                 chinese_convert,
+                search_mode,
                 filters,
             } => {
+                // `with_ordinal_position_mode` also turns search mode on, so the
+                // caller's choice is applied afterwards.
+                let mut base = tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true);
+                base.set_search_mode(*search_mode);
                 // If Chinese conversion is configured, perform the conversion before tokenization
                 if let Some(convert_mode) = chinese_convert {
-                    let base_tokenizer =
-                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true);
-                    let convert_tokenizer =
-                        ChineseConvertTokenizer::new(base_tokenizer, *convert_mode);
+                    let convert_tokenizer = ChineseConvertTokenizer::new(base, *convert_mode);
                     add_filters!(convert_tokenizer, filters)
                 } else {
-                    add_filters!(
-                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true),
-                        filters
-                    )
+                    add_filters!(base, filters)
                 }
             }
             SearchTokenizer::LinderaDeprecated(LinderaLanguage::Unspecified, _)
@@ -904,12 +917,18 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,
+                search_mode,
                 filters: _,
             } => {
+                // The name identifies the registered analyser, so a
+                // non-default search mode has to appear in it: two fields
+                // differing only in the mode would otherwise share one
+                // analyser and silently get each other's tokenization.
+                let mode = if *search_mode { "" } else { "NoSearchMode" };
                 if let Some(chinese_convert) = chinese_convert {
-                    format!("jieba{chinese_convert:?}{filters_suffix}")
+                    format!("jieba{chinese_convert:?}{mode}{filters_suffix}")
                 } else {
-                    format!("jieba{filters_suffix}")
+                    format!("jieba{mode}{filters_suffix}")
                 }
             }
             SearchTokenizer::UnicodeWordsDeprecated {
@@ -1034,6 +1053,53 @@ mod tests {
     }
 
     #[rstest]
+    fn test_jieba_search_mode() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn tokens(json: &str, text: &str) -> Vec<String> {
+            let tokenizer =
+                SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream(text);
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        // Search mode offers a compound's parts as well as the whole, which is
+        // what an index wants: either can find the document. A query wants the
+        // opposite, since the parts turn a search for one compound into a
+        // search for any of its pieces.
+        assert_eq!(
+            tokens(r#"{"type": "jieba"}"#, "南京市长江大桥"),
+            vec!["南京", "京市", "南京市", "长江", "大桥", "长江大桥"]
+        );
+        assert_eq!(
+            tokens(r#"{"type": "jieba", "search_mode": false}"#, "南京市长江大桥"),
+            vec!["南京市", "长江大桥"]
+        );
+
+        // Text with no compound to decompose is the same either way.
+        assert_eq!(
+            tokens(r#"{"type": "jieba"}"#, "你好"),
+            tokens(r#"{"type": "jieba", "search_mode": false}"#, "你好")
+        );
+
+        // The two configurations must not share a registered analyser.
+        let a = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "jieba"}"#).unwrap(),
+        )
+        .unwrap();
+        let b = SearchTokenizer::from_json_value(
+            &serde_json::from_str(r#"{"type": "jieba", "search_mode": false}"#).unwrap(),
+        )
+        .unwrap();
+        assert_ne!(a.name(), b.name());
+    }
+
+    #[rstest]
     fn test_jieba_tokenizer_with_stopwords() {
         use tantivy::tokenizer::TokenStream;
 
@@ -1050,6 +1116,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,
@@ -1110,6 +1177,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,
@@ -1165,6 +1233,7 @@ mod tests {
             tokenizer,
             SearchTokenizer::Jieba {
                 chinese_convert: None,
+                search_mode: true,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: None,

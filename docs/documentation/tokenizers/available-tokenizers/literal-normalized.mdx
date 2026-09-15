@@ -23,8 +23,7 @@ also [lowercases](/documentation/token-filters/lowercase) the text.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.literal_normalized))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.literal_normalized));
 ```
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:

@@ -9,16 +9,14 @@ To remove all tokens longer than a certain length, append a `remove_long` config
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('remove_long=100')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('remove_long=100')));
 ```
 
 To remove all tokens shorter than a length, use `remove_short`:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('remove_short=3')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('remove_short=3')));
 ```
 
 All tokenizers besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer accept these configurations.

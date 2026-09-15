@@ -11,8 +11,7 @@ To enable, append `ascii_folding=true` to the tokenizer's arguments.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple('ascii_folding=true')))
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple('ascii_folding=true')));
 ```
 
 To demonstrate this token filter, let's compare the output of the following two statements:

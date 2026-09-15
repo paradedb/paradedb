@@ -16,7 +16,7 @@ USING paradedb (
   id,
   (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))
-) WITH (key_field='id');
+);
 ```
 
 Under the hood, two distinct fields are created in the index: a field called `description`, which uses the literal tokenizer,
@@ -150,7 +150,7 @@ USING paradedb (
   id,
   (description::pdb.literal),
   (description::pdb.simple('alias=description_simple'))
-) WITH (key_field='id');
+);
 
 SELECT description, rating, category
 FROM mock_items

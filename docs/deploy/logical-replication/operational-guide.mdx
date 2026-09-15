@@ -71,8 +71,7 @@ ParadeDB:
 
 ```sql
 CREATE INDEX mock_items_bm25_idx ON public.mock_items
-USING paradedb (id, description, category, rating)
-WITH (key_field='id');
+USING paradedb (id, description, category, rating);
 ```
 
 After this, ongoing replicated `INSERT`, `UPDATE`, and `DELETE` operations will

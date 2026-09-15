@@ -227,11 +227,20 @@ def format_sql_banner(filename):
     return f"\n{sep}\n-- Fragment: {filename}\n{sep}\n"
 
 
-def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragments):
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+def assemble_sql_files(
+    repo_root,
+    target_version,
+    prev_version,
+    preserve_fragments,
+    output_dir=None,
+    update_control_default=False,
+):
     """Assemble SQL fragments into pg_search--<prev>--<target>.sql."""
     sql_dir = repo_root / "pg_search" / "sql"
     unreleased_dir = sql_dir / "unreleased"
-    output_file = sql_dir / f"pg_search--{prev_version}--{target_version}.sql"
+    dest_dir = Path(output_dir) if output_dir else sql_dir
+    output_file = dest_dir / f"pg_search--{prev_version}--{target_version}.sql"
 
     print(
         f"Assembling SQL upgrade script: {output_file} "
@@ -256,6 +265,19 @@ def assemble_sql_files(repo_root, target_version, prev_version, preserve_fragmen
             out.write("\n")
 
     print(f"✅ Successfully generated: {output_file}")
+
+    if update_control_default:
+        control_file = dest_dir / "pg_search.control"
+        if control_file.exists():
+            content = control_file.read_text(encoding="utf-8")
+            updated = re.sub(
+                r"^default_version\s*=.*$",
+                f"default_version = '{target_version}'",
+                content,
+                flags=re.MULTILINE,
+            )
+            control_file.write_text(updated, encoding="utf-8")
+            print(f"✅ Updated default_version to '{target_version}' in {control_file}")
 
     if not preserve_fragments:
         for fragment in fragments:
@@ -645,7 +667,14 @@ def handle_sql_command(args, repo_root):
     prev_version = resolve_prev_version(
         repo_root, sql_dir, clean_target, args.prev_version
     )
-    assemble_sql_files(repo_root, target_version, prev_version, args.preserve_fragments)
+    assemble_sql_files(
+        repo_root,
+        target_version,
+        prev_version,
+        args.preserve_fragments,
+        output_dir=args.output_dir,
+        update_control_default=args.update_control,
+    )
 
 
 def handle_changelog_command(args, repo_root):
@@ -1063,6 +1092,16 @@ def build_parser():
     add_common_args(sql_parser)
     sql_parser.add_argument(
         "--prev-version", default=None, help="Previous version (e.g. 0.25.4)"
+    )
+    sql_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional directory to write the assembled SQL script to (defaults to pg_search/sql)",
+    )
+    sql_parser.add_argument(
+        "--update-control",
+        action="store_true",
+        help="Update default_version in pg_search.control in output-dir to target version",
     )
     sql_parser.add_argument(
         "--preserve-fragments",

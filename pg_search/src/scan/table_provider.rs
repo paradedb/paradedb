@@ -803,9 +803,14 @@ impl PgSearchTableProvider {
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
             .with_check_visibility(check_visibility);
 
-        let total_estimated_rows = self.scan_info.estimate.as_planner_estimate();
+        let pruning = reader.segment_pruning_estimate();
+        let total_estimated_rows = self
+            .scan_info
+            .estimate
+            .as_planner_estimate()
+            .min(pruning.candidate_docs);
 
-        let segment_count = reader.segment_readers().len();
+        let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
         // The output partitions of the scan default to min(segments, target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition

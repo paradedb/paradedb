@@ -7,16 +7,19 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-//! One execution-visible view of segment statistics.
+//! Conservative query proofs over one execution-visible segment view.
 //!
 //! An immutable segment's statistics are fixed and valid for that segment. What can change between
 //! planning and execution is the visible segment set: inserts add segments and merges replace
-//! them. The snapshot is therefore captured from the exact execution Searcher instead of
+//! them. The proof table is therefore rebuilt against the exact execution Searcher instead of
 //! carrying planner-visible segment identities forward.
 //!
-//! Statistics are accelerators, never substitutes for the query predicate. Missing, unreadable,
-//! or unsupported data reads as unknown rather than disappearing behind a default.
+//! Statistics are accelerators, never substitutes for the query predicate. Every visible segment
+//! has a dense snapshot entry and every predicate has one [`predicate::SegmentTruth`] value for every snapshot
+//! entry. Missing, unreadable, unsupported, or incomparable data therefore has an explicit `Maybe`
+//! state rather than disappearing behind `Option` or a default Boolean.
 
+pub(crate) mod predicate;
 mod snapshot;
 
 pub(crate) use snapshot::SegmentStatsSnapshot;

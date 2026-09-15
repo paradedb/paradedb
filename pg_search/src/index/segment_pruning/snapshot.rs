@@ -10,6 +10,7 @@
 use std::ops::Bound;
 use std::sync::{Arc, OnceLock};
 
+use crate::api::HashMap;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::stats::{EmpiricalStats, SegmentStats};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -31,6 +32,10 @@ impl CapturedSegment {
         self.segment.id()
     }
 
+    fn doc_count(&self) -> u32 {
+        self.segment.meta().num_docs()
+    }
+
     fn stats(&self) -> Option<&SegmentStats> {
         self.stats
             .get_or_init(|| capture_stats(&self.segment, self.has_stats_component))
@@ -41,6 +46,7 @@ impl CapturedSegment {
 /// Statistics captured from exactly one Searcher/manifest view.
 #[derive(Debug)]
 pub(crate) struct SegmentStatsSnapshot {
+    ordinal_by_id: HashMap<SegmentId, usize>,
     segments: Box<[CapturedSegment]>,
 }
 
@@ -137,6 +143,13 @@ impl SegmentStatsSnapshot {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn capture_test_segments(segments: &[Segment]) -> Arc<Self> {
+        // Ordinary Tantivy test indexes do not have ParadeDB manifest entries. Their segment
+        // directories can be queried directly without the mutable-segment materialization path.
+        Self::capture_with_presence(segments, |_| true)
+    }
+
     fn capture_with_presence(
         segments: &[Segment],
         has_stats_component: impl Fn(SegmentId) -> bool,
@@ -149,11 +162,37 @@ impl SegmentStatsSnapshot {
                 stats: OnceLock::new(),
             })
             .collect::<Box<[_]>>();
-        Arc::new(Self { segments: captured })
+        let ordinal_by_id = captured
+            .iter()
+            .enumerate()
+            .map(|(idx, segment)| (segment.id(), idx))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(
+            ordinal_by_id.len(),
+            captured.len(),
+            "segment IDs in one snapshot must be unique"
+        );
+
+        Arc::new(Self {
+            ordinal_by_id,
+            segments: captured,
+        })
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.segments.len()
     }
 
     pub(crate) fn segment_ids(&self) -> impl ExactSizeIterator<Item = SegmentId> + '_ {
         self.segments.iter().map(CapturedSegment::id)
+    }
+
+    pub(crate) fn doc_count(&self, segment_idx: usize) -> u32 {
+        self.segments[segment_idx].doc_count()
+    }
+
+    pub(crate) fn segment_index(&self, segment_id: SegmentId) -> Option<usize> {
+        self.ordinal_by_id.get(&segment_id).copied()
     }
 
     /// `Ok(None)` when the segment has no statistics for `field`; `Err` when statistics exist
@@ -187,6 +226,14 @@ impl SegmentStatsSnapshot {
             }
             (_, value) => Ok(value),
         }
+    }
+
+    pub(crate) fn empirical(
+        &self,
+        segment_idx: usize,
+        field: &SearchField,
+    ) -> Option<EmpiricalStats> {
+        self.read_empirical(segment_idx, field).ok().flatten()
     }
 
     /// Whether this execution segment may contain a row assigned to one range partition.

@@ -32,6 +32,7 @@ use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
+use crate::index::segment_pruning::predicate::{SegmentTruth, SegmentTruthTable};
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -42,6 +43,9 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
+use crate::query::segment_pruning::{
+    PruningQueryBuilder, RangeFilterRemovalCounter, wrap_range_partition_filter,
+};
 use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
@@ -59,7 +63,7 @@ use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
 use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
-    DateTime, DocAddress, DocId, DocSet, Executor, IndexReader, ReloadPolicy, Score, Searcher,
+    DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
 };
 
@@ -72,6 +76,28 @@ pub struct DocsEstimate {
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
+}
+
+/// A count-only summary of the pruning proof for this reader's execution snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SegmentPruningEstimate {
+    pub(crate) candidate_segments: usize,
+    pub(crate) candidate_docs: u64,
+}
+
+impl SegmentPruningEstimate {
+    fn from_truth(truth: &SegmentTruthTable) -> Self {
+        let snapshot = truth.snapshot();
+        let (candidate_segments, candidate_docs) = (0..snapshot.len())
+            .filter(|idx| snapshot.doc_count(*idx) > 0 && truth.at(*idx) != SegmentTruth::Never)
+            .fold((0, 0), |(count, docs), idx| {
+                (count + 1, docs + u64::from(snapshot.doc_count(idx)))
+            });
+        Self {
+            candidate_segments,
+            candidate_docs,
+        }
+    }
 }
 
 fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
@@ -268,7 +294,7 @@ impl MultiSegmentSearchResults {
         self.iterators.pop()
     }
 
-    pub fn segment_ids(&self) -> Vec<tantivy::index::SegmentId> {
+    pub fn segment_ids(&self) -> Vec<SegmentId> {
         self.iterators.iter().map(|it| it.segment_id()).collect()
     }
 
@@ -363,8 +389,8 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
-    /// Statistics of the exact segment set this reader's Searcher sees, opened lazily.
-    segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
+    segment_truth: Arc<SegmentTruthTable>,
+    range_filters_removed: Arc<RangeFilterRemovalCounter>,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -411,7 +437,8 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
-            segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
+            segment_truth: Arc::clone(&self.segment_truth),
+            range_filters_removed: Arc::clone(&self.range_filters_removed),
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
@@ -432,7 +459,6 @@ pub(crate) mod test_support {
     /// How many times the index was actually opened (metadata walk, pins, searcher build).
     /// Tests use it to prove reuse paths perform zero additional opens.
     pub(crate) static INDEX_COMPONENT_OPENS: AtomicUsize = AtomicUsize::new(0);
-
     /// Test fixture shared by the reuse/laziness tests: a table + ParadeDB index laid out as
     /// `immutable_batches` frozen segments of 10 rows (batch 0's titles contain "silver dragon",
     /// later batches "quiet river"), plus an optional 5-row mutable segment. Returns the opened
@@ -489,8 +515,8 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
-    /// Lightweight handles for the exact visible segment generation. Statistics are read
-    /// through these handles, never through `SegmentReader`, so consulting them does not require
+    /// Lightweight handles for the exact visible segment generation.  Pruning metadata is read
+    /// through these handles, never through `SegmentReader`, so candidate proofs do not require
     /// opening a segment's searchable components.
     segments: Vec<Segment>,
     reader: IndexReader,
@@ -656,26 +682,28 @@ impl SearchIndexReader {
 
         let index_created_by_version = index_relation.created_by_version();
         let need_scores = need_scores || search_query_input.need_scores();
-        let segment_stats_snapshot = SegmentStatsSnapshot::capture_segments(&directory, &segments);
-        let query = {
-            search_query_input
-                .into_tantivy_query(
-                    &schema,
-                    index_created_by_version,
-                    &|| {
-                        QueryParser::for_index(
-                            &index,
-                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-                        )
-                    },
-                    &searcher,
-                    index_relation.oid(),
-                    index_relation.rel_oid(),
-                    expr_context,
-                    planstate,
-                )
-                .unwrap_or_else(|e| panic!("{e}"))
+        let parser = || {
+            QueryParser::for_index(
+                &index,
+                schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+            )
         };
+        // Build execution truth from the exact Searcher/manifest view retained by this reader.
+        let snapshot = SegmentStatsSnapshot::capture_segments(&directory, &segments);
+        let builder = PruningQueryBuilder::new(snapshot, &schema, index_created_by_version);
+        let truth = builder.truth_for_query(&search_query_input);
+        let query = search_query_input
+            .into_tantivy_query(
+                &schema,
+                index_created_by_version,
+                &parser,
+                &searcher,
+                index_relation.oid(),
+                index_relation.rel_oid(),
+                expr_context,
+                planstate,
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
         let segment_ord_by_id = searcher
             .segment_readers()
             .iter()
@@ -690,7 +718,8 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
-            segment_stats_snapshot,
+            segment_truth: truth,
+            range_filters_removed: Arc::new(RangeFilterRemovalCounter::default()),
             need_scores,
             total_segment_count,
             total_docs,
@@ -723,8 +752,50 @@ impl SearchIndexReader {
         &self.query
     }
 
-    /// Extends the reader's underlying query by AND-ing it with the provided query.
+    /// Extends the reader's underlying query by AND-ing it with the provided query. The conjunct
+    /// carries no proof of its own, so the current truth table stays in force.
     pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
+        let truth = SegmentTruthTable::uniform(self.segment_stats_snapshot(), SegmentTruth::Maybe);
+        self.and_query_with_pruning_truth(additional_query, truth)
+    }
+
+    /// Restricts this reader to one range partition. Segment bounds may prove this restriction
+    /// redundant locally, but the exact query remains installed wherever that proof is absent.
+    pub(crate) fn and_range_partition_bounds(&self, query: &SearchQueryInput) -> Self {
+        let tantivy_query = self.make_query(query, None);
+        let builder = PruningQueryBuilder::new(
+            Arc::clone(self.segment_truth.snapshot()),
+            &self.schema,
+            self.index_created_by_version,
+        );
+        let truth = builder.truth_for_query(query);
+        let removed = Arc::new(RangeFilterRemovalCounter::default());
+        let mut reader = self.and_query_with_pruning_truth(
+            wrap_range_partition_filter(
+                tantivy_query,
+                query,
+                Arc::clone(&truth),
+                Arc::clone(&removed),
+            ),
+            truth,
+        );
+        reader.range_filters_removed = removed;
+        reader
+    }
+
+    /// AND `additional_query` into this reader and conjoin its proof with the current truth.
+    /// `self.query` is already compiled with the execution expression context
+    /// that resolved any Params or PostgreSQL expressions; rebuilding it with `None` contexts
+    /// would make adding a runtime predicate unsafe for prepared plans, so the compiled query and
+    /// the execution snapshot are reused.
+    fn and_query_with_pruning_truth(
+        &self,
+        additional_query: Box<dyn Query>,
+        additional_truth: Arc<SegmentTruthTable>,
+    ) -> Self {
+        let current = &self.segment_truth;
+        let truth = current.conjunction(&additional_truth);
+
         let mut clone = self.clone();
         let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
         let boolean_query = tantivy::query::BooleanQuery::new(vec![
@@ -732,13 +803,8 @@ impl SearchIndexReader {
             (tantivy::query::Occur::Must, additional_query),
         ]);
         clone.query = Box::new(boolean_query);
+        clone.segment_truth = truth;
         clone
-    }
-
-    /// Extends the reader's underlying query by AND-ing it with the provided query input.
-    pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
-        let tantivy_query = self.make_query(query, None);
-        self.and_query(tantivy_query)
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -761,7 +827,12 @@ impl SearchIndexReader {
     pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
         let weight = self.weight();
         let mut total = 0u64;
-        for segment_reader in self.searcher.segment_readers() {
+        let segment_ids = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .map(SegmentReader::segment_id);
+        for (_, segment_reader) in self.segment_readers_in_segments(segment_ids) {
             total += u64::from(weight.count(segment_reader)?);
         }
         Ok(total)
@@ -890,8 +961,16 @@ impl SearchIndexReader {
         self.total_docs
     }
 
+    pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
+        SegmentPruningEstimate::from_truth(&self.segment_truth)
+    }
+
     pub(crate) fn segment_stats_snapshot(&self) -> Arc<SegmentStatsSnapshot> {
-        Arc::clone(&self.segment_stats_snapshot)
+        Arc::clone(self.segment_truth.snapshot())
+    }
+
+    pub(crate) fn range_filters_removed(&self) -> usize {
+        self.range_filters_removed.get()
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -1018,7 +1097,7 @@ impl SearchIndexReader {
         unsafe impl Send for ParallelSegmentIterator {}
         unsafe impl Sync for ParallelSegmentIterator {}
         impl Iterator for ParallelSegmentIterator {
-            type Item = tantivy::index::SegmentId;
+            type Item = SegmentId;
             fn next(&mut self) -> Option<Self::Item> {
                 pgrx::check_for_interrupts!();
                 unsafe {
@@ -1044,7 +1123,11 @@ impl SearchIndexReader {
             searcher.clone(),
         ));
 
-        let lazy_iterators = segment_ids.map(move |segment_id| {
+        let segment_truth = Arc::clone(&self.segment_truth);
+        let lazy_iterators = segment_ids.filter_map(move |segment_id| {
+            if !segment_truth.is_candidate(segment_id) {
+                return None;
+            }
             let (segment_ord, segment_reader) = searcher
                 .segment_readers()
                 .iter()
@@ -1053,11 +1136,11 @@ impl SearchIndexReader {
                 .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
             let segment_ord = segment_ord as SegmentOrdinal;
 
-            ScorerIter::new(
+            Some(ScorerIter::new(
                 DeferredScorer::new(Arc::clone(&weight), segment_reader.clone()),
                 segment_ord,
                 segment_reader.clone(),
-            )
+            ))
         });
 
         MultiSegmentSearchResults {
@@ -1817,13 +1900,18 @@ impl SearchIndexReader {
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {
-        self.searcher
-            .search_with_executor(
-                &self.query,
-                &collector,
-                &Executor::SingleThread,
-                enable_scoring(self.need_scores, &self.searcher),
-            )
+        let weight = self
+            .query
+            .weight(enable_scoring(self.need_scores, &self.searcher))
+            .expect("creating a Weight from a Query should not fail");
+        let segment_ids = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .map(SegmentReader::segment_id);
+        let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
+        collector
+            .merge_fruits(fruits)
             .expect("search should not fail")
     }
 
@@ -1950,11 +2038,14 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
-        segment_ids.map(|segment_id| {
+        segment_ids.filter_map(move |segment_id| {
+            if !self.segment_truth.is_candidate(segment_id) {
+                return None;
+            }
             let ord = self
                 .segment_ordinal_by_id(&segment_id)
                 .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-            (ord, self.searcher.segment_reader(ord))
+            Some((ord, self.searcher.segment_reader(ord)))
         })
     }
 
@@ -2066,8 +2157,28 @@ mod tests {
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use crate::query::pdb_query::pdb;
     use pgrx::prelude::*;
     use std::ops::Bound;
+
+    fn range_query(field: &str, lower: i64, upper: i64) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: FieldName::from(field),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::I64(lower)),
+                upper_bound: Bound::Included(PdbOwnedValue::I64(upper)),
+            },
+        }
+    }
+
+    fn term_query(field: &str, value: &str) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field: FieldName::from(field),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Str(value.to_string()),
+            },
+        }
+    }
 
     fn open_snapshot_reader(
         index_rel: &PgSearchRelation,
@@ -2157,36 +2268,174 @@ mod tests {
     }
 
     #[pg_test]
-    fn unreadable_stats_fail_open() {
-        let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let id = probe.schema().search_field("id").unwrap();
-        // No fixture row has an id in this range, so readable statistics rule every segment out.
-        let (lower, upper) = (
-            Bound::Included(PdbOwnedValue::I64(100)),
-            Bound::Included(PdbOwnedValue::I64(200)),
+    fn static_pruning_skips_scorer_construction() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+
+        let (index_rel, _heap) = segmented_index_fixture("static_segment_pruning_test", 4, false);
+        let query = range_query("id", 1, 10);
+        let reader = open_snapshot_reader(&index_rel, query, false);
+        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(reader.search().count(), 10);
+        assert_eq!(
+            SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "only the candidate segment may open a scorer"
         );
-        let snapshot = probe.segment_stats_snapshot();
-        assert!(
-            (0..snapshot.segment_ids().len())
-                .all(|idx| !snapshot.may_intersect_partition(idx, &id, &lower, &upper, false)),
-            "the fixture must have readable statistics so missing stats cannot make the test pass"
-        );
-        let segment = snapshot.segment_ids().next().unwrap();
-        for failure in [InjectedStatsFailure::Open, InjectedStatsFailure::Read] {
-            let _failure = inject_stats_failure(segment, failure);
-            let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-            let snapshot = reader.segment_stats_snapshot();
-            let idx = snapshot.segment_ids().position(|id| id == segment).unwrap();
-            assert!(
-                snapshot.may_intersect_partition(idx, &id, &lower, &upper, false),
-                "a segment without readable statistics may hold any partition"
-            );
-        }
     }
 
     #[pg_test]
-    fn stats_are_opened_only_when_read() {
+    fn analyzed_text_terms_fail_open_for_segment_pruning() {
+        let (index_rel, _heap) = segmented_index_fixture("analyzed_text_pruning_test", 2, false);
+        let queries = [
+            term_query("title", "silver"),
+            SearchQueryInput::FieldedQuery {
+                field: FieldName::from("title"),
+                query: pdb::Query::TermSet {
+                    terms: vec![PdbOwnedValue::Str("silver".to_string())],
+                },
+            },
+            SearchQueryInput::FieldedQuery {
+                field: FieldName::from("title"),
+                query: pdb::Query::Range {
+                    lower_bound: Bound::Included(PdbOwnedValue::Str("silver".to_string())),
+                    upper_bound: Bound::Included(PdbOwnedValue::Str("silver".to_string())),
+                },
+            },
+        ];
+
+        for query in queries {
+            let reader = open_snapshot_reader(&index_rel, query, false);
+            assert_eq!(
+                reader.segment_pruning_estimate().candidate_segments,
+                2,
+                "whole-value statistics cannot reject analyzed text tokens"
+            );
+        }
+
+        let reader = open_snapshot_reader(&index_rel, term_query("title", "silver"), false);
+        assert_eq!(reader.search().count(), 10);
+    }
+
+    #[pg_test]
+    fn literal_text_terms_still_use_segment_pruning() {
+        Spi::run(
+            "CREATE TABLE literal_text_pruning_test (
+                 id bigint PRIMARY KEY,
+                 title text NOT NULL
+             );
+             CREATE INDEX literal_text_pruning_test_idx
+             ON literal_text_pruning_test
+             USING paradedb (id, (title::pdb.literal))
+             WITH (target_segment_count = 8,
+                   background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO literal_text_pruning_test
+             SELECT g, 'silver dragon ' || g FROM generate_series(1, 10) g;
+             INSERT INTO literal_text_pruning_test
+             SELECT g, 'quiet river ' || g FROM generate_series(11, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'literal_text_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let query = term_query("title", "silver dragon 1");
+
+        let reader = open_snapshot_reader(&index_rel, query, false);
+        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
+        assert_eq!(reader.search().count(), 1);
+    }
+
+    #[pg_test]
+    fn analyzed_uuid_terms_fail_open_for_segment_pruning() {
+        Spi::run(
+            "CREATE TABLE analyzed_uuid_pruning_test (
+                 id bigint PRIMARY KEY,
+                 u uuid NOT NULL
+             );
+             CREATE INDEX analyzed_uuid_pruning_test_idx
+             ON analyzed_uuid_pruning_test
+             USING paradedb (id, u)
+             WITH (target_segment_count = 8,
+                   background_layer_sizes = '0',
+                   text_fields = '{\"u\": {\"tokenizer\": {\"type\": \"default\"}, \"fast\": true}}');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO analyzed_uuid_pruning_test
+             VALUES (1, '550e8400-e29b-41d4-a716-446655440000');
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'analyzed_uuid_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        // The inverted index holds the uuid's tokens while `.stats` holds the whole value, so a
+        // token above the whole value in byte order would otherwise prove a false `Never`. The
+        // legacy `text_fields` configuration keeps the uuid field type; the tokenizer cast below
+        // reaches the proof as a tokenized field. Both must fail open.
+        let reader = open_snapshot_reader(&index_rel, term_query("u", "e29b"), false);
+        assert_eq!(
+            reader.segment_pruning_estimate().candidate_segments,
+            1,
+            "whole-value statistics cannot reject an analyzed uuid token"
+        );
+        assert_eq!(reader.search().count(), 1);
+
+        Spi::run(
+            "CREATE TABLE analyzed_uuid_cast_pruning_test (
+                 id bigint PRIMARY KEY,
+                 u uuid NOT NULL
+             );
+             CREATE INDEX analyzed_uuid_cast_pruning_test_idx
+             ON analyzed_uuid_cast_pruning_test
+             USING paradedb (id, (u::pdb.unicode_words('columnar=true')))
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO analyzed_uuid_cast_pruning_test
+             VALUES (1, '550e8400-e29b-41d4-a716-446655440000');
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'analyzed_uuid_cast_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = open_snapshot_reader(&index_rel, term_query("u", "e29b"), false);
+        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
+        assert_eq!(reader.search().count(), 1);
+    }
+
+    #[pg_test]
+    fn contained_range_partition_filter_is_removed_per_segment() {
+        let (index_rel, _heap) = segmented_index_fixture("contained_range_filter_test", 2, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, true)
+            .and_range_partition_bounds(&range_query("id", 1, 15));
+
+        assert_eq!(reader.search().count(), 15);
+        assert_eq!(
+            reader.range_filters_removed(),
+            1,
+            "the contained segment must bypass the exact range scorer while the overlapping segment keeps it"
+        );
+    }
+
+    #[pg_test]
+    fn stats_are_opened_only_when_a_proof_needs_them() {
         let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
 
         STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -2195,27 +2444,86 @@ mod tests {
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
             0,
-            "opening and searching a reader must not open any .stats component"
+            "a query without a provable predicate must not open any .stats component"
         );
 
-        let snapshot = reader.segment_stats_snapshot();
-        let id = reader.schema().search_field("id").unwrap();
-        let (lower, upper) = (Bound::Unbounded, Bound::Unbounded);
-        let consult = || {
-            (0..snapshot.segment_ids().len())
-                .all(|idx| snapshot.may_intersect_partition(idx, &id, &lower, &upper, false))
-        };
-        assert!(consult());
+        let reader = open_snapshot_reader(&index_rel, range_query("id", 1, 10), false);
+        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
             4,
-            "the first read of each immutable segment opens its .stats exactly once"
+            "a range proof opens each immutable segment's .stats exactly once"
         );
-        assert!(consult());
+        assert_eq!(reader.search().count(), 10);
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
             4,
-            "later reads reuse the opened component"
+            "executing the search must not reopen statistics"
         );
+    }
+
+    #[pg_test]
+    fn unreadable_stats_fail_open() {
+        let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let segment = probe.segment_stats_snapshot().segment_ids().next().unwrap();
+        for failure in [InjectedStatsFailure::Open, InjectedStatsFailure::Read] {
+            let _failure = inject_stats_failure(segment, failure);
+            let reader = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+            assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
+            assert_eq!(reader.search().count(), 0);
+        }
+    }
+
+    #[pg_test]
+    fn prepared_plan_reopens_the_execution_manifest_after_a_segment_merge() {
+        use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+
+        let (index_rel, _heap) = segmented_index_fixture("merge_freshness_pruning_test", 4, false);
+        Spi::run(
+            "SET plan_cache_mode = force_generic_plan;
+             PREPARE merge_freshness_query(bigint, bigint) AS
+             SELECT count(*)
+             FROM merge_freshness_pruning_test
+             WHERE title @@@ 'quiet' AND id BETWEEN $1 AND $2;",
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("EXECUTE merge_freshness_query(11, 20)")
+                .unwrap()
+                .unwrap(),
+            10
+        );
+
+        let mut merger =
+            SearchIndexMerger::open(&index_rel, MvccSatisfies::Mergeable).expect("open merger");
+        let mut segment_ids = merger
+            .searchable_segment_ids()
+            .expect("mergeable segments")
+            .into_iter()
+            .collect::<Vec<_>>();
+        segment_ids.sort_unstable();
+        assert_eq!(
+            segment_ids.len(),
+            4,
+            "fixture must begin with four segments"
+        );
+        assert!(
+            merger
+                .merge_segments(&segment_ids)
+                .expect("foreground merge")
+                .is_some(),
+            "the test must replace the original segment generation"
+        );
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        assert_eq!(
+            Spi::get_one::<i64>("EXECUTE merge_freshness_query(21, 30)")
+                .unwrap()
+                .unwrap(),
+            10,
+            "execution after the merge must resolve the new segment generation"
+        );
+        Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
     }
 }

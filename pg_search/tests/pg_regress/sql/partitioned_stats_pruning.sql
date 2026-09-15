@@ -16,6 +16,14 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 SET max_parallel_maintenance_workers TO 0;
 
+CREATE FUNCTION sp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
 CREATE TABLE sp_users (id bigserial PRIMARY KEY, display_name text, about_me text);
 CREATE TABLE sp_posts (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
 
@@ -93,6 +101,27 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
+-- Result parity alone would pass if PgSearchScan stopped installing SegmentRangeQuery. This
+-- metric is incremented by the scorer wrapper only when execution proves a segment is fully
+-- contained and substitutes an all-doc scorer for the exact partition range.
+CREATE TEMP TABLE sp_range_filter_plan AS
+SELECT line
+FROM sp_explain_analyze_lines(
+    $$SELECT count(*)
+      FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+      WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'$$
+) AS line;
+
+COPY (
+    SELECT format(
+        'range_filter_removed_in_execution=%s',
+        EXISTS (
+            SELECT 1 FROM sp_range_filter_plan
+            WHERE line ~ 'range_filters_removed=([{][0-9]+:)?[1-9][0-9]*'
+        )
+    )
+) TO STDOUT;
+
 -- =====================================================================
 -- One side's split points are enough. `sp_votes` is indexed empty and
 -- filled afterwards, so its segments carry no box: the join cuts on the
@@ -156,5 +185,34 @@ FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
 DROP TABLE sp_votes;
+
+-- A cached plan may retain the exhaustive value grid, but not ownership by the segments visible
+-- when it was planned. Late immutable segments must be mapped to the grid at execution and the
+-- range predicate must return their matching row exactly once.
+SET plan_cache_mode TO force_generic_plan;
+PREPARE sp_cached_range_join AS
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+
+EXECUTE sp_cached_range_join;
+
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO sp_users (id, display_name, about_me)
+VALUES (25001, 'late_user', repeat('a', 900));
+INSERT INTO sp_posts (id, owner_user_id, title, body)
+VALUES (25001, 25001, 'error after cached plan', repeat('b', 900));
+RESET paradedb.global_mutable_segment_rows;
+
+SELECT relname, count(*) AS segments
+FROM (SELECT 'sp_users_idx' AS relname FROM paradedb.index_info('sp_users_idx')
+      UNION ALL SELECT 'sp_posts_idx' FROM paradedb.index_info('sp_posts_idx')) s
+GROUP BY relname ORDER BY relname;
+
+EXECUTE sp_cached_range_join;
+DEALLOCATE sp_cached_range_join;
+RESET plan_cache_mode;
+
+DROP FUNCTION sp_explain_analyze_lines(text);
 DROP TABLE sp_posts;
 DROP TABLE sp_users;

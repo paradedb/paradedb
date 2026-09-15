@@ -13,9 +13,9 @@ INSERT INTO scalar_uuid_products VALUES
     (5, '550e8400-e29b-41d4-a716-446655440000'),
     (6, NULL);
 INSERT INTO scalar_uuid_orders SELECT i FROM generate_series(1, 6) i;
-CREATE INDEX ON scalar_uuid_users USING paradedb (id, (name::pdb.literal));
-CREATE INDEX ON scalar_uuid_products USING paradedb (id, uuid);
-CREATE INDEX ON scalar_uuid_orders USING paradedb (id);
+CREATE INDEX ON scalar_uuid_users USING paradedb (id, (name::pdb.literal)) WITH (key_field='id');
+CREATE INDEX ON scalar_uuid_products USING paradedb (id, uuid) WITH (key_field='id');
+CREATE INDEX ON scalar_uuid_orders USING paradedb (id) WITH (key_field='id');
 
 SET paradedb.enable_custom_scan = false;
 SET paradedb.enable_custom_scan_without_operator = false;

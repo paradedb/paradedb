@@ -371,7 +371,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-<<<<<<< HEAD
                                                                                                                     QUERY PLAN                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -387,7 +386,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     TantivyDecodeExec: decode=[name]
                              :       TantivyFetchExec: fetch=[name]
                              :         VisibilityFilterExec: tables=[s, p]
@@ -398,27 +397,6 @@ ORDER BY p.name
                              :               CooperativeExec
                              :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (23 rows)
-=======
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: p INNER s
-   Join Cond: p.supplier_id = s.id
-   Limit: 10
-   Distinct: true
-   Order By: p.name asc
-   DataFusion Physical Plan: 
-     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_24da50e3(CAST(name@4 AS Utf8), supplier_id@1) as col_1, name@2 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, supplier_id@4, name@5, ctid_1@0, name@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
->>>>>>> b9ed7f7cf (fix: support UUID scalar filters in JoinScan (#6338))
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
@@ -970,7 +948,6 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-<<<<<<< HEAD
                                                                                                                     QUERY PLAN                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -986,7 +963,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
+                             :   AggregateExec: mode=Single, gby=[name@3 as col_1, pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@1 AS Utf8)) as col_2], aggr=[min(s_0.ctid_0) as ctid_0, min(p_1.ctid_1) as ctid_1]
                              :     TantivyDecodeExec: decode=[name]
                              :       TantivyFetchExec: fetch=[name]
                              :         VisibilityFilterExec: tables=[s, p]
@@ -997,27 +974,6 @@ ORDER BY p.name
                              :               CooperativeExec
                              :                 PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (23 rows)
-=======
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: p INNER s
-   Join Cond: p.supplier_id = s.id
-   Limit: 10
-   Distinct: true
-   Order By: p.name asc
-   DataFusion Physical Plan: 
-     : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_b92e4f1e(CAST(name@3 AS Utf8)) as col_1, name@1 as col_2], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
-     :     VisibilityFilterExec: tables=[p, s]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, eager=[name], query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
->>>>>>> b9ed7f7cf (fix: support UUID scalar filters in JoinScan (#6338))
 
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p

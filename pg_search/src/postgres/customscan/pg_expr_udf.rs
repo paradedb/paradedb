@@ -159,6 +159,11 @@ impl PgExprUdf {
     pub unsafe fn stable_name(tag: &str, expr: *mut pg_sys::Node) -> String {
         use std::hash::{Hash, Hasher};
 
+        // pgrx 0.19.0 does not expose utils/datum.h.
+        unsafe extern "C-unwind" {
+            fn datum_image_hash(value: pg_sys::Datum, typ_by_val: bool, typ_len: i32) -> u32;
+        }
+
         #[pgrx::pg_guard]
         unsafe extern "C-unwind" fn hash_constants(
             node: *mut pg_sys::Node,
@@ -169,11 +174,13 @@ impl PgExprUdf {
                 let hasher = &mut *context.cast::<rustc_hash::FxHasher>();
                 constant.constisnull.hash(hasher);
                 if !constant.constisnull {
-                    pg_sys::datum_image_hash(
-                        constant.constvalue,
-                        constant.constbyval,
-                        constant.constlen,
-                    )
+                    pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                        datum_image_hash(
+                            constant.constvalue,
+                            constant.constbyval,
+                            constant.constlen,
+                        )
+                    })
                     .hash(hasher);
                     constant.constisnull = true;
                 }

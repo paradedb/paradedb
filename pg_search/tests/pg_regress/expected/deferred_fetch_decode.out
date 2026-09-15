@@ -64,7 +64,7 @@ RESET paradedb.global_mutable_segment_rows;
 SHOW paradedb.defer_column_fetch;
  paradedb.defer_column_fetch 
 -----------------------------
- on
+ auto
 (1 row)
 
 -- Top K on the deferred column: the SegmentedTopKExec goes under the fetch, so the

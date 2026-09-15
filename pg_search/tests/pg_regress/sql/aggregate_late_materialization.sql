@@ -41,6 +41,9 @@ WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fiel
 DELETE FROM alm_products WHERE id = 2;
 
 -- Serial: the deferred path puts a VisibilityFilterExec above the join.
+-- `product_id` is not the tags index's key field, so a product's row fans out
+-- once per tag and nothing above the join stops after a fixed number of rows.
+-- The scan decodes `category` once per product rather than once per joined row.
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
@@ -99,6 +102,8 @@ USING bm25 (id, post_id)
 WITH (key_field='id', numeric_fields='{"post_id": {"fast": true}}');
 
 SET max_parallel_workers_per_gather TO 0;
+-- Pinned so the shape under test does not depend on what the placement rule picks.
+SET paradedb.defer_string_decode TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
@@ -108,4 +113,5 @@ SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size"
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
 WHERE p.title @@@ 'post';
 
+RESET paradedb.defer_string_decode;
 DROP TABLE alm_posts, alm_views;

@@ -1097,9 +1097,9 @@ async fn build_source_df(
     provider.set_planstate(planstate);
 
     // Deferring an aggregate source's visibility trades an in-scan check for a
-    // post-join one. On the current cost model that only pays for specific
-    // shapes, so it stays off until selective late materialization can pick
-    // them. With it off the source keeps eager, in-scan visibility.
+    // post-join one. `DeferredPlacementRule` places a string lookup, not a
+    // visibility check, so it cannot pick the shapes where that trade pays.
+    // Until something can, the source keeps its eager, in-scan check.
     if crate::gucs::enable_aggregate_late_materialization() {
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in plan.join_keys() {

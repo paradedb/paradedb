@@ -217,6 +217,57 @@ SELECT COUNT(*), SUM(price)
 FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes';
 
+-- Test 2.10: a GROUP BY column that is not selected still binds as a raw
+-- group column, so the sort and limit see one row per group.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+ORDER BY 1 DESC
+LIMIT 3;
+
+SELECT COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+ORDER BY 1 DESC
+LIMIT 3;
+
+-- Test 2.11: HAVING on an aggregate that is not in the output. The aggregate
+-- rides in the raw tuple only.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 2.12: an output column carried through functional dependency on the
+-- grouped primary key is named as such when it is not columnar indexed.
+SELECT id, description, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop'
+GROUP BY id
+ORDER BY id;
+
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
 -- =====================================================================

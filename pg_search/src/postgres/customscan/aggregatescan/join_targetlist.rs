@@ -504,6 +504,10 @@ pub unsafe fn extract_aggregate_targetlist(
         crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
 
     let mut group_exprs: Vec<*mut pg_sys::Node> = Vec::new();
+    // 1-based positions of the grouping items as written, parallel to the
+    // leading entries of `group_exprs`. The functionally dependent Vars
+    // collected below have no position.
+    let mut clause_positions: Vec<usize> = Vec::new();
     // `extract_raw_group_column` resolves an expression down to the fast field
     // it reads, which holds the column value and not the expression value. The
     // two agree only when the expression is the identity, so a JSON container
@@ -521,12 +525,23 @@ pub unsafe fn extract_aggregate_targetlist(
                     idx + 1
                 ));
             }
-            push_unique(&mut group_exprs, expr.cast());
+            if position_equal(&group_exprs, expr.cast()).is_none() {
+                group_exprs.push(expr.cast());
+                clause_positions.push(idx + 1);
+            }
         }
     } else {
-        let exprs = pg_sys::get_sortgrouplist_exprs((*parse).groupClause, (*parse).targetList);
-        for expr in PgList::<pg_sys::Node>::from_pg(exprs).iter_ptr() {
-            push_unique(&mut group_exprs, expr);
+        // Every GROUP BY item is also a target-list entry, resjunk when it is
+        // not selected, so a column PG16+ drops from `processed_groupClause`
+        // as functionally dependent comes straight back through the output
+        // walk below. Reading `parse->groupClause` keeps its written position.
+        let written = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+        for (idx, clause) in written.iter_ptr().enumerate() {
+            let expr = pg_sys::get_sortgroupclause_expr(clause, (*parse).targetList);
+            if position_equal(&group_exprs, expr).is_none() {
+                group_exprs.push(expr);
+                clause_positions.push(idx + 1);
+            }
         }
     }
 
@@ -550,7 +565,11 @@ pub unsafe fn extract_aggregate_targetlist(
     };
     let mut group_columns = Vec::with_capacity(group_exprs.len());
     for (idx, expr) in group_exprs.iter().enumerate() {
-        group_columns.push(extract_raw_group_column(&context, *expr, idx + 1)?);
+        let origin = match clause_positions.get(idx) {
+            Some(&position) => GroupColumnOrigin::Clause { position },
+            None => GroupColumnOrigin::Dependent,
+        };
+        group_columns.push(extract_raw_group_column(&context, *expr, origin)?);
     }
     let mut aggregates = Vec::with_capacity(aggrefs.len());
     for aggref in &aggrefs {
@@ -574,6 +593,15 @@ pub unsafe fn extract_aggregate_targetlist(
         group_exprs,
         aggrefs,
     })
+}
+
+/// Where a raw group column came from, which decides how a decline names it.
+enum GroupColumnOrigin {
+    /// The 1-based GROUP BY or DISTINCT item as the user wrote it.
+    Clause { position: usize },
+    /// An output Var PostgreSQL admitted through functional dependency on the
+    /// grouping key. Always a plain column.
+    Dependent,
 }
 
 struct RawColumnContext<'a> {
@@ -636,15 +664,15 @@ unsafe fn resolve_var_source<'a>(
     })
 }
 
-/// `position` is the 1-based GROUP BY item. Group expressions come first in
-/// GROUP BY order and the functionally dependent Vars appended after them are
-/// plain columns, so only real GROUP BY items can reach the expression error.
 unsafe fn extract_raw_group_column(
     context: &RawColumnContext<'_>,
     expr: *mut pg_sys::Node,
-    position: usize,
+    origin: GroupColumnOrigin,
 ) -> Result<JoinGroupColumn, String> {
-    let clause = context.shape.clause_name();
+    let label = match origin {
+        GroupColumnOrigin::Clause { .. } => format!("{} column", context.shape.clause_name()),
+        GroupColumnOrigin::Dependent => "functionally dependent output column".to_string(),
+    };
     let mut node = expr;
     let mut transform = GroupingTransform::Identity;
     if !context.shape.is_distinct()
@@ -661,7 +689,7 @@ unsafe fn extract_raw_group_column(
             context,
             (*var).varno as pg_sys::Index,
             (*var).varattno,
-            &format!("{clause} column"),
+            &label,
         )?;
         (
             resolved.attno,
@@ -670,6 +698,9 @@ unsafe fn extract_raw_group_column(
             Some(resolved.source),
         )
     } else {
+        let GroupColumnOrigin::Clause { position } = origin else {
+            unreachable!("functionally dependent group columns are plain Vars by construction");
+        };
         assert!(
             !context.shape.is_distinct(),
             "DISTINCT group expressions are plain columns by construction"
@@ -708,8 +739,8 @@ unsafe fn extract_raw_group_column(
         .map(|(_, scale)| {
             scale.ok_or_else(|| {
                 format!(
-                    "{clause} column {field_name} is an unbounded NUMERIC; declare a precision \
-                     and scale to enable aggregate pushdown"
+                    "{label} {field_name} is an unbounded NUMERIC; declare a precision and \
+                     scale to enable aggregate pushdown"
                 )
             })
         })

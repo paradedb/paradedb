@@ -453,6 +453,125 @@ ORDER BY 1;
  Sports      | 89.99Sports
 (3 rows)
 
+-- HAVING on an aggregate that is not in the output, with a FILTER on another
+-- table and a cross-table predicate. The aggregate rides in the raw tuple only.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+  AND p.price > t.product_id
+GROUP BY p.category
+HAVING SUM(r.rating) FILTER (WHERE t.tag_name = 'tech') > 4
+ORDER BY 1;
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*))
+         Backend: DataFusion
+         Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+         Group By: category
+         Multi-Table Filter: (p.price > (t.product_id)::double precision)
+         Aggregates: COUNT(*), SUM(rating)
+         DataFusion Physical Plan: 
+           : FilterExec: agg_1@2 > 4
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) FILTER (WHERE t_1.tag_name = Utf8View("tech")) as agg_1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2, rating@3]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=price@0 > pdb_eval_expr_funcexpr_2bc2e063(product_id@1), projection=[category@0, id@1, tag_name@3]
+           :         FilterExec: price@2 > pdb_eval_expr_funcexpr_2bc2e063(id@1)
+           :           CooperativeExec
+           :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: table=t, segments=1, eager=[tag_name], dynamic_filters=1, visibility=eager, query="all"
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(22 rows)
+
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+  AND p.price > t.product_id
+GROUP BY p.category
+HAVING SUM(r.rating) FILTER (WHERE t.tag_name = 'tech') > 4
+ORDER BY 1;
+  category   | count 
+-------------+-------
+ Electronics |     2
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+  AND p.price > t.product_id
+GROUP BY p.category
+HAVING SUM(r.rating) FILTER (WHERE t.tag_name = 'tech') > 4
+ORDER BY 1;
+  category   | count 
+-------------+-------
+ Electronics |     2
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- A GROUP BY column that is not selected, sorted and limited on the count.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY 1 DESC
+LIMIT 3;
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: (count(*)), p.category
+   ->  Sort
+         Output: (count(*)), p.category
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: (count(*)), p.category
+               Backend: DataFusion
+               Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+               Group By: category
+               Aggregates: COUNT(*)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=3), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0), (product_id@2, product_id@0)], projection=[category@0]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@0)]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=t, segments=1, dynamic_filters=1, visibility=eager, query="all"
+                 :       CooperativeExec
+                 :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(22 rows)
+
+SELECT COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY 1 DESC
+LIMIT 3;
+ count 
+-------
+     2
+     1
+     1
+(3 rows)
+
 -- =====================================================================
 -- Clean up
 -- =====================================================================

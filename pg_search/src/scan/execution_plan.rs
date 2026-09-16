@@ -1298,6 +1298,14 @@ impl ExecutionPlan for PgSearchScanPlan {
                     pre_filters_wrapper.as_ref(),
                 );
                 timer.done();
+                // Published per batch: a parent that stops polling early never reaches the
+                // end-of-stream flush below.
+                let skipped = scanner.take_runtime_skipped_segments();
+                if skipped > 0
+                    && let Some(counter) = &segments_pruned_dynamic
+                {
+                    counter.add(skipped);
+                }
 
                 if pushed && !pushdown_metric_recorded {
                     let tag = strategy_sink.load(Ordering::Relaxed);
@@ -1341,9 +1349,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         if let Some(ref counter) = rows_pruned {
                             counter.add(scanner.pre_filter_rows_pruned);
-                        }
-                        if let Some(ref counter) = segments_pruned_dynamic {
-                            counter.add(scanner.runtime_skipped_segments());
                         }
                         break;
                     }

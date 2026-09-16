@@ -391,8 +391,9 @@ impl Scanner {
         self.search_results.replace_runtime_truth(truth)
     }
 
-    pub(crate) fn runtime_skipped_segments(&self) -> usize {
-        self.search_results.runtime_skipped()
+    /// Segments skipped because of runtime rejection since the last call.
+    pub(crate) fn take_runtime_skipped_segments(&mut self) -> usize {
+        self.search_results.take_runtime_skipped()
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {

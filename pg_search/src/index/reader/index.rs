@@ -309,8 +309,9 @@ impl MultiSegmentSearchResults {
         self.runtime_truth = Some(truth);
     }
 
-    pub(crate) fn runtime_skipped(&self) -> usize {
-        self.runtime_skipped
+    /// Segments skipped because of runtime rejection since the last call.
+    pub(crate) fn take_runtime_skipped(&mut self) -> usize {
+        std::mem::take(&mut self.runtime_skipped)
     }
 
     /// Returns the total estimated number of documents across all segments in these results.
@@ -2193,8 +2194,10 @@ mod tests {
     use crate::scan::pre_filter::{DynamicSegmentPruner, try_dynamic_filter_pushdown};
     use crate::scan::range_partitioning::RangePartitioning;
     use datafusion::arrow::array::Float64Array;
+    use datafusion::arrow::compute::CastOptions;
     use datafusion::arrow::datatypes::{DataType, Field as ArrowField, Schema as ArrowSchema};
     use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::arrow::util::display::FormatOptions;
     use datafusion::common::ScalarValue;
     use datafusion::logical_expr::Operator;
     use datafusion::physical_expr::PhysicalExpr;
@@ -3300,10 +3303,11 @@ mod tests {
             "dynamically rejected deferred scorers must never open"
         );
         assert_eq!(
-            remaining.runtime_skipped(),
+            remaining.take_runtime_skipped(),
             2,
             "each rejected deferred segment is skipped exactly once"
         );
+        assert_eq!(remaining.take_runtime_skipped(), 0);
 
         // Activate one scorer, then choose a direction whose tighter bound rejects that segment.
         // This models a Top-K cutoff becoming selective between scanner batches.
@@ -3345,7 +3349,7 @@ mod tests {
             "one active scorer plus two possible segments; the fourth never opens"
         );
         assert_eq!(
-            active.runtime_skipped(),
+            active.take_runtime_skipped(),
             2,
             "the abandoned active segment and the never-opened segment are both skipped"
         );
@@ -3464,7 +3468,7 @@ mod tests {
         results.replace_runtime_truth(above_five_truth);
         results.replace_runtime_truth(above_nan_truth);
         assert_eq!(results.by_ref().count(), 2);
-        assert_eq!(results.runtime_skipped(), 1);
+        assert_eq!(results.take_runtime_skipped(), 1);
     }
 
     #[pg_test]
@@ -3494,7 +3498,7 @@ mod tests {
         let mut results = reader.search();
         results.replace_runtime_truth(truth);
         assert_eq!(results.by_ref().count(), 10);
-        assert_eq!(results.runtime_skipped(), 3);
+        assert_eq!(results.take_runtime_skipped(), 3);
     }
 
     #[pg_test]
@@ -3538,7 +3542,7 @@ mod tests {
         let mut results = reader.search();
         results.replace_runtime_truth(truth);
         assert_eq!(results.by_ref().count(), 10);
-        assert_eq!(results.runtime_skipped(), 3);
+        assert_eq!(results.take_runtime_skipped(), 3);
     }
 
     #[pg_test]
@@ -3631,6 +3635,83 @@ mod tests {
         let mut results = reader.search();
         results.replace_runtime_truth(truth);
         assert_eq!(results.count(), 0);
+    }
+
+    #[pg_test]
+    fn dynamic_is_null_through_safe_cast_fails_open() {
+        let index_rel = index_from_sql(
+            "dynamic_safe_cast_pruning_test_idx",
+            "CREATE TABLE dynamic_safe_cast_pruning_test (
+                 id bigint PRIMARY KEY,
+                 f double precision NOT NULL
+             );
+             CREATE INDEX dynamic_safe_cast_pruning_test_idx
+             ON dynamic_safe_cast_pruning_test
+             USING paradedb (id, f)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_safe_cast_pruning_test VALUES (1, 1e10);
+             RESET paradedb.global_mutable_segment_rows;",
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let search_field = reader.schema().search_field("f").unwrap();
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 1, "the fixture must contain one segment");
+        assert!(
+            snapshot
+                .empirical(0, &search_field)
+                .is_some_and(|stats| !stats.nullable),
+            "the fixture must prove `f` always present so only the cast guard can keep the segment"
+        );
+
+        let schema = single_field_schema("f", DataType::Float64);
+        let f = column("f", 0);
+        let cast_to_int32 = |safe: bool| {
+            Arc::new(CastExpr::new(
+                Arc::clone(&f),
+                DataType::Int32,
+                Some(CastOptions {
+                    safe,
+                    format_options: FormatOptions::default(),
+                }),
+            )) as Arc<dyn PhysicalExpr>
+        };
+
+        let predicate = is_null(cast_to_int32(true)).unwrap();
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![1e10]))],
+        )
+        .unwrap();
+        let evaluated = predicate.evaluate(&batch).unwrap().into_array(1).unwrap();
+        let evaluated = evaluated
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+            .unwrap();
+        assert!(
+            evaluated.value(0),
+            "a safe cast turns the out-of-range value into NULL, so the authoritative predicate matches"
+        );
+
+        let truth = proven_truth(&reader, &[dynamic(Arc::clone(&f), predicate)], &schema);
+        assert!(
+            truth.rejected().is_empty(),
+            "IS NULL through a safe cast must not be proven from the column's own nullability"
+        );
+        let mut results = reader.search();
+        results.replace_runtime_truth(truth);
+        assert_eq!(
+            results.count(),
+            1,
+            "failing open must retain the matching row"
+        );
+
+        let unsafe_predicate = is_null(cast_to_int32(false)).unwrap();
+        assert_eq!(
+            rejected_segments(&reader, &[dynamic(f, unsafe_predicate)], &schema).len(),
+            1,
+            "an unsafe cast cannot produce NULL, so the column's nullability proves the segment"
+        );
     }
 
     #[pg_test]

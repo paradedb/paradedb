@@ -8,9 +8,7 @@ canonical: https://www.paradedb.com/docs/operate/deploy/cloud-platforms/dokku
   This guide deploys ParadeDB Community as a single-node container. Use
   [ParadeDB Enterprise](/operate/deploy/enterprise) if ParadeDB indexes need
   physical replication for high availability, failover, or read replicas that
-  can serve ParadeDB queries. Enterprise can be deployed via
-  [Kubernetes](/operate/deploy/self-hosted/kubernetes) or
-  [BYOC](/operate/deploy/byoc).
+  can serve ParadeDB queries.
 </Note>
 
 [Dokku](https://dokku.com) is a self-hosted PaaS built on Docker. This guide walks through deploying ParadeDB on a Dokku host using the official `paradedb/paradedb` Docker image, with a persistent storage mount for the database and a TCP proxy on port 5432.

@@ -83,7 +83,7 @@ Most of the v2 API was introduced in 0.19.x, but the following additions have be
 
 ### Write Throughput
 
-We have made significant improvements to ParadeDB's [write throughput](/operate/performance-tuning/writes) through two major architectural changes. The first is enabling [mutable segments](https://github.com/paradedb/paradedb/pull/3516) by default, which are designed to incur minimal overhead during single-row writes. The overhead of tokenizing, serializing, and flushing an immutable segment is now completely eliminated for these operations.
+Two architectural changes improved ParadeDB's [write throughput](/operate/performance-tuning/writes). The first is enabling [mutable segments](https://github.com/paradedb/paradedb/pull/3516) by default, which are designed to incur minimal overhead during single-row writes. The overhead of tokenizing, serializing, and flushing an immutable segment is now completely eliminated for these operations.
 
 The second improvement is [default background merging](https://github.com/paradedb/paradedb/pull/3518). All merging operations now happen in background threads by default, dramatically improving write performance by removing merge overhead from the critical write path. The system allows up to 2 concurrent background mergers for optimal resource utilization.
 

@@ -11,25 +11,16 @@ canonical: https://www.paradedb.com/docs/operate/deploy/enterprise
   case-by-case basis.
 </Note>
 
-ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise. Both
-editions expose the same search APIs. The Enterprise boundary is deployment and
-licensing: Enterprise adds commercial licensing, support, and physical
-replication for ParadeDB indexes.
+ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
+Both editions expose the same SQL APIs for search, filtering, sorting, joins,
+and analytics.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb) is our open source product, licensed under [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html).
-This license permits free use, modification, and distribution of the software, provided that distributed, derivative works of the software are released under the same license
-(copyleft provision).
+[ParadeDB Community](https://github.com/paradedb/paradedb) is the AGPL-3.0 open
+source product. It supports single-node deployments.
 
-ParadeDB Community supports single-node deployments. Use ParadeDB Enterprise
-when the ParadeDB index itself needs to be physically replicated for high
+ParadeDB Enterprise adds commercial licensing, support, and physical replication
+for ParadeDB indexes. Use Enterprise when the ParadeDB index itself needs high
 availability, failover, or read replicas that can serve ParadeDB queries.
-
-In addition to all of the features of ParadeDB Community, ParadeDB Enterprise:
-
-1. Waives the copyleft provision of AGPL-3.0
-2. Supports physical replication of ParadeDB indexes across Postgres instances
-3. Enables high availability, failover, and read replicas for ParadeDB queries
-4. Includes commercial support
 
 For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
 
@@ -45,8 +36,9 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
 | Full-text search with BM25                | ✅                 | ✅                  |
 | Vector search                             | ✅                 | ✅                  |
 | Hybrid search                             | ✅                 | ✅                  |
-| Top K                                     | ✅                 | ✅                  |
+| Sorting and Top K                         | ✅                 | ✅                  |
 | Filtering                                 | ✅                 | ✅                  |
+| Join pushdown                             | ✅                 | ✅                  |
 | Aggregates and facets                     | ✅                 | ✅                  |
 | **Concurrency and Consistency**           |                    |
 | Postgres MVCC-safe<sup>1</sup>            | ✅                 | ✅                  |

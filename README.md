@@ -19,7 +19,7 @@
   <a href="https://www.paradedb.com/docs">Docs</a> &bull;
   <a href="https://paradedb.com/slack">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
-  <a href="https://www.paradedb.com/docs/project/changelog/0.25.6">Changelog</a>
+  <a href="https://github.com/paradedb/paradedb/releases">Changelog</a>
 </h3>
 
 <p align="center">

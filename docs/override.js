@@ -16,7 +16,7 @@
       "@type": "ImageObject",
       url: "https://www.paradedb.com/brand/paradedb-logo-light.svg",
     },
-    description: "We think you should just use Postgres.",
+    description: "You should just use Postgres.",
     email: "hello@paradedb.com",
     contactPoint: [
       {

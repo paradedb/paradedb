@@ -13,6 +13,7 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 - **[Native vector search](/reference/vector/overview) (beta)**. The ParadeDB index natively indexes pgvector's `vector` type, addressing pgvector's limitations around filtered queries — specifically, queries that combine vector similarity with metadata filters or full-text search predicates.
 - **Incremental index maintenance**. Vector search quality currently degrades as indexed rows are updated. We are implementing SPFresh to maintain index quality incrementally.
 - **Remaining pgvector types**. Implement support for pgvector's `halfvec`, `sparsevec`, and `bit` types.
+
 ### JOIN Improvements
 
 - **Join pushdown (beta)**. [Join pushdown](/reference/joins/overview) pushes search predicates directly into the index for significantly better performance.

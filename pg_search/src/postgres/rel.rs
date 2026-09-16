@@ -23,7 +23,6 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::set_ivf_clusterer;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
@@ -510,9 +509,6 @@ impl PgSearchRelation {
         let settings = index_settings(self.options(), &tantivy_schema);
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, self.options());
-        }
         setup_tokenizers(self, &mut index)?;
         Ok(index)
     }

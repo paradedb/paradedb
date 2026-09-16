@@ -29,8 +29,15 @@ pub use search::*;
 
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
-use tantivy::IndexSettings;
 use tantivy::columnar::CodecType;
+use tantivy::directory::Directory;
+use tantivy::{Index, IndexSettings};
+
+pub fn open_index<D: Into<Box<dyn Directory>>>(directory: D) -> tantivy::Result<Index> {
+    let mut index = Index::open(directory)?;
+    crate::vector::clusterer::set_ivf_router(&mut index)?;
+    Ok(index)
+}
 
 /// The [`IndexSettings`] used for every tantivy index pg_search creates.
 ///
@@ -45,7 +52,7 @@ pub fn index_settings(
         sort_by_field: SearchIndexSchema::build_sort_by_field(&options.sort_by(), schema),
         docstore_compress_dedicated_thread: false,
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
-        vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
+        vector_replicas: options.cluster_replication().max(1),
         vector_bounds_scope: options.bounds_scope(),
         ..IndexSettings::default()
     }

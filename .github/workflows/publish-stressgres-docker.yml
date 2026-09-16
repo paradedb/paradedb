@@ -126,8 +126,31 @@ jobs:
           platform: linux/arm64
           policy-config: docker/docker-scout-policy.json
 
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [publish-stressgres-docker]
+    if: always() && needs.publish-stressgres-docker.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
+      # RunsOn retries after this attempt finishes. Do not wait inside the workflow.
+      # Attempts 1 and 2 may retry; attempt 3 and API lookup errors must still alert.
+      - name: Detect Retryable Spot Interruption
+        id: spot-retry
+        continue-on-error: true
+        uses: runs-on/spot-retry-gate/.github/actions/detect@451eea7c3d2c58d14a1f80f0bbb99eaa347b9471 # v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run_id: ${{ github.run_id }}
+          run_attempt: ${{ github.run_attempt }}
+          job_results: ${{ toJSON(needs) }}
+          check_name: slack-alert
+
       - name: Notify Slack on Failure
-        if: failure()
+        if: always() && steps.spot-retry.outputs.spot_interrupted != 'true'
         uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

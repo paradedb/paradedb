@@ -2052,9 +2052,11 @@ mod tests {
     use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
+    use crate::index::stats::SegmentStats;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
+    use tantivy::index::SegmentComponent;
 
     fn open_snapshot_reader(index_rel: &PgSearchRelation) -> SearchIndexReader {
         SearchIndexReader::open(
@@ -2227,6 +2229,37 @@ mod tests {
                 "a new snapshot must not inherit another execution's failed read"
             );
         }
+    }
+
+    /// A `.stats` probe must be answered from the manifest: building a mutable segment's
+    /// in-memory index for it would cost a full re-index of that segment.
+    #[pg_test]
+    fn stats_probe_does_not_materialize_a_mutable_segment() {
+        let (index_rel, _heap) = segmented_index_fixture("mutable_stats_probe_test", 1, true);
+        let directory = MvccSatisfies::Snapshot.directory(&index_rel);
+        let index = Index::open(directory.clone()).unwrap();
+        let mutable = index
+            .searchable_segments()
+            .unwrap()
+            .into_iter()
+            .find(|segment| directory.is_mutable(&segment.id()))
+            .expect("fixture must include a mutable segment");
+        let id = mutable.id();
+        assert_eq!(directory.mutable_segment_materialized(&id), Some(false));
+
+        assert!(
+            SegmentStats::of_segment(&mutable).unwrap().is_none(),
+            "a mutable segment has no .stats"
+        );
+        assert_eq!(
+            directory.mutable_segment_materialized(&id),
+            Some(false),
+            "probing .stats must not build the in-memory index"
+        );
+
+        // Control: a component the segment does have materializes it.
+        mutable.open_read(SegmentComponent::Terms).unwrap();
+        assert_eq!(directory.mutable_segment_materialized(&id), Some(true));
     }
 
     #[pg_test]

@@ -374,6 +374,19 @@ impl MVCCDirectory {
             .unwrap_or(false)
     }
 
+    /// Whether a mutable segment's in-memory index has been built. `None` for a persisted
+    /// segment or an unknown id.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn mutable_segment_materialized(&self, segment_id: &SegmentId) -> Option<bool> {
+        self.all_entries
+            .lock()
+            .get(segment_id)
+            .and_then(|entry| match entry {
+                LoadedSegmentMetaEntry::Memory { directory, .. } => Some(directory.get().is_some()),
+                LoadedSegmentMetaEntry::Persisted { .. } => None,
+            })
+    }
+
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
         let file_name = path
             .file_name()

@@ -14,8 +14,8 @@ use std::sync::{Arc, OnceLock};
 use crate::index::stats::{EmpiricalStats, LogicalBounds, SegmentStats};
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
-use tantivy::Searcher;
 use tantivy::index::{SegmentId, SegmentReader};
+use tantivy::{Searcher, SegmentOrdinal};
 
 /// Absence describes missing statistics, never missing field values. Unknown means a read or
 /// conversion failed; it must not be used as evidence for pruning.
@@ -25,67 +25,18 @@ enum StatsRead<T> {
     Unknown,
 }
 
-impl<T> StatsRead<T> {
-    /// `None` when the read failed and the segment must be kept.
-    fn known(self) -> Option<Option<T>> {
-        match self {
-            StatsRead::Known(value) => Some(Some(value)),
-            StatsRead::Absent => Some(None),
-            StatsRead::Unknown => None,
-        }
-    }
-}
-
 struct CapturedSegment {
-    reader: SegmentReader,
+    id: SegmentId,
     /// Opened on first use, since most readers never consult statistics. A failed open is
     /// cached as `Unknown`.
     stats: OnceLock<StatsRead<SegmentStats>>,
 }
 
-impl CapturedSegment {
-    fn id(&self) -> SegmentId {
-        self.reader.segment_id()
-    }
-
-    fn stats(&self) -> &StatsRead<SegmentStats> {
-        self.stats.get_or_init(|| capture_stats(&self.reader))
-    }
-
-    /// Logical bounds describe where the build routed rows; empirical bounds describe what
-    /// the segment contains. Both must overlap when available. An unreadable entry keeps the
-    /// segment, whereas an absent entry still permits the other kind of bounds to prune it.
-    fn may_intersect_partition(&self, field: &SearchField, range: &PartitionRange) -> bool {
-        self.intersects_partition(field, range).unwrap_or(true)
-    }
-
-    fn intersects_partition(&self, field: &SearchField, range: &PartitionRange) -> Option<bool> {
-        let stats = match self.stats() {
-            StatsRead::Known(stats) => stats,
-            StatsRead::Absent => return Some(true),
-            StatsRead::Unknown => return None,
-        };
-        let empirical = read_empirical(stats, self.id(), field).known()?;
-        let logical = read_logical(stats, self.id(), field).known()?;
-        let (lower, upper) = (&range.lower, &range.upper);
-        Some(match (logical, empirical) {
-            (None, None) => true,
-            (Some(bounds), None) => {
-                (range.includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
-            }
-            (None, Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
-            }
-            (Some(bounds), Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable)
-                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
-            }
-        })
-    }
-}
-
 /// Statistics captured from exactly one Searcher/manifest view.
 pub(crate) struct SegmentStatsSnapshot {
+    /// The segment readers stay with the searcher; each captured segment holds only its id and
+    /// its statistics cache, so capture never clones a reader.
+    searcher: Searcher,
     segments: Box<[CapturedSegment]>,
 }
 
@@ -239,18 +190,66 @@ fn read_logical(
 }
 
 impl SegmentStatsSnapshot {
-    /// Capture the segments `searcher` was built on. Their readers are already open, so this
-    /// costs one `Arc` clone per segment and no I/O.
+    /// Capture the segments `searcher` was built on: one `Arc` clone of the searcher, no I/O.
     pub(crate) fn capture(searcher: &Searcher) -> Arc<Self> {
-        let captured = searcher
+        let segments = searcher
             .segment_readers()
             .iter()
             .map(|reader| CapturedSegment {
-                reader: reader.clone(),
+                id: reader.segment_id(),
                 stats: OnceLock::new(),
             })
             .collect::<Box<[_]>>();
-        Arc::new(Self { segments: captured })
+        Arc::new(Self {
+            searcher: searcher.clone(),
+            segments,
+        })
+    }
+
+    fn stats(&self, ord: usize) -> &StatsRead<SegmentStats> {
+        self.segments[ord]
+            .stats
+            .get_or_init(|| capture_stats(self.searcher.segment_reader(ord as SegmentOrdinal)))
+    }
+
+    /// Logical bounds describe where the build routed rows; empirical bounds describe what
+    /// the segment contains. Both must overlap when available. An unreadable entry keeps the
+    /// segment, whereas an absent entry still permits the other kind of bounds to prune it.
+    fn may_intersect_partition(
+        &self,
+        ord: usize,
+        field: &SearchField,
+        range: &PartitionRange,
+    ) -> bool {
+        let segment_id = self.segments[ord].id;
+        let stats = match self.stats(ord) {
+            StatsRead::Known(stats) => stats,
+            StatsRead::Absent | StatsRead::Unknown => return true,
+        };
+        let empirical = match read_empirical(stats, segment_id, field) {
+            StatsRead::Known(value) => Some(value),
+            StatsRead::Absent => None,
+            StatsRead::Unknown => return true,
+        };
+        let logical = match read_logical(stats, segment_id, field) {
+            StatsRead::Known(value) => Some(value),
+            StatsRead::Absent => None,
+            StatsRead::Unknown => return true,
+        };
+        let (lower, upper) = (&range.lower, &range.upper);
+        match (logical, empirical) {
+            (None, None) => true,
+            (Some(bounds), None) => {
+                (range.includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
+            }
+            (None, Some(empirical)) => {
+                (range.includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
+            }
+            (Some(bounds), Some(empirical)) => {
+                (range.includes_nulls && empirical.nullable)
+                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+            }
+        }
     }
 
     pub(crate) fn segments_intersecting_partition<'a>(
@@ -260,7 +259,8 @@ impl SegmentStatsSnapshot {
     ) -> impl Iterator<Item = SegmentId> + 'a {
         self.segments
             .iter()
-            .filter(move |segment| segment.may_intersect_partition(field, range))
-            .map(CapturedSegment::id)
+            .enumerate()
+            .filter(move |(ord, _)| self.may_intersect_partition(*ord, field, range))
+            .map(|(_, segment)| segment.id)
     }
 }

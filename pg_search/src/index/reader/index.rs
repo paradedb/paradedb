@@ -239,9 +239,9 @@ pub struct MultiSegmentSearchResults {
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
-    /// Execution-time dynamic proofs are replaced as Top-K thresholds evolve. Deferred scorers
-    /// consult this set before opening; an already-active segment is dropped at the next batch
-    /// boundary if it has become impossible.
+    /// Cumulative execution-time dynamic proofs are installed as Top-K thresholds evolve.
+    /// Deferred scorers consult this set before opening; an already-active segment is dropped at
+    /// the next batch boundary if it has become impossible.
     runtime_rejected: HashSet<SegmentId>,
     /// Segments this scan would have opened but dropped because of `runtime_rejected`. Counted
     /// where the skip happens so statically pruned segments and segments owned by other parallel
@@ -3322,6 +3322,132 @@ mod tests {
             2,
             "the abandoned active segment and the never-opened segment are both skipped"
         );
+    }
+
+    #[pg_test]
+    fn dynamic_segment_pruning_retains_proofs_when_precision_regresses() {
+        Spi::run(
+            "CREATE TABLE dynamic_nan_pruning_test (
+                 id bigint PRIMARY KEY,
+                 value double precision NOT NULL
+             );
+             CREATE INDEX dynamic_nan_pruning_test_idx
+             ON dynamic_nan_pruning_test
+             USING paradedb (id, value)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_nan_pruning_test VALUES (1, 0.0);
+             INSERT INTO dynamic_nan_pruning_test VALUES (2, 10.0);
+             INSERT INTO dynamic_nan_pruning_test VALUES (3, 'NaN');
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+
+        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
+            "SELECT 'dynamic_nan_pruning_test_idx'::regclass::oid",
+        )
+        .unwrap()
+        .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 3, "the fixture must contain three segments");
+
+        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "value",
+            DataType::Float64,
+            false,
+        )]));
+        let value = column("value", 0);
+        let above_negative_one = binary(
+            Arc::clone(&value),
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(-1.0))),
+        );
+        let above_five = binary(
+            Arc::clone(&value),
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(5.0))),
+        );
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&value)],
+            above_negative_one,
+        ));
+        let dynamic_expr = Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>;
+        let mut pruner = DynamicSegmentPruner::new(&[Arc::clone(&dynamic_expr)]);
+
+        assert!(
+            pruner
+                .refresh(&reader, &schema)
+                .expect("the first generation must be evaluated")
+                .is_empty(),
+            "value > -1 cannot reject any fixture segment"
+        );
+        dynamic.update(Arc::clone(&above_five)).unwrap();
+        let rejected_above_five = pruner
+            .refresh(&reader, &schema)
+            .expect("the finite update must be evaluated");
+        assert_eq!(
+            rejected_above_five.len(),
+            1,
+            "value > 5 proves the segment containing only zero impossible"
+        );
+        assert!(
+            pruner.refresh(&reader, &schema).is_none(),
+            "an unchanged generation must not rebuild proofs"
+        );
+
+        let above_nan = binary(
+            value,
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(f64::NAN))),
+        );
+        let values = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![0.0, 10.0, f64::NAN]))],
+        )
+        .unwrap();
+        let evaluate = |predicate: &Arc<dyn PhysicalExpr>| {
+            predicate
+                .evaluate(&values)
+                .unwrap()
+                .into_array(values.num_rows())
+                .unwrap()
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            evaluate(&above_five),
+            vec![Some(false), Some(true), Some(true)]
+        );
+        assert_eq!(
+            evaluate(&above_nan),
+            vec![Some(false), Some(false), Some(false)],
+            "the NaN threshold is semantically tighter under Arrow total ordering"
+        );
+
+        dynamic.update(above_nan).unwrap();
+        assert!(
+            dynamically_rejected_segments(&reader, &[dynamic_expr], &schema).is_empty(),
+            "NaN deliberately makes a fresh statistics proof fail open"
+        );
+        let rejected_above_nan = pruner
+            .refresh(&reader, &schema)
+            .expect("the updated generation must be evaluated");
+        assert_eq!(
+            rejected_above_nan, rejected_above_five,
+            "a tighter filter must retain every rejection proven by an earlier generation"
+        );
+
+        let mut results = reader.search();
+        results.replace_runtime_rejected(rejected_above_five);
+        results.replace_runtime_rejected(rejected_above_nan);
+        assert_eq!(results.by_ref().count(), 2);
+        assert_eq!(results.take_runtime_skipped(), 1);
     }
 
     #[pg_test]

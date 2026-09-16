@@ -34,10 +34,11 @@
 //!    the inverted index for maximum performance.
 //!
 //! 2. **Segment-Statistics Pushdown:** At batch boundaries, published dynamic-filter generations
-//!    are checked against the execution reader's immutable `.stats` snapshot. Proofs are rebuilt
-//!    only after a source publishes a new generation. A newly impossible active segment is
-//!    abandoned, and impossible deferred segment scorers are never opened. Unsupported
-//!    expressions and missing statistics retain the segment.
+//!    are checked against the execution reader's immutable `.stats` snapshot. New proofs are
+//!    derived only after a source publishes a generation and accumulated for that execution. A
+//!    newly impossible active segment is abandoned, and impossible deferred segment scorers are
+//!    never opened. Unsupported expressions and missing statistics retain the segment unless an
+//!    earlier, broader generation already proved it impossible.
 //!
 //! 3. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
 //!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
@@ -64,7 +65,7 @@
 //!        │
 //!        │  at poll_next after a generation changes
 //!        ▼
-//! DynamicSegmentPruner::refresh()   ← proves the latest ranges against segment `.stats`;
+//! DynamicSegmentPruner::refresh()   ← derives and accumulates proofs from segment `.stats`;
 //!        │                              Scanner drops active/deferred impossible segments
 //!        ▼
 //! build_filters()                   ← calls DynamicFilterPhysicalExpr::current()
@@ -373,12 +374,14 @@ impl MonotonicDynamicFilterSource {
 }
 
 /// Generation-aware execution cache for segment proofs derived from monotonic DataFusion dynamic
-/// filters. A failed `current()` read leaves the evaluated generation unchanged, so a transient
-/// remapping error cannot make a source appear to loosen: the caller keeps the rejection set it
-/// last installed.
+/// filters. The proven-impossible set only grows: a later, tighter predicate can be harder to
+/// prove from statistics (for example, a floating-point bound that becomes NaN), but every proof
+/// established for an earlier generation remains valid. A failed `current()` read leaves both the
+/// evaluated generation and accumulated proofs unchanged.
 pub(crate) struct DynamicSegmentPruner {
     sources: Box<[MonotonicDynamicFilterSource]>,
     state: PrunerState,
+    proven_impossible: HashSet<SegmentId>,
 }
 
 enum PrunerState {
@@ -394,6 +397,7 @@ impl DynamicSegmentPruner {
                 .filter_map(MonotonicDynamicFilterSource::from_physical_expr)
                 .collect(),
             state: PrunerState::NotEvaluated,
+            proven_impossible: HashSet::default(),
         }
     }
 
@@ -401,9 +405,9 @@ impl DynamicSegmentPruner {
         !self.sources.is_empty()
     }
 
-    /// Recompute only when a dynamic source publishes a new generation. `Some` means the caller
-    /// must install the returned complete rejection set; `None` means its existing set remains
-    /// authoritative.
+    /// Recompute only when a dynamic source publishes a new generation. `Some` contains every
+    /// segment proven impossible by this or an earlier generation and must replace the caller's
+    /// installed set. `None` means its existing set remains authoritative.
     pub(crate) fn refresh(
         &mut self,
         reader: &SearchIndexReader,
@@ -444,14 +448,13 @@ impl DynamicSegmentPruner {
             .map(|dynamic| dynamic.current().ok())
             .collect::<Option<Vec<_>>>()?;
         let snapshot = reader.segment_stats_snapshot();
-        let mut rejected = HashSet::default();
         for expr in current {
             if let Some(rejections) = dynamic_truth(reader, &expr, schema, snapshot) {
-                rejected.extend(rejections);
+                self.proven_impossible.extend(rejections);
             }
         }
         self.state = PrunerState::Evaluated(evaluated_generations);
-        Some(rejected)
+        Some(self.proven_impossible.clone())
     }
 }
 

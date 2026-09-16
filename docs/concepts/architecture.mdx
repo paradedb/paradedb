@@ -4,6 +4,8 @@ description: A deep dive into how ParadeDB is built on Postgres
 canonical: https://www.paradedb.com/docs/concepts/architecture
 ---
 
+import { ArchitectureDiagram } from "/snippets/architecture-details.jsx";
+
 Search belongs with your application data.
 
 ParadeDB brings full-text search, vector search, and columnar execution into
@@ -11,8 +13,6 @@ Postgres. It does this with modern query execution paths and data structures
 optimized for high-ingest search and analytics workloads.
 
 ## Custom Index
-
-![Custom Index Architecture](/images/architecture_indexam.png)
 
 In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
 ParadeDB introduces a custom index called the _ParadeDB index_.
@@ -24,7 +24,7 @@ Works](/concepts/how-the-paradedb-index-works).
 
 ## Data Model
 
-![Data Model](/images/architecture_lsm.png)
+<ArchitectureDiagram />
 
 The ParadeDB index is laid out as an [LSM tree](#lsm-tree), where each segment contains the structures needed by the indexed fields: an inverted index for tokenized text, columnar storage for scalar fields, and vector index structures for vector fields.
 The inverted, columnar, and vector structures optimize for fast reads, while the LSM tree optimizes for high-frequency writes.

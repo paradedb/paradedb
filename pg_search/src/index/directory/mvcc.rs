@@ -23,8 +23,8 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
-    SegmentMetaEntryMutable, bm25_max_free_space,
+    FileEntry, MVCCEntry, STATS_EXT, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -413,6 +413,13 @@ impl MVCCDirectory {
                 directory,
                 ..
             } => {
+                // A mutable segment is indexed without the stats plugin, so it never has
+                // `.stats`. Answer here rather than materialize the whole segment for a probe.
+                if path.extension().and_then(|ext| ext.to_str()) == Some(STATS_EXT) {
+                    return Err(TantivyError::OpenDirectoryError(
+                        OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                    ));
+                }
                 let file_handle = directory
                     .get_or_init(|| {
                         let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
@@ -506,13 +513,6 @@ impl MVCCDirectory {
                 LoadedSegmentMetaEntry::Persisted { meta, .. }
                 | LoadedSegmentMetaEntry::Memory { meta, .. } => *meta,
             })
-    }
-
-    /// Consult this before opening `.stats`: asking a mutable segment's in-memory directory to
-    /// open a nonexistent component would materialize the whole segment.
-    pub(crate) fn has_stats_component(&self, segment_id: &SegmentId) -> bool {
-        self.segment_meta_entry(segment_id)
-            .is_some_and(|entry| entry.stats().is_some())
     }
 
     /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'

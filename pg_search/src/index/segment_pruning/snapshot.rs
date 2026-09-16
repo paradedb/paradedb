@@ -7,63 +7,68 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+use std::fmt::Display;
+use std::io;
 use std::sync::{Arc, OnceLock};
 
-use crate::index::mvcc::MVCCDirectory;
 use crate::index::stats::{EmpiricalStats, LogicalBounds, SegmentStats};
-use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::PartitionRange;
-use crate::schema::{SearchField, SearchFieldType};
+use crate::schema::SearchField;
 use tantivy::Searcher;
-use tantivy::index::{Segment, SegmentId, SegmentReader};
+use tantivy::index::{SegmentId, SegmentReader};
 
 /// Absence describes missing statistics, never missing field values. Unknown means a read or
 /// conversion failed; it must not be used as evidence for pruning.
-#[derive(Debug)]
 enum StatsRead<T> {
     Absent,
     Known(T),
     Unknown,
 }
 
-#[derive(Debug)]
+impl<T> StatsRead<T> {
+    /// `None` when the read failed and the segment must be kept.
+    fn known(self) -> Option<Option<T>> {
+        match self {
+            StatsRead::Known(value) => Some(Some(value)),
+            StatsRead::Absent => Some(None),
+            StatsRead::Unknown => None,
+        }
+    }
+}
+
 struct CapturedSegment {
-    segment: Segment,
-    /// Seeded `Absent` from the manifest so a mutable segment is never asked to open a
-    /// component. Otherwise opened on first use, since most readers never consult statistics.
-    /// A failed open is cached as `Unknown`.
+    reader: SegmentReader,
+    /// Opened on first use, since most readers never consult statistics. A failed open is
+    /// cached as `Unknown`.
     stats: OnceLock<StatsRead<SegmentStats>>,
 }
 
 impl CapturedSegment {
     fn id(&self) -> SegmentId {
-        self.segment.id()
+        self.reader.segment_id()
     }
 
     fn stats(&self) -> &StatsRead<SegmentStats> {
-        self.stats.get_or_init(|| capture_stats(&self.segment))
+        self.stats.get_or_init(|| capture_stats(&self.reader))
     }
 
     /// Logical bounds describe where the build routed rows; empirical bounds describe what
     /// the segment contains. Both must overlap when available. An unreadable entry keeps the
     /// segment, whereas an absent entry still permits the other kind of bounds to prune it.
     fn may_intersect_partition(&self, field: &SearchField, range: &PartitionRange) -> bool {
+        self.intersects_partition(field, range).unwrap_or(true)
+    }
+
+    fn intersects_partition(&self, field: &SearchField, range: &PartitionRange) -> Option<bool> {
         let stats = match self.stats() {
             StatsRead::Known(stats) => stats,
-            StatsRead::Absent | StatsRead::Unknown => return true,
+            StatsRead::Absent => return Some(true),
+            StatsRead::Unknown => return None,
         };
-        let empirical = match read_empirical(stats, self.id(), field) {
-            StatsRead::Known(value) => Some(value),
-            StatsRead::Absent => None,
-            StatsRead::Unknown => return true,
-        };
-        let logical = match read_logical(stats, self.id(), field) {
-            StatsRead::Known(value) => Some(value),
-            StatsRead::Absent => None,
-            StatsRead::Unknown => return true,
-        };
+        let empirical = read_empirical(stats, self.id(), field).known()?;
+        let logical = read_logical(stats, self.id(), field).known()?;
         let (lower, upper) = (&range.lower, &range.upper);
-        match (logical, empirical) {
+        Some(match (logical, empirical) {
             (None, None) => true,
             (Some(bounds), None) => {
                 (range.includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
@@ -75,12 +80,11 @@ impl CapturedSegment {
                 (range.includes_nulls && empirical.nullable)
                     || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
             }
-        }
+        })
     }
 }
 
 /// Statistics captured from exactly one Searcher/manifest view.
-#[derive(Debug)]
 pub(crate) struct SegmentStatsSnapshot {
     segments: Box<[CapturedSegment]>,
 }
@@ -96,7 +100,7 @@ pub(crate) mod test_support {
     /// Number of `.stats` open attempts, including ones that fail.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {
         Open,
         Empirical,
@@ -174,27 +178,28 @@ pub(crate) mod test_support {
     }
 }
 
-fn capture_stats(segment: &Segment) -> StatsRead<SegmentStats> {
-    #[cfg(any(test, feature = "pg_test"))]
-    test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let opened = SegmentStats::of_segment(segment);
-    #[cfg(any(test, feature = "pg_test"))]
-    let opened = test_support::maybe_fail(
-        segment.id(),
-        test_support::InjectedStatsFailure::Open,
-        opened,
-    );
-    match opened {
-        Ok(Some(stats)) => StatsRead::Known(stats),
+fn classify<T>(value: io::Result<Option<T>>, what: impl Display) -> StatsRead<T> {
+    match value {
+        Ok(Some(value)) => StatsRead::Known(value),
         Ok(None) => StatsRead::Absent,
         Err(error) => {
-            pgrx::debug1!(
-                "segment pruning could not open .stats for {:?}: {error}",
-                segment.id()
-            );
+            pgrx::debug1!("segment pruning could not read {what}: {error}");
             StatsRead::Unknown
         }
     }
+}
+
+fn capture_stats(reader: &SegmentReader) -> StatsRead<SegmentStats> {
+    #[cfg(any(test, feature = "pg_test"))]
+    test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let opened = SegmentStats::of_reader(reader);
+    #[cfg(any(test, feature = "pg_test"))]
+    let opened = test_support::maybe_fail(
+        reader.segment_id(),
+        test_support::InjectedStatsFailure::Open,
+        opened,
+    );
+    classify(opened, format_args!(".stats for {:?}", reader.segment_id()))
 }
 
 fn read_empirical(
@@ -202,38 +207,17 @@ fn read_empirical(
     segment_id: SegmentId,
     field: &SearchField,
 ) -> StatsRead<EmpiricalStats> {
-    let value = stats.empirical(field.field());
+    let value = stats.empirical_for(field);
     #[cfg(any(test, feature = "pg_test"))]
     let value = test_support::maybe_fail(
         segment_id,
         test_support::InjectedStatsFailure::Empirical,
         value,
     );
-    let value = match value {
-        Ok(Some(value)) => value,
-        Ok(None) => return StatsRead::Absent,
-        Err(error) => {
-            pgrx::debug1!(
-                "segment pruning could not read field {:?} from .stats for {segment_id:?}: {error}",
-                field.field()
-            );
-            return StatsRead::Unknown;
-        }
-    };
-    if matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
-        match value.into_dates() {
-            Some(value) => StatsRead::Known(value),
-            None => {
-                pgrx::debug1!(
-                    "segment pruning could not lift field {:?} statistics to dates for {segment_id:?}",
-                    field.field()
-                );
-                StatsRead::Unknown
-            }
-        }
-    } else {
-        StatsRead::Known(value)
-    }
+    classify(
+        value,
+        format_args!("empirical field {:?} for {segment_id:?}", field.field()),
+    )
 }
 
 fn read_logical(
@@ -248,52 +232,25 @@ fn read_logical(
         test_support::InjectedStatsFailure::Logical,
         value,
     );
-    match value {
-        Ok(Some(value)) => StatsRead::Known(value),
-        Ok(None) => StatsRead::Absent,
-        Err(error) => {
-            pgrx::debug1!(
-                "segment partitioning could not read logical field {:?} from .stats for {segment_id:?}: {error}",
-                field.field()
-            );
-            StatsRead::Unknown
-        }
-    }
+    classify(
+        value,
+        format_args!("logical field {:?} for {segment_id:?}", field.field()),
+    )
 }
 
 impl SegmentStatsSnapshot {
-    /// Capture lightweight segment handles for exactly the manifest `searcher` was built on.
-    pub(crate) fn capture(
-        directory: &MVCCDirectory,
-        segments: Vec<Segment>,
-        searcher: &Searcher,
-    ) -> Arc<Self> {
-        debug_assert_eq!(
-            segments.iter().map(Segment::id).collect::<Vec<_>>(),
-            searcher
-                .segment_readers()
-                .iter()
-                .map(SegmentReader::segment_id)
-                .collect::<Vec<_>>(),
-            "snapshot and searcher must name the same frozen manifest",
-        );
-        let captured = segments
-            .into_iter()
-            .map(|segment| CapturedSegment {
-                stats: if directory.has_stats_component(&segment.id()) {
-                    OnceLock::new()
-                } else {
-                    OnceLock::from(StatsRead::Absent)
-                },
-                segment,
+    /// Capture the segments `searcher` was built on. Their readers are already open, so this
+    /// costs one `Arc` clone per segment and no I/O.
+    pub(crate) fn capture(searcher: &Searcher) -> Arc<Self> {
+        let captured = searcher
+            .segment_readers()
+            .iter()
+            .map(|reader| CapturedSegment {
+                reader: reader.clone(),
+                stats: OnceLock::new(),
             })
             .collect::<Box<[_]>>();
         Arc::new(Self { segments: captured })
-    }
-
-    #[cfg(any(test, feature = "pg_test"))]
-    pub(crate) fn segment_ids(&self) -> impl ExactSizeIterator<Item = SegmentId> + '_ {
-        self.segments.iter().map(CapturedSegment::id)
     }
 
     pub(crate) fn segments_intersecting_partition<'a>(

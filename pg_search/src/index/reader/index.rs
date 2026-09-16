@@ -487,9 +487,8 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
-    /// Read through lightweight segment handles rather than `SegmentReader`s, so consulting
-    /// statistics never opens searchable components. Built once per open, so readers sharing a
-    /// manifest share one lazily opened cache.
+    /// Statistics of `searcher`'s segments, opened on first use. Built once per open, so readers
+    /// sharing a manifest share one lazily opened cache.
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     reader: IndexReader,
     searcher: Searcher,
@@ -526,10 +525,7 @@ impl SearchIndexReader {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        // Both the searcher and this call read the directory's cached manifest, so the handles
-        // and the SegmentReaders name the same frozen segment set.
-        let segment_stats_snapshot =
-            SegmentStatsSnapshot::capture(&directory, index.searchable_segments()?, &searcher);
+        let segment_stats_snapshot = SegmentStatsSnapshot::capture(&searcher);
 
         Ok(IndexComponents {
             cleanup_lock,
@@ -881,7 +877,7 @@ impl SearchIndexReader {
         self.total_docs
     }
 
-    pub(crate) fn segment_stats_snapshot(&self) -> &Arc<SegmentStatsSnapshot> {
+    pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
         &self.segment_stats_snapshot
     }
 
@@ -2057,15 +2053,17 @@ mod tests {
     use super::*;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
-    use std::ops::Bound;
 
-    fn open_snapshot_reader(
-        index_rel: &PgSearchRelation,
-        query: SearchQueryInput,
-        need_scores: bool,
-    ) -> SearchIndexReader {
-        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
+    fn open_snapshot_reader(index_rel: &PgSearchRelation) -> SearchIndexReader {
+        SearchIndexReader::open(
+            index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap()
     }
 
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
@@ -2121,7 +2119,7 @@ mod tests {
         )
         .expect("from_manifest");
         assert!(
-            Arc::ptr_eq(
+            std::ptr::eq(
                 reader.segment_stats_snapshot(),
                 sibling.segment_stats_snapshot()
             ),
@@ -2166,16 +2164,18 @@ mod tests {
     #[pg_test]
     fn unreadable_stats_fail_open() {
         let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let probe = open_snapshot_reader(&index_rel);
         let id = probe.schema().search_field("id").unwrap();
         // No fixture row has an id in this range, so readable statistics rule every segment out.
-        let range = crate::scan::range_partitioning::PartitionRange {
-            lower: Bound::Included(PdbOwnedValue::I64(100)),
-            upper: Bound::Included(PdbOwnedValue::I64(200)),
-            includes_nulls: false,
-        };
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(100), PdbOwnedValue::I64(201)],
+        }
+        .partition_range(1)
+        .unwrap();
         let snapshot = probe.segment_stats_snapshot();
-        assert_eq!(snapshot.segment_ids().len(), 2);
+        let segment_ids = probe.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
         assert_eq!(
             snapshot
                 .segments_intersecting_partition(&id, &range)
@@ -2183,14 +2183,14 @@ mod tests {
             0,
             "readable statistics must reject all segments before failure injection"
         );
-        let segment = snapshot.segment_ids().next().unwrap();
+        let segment = segment_ids[0];
         for operation in [
             InjectedStatsFailure::Open,
             InjectedStatsFailure::Empirical,
             InjectedStatsFailure::Logical,
         ] {
             let failure = inject_stats_failure(segment, operation);
-            let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+            let reader = open_snapshot_reader(&index_rel);
             let snapshot = reader.segment_stats_snapshot();
             for attempt in 1..=2 {
                 assert_eq!(
@@ -2217,7 +2217,7 @@ mod tests {
                 "statistics failures must preserve query results"
             );
             drop(failure);
-            let recovered = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+            let recovered = open_snapshot_reader(&index_rel);
             assert_eq!(
                 recovered
                     .segment_stats_snapshot()
@@ -2234,7 +2234,7 @@ mod tests {
         let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
 
         STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let reader = open_snapshot_reader(&index_rel);
         assert_eq!(reader.search().count(), 40);
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
@@ -2244,11 +2244,13 @@ mod tests {
 
         let snapshot = reader.segment_stats_snapshot();
         let id = reader.schema().search_field("id").unwrap();
-        let range = crate::scan::range_partitioning::PartitionRange {
-            lower: Bound::Unbounded,
-            upper: Bound::Unbounded,
-            includes_nulls: true,
-        };
+        // Every fixture id sits below the single split point, in the NULL partition's range.
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(1000)],
+        }
+        .partition_range(0)
+        .unwrap();
         let consult = || {
             snapshot
                 .segments_intersecting_partition(&id, &range)

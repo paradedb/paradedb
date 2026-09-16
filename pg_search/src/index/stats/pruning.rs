@@ -41,18 +41,12 @@ pub(crate) fn persisted_split_points(
     if indexrel.options().partition_by().is_empty() {
         return Ok(None);
     }
-    let directory = MvccSatisfies::Snapshot.directory(indexrel);
-    let index = Index::open(directory.clone())?;
+    let index = Index::open(MvccSatisfies::Snapshot.directory(indexrel))?;
     let Ok(field) = index.schema().get_field(partition_by) else {
         return Ok(None);
     };
     let mut points = Vec::new();
     for segment in index.searchable_segments()? {
-        // Opening a component of a mutable segment materializes the whole segment first, and its
-        // entry already says it has no `.stats`.
-        if !directory.has_stats_component(&segment.id()) {
-            continue;
-        }
         let Some(stats) = SegmentStats::of_segment(&segment)? else {
             continue;
         };
@@ -78,15 +72,15 @@ pub(crate) fn segments_for_partition(
     boundaries: &RangePartitioning,
     partition: usize,
 ) -> Vec<SegmentId> {
-    let all = reader.segment_ids();
+    let all = || reader.segment_ids();
     let Some(range) = boundaries.partition_range(partition) else {
-        return all;
+        return all();
     };
     let Some(field) = reader
         .schema()
         .search_field(boundaries.partition_by.as_ref())
     else {
-        return all;
+        return all();
     };
     reader
         .segment_stats_snapshot()

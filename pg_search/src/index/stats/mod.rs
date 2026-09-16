@@ -39,6 +39,8 @@ use tantivy::schema::Field;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
+use crate::postgres::types::is_datetime_type;
+use crate::schema::{SearchField, SearchFieldType};
 
 mod plugin;
 mod pruning;
@@ -299,7 +301,7 @@ impl EmpiricalStats {
 
     /// Datetimes of a recent index sit in an `I64` column; a query bound on that field is a
     /// `Date`, so lift the statistics the way `FFType` lifts the column's values.
-    pub(crate) fn into_dates(self) -> Option<Self> {
+    fn into_dates(self) -> Option<Self> {
         let lift = |v: PdbOwnedValue| match v {
             PdbOwnedValue::I64(raw) => PostgresDateTime::try_from_raw(raw)
                 .ok()
@@ -315,7 +317,6 @@ impl EmpiricalStats {
 }
 
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
-#[derive(Debug)]
 pub(crate) struct SegmentStats {
     file: CompositeFile,
 }
@@ -351,6 +352,24 @@ impl SegmentStats {
         Ok(self
             .read::<EmpiricalWire>(field, EMPIRICAL_IDX)?
             .map(EmpiricalStats::from))
+    }
+
+    /// [`Self::empirical`] in the representation query bounds on `field` use. A datetime column
+    /// of a recent index keeps raw micros in an `I64` fast field; its statistics compare as
+    /// `Date`.
+    pub(crate) fn empirical_for(&self, field: &SearchField) -> io::Result<Option<EmpiricalStats>> {
+        let Some(stats) = self.empirical(field.field())? else {
+            return Ok(None);
+        };
+        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+            return Ok(Some(stats));
+        }
+        stats.into_dates().map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "datetime statistics do not decode as timestamps",
+            )
+        })
     }
 
     pub(crate) fn logical(&self, field: Field) -> io::Result<Option<LogicalBounds>> {

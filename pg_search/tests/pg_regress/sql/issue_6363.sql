@@ -1,0 +1,67 @@
+-- Join scan on a JSON path when a segment has no column for it (Issue #6363)
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_custom_scan TO true;
+SET paradedb.enable_custom_scan_without_operator TO true;
+SET paradedb.enable_join_custom_scan TO true;
+SET paradedb.enable_aggregate_custom_scan TO true;
+
+CREATE TABLE ju (id serial8 PRIMARY KEY, name text, metadata jsonb);
+CREATE TABLE jp (id serial8 PRIMARY KEY, name text);
+
+-- Segment 1: documents with 'brand': 'apple'
+INSERT INTO ju (name, metadata) SELECT 'bob', '{"brand": "apple"}' FROM generate_series(1, 20);
+INSERT INTO jp (name) SELECT 'bob' FROM generate_series(1, 24);
+
+CREATE INDEX ju_idx ON ju USING paradedb (id, (name::pdb.literal), (metadata::pdb.simple('columnar=true')));
+CREATE INDEX jp_idx ON jp USING paradedb (id, (name::pdb.literal));
+
+-- Segment 2: inserted after CREATE INDEX with '{}' (no "brand" key)
+INSERT INTO ju (name, metadata) VALUES ('bob', '{}');
+
+-- Segment 3: inserted with '{"brand": null}'
+INSERT INTO ju (name, metadata) VALUES ('bob', '{"brand": null}');
+
+-- Segment 4: inserted with NULL metadata
+INSERT INTO ju (name, metadata) VALUES ('bob', NULL);
+
+-- Segment 5: inserted with another key '{"other": "val"}'
+INSERT INTO ju (name, metadata) VALUES ('bob', '{"other": "val"}');
+
+-- 1. Join scan with predicate evaluated by scan, grouped by JSON subfield
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1 NULLS LAST;
+
+-- 2. Fully pushed-down query
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name @@@ 'bob'
+GROUP BY 1
+ORDER BY 1 NULLS LAST;
+
+-- 3. Plain aggregate scan without join
+SELECT metadata->>'brand', count(*)
+FROM ju
+WHERE name IS NOT NULL
+GROUP BY 1
+ORDER BY 1 NULLS LAST;
+
+-- 4. Rebuilt index where all rows exist across segments
+DROP INDEX ju_idx;
+CREATE INDEX ju_idx ON ju USING paradedb (id, (name::pdb.literal), (metadata::pdb.simple('columnar=true')));
+
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1 NULLS LAST;
+
+-- Cleanup
+DROP TABLE ju, jp;
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_custom_scan_without_operator;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;

@@ -1187,6 +1187,7 @@ impl SegmentedTopKState {
                 FFType::Bytes(bytes_col) => {
                     bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
                 }
+                FFType::Null | FFType::Junk => {}
                 _ => {
                     panic!(
                         "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
@@ -1690,6 +1691,13 @@ impl SegmentedTopKState {
                     )));
                 }
                 Ok(ScalarValue::BinaryView(Some(b)))
+            }
+            FFType::Null | FFType::Junk => {
+                Ok(if deferred.is_bytes {
+                    ScalarValue::BinaryView(None)
+                } else {
+                    ScalarValue::Utf8View(None)
+                })
             }
             _ => Err(DataFusionError::Internal(
                 "Unexpected column type for deferred field".to_string(),

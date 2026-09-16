@@ -364,6 +364,9 @@ fn decode_term_ordinals(
         ) {
             (true, FFType::Bytes(col)) => ords_to_bytes_array(col.clone(), &ords_array)?,
             (false, FFType::Text(col)) => ords_to_string_array(col.clone(), &ords_array)?,
+            (_, FFType::Null | FFType::Junk) => {
+                new_null_array(&field.output_data_type(), rows.len())
+            }
             (is_bytes, _) => {
                 return Err(DataFusionError::Execution(format!(
                     "TantivyDecodeExec: column '{}' at fast-field index {} is not a {} column",

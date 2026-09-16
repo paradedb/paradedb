@@ -129,10 +129,17 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
             match &self.inner().columns[field] {
-                WhichFastField::Named(name, _)
-                | WhichFastField::Array(name, _)
-                | WhichFastField::Deferred(name, _) => {
-                    FFType::new(self.fast_fields(segment_ord), name)
+                WhichFastField::Named(name, field_type)
+                | WhichFastField::Array(name, field_type)
+                | WhichFastField::Deferred(name, field_type) => {
+                    let ffr = self.fast_fields(segment_ord);
+                    if let Some(ff) = FFType::try_new(ffr, name) {
+                        ff
+                    } else if matches!(field_type, SearchFieldType::Json(_)) {
+                        FFType::Null
+                    } else {
+                        panic!("`{name}` is missing or is not configured as columnar")
+                    }
                 }
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
@@ -209,6 +216,7 @@ macro_rules! fetch_term_ords {
 #[derive(Debug)]
 pub enum FFType {
     Junk,
+    Null,
     Text(StrColumn),
     Bytes(BytesColumn),
     I64(Column<i64>),
@@ -228,34 +236,42 @@ impl FFType {
         )
     }
 
+    /// Construct the proper [`FFType`] for the specified `field_name` if present
+    /// in the Tantivy index. Returns `None` if the column is missing.
+    pub fn try_new(ffr: &FastFieldReaders, field_name: &str) -> Option<Self> {
+        if let Ok(ff) = ffr.i64(field_name) {
+            Some(Self::I64(ff))
+        } else if let Ok(Some(ff)) = ffr.str(field_name) {
+            Some(Self::Text(ff))
+        } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
+            Some(Self::Bytes(ff))
+        } else if let Ok(ff) = ffr.u64(field_name) {
+            Some(Self::U64(ff))
+        } else if let Ok(ff) = ffr.f64(field_name) {
+            Some(Self::F64(ff))
+        } else if let Ok(ff) = ffr.bool(field_name) {
+            Some(Self::Bool(ff))
+        } else if let Ok(ff) = ffr.date(field_name) {
+            Some(Self::Date(ff))
+        } else {
+            None
+        }
+    }
+
     /// Construct the proper [`FFType`] for the specified `field_name`, which
     /// should be a known field name in the Tantivy index
     #[track_caller]
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
-        if let Ok(ff) = ffr.i64(field_name) {
-            Self::I64(ff)
-        } else if let Ok(Some(ff)) = ffr.str(field_name) {
-            Self::Text(ff)
-        } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
-            Self::Bytes(ff)
-        } else if let Ok(ff) = ffr.u64(field_name) {
-            Self::U64(ff)
-        } else if let Ok(ff) = ffr.f64(field_name) {
-            Self::F64(ff)
-        } else if let Ok(ff) = ffr.bool(field_name) {
-            Self::Bool(ff)
-        } else if let Ok(ff) = ffr.date(field_name) {
-            Self::Date(ff)
-        } else {
+        Self::try_new(ffr, field_name).unwrap_or_else(|| {
             panic!("`{field_name}` is missing or is not configured as columnar")
-        }
+        })
     }
 
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
     pub fn value(&self, doc: DocId, search_field_type: Option<SearchFieldType>) -> TantivyValue {
         match self {
-            FFType::Junk => TantivyValue(PdbOwnedValue::Null),
+            FFType::Junk | FFType::Null => TantivyValue(PdbOwnedValue::Null),
             FFType::Text(ff) => {
                 let Some(ord) = ff.term_ords(doc).next() else {
                     return TantivyValue(PdbOwnedValue::Null);
@@ -347,6 +363,10 @@ impl FFType {
             FFType::Bytes(col) => fetch_term_ords!(col.ords(), ids),
             FFType::Junk => Arc::new(arrow_array::new_null_array(
                 &arrow_schema::DataType::Null,
+                ids.len(),
+            )),
+            FFType::Null => Arc::new(arrow_array::new_null_array(
+                &search_field_type.arrow_data_type(),
                 ids.len(),
             )),
             FFType::I64(_) if is_pgoid_datetime_type(search_field_type.typeoid()) => {
@@ -449,6 +469,14 @@ impl FFType {
                 &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
                     "item",
                     arrow_schema::DataType::Null,
+                    true,
+                ))),
+                ids.len(),
+            )),
+            FFType::Null => Arc::new(arrow_array::new_null_array(
+                &arrow_schema::DataType::List(Arc::new(arrow_schema::Field::new(
+                    "item",
+                    search_field_type.arrow_data_type(),
                     true,
                 ))),
                 ids.len(),
@@ -934,5 +962,50 @@ mod tests {
         let first = helper.column(immutable_ord, 0) as *const FFType;
         let second = helper.column(immutable_ord, 0) as *const FFType;
         assert_eq!(first, second);
+    }
+
+    #[pg_test]
+    fn ffhelper_handles_missing_json_column_as_null() {
+        let (index_rel, _heap) = crate::index::reader::index::test_support::segmented_index_fixture(
+            "ffhelper_missing_json_test",
+            1,
+            /* with_mutable */ false,
+        );
+        let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::Named(
+                "metadata.nonexistent_key".to_string(),
+                SearchFieldType::Json(pg_sys::JSONBOID),
+            )],
+        );
+        let col = helper.column(0, 0);
+        assert!(matches!(col, FFType::Null));
+        let val = helper.value(0, DocAddress::new(0, 0)).unwrap();
+        assert_eq!(val, TantivyValue(PdbOwnedValue::Null));
+
+        let arrow_array = col.fetch_values_or_ords_to_arrow(&[0, 1], SearchFieldType::Json(pg_sys::JSONBOID));
+        assert_eq!(arrow_array.data_type(), &arrow_schema::DataType::Utf8View);
+        assert_eq!(arrow_array.len(), 2);
+        assert_eq!(arrow_array.null_count(), 2);
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "is missing or is not configured as columnar")]
+    fn ffhelper_panics_on_missing_non_json_column() {
+        let (index_rel, _heap) = crate::index::reader::index::test_support::segmented_index_fixture(
+            "ffhelper_missing_non_json_test",
+            1,
+            /* with_mutable */ false,
+        );
+        let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::Named(
+                "nonexistent_text_field".to_string(),
+                SearchFieldType::Text(pg_sys::TEXTOID),
+            )],
+        );
+        let _ = helper.column(0, 0);
     }
 }

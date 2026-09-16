@@ -457,6 +457,7 @@ fn fetch_term_ordinals(
             ) {
                 (true, FFType::Bytes(col)) => col.ords().first_vals(&ids, &mut ords),
                 (false, FFType::Text(col)) => col.ords().first_vals(&ids, &mut ords),
+                (_, FFType::Null | FFType::Junk) => {}
                 (is_bytes, _) => {
                     return Err(DataFusionError::Execution(format!(
                         "TantivyFetchExec: column '{}' at fast-field index {} is not a {} column",

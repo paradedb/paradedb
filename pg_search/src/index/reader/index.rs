@@ -25,14 +25,14 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
-use crate::index::segment_pruning::predicate::{SegmentTruth, SegmentTruthTable};
+use crate::index::segment_pruning::predicate::SegmentTruthTable;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -78,26 +78,17 @@ pub struct DocsEstimate {
     pub query_cost: u64,
 }
 
+/// The proof a conjunct brings to a derived reader.
+enum Conjunct {
+    Unproven,
+    Proven(Arc<SegmentTruthTable>),
+}
+
 /// A count-only summary of the pruning proof for this reader's execution snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SegmentPruningEstimate {
     pub(crate) candidate_segments: usize,
     pub(crate) candidate_docs: u64,
-}
-
-impl SegmentPruningEstimate {
-    fn from_truth(truth: &SegmentTruthTable) -> Self {
-        let snapshot = truth.snapshot();
-        let (candidate_segments, candidate_docs) = (0..snapshot.len())
-            .filter(|idx| snapshot.doc_count(*idx) > 0 && truth.at(*idx) != SegmentTruth::Never)
-            .fold((0, 0), |(count, docs), idx| {
-                (count + 1, docs + u64::from(snapshot.doc_count(idx)))
-            });
-        Self {
-            candidate_segments,
-            candidate_docs,
-        }
-    }
 }
 
 fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
@@ -395,7 +386,6 @@ pub struct SearchIndexReader {
     total_segment_count: usize,
     total_docs: u64,
     index_created_by_version: Option<Version>,
-    segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
     /// The directory `underlying_index` opened over; kept to capture this reader's
     /// [`SegmentView`].
     directory: MVCCDirectory,
@@ -443,7 +433,6 @@ impl Clone for SearchIndexReader {
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
-            segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
             directory: self.directory.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -678,7 +667,6 @@ impl SearchIndexReader {
                 schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
             )
         };
-        // Build execution truth from the exact Searcher/manifest view retained by this reader.
         let builder =
             PruningQueryBuilder::new(segment_stats_snapshot, &schema, index_created_by_version);
         let truth = builder.truth_for_query(&search_query_input);
@@ -694,12 +682,6 @@ impl SearchIndexReader {
                 planstate,
             )
             .unwrap_or_else(|e| panic!("{e}"));
-        let segment_ord_by_id = searcher
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
-            .collect();
 
         Ok(Self {
             index_rel: index_relation.clone(),
@@ -714,7 +696,6 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             index_created_by_version,
-            segment_ordinal_by_id: segment_ord_by_id,
             directory,
             _cleanup_lock: cleanup_lock,
         })
@@ -749,13 +730,9 @@ impl SearchIndexReader {
     }
 
     /// Extends the reader's underlying query by AND-ing it with the provided query. The conjunct
-    /// carries no proof of its own, so the current truth table stays in force.
+    /// carries no proof of its own, so only existing segment rejections remain proven.
     pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
-        let truth = SegmentTruthTable::uniform(
-            Arc::clone(self.segment_truth.snapshot()),
-            SegmentTruth::Maybe,
-        );
-        self.and_query_with_pruning_truth(additional_query, truth)
+        self.and_query_with_truth(additional_query, Conjunct::Unproven)
     }
 
     /// Restricts this reader to one range partition. Segment bounds may prove this restriction
@@ -769,32 +746,29 @@ impl SearchIndexReader {
         );
         let truth = builder.truth_for_query(query);
         let removed = Arc::new(RangeFilterRemovalCounter::default());
-        let mut reader = self.and_query_with_pruning_truth(
+        let mut reader = self.and_query_with_truth(
             wrap_range_partition_filter(
                 tantivy_query,
                 query,
                 Arc::clone(&truth),
                 Arc::clone(&removed),
             ),
-            truth,
+            Conjunct::Proven(truth),
         );
         reader.range_filters_removed = removed;
         reader
     }
 
-    /// AND `additional_query` into this reader and conjoin its proof with the current truth.
+    /// AND `additional_query` into this reader and combine its proof with the current truth.
     /// `self.query` is already compiled with the execution expression context
     /// that resolved any Params or PostgreSQL expressions; rebuilding it with `None` contexts
     /// would make adding a runtime predicate unsafe for prepared plans, so the compiled query and
     /// the execution snapshot are reused.
-    fn and_query_with_pruning_truth(
-        &self,
-        additional_query: Box<dyn Query>,
-        additional_truth: Arc<SegmentTruthTable>,
-    ) -> Self {
-        let current = &self.segment_truth;
-        let truth = current.conjunction(&additional_truth);
-
+    fn and_query_with_truth(&self, additional_query: Box<dyn Query>, conjunct: Conjunct) -> Self {
+        let truth = match conjunct {
+            Conjunct::Unproven => self.segment_truth.weakened(),
+            Conjunct::Proven(additional) => self.segment_truth.conjunction(&additional),
+        };
         let mut clone = self.clone();
         let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
         let boolean_query = tantivy::query::BooleanQuery::new(vec![
@@ -826,12 +800,7 @@ impl SearchIndexReader {
     pub fn count_matched_docs(&self) -> tantivy::Result<u64> {
         let weight = self.weight();
         let mut total = 0u64;
-        let segment_ids = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .map(SegmentReader::segment_id);
-        for (_, segment_reader) in self.segment_readers_in_segments(segment_ids) {
+        for (_, segment_reader) in self.candidate_segment_readers() {
             total += u64::from(weight.count(segment_reader)?);
         }
         Ok(total)
@@ -960,8 +929,17 @@ impl SearchIndexReader {
         self.total_docs
     }
 
+    /// Counts exactly the segments a search of this reader would open.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
-        SegmentPruningEstimate::from_truth(&self.segment_truth)
+        let (candidate_segments, candidate_docs) = self
+            .candidate_segment_readers()
+            .fold((0, 0), |(count, docs), (_, reader)| {
+                (count + 1, docs + u64::from(reader.num_docs()))
+            });
+        SegmentPruningEstimate {
+            candidate_segments,
+            candidate_docs,
+        }
     }
 
     pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
@@ -1125,14 +1103,9 @@ impl SearchIndexReader {
 
         let segment_truth = Arc::clone(&self.segment_truth);
         let lazy_iterators = segment_ids.filter_map(move |segment_id| {
-            if !segment_truth.is_candidate(segment_id) {
-                return None;
-            }
-            let (segment_ord, segment_reader) = searcher
-                .segment_readers()
-                .iter()
-                .enumerate()
-                .find(|(_, reader)| reader.segment_id() == segment_id)
+            let ord = segment_truth
+                .snapshot()
+                .segment_index(segment_id)
                 .unwrap_or_else(|| {
                     panic!(
                         "segment {segment_id} should exist in this {} reader's {} segments",
@@ -1140,7 +1113,11 @@ impl SearchIndexReader {
                         searcher.segment_readers().len()
                     )
                 });
-            let segment_ord = segment_ord as SegmentOrdinal;
+            let segment_ord = ord as SegmentOrdinal;
+            let segment_reader = searcher.segment_reader(segment_ord);
+            if !segment_truth.is_candidate(ord, segment_reader) {
+                return None;
+            }
 
             Some(ScorerIter::new(
                 DeferredScorer::new(Arc::clone(&weight), segment_reader.clone()),
@@ -1910,12 +1887,11 @@ impl SearchIndexReader {
             .query
             .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
-        let segment_ids = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .map(SegmentReader::segment_id);
-        let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
+        let fruits = self.collect_segment_readers(
+            self.candidate_segment_readers(),
+            &collector,
+            weight.as_ref(),
+        );
         collector
             .merge_fruits(fruits)
             .expect("search should not fail")
@@ -1934,9 +1910,11 @@ impl SearchIndexReader {
             .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
+        let readers = self.segment_readers_in_segments(segment_ids);
         let Some(aux_collector) = aux_collector else {
             // No auxiliary collector.
-            let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
+            let fruits =
+                self.collect_segment_readers(readers, &top_docs_collector, weight.as_ref());
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segments");
@@ -1949,13 +1927,14 @@ impl SearchIndexReader {
         // Optionally wrap in MVCC visibility filtering, if requested.
         if let Some(vischeck) = aux_collector.vischeck {
             let collector = MVCCFilterCollector::new(compound_collector, vischeck);
-            let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
+            let fruits = self.collect_segment_readers(readers, &collector, weight.as_ref());
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
-            let fruits = self.collect_segments(segment_ids, &compound_collector, weight.as_ref());
+            let fruits =
+                self.collect_segment_readers(readers, &compound_collector, weight.as_ref());
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
@@ -2034,7 +2013,26 @@ impl SearchIndexReader {
     }
 
     fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
-        self.segment_ordinal_by_id.get(segment_id).copied()
+        self.segment_truth
+            .snapshot()
+            .segment_index(*segment_id)
+            .map(|ord| ord as SegmentOrdinal)
+    }
+
+    fn candidates(
+        &self,
+        ordinals: impl Iterator<Item = SegmentOrdinal>,
+    ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
+        ordinals.filter_map(move |ord| {
+            let reader = self.searcher.segment_reader(ord);
+            self.segment_truth
+                .is_candidate(ord as usize, reader)
+                .then_some((ord, reader))
+        })
+    }
+
+    fn candidate_segment_readers(&self) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
+        self.candidates(0..self.searcher.segment_readers().len() as SegmentOrdinal)
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
@@ -2044,29 +2042,25 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
-        segment_ids.filter_map(move |segment_id| {
-            if !self.segment_truth.is_candidate(segment_id) {
-                return None;
-            }
-            let ord = self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
+        self.candidates(segment_ids.map(move |segment_id| {
+            self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
                 panic!(
                     "segment {segment_id} should exist in this {} reader's {} segments",
                     self.directory.mvcc_style_name(),
-                    self.segment_ordinal_by_id.len()
+                    self.searcher.segment_readers().len()
                 )
-            });
-            Some((ord, self.searcher.segment_reader(ord)))
-        })
+            })
+        }))
     }
 
-    fn collect_segments<C: Collector>(
+    fn collect_segment_readers<'a, C: Collector>(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
         collector: &C,
         weight: &dyn Weight,
     ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
         io_stats::reset();
-        self.segment_readers_in_segments(segment_ids)
+        readers
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
@@ -2165,6 +2159,7 @@ impl ErasedFeatures {
 mod tests {
     use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
+    use crate::index::segment_pruning::predicate::SegmentTruth;
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -2612,6 +2607,272 @@ mod tests {
     }
 
     #[pg_test]
+    fn decoded_stats_are_reused_across_predicates_and_readers() {
+        use crate::index::segment_pruning::EMPIRICAL_READS;
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let (index_rel, _heap) = segmented_index_fixture("decoded_stats_reuse", 4, true);
+        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
+        let query = SearchQueryInput::Boolean {
+            must: vec![range_query("id", 1, 30), range_query("id", 5, 25)],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        EMPIRICAL_READS.store(0, Relaxed);
+        let reader =
+            SearchIndexReader::from_manifest(&manifest, &index_rel, query, false, None, false)
+                .unwrap();
+        assert_eq!(
+            EMPIRICAL_READS.load(Relaxed),
+            4,
+            "two leaves must decode each segment's field once"
+        );
+        assert_eq!(reader.segment_ids().len(), 5);
+        assert_eq!(
+            reader.segment_pruning_estimate().candidate_segments,
+            4,
+            "the mutable segment has no statistics and must remain a candidate"
+        );
+        assert_pruning_matches_tantivy(&reader, 21);
+        let derived = reader.and_range_partition_bounds(&range_query("id", 11, 20));
+        assert_pruning_matches_tantivy(&derived, 10);
+        let sibling = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            range_query("id", 31, 40),
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_pruning_matches_tantivy(&sibling, 10);
+        let id = reader.schema().search_field("id").unwrap();
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(11), PdbOwnedValue::I64(21)],
+        }
+        .partition_range(1)
+        .unwrap();
+        assert_eq!(
+            reader
+                .segment_stats_snapshot()
+                .segments_intersecting_partition(&id, &range)
+                .count(),
+            2,
+            "retain the matching immutable segment and the mutable segment without statistics"
+        );
+        assert_eq!(
+            EMPIRICAL_READS.load(Relaxed),
+            4,
+            "derived readers, manifest siblings and partition pruning share decoded entries"
+        );
+        let fresh = open_snapshot_reader(&index_rel, range_query("id", 31, 40), false);
+        assert_pruning_matches_tantivy(&fresh, 10);
+        assert_eq!(
+            EMPIRICAL_READS.load(Relaxed),
+            8,
+            "a new execution view has its own cache"
+        );
+    }
+
+    #[pg_test]
+    fn term_sets_prove_once_per_field() {
+        use crate::index::segment_pruning::{EMPIRICAL_READS, FIELD_PROOF_PASSES};
+        use crate::query::TermInput;
+        use std::sync::atomic::Ordering::Relaxed;
+
+        Spi::run("CREATE TABLE grouped_term_proofs (id bigint PRIMARY KEY, x bigint NOT NULL, title text NOT NULL);
+            CREATE INDEX grouped_term_proofs_idx ON grouped_term_proofs USING paradedb
+            (id, x, (title::pdb.unicode_words('columnar=true')))
+            WITH (background_layer_sizes = '0');
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(1, 10) g;
+            INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
+            RESET paradedb.global_mutable_segment_rows;").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'grouped_term_proofs_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index_rel = PgSearchRelation::open(oid);
+        let mut same_field = (1000..1512)
+            .map(|value| TermInput {
+                field: FieldName::from("id"),
+                value: PdbOwnedValue::I64(value),
+            })
+            .collect::<Vec<_>>();
+        // Duplicates neither multiply results nor create additional field proof passes.
+        same_field.extend([10, 10].map(|value| TermInput {
+            field: FieldName::from("id"),
+            value: PdbOwnedValue::I64(value),
+        }));
+        let mut mixed_fields = same_field.clone();
+        mixed_fields.push(TermInput {
+            field: FieldName::from("x"),
+            value: PdbOwnedValue::I64(1011),
+        });
+        let mut unsupported = mixed_fields.clone();
+        unsupported.push(TermInput {
+            field: FieldName::from("title"),
+            value: PdbOwnedValue::Str("alpha".into()),
+        });
+        for (terms, expected, candidates, passes) in [
+            (vec![], 0, 0, 0),
+            (same_field, 1, 1, 1),
+            (mixed_fields, 2, 2, 2),
+            (unsupported, 20, 2, 2),
+        ] {
+            for scoring in [false, true] {
+                EMPIRICAL_READS.store(0, Relaxed);
+                FIELD_PROOF_PASSES.store(0, Relaxed);
+                let reader = open_snapshot_reader(
+                    &index_rel,
+                    SearchQueryInput::TermSet {
+                        terms: terms.clone(),
+                    },
+                    scoring,
+                );
+                assert_eq!(reader.segment_ids().len(), 2);
+                assert_eq!(
+                    reader.segment_pruning_estimate().candidate_segments,
+                    candidates
+                );
+                assert_eq!(
+                    FIELD_PROOF_PASSES.load(Relaxed),
+                    passes,
+                    "one proof pass per supported field, not per term"
+                );
+                assert_eq!(EMPIRICAL_READS.load(Relaxed), passes * 2);
+                assert_pruning_matches_tantivy(&reader, expected);
+            }
+        }
+    }
+
+    #[pg_test]
+    fn candidate_iteration_keeps_ordinals_and_lazy_checkout() {
+        use std::cell::Cell;
+        let (index_rel, _heap) = segmented_index_fixture("candidate_iteration", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let checked_out = Cell::new(0);
+        let ids = reader.segment_ids();
+        let mut readers = reader.segment_readers_in_segments(
+            ids.iter()
+                .copied()
+                .inspect(|_| checked_out.set(checked_out.get() + 1)),
+        );
+        assert_eq!(checked_out.get(), 0);
+        assert_eq!(readers.next().unwrap().0, 0);
+        assert_eq!(
+            checked_out.get(),
+            1,
+            "requesting one segment must not consume the remaining work"
+        );
+        drop(readers);
+        let narrowed = reader.and_range_partition_bounds(&range_query("id", 11, 20));
+        let candidates = narrowed
+            .candidate_segment_readers()
+            .map(|(ord, r)| (ord, r.segment_id()))
+            .collect::<Vec<_>>();
+        let selected = narrowed
+            .segment_readers_in_segments(ids.into_iter())
+            .map(|(ord, r)| (ord, r.segment_id()))
+            .collect::<Vec<_>>();
+        assert_eq!(candidates, selected);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            narrowed
+                .searcher
+                .segment_reader(candidates[0].0)
+                .segment_id(),
+            candidates[0].1
+        );
+        let weakened = narrowed.and_query(Box::new(tantivy::query::AllQuery));
+        assert_eq!(weakened.segment_pruning_estimate().candidate_segments, 1);
+        assert!(!weakened.segment_truth.contains(SegmentTruth::Always));
+        assert_pruning_matches_tantivy(&weakened, 10);
+    }
+
+    /// Wrapper queries lower conservatively: a disjunction keeps its strongest child, and a
+    /// filter that re-checks rows outside the index can inherit only rejections.
+    #[pg_test]
+    fn wrapper_queries_lower_conservatively() {
+        use SegmentTruth::{Always, Maybe, Never};
+
+        let (index_rel, _heap) = segmented_index_fixture("wrapper_lowering", 2, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let builder = PruningQueryBuilder::new(
+            Arc::clone(reader.segment_truth.snapshot()),
+            &reader.schema,
+            reader.index_created_by_version,
+        );
+        let truths = |query: &SearchQueryInput| {
+            let table = builder.truth_for_query(query);
+            (0..table.snapshot().len())
+                .map(|idx| table.at(idx))
+                .collect::<Vec<_>>()
+        };
+        // Fixture ids are 1..=20 over two NOT NULL segments: one range covers both segments
+        // exactly and the other reaches neither.
+        let always = range_query("id", 1, 20);
+        let never = range_query("id", 100, 200);
+        assert_eq!(truths(&always), [Always, Always]);
+        assert_eq!(truths(&never), [Never, Never]);
+
+        let disjunction = |disjuncts: Vec<SearchQueryInput>| SearchQueryInput::DisjunctionMax {
+            disjuncts,
+            tie_breaker: None,
+        };
+        assert_eq!(
+            truths(&disjunction(vec![never.clone(), always.clone()])),
+            [Always, Always]
+        );
+        assert_eq!(
+            truths(&disjunction(vec![never.clone(), never.clone()])),
+            [Never, Never]
+        );
+        for scoring in [false, true] {
+            let reader = open_snapshot_reader(
+                &index_rel,
+                disjunction(vec![never.clone(), always.clone()]),
+                scoring,
+            );
+            assert_pruning_matches_tantivy(&reader, 20);
+            let reader = open_snapshot_reader(
+                &index_rel,
+                disjunction(vec![never.clone(), never.clone()]),
+                scoring,
+            );
+            assert_pruning_matches_tantivy(&reader, 0);
+        }
+
+        let score_filter = |query: Option<SearchQueryInput>| SearchQueryInput::ScoreFilter {
+            bounds: vec![],
+            query: query.map(Box::new),
+        };
+        assert_eq!(truths(&score_filter(None)), [Maybe, Maybe]);
+        assert_eq!(
+            truths(&score_filter(Some(always.clone()))),
+            [Maybe, Maybe],
+            "a score filter can only inherit rejections"
+        );
+        assert_eq!(truths(&score_filter(Some(never.clone()))), [Never, Never]);
+
+        let heap_filter = |indexed_query: SearchQueryInput| SearchQueryInput::HeapFilter {
+            indexed_query: Box::new(indexed_query),
+            always_filters: vec![],
+            recheck_filters: vec![],
+            uses_tid_bitmap: false,
+            bitmap_consumer_id: None,
+            bitmap_cell: None,
+        };
+        assert_eq!(
+            truths(&heap_filter(always)),
+            [Maybe, Maybe],
+            "a heap filter can only inherit rejections"
+        );
+        assert_eq!(truths(&heap_filter(never)), [Never, Never]);
+    }
+
+    #[pg_test]
     fn stats_are_opened_only_when_a_proof_needs_them() {
         let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
 
@@ -2678,15 +2939,14 @@ mod tests {
                     vec![segment],
                     "only the segment with unreadable statistics must be retained: {operation:?}"
                 );
-                let expected_hits = if operation == InjectedStatsFailure::Open {
-                    1
-                } else {
-                    attempt
+                let expected_hits = match operation {
+                    InjectedStatsFailure::Open | InjectedStatsFailure::Empirical => 1,
+                    InjectedStatsFailure::Logical => attempt,
                 };
                 assert_eq!(
                     failure.hits(),
                     expected_hits,
-                    "the real operation must reach its injected error; failed opens are cached"
+                    "the real operation must reach its injected error; opens and empirical reads are cached"
                 );
             }
             assert_eq!(

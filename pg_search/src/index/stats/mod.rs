@@ -145,7 +145,7 @@ impl From<LogicalWire> for LogicalBounds {
 }
 
 /// True when `hi` ends before `lo` starts, so two ranges with these ends cannot share a value.
-fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
+pub(crate) fn ends_before(hi: Bound<&PdbOwnedValue>, lo: Bound<&PdbOwnedValue>) -> bool {
     match (hi, lo) {
         (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
         (Bound::Included(h), Bound::Included(l)) => h.total_cmp(l) == Ordering::Less,

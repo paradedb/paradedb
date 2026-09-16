@@ -12,10 +12,10 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use super::snapshot::SegmentStatsSnapshot;
-use crate::index::stats::{EmpiricalStats, comparable};
+use crate::index::stats::{EmpiricalStats, comparable, ends_before};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchField;
-use tantivy::index::SegmentId;
+use tantivy::index::{SegmentId, SegmentReader};
 
 /// Statistics involving NaN do not provide a conventional closed interval. Keep those segments
 /// until the exact PostgreSQL/Tantivy NaN ordering is represented explicitly in the proof model.
@@ -25,7 +25,8 @@ fn pruning_comparable(a: &PdbOwnedValue, b: &PdbOwnedValue) -> bool {
         && !matches!(b, PdbOwnedValue::F64(value) if value.is_nan())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Ordered as a lattice: `and` is the minimum and `or` the maximum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum SegmentTruth {
     /// The predicate cannot match any live row in this segment. This is the only state that may
     /// authorize skipping a segment; `Maybe` and `Always` are optimization information only.
@@ -36,19 +37,16 @@ pub(crate) enum SegmentTruth {
 
 impl SegmentTruth {
     pub(crate) fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Never, _) | (_, Self::Never) => Self::Never,
-            (Self::Always, Self::Always) => Self::Always,
-            _ => Self::Maybe,
-        }
+        self.min(other)
     }
 
     pub(crate) fn or(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Always, _) | (_, Self::Always) => Self::Always,
-            (Self::Never, Self::Never) => Self::Never,
-            _ => Self::Maybe,
-        }
+        self.max(other)
+    }
+
+    /// What an unproven conjunct leaves of a proof: a rejection stands, a guarantee does not.
+    pub(crate) fn weakened(self) -> Self {
+        self.and(Self::Maybe)
     }
 }
 
@@ -83,55 +81,53 @@ impl SegmentTruthTable {
     }
 
     pub(crate) fn for_segment(&self, segment_id: SegmentId) -> SegmentTruth {
-        self.snapshot
-            .segment_index(segment_id)
-            .map(|idx| self.at(idx))
-            .unwrap_or(SegmentTruth::Maybe)
+        let idx = self.snapshot.segment_index(segment_id);
+        debug_assert!(
+            idx.is_some(),
+            "segment {segment_id} must belong to the truth table snapshot"
+        );
+        idx.map(|idx| self.at(idx)).unwrap_or(SegmentTruth::Maybe)
     }
 
     pub(crate) fn contains(&self, truth: SegmentTruth) -> bool {
         self.values.contains(&truth)
     }
 
-    pub(crate) fn is_candidate(&self, segment_id: SegmentId) -> bool {
-        self.snapshot.segment_index(segment_id).is_none_or(|idx| {
-            self.snapshot.doc_count(idx) > 0 && self.at(idx) != SegmentTruth::Never
-        })
+    pub(crate) fn is_candidate(&self, ord: usize, reader: &SegmentReader) -> bool {
+        reader.num_docs() > 0 && self.at(ord) != SegmentTruth::Never
     }
 
+    #[cfg(test)]
     pub(crate) fn uniform(snapshot: Arc<SegmentStatsSnapshot>, truth: SegmentTruth) -> Arc<Self> {
         let len = snapshot.len();
         Self::new(snapshot, std::iter::repeat_n(truth, len))
     }
 
-    /// Rebase onto `additional`'s snapshot and conjoin a newly resolved predicate.
+    pub(crate) fn weakened(&self) -> Arc<Self> {
+        Self::new(
+            Arc::clone(&self.snapshot),
+            self.values.iter().map(|truth| truth.weakened()),
+        )
+    }
+
     pub(crate) fn conjunction(&self, additional: &Self) -> Arc<Self> {
         assert!(
             Arc::ptr_eq(self.snapshot(), additional.snapshot()),
             "truth tables can only be combined when they share one snapshot"
         );
-        let snapshot = Arc::clone(additional.snapshot());
         Self::new(
-            Arc::clone(&snapshot),
-            (0..snapshot.len()).map(|idx| self.at(idx).and(additional.at(idx))),
+            Arc::clone(&self.snapshot),
+            (0..self.snapshot.len()).map(|idx| self.at(idx).and(additional.at(idx))),
         )
     }
 }
 
 fn lower_contains(bound: &Bound<PdbOwnedValue>, value: &PdbOwnedValue) -> bool {
-    match bound {
-        Bound::Unbounded => true,
-        Bound::Included(lower) => lower.total_cmp(value) != Ordering::Greater,
-        Bound::Excluded(lower) => lower.total_cmp(value) == Ordering::Less,
-    }
+    !ends_before(Bound::Included(value), bound.as_ref())
 }
 
 fn upper_contains(bound: &Bound<PdbOwnedValue>, value: &PdbOwnedValue) -> bool {
-    match bound {
-        Bound::Unbounded => true,
-        Bound::Included(upper) => upper.total_cmp(value) != Ordering::Less,
-        Bound::Excluded(upper) => upper.total_cmp(value) == Ordering::Greater,
-    }
+    !ends_before(bound.as_ref(), Bound::Included(value))
 }
 
 fn bounds_comparable(
@@ -168,7 +164,7 @@ pub(crate) fn range_truth(
     }
 }
 
-pub(crate) fn term_truth(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> SegmentTruth {
+fn term_truth(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> SegmentTruth {
     let Some(stats) = stats else {
         return SegmentTruth::Maybe;
     };
@@ -189,46 +185,52 @@ pub(crate) fn term_truth(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -
     }
 }
 
-/// A term set sorted once so each segment's proof costs two binary searches instead of a pass
-/// over every term. Join InList pushdowns can carry tens of thousands of terms.
+/// A term set prepared once for per-segment proofs. Join InList pushdowns can carry tens of
+/// thousands of terms. Only [`ProvableTerms::new`] can build one, so a `Sorted` set is sorted.
 #[derive(Debug)]
-pub(crate) struct SortedTerms {
-    terms: Vec<PdbOwnedValue>,
+pub(crate) struct ProvableTerms(Terms);
+
+#[derive(Debug)]
+enum Terms {
     /// Every term is comparable with every other and none is NaN, so `total_cmp` is a total
-    /// order over the set. A mixed set is proven term by term.
-    homogeneous: bool,
+    /// order over the set: sorted once, each segment costs two binary searches.
+    Sorted(Vec<PdbOwnedValue>),
+    /// Proven term by term.
+    Mixed(Vec<PdbOwnedValue>),
 }
 
-impl SortedTerms {
+impl ProvableTerms {
     pub(crate) fn new(mut terms: Vec<PdbOwnedValue>) -> Self {
         let homogeneous = terms
             .first()
             .is_some_and(|first| terms.iter().all(|term| pruning_comparable(term, first)));
-        if homogeneous {
+        Self(if homogeneous {
             terms.sort_by(|a, b| a.total_cmp(b));
-        }
-        Self { terms, homogeneous }
+            Terms::Sorted(terms)
+        } else {
+            Terms::Mixed(terms)
+        })
     }
 }
 
-pub(crate) fn terms_truth(stats: Option<&EmpiricalStats>, terms: &SortedTerms) -> SegmentTruth {
+pub(crate) fn terms_truth(stats: Option<&EmpiricalStats>, terms: &ProvableTerms) -> SegmentTruth {
     let Some(stats) = stats else {
         return SegmentTruth::Maybe;
     };
-    let Some(first) = terms.terms.first() else {
+    let terms = match &terms.0 {
+        Terms::Mixed(terms) => {
+            return disjunction_truth(terms.iter().map(|term| term_truth(Some(stats), term)));
+        }
+        Terms::Sorted(terms) => terms,
+    };
+    let Some(first) = terms.first() else {
         return SegmentTruth::Never;
     };
-    if !terms.homogeneous {
-        return disjunction_truth(terms.terms.iter().map(|term| term_truth(Some(stats), term)));
-    }
     if !(pruning_comparable(first, &stats.min) && pruning_comparable(first, &stats.max)) {
         return SegmentTruth::Maybe;
     }
-    let start = terms
-        .terms
-        .partition_point(|term| term.total_cmp(&stats.min) == Ordering::Less);
+    let start = terms.partition_point(|term| term.total_cmp(&stats.min) == Ordering::Less);
     let inside = terms
-        .terms
         .get(start)
         .is_some_and(|term| term.total_cmp(&stats.max) != Ordering::Greater);
     if !inside {
@@ -253,26 +255,9 @@ pub(crate) fn boolean_truth(
     must_not: impl IntoIterator<Item = SegmentTruth>,
     minimum_should_match: Option<i64>,
 ) -> SegmentTruth {
-    let (mut must_count, mut must_has_never, mut must_all_always) = (0, false, true);
-    for truth in must {
-        must_count += 1;
-        must_has_never |= truth == SegmentTruth::Never;
-        must_all_always &= truth == SegmentTruth::Always;
-    }
-    let (mut should_count, mut possible_should, mut guaranteed_should) = (0, 0, 0);
-    for truth in should {
-        should_count += 1;
-        possible_should += usize::from(truth != SegmentTruth::Never);
-        guaranteed_should += usize::from(truth == SegmentTruth::Always);
-    }
-    let (mut must_not_count, mut must_not_has_always, mut must_not_all_never) = (0, false, true);
-    for truth in must_not {
-        must_not_count += 1;
-        must_not_has_always |= truth == SegmentTruth::Always;
-        must_not_all_never &= truth == SegmentTruth::Never;
-    }
+    let (must, should, must_not) = (Tally::of(must), Tally::of(should), Tally::of(must_not));
     // Tantivy has no implicit MatchAll for a pure-negative or empty Boolean query.
-    if must_count == 0 && should_count == 0 {
+    if must.count == 0 && should.count == 0 {
         return SegmentTruth::Never;
     }
     // Execution casts a negative value to a huge `usize`, which Tantivy's single-clause
@@ -285,30 +270,55 @@ pub(crate) fn boolean_truth(
     // `scorer()` bypasses the minimum for one positive child, whereas
     // `pruning_scorer()` takes the general Boolean path. Nested Booleans can reach
     // either path, so an oversized minimum cannot prove Never (or Always under NOT).
-    if must_count + should_count == 1
-        && must_not_count == 0
-        && minimum_should_match as usize > should_count
+    if must.count + should.count == 1
+        && must_not.count == 0
+        && minimum_should_match as usize > should.count
     {
         return SegmentTruth::Maybe;
     }
     let required =
-        minimum_should_match.max(i64::from(must_count == 0 && should_count > 0)) as usize;
+        minimum_should_match.max(i64::from(must.count == 0 && should.count > 0)) as usize;
 
-    if must_has_never || must_not_has_always || possible_should < required {
+    if must.possible < must.count || must_not.guaranteed > 0 || should.possible < required {
         return SegmentTruth::Never;
     }
 
-    if must_all_always && must_not_all_never && guaranteed_should >= required {
+    if must.guaranteed == must.count && must_not.possible == 0 && should.guaranteed >= required {
         SegmentTruth::Always
     } else {
         SegmentTruth::Maybe
     }
 }
 
+/// How many clauses of one Boolean list exist, may match, and must match.
+#[derive(Default)]
+struct Tally {
+    count: usize,
+    possible: usize,
+    guaranteed: usize,
+}
+
+impl Tally {
+    fn of(truths: impl IntoIterator<Item = SegmentTruth>) -> Self {
+        truths
+            .into_iter()
+            .fold(Self::default(), |tally, truth| Self {
+                count: tally.count + 1,
+                possible: tally.possible + usize::from(truth != SegmentTruth::Never),
+                guaranteed: tally.guaranteed + usize::from(truth == SegmentTruth::Always),
+            })
+    }
+}
+
 pub(crate) fn disjunction_truth(children: impl IntoIterator<Item = SegmentTruth>) -> SegmentTruth {
-    children
-        .into_iter()
-        .fold(SegmentTruth::Never, SegmentTruth::or)
+    let mut result = SegmentTruth::Never;
+    for child in children {
+        result = result.or(child);
+        if result == SegmentTruth::Always {
+            break;
+        }
+    }
+    result
 }
 
 /// One truth per snapshot segment for a predicate whose field and values are already resolved.
@@ -317,11 +327,13 @@ pub(crate) fn truths_for_field(
     field: &SearchField,
     truth: impl Fn(Option<&EmpiricalStats>) -> SegmentTruth,
 ) -> Box<[SegmentTruth]> {
-    (0..snapshot.len())
-        .map(|idx| {
-            let stats = snapshot.empirical(idx, field);
-            truth(stats.as_ref())
-        })
+    #[cfg(any(test, feature = "pg_test"))]
+    super::snapshot::test_support::FIELD_PROOF_PASSES
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    snapshot
+        .empirical_for_field(field)
+        .iter()
+        .map(|stats| truth(stats.known()))
         .collect()
 }
 
@@ -334,14 +346,18 @@ mod tests {
     use tantivy::schema::{INDEXED, Schema};
     use tantivy::{Index, TantivyDocument, doc};
 
-    fn one_segment_snapshot() -> Arc<SegmentStatsSnapshot> {
+    fn one_segment_searcher() -> tantivy::Searcher {
         let mut schema = Schema::builder();
         let field = schema.add_u64_field("id", INDEXED);
         let index = Index::create_in_ram(schema.build());
         let mut writer: tantivy::IndexWriter<TantivyDocument> = index.writer(50_000_000).unwrap();
         writer.add_document(doc!(field => 1u64)).unwrap();
         writer.commit().unwrap();
-        SegmentStatsSnapshot::capture(&index.reader().unwrap().searcher())
+        index.reader().unwrap().searcher()
+    }
+
+    fn one_segment_snapshot() -> Arc<SegmentStatsSnapshot> {
+        SegmentStatsSnapshot::capture(&one_segment_searcher())
     }
 
     fn stats(min: i64, max: i64, nullable: bool) -> EmpiricalStats {
@@ -392,8 +408,8 @@ mod tests {
         );
     }
 
-    fn sorted(terms: impl IntoIterator<Item = i64>) -> SortedTerms {
-        SortedTerms::new(terms.into_iter().map(PdbOwnedValue::I64).collect())
+    fn sorted(terms: impl IntoIterator<Item = i64>) -> ProvableTerms {
+        ProvableTerms::new(terms.into_iter().map(PdbOwnedValue::I64).collect())
     }
 
     #[test]
@@ -411,7 +427,7 @@ mod tests {
             terms_truth(Some(&constant), &sorted([])),
             SegmentTruth::Never
         );
-        let mixed = SortedTerms::new(vec![
+        let mixed = ProvableTerms::new(vec![
             PdbOwnedValue::I64(10),
             PdbOwnedValue::Str("10".to_string()),
         ]);
@@ -419,7 +435,7 @@ mod tests {
         assert_eq!(
             terms_truth(
                 Some(&stats(1, 5, false)),
-                &SortedTerms::new(vec![PdbOwnedValue::Str("a".to_string())])
+                &ProvableTerms::new(vec![PdbOwnedValue::Str("a".to_string())])
             ),
             SegmentTruth::Maybe
         );
@@ -509,6 +525,57 @@ mod tests {
         let additional = SegmentTruthTable::uniform(Arc::clone(&snapshot), SegmentTruth::Never);
         let possible = SegmentTruthTable::uniform(snapshot, SegmentTruth::Maybe);
         assert_eq!(possible.conjunction(&additional).at(0), SegmentTruth::Never);
+    }
+
+    #[test]
+    #[should_panic(expected = "truth tables can only be combined when they share one snapshot")]
+    fn conjunction_rejects_another_snapshot_of_the_same_searcher() {
+        let searcher = one_segment_searcher();
+        let snapshot = SegmentStatsSnapshot::capture(&searcher);
+        // Matching segment IDs and order are insufficient: the table owns its view by identity.
+        let other = SegmentStatsSnapshot::capture(&searcher);
+        SegmentTruthTable::uniform(snapshot, Always)
+            .conjunction(&SegmentTruthTable::uniform(other, Always));
+    }
+
+    #[rstest]
+    #[case(Never, Never)]
+    #[case(Maybe, Maybe)]
+    #[case(Always, Maybe)]
+    fn weakening_retains_only_rejections(
+        #[case] input: SegmentTruth,
+        #[case] expected: SegmentTruth,
+    ) {
+        let table = SegmentTruthTable::uniform(one_segment_snapshot(), input);
+        let weakened = table.weakened();
+        assert!(Arc::ptr_eq(table.snapshot(), weakened.snapshot()));
+        assert_eq!(weakened.at(0), expected);
+    }
+
+    #[test]
+    fn unknown_segment_is_diagnosed_or_fails_open() {
+        let table = SegmentTruthTable::uniform(one_segment_snapshot(), Never);
+        let unknown = SegmentId::generate_random();
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| table.for_segment(unknown)));
+        if cfg!(debug_assertions) {
+            assert!(
+                result.is_err(),
+                "a mismatched execution view must be diagnosed"
+            );
+        } else {
+            assert_eq!(result.unwrap(), Maybe, "release builds must fail open");
+        }
+    }
+
+    #[test]
+    fn disjunction_stops_at_always() {
+        let children = [Never, Maybe, Always]
+            .into_iter()
+            .chain(std::iter::once_with(|| {
+                panic!("an Always result must stop evaluating later terms")
+            }));
+        assert_eq!(disjunction_truth(children), Always);
     }
 
     #[test]

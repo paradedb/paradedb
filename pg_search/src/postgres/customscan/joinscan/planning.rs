@@ -955,9 +955,13 @@ pub(crate) fn transparent_path_subpath(path: *mut pg_sys::Path) -> Option<*mut p
 /// `create_ordered_paths` adds presorted input paths to the ordered rel as-is,
 /// so once the scan/join rel feeds ORDER BY directly its `cheapest_total_path`
 /// may dangle. The upper rel's own pathlist is live, and so is every `subpath`
-/// below it, so that is descended instead. A DISTINCT or window stage only
-/// adds wrappers, so behind one of those the join rel's pick is still live and
-/// is kept: its wrappers may all have been displaced by a custom path.
+/// below it, so that is descended instead.
+///
+/// A DISTINCT or window stage sits between the join and ORDER BY as a
+/// non-transparent node, so nothing above it takes a join path as-is and the
+/// join rel's own pick is still live. It is kept rather than reached by
+/// descent, because a custom scan path over that stage can be its only
+/// survivor, which leaves no route down to the join.
 pub(crate) unsafe fn find_live_lower_path(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
@@ -972,6 +976,13 @@ pub(crate) unsafe fn find_live_lower_path(
     }
 
     let all_baserels = (*root).all_baserels;
+    // The scan/join rel names its own pick; upper rels skip `set_cheapest`.
+    if !input_rel.cheapest_total_path.is_null() {
+        return descend_to_scan_join_rel(all_baserels, input_rel.cheapest_total_path);
+    }
+    // Every candidate below is a path of the scan/join rel, so their costs sit
+    // at one level, and the cheapest of them is the pick `set_cheapest` named
+    // for that rel.
     let mut best: Option<*mut pg_sys::Path> = None;
     for path in PgList::<pg_sys::Path>::from_pg(input_rel.pathlist).iter_ptr() {
         let Some(lower) = descend_to_scan_join_rel(all_baserels, path) else {
@@ -990,7 +1001,14 @@ unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
     if (*a).disabled_nodes != (*b).disabled_nodes {
         return (*a).disabled_nodes < (*b).disabled_nodes;
     }
-    pg_sys::compare_path_costs(a, b, pg_sys::CostSelector::TOTAL_COST) < 0
+    match pg_sys::compare_path_costs(a, b, pg_sys::CostSelector::TOTAL_COST) {
+        cmp if cmp < 0 => true,
+        0 => {
+            pg_sys::compare_pathkeys((*a).pathkeys, (*b).pathkeys)
+                == pg_sys::PathKeysComparison::PATHKEYS_BETTER1
+        }
+        _ => false,
+    }
 }
 
 /// Wrapper nodes above a scan/join rel, such as Sort, Gather or Projection,
@@ -998,6 +1016,10 @@ unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
 /// self-referencing wrapper.
 const MAX_PATH_WRAPPER_DEPTH: usize = 64;
 
+/// Follows transparent wrappers down to the path owned by the scan/join rel.
+/// Nothing else can sit in between here: DISTINCT and window stages take the
+/// branch in `find_live_lower_path`, and grouping, row locking and set
+/// operations are declined before a JoinScan path is attempted.
 unsafe fn descend_to_scan_join_rel(
     all_baserels: *mut pg_sys::Bitmapset,
     mut path: *mut pg_sys::Path,
@@ -1010,17 +1032,7 @@ unsafe fn descend_to_scan_join_rel(
         if !parent.is_null() && pg_sys::bms_is_subset(all_baserels, (*parent).relids) {
             return Some(path);
         }
-        let next = match (*path).type_ {
-            pg_sys::NodeTag::T_WindowAggPath => (*(path as *mut pg_sys::WindowAggPath)).subpath,
-            pg_sys::NodeTag::T_UpperUniquePath => (*(path as *mut pg_sys::UpperUniquePath)).subpath,
-            pg_sys::NodeTag::T_UniquePath => (*(path as *mut pg_sys::UniquePath)).subpath,
-            pg_sys::NodeTag::T_AggPath => (*(path as *mut pg_sys::AggPath)).subpath,
-            pg_sys::NodeTag::T_GroupPath => (*(path as *mut pg_sys::GroupPath)).subpath,
-            pg_sys::NodeTag::T_LimitPath => (*(path as *mut pg_sys::LimitPath)).subpath,
-            pg_sys::NodeTag::T_LockRowsPath => (*(path as *mut pg_sys::LockRowsPath)).subpath,
-            pg_sys::NodeTag::T_ProjectSetPath => (*(path as *mut pg_sys::ProjectSetPath)).subpath,
-            _ => transparent_path_subpath(path)?,
-        };
+        let next = transparent_path_subpath(path)?;
         if next == path {
             return None;
         }

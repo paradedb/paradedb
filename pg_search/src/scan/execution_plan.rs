@@ -1272,10 +1272,9 @@ impl ExecutionPlan for PgSearchScanPlan {
             let mut pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                // Re-read the current DynamicFilter expressions before touching the next
-                // deferred scorer. A tightening Top-K bound can therefore abandon the active
-                // segment at this batch boundary and prevent remaining segment scorers from ever
-                // opening. The DataFusion pre-filter below remains the exact row-level authority.
+                // A bound that tightened since the last batch can abandon the active segment
+                // here and keep the remaining deferred scorers from opening. The pre-filter below
+                // stays the row-level authority.
                 if let Some(truth) = dynamic_segment_pruner.refresh(&reader, &schema) {
                     scanner.set_runtime_truth(truth);
                 }

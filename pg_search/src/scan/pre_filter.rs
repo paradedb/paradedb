@@ -33,12 +33,11 @@
 //!    search query. This filters documents *while* executing the search, leveraging
 //!    the inverted index for maximum performance.
 //!
-//! 2. **Segment-Statistics Pushdown:** At batch boundaries, published dynamic-filter generations
-//!    are checked against the execution reader's immutable `.stats` snapshot. New proofs are
-//!    derived only after a source publishes a generation and accumulated for that execution. A
-//!    newly impossible active segment is abandoned, and impossible deferred segment scorers are
-//!    never opened. Unsupported expressions and missing statistics retain the segment unless an
-//!    earlier, broader generation already proved it impossible.
+//! 2. **Segment-Statistics Pushdown:** At batch boundaries, each dynamic filter that published a
+//!    new generation is proven against the execution reader's `.stats` snapshot, and the proofs
+//!    accumulate for the execution. A newly impossible active segment is abandoned and impossible
+//!    deferred scorers never open. Unsupported expressions and missing statistics retain the
+//!    segment.
 //!
 //! 3. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
 //!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
@@ -336,8 +335,7 @@ pub fn collect_filters(
 /// partition barrier. Re-audit the producers on every DataFusion upgrade.
 struct MonotonicDynamicFilterSource {
     expr: Arc<DynamicFilterPhysicalExpr>,
-    /// The `snapshot_generation` whose proof is folded into the pruner's table; `None` before
-    /// the first evaluation.
+    /// The `snapshot_generation` whose proof is folded into the pruner's table.
     evaluated: Option<u64>,
 }
 
@@ -353,11 +351,10 @@ impl MonotonicDynamicFilterSource {
     }
 }
 
-/// Generation-aware execution cache for segment proofs derived from monotonic DataFusion dynamic
-/// filters. Proofs only accumulate: a later, tighter predicate can be harder to prove from
-/// statistics (for example, a floating-point bound that becomes NaN), but every proof established
-/// for an earlier generation remains valid. A source whose `current()` read fails stays
-/// unevaluated and is retried on the next refresh.
+/// Segment proofs accumulated across the generations of monotonic DataFusion dynamic filters.
+/// Proofs only accumulate: a later, tighter predicate can be harder to prove from statistics (for
+/// example, a floating-point bound that becomes NaN), but every proof established for an earlier
+/// generation remains valid.
 pub(crate) struct DynamicSegmentPruner {
     sources: Box<[MonotonicDynamicFilterSource]>,
     proven: Option<Arc<SegmentTruthTable>>,
@@ -374,9 +371,8 @@ impl DynamicSegmentPruner {
         }
     }
 
-    /// Lower only the sources that published a new generation. `Some` is the cumulative proof
-    /// and must replace the caller's installed one; `None` means the installed proof, if any,
-    /// remains authoritative.
+    /// `Some` is the cumulative proof and must replace the caller's installed one; `None` means
+    /// the installed proof, if any, remains authoritative.
     pub(crate) fn refresh(
         &mut self,
         reader: &SearchIndexReader,
@@ -523,7 +519,6 @@ fn in_list_storage_values(
         .collect()
 }
 
-/// A hash join publishes a small build side as `column IN (...)`.
 fn in_list_truth(
     reader: &SearchIndexReader,
     in_list: &InListExpr,
@@ -541,7 +536,6 @@ fn in_list_truth(
     })
 }
 
-/// The range a comparison operator selects.
 fn operator_bounds<T: Clone>(op: Operator, value: T) -> Option<(Bound<T>, Bound<T>)> {
     Some(match op {
         Operator::Lt => (Bound::Unbounded, Bound::Excluded(value)),

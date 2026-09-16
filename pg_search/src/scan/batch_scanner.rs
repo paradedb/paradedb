@@ -391,7 +391,6 @@ impl Scanner {
         self.search_results.replace_runtime_truth(truth)
     }
 
-    /// Segments this scanner skipped because of runtime rejection.
     pub(crate) fn runtime_skipped_segments(&self) -> usize {
         self.search_results.runtime_skipped()
     }

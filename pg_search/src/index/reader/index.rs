@@ -309,7 +309,6 @@ impl MultiSegmentSearchResults {
         self.runtime_truth = Some(truth);
     }
 
-    /// Segments skipped because of runtime rejection.
     pub(crate) fn runtime_skipped(&self) -> usize {
         self.runtime_skipped
     }
@@ -2245,7 +2244,6 @@ mod tests {
         )]))
     }
 
-    /// Runs `setup`, then opens the index it created.
     fn index_from_sql(index_name: &str, setup: &str) -> PgSearchRelation {
         Spi::run(setup).unwrap();
         unsafe { pgrx::pg_sys::CommandCounterIncrement() };
@@ -2263,7 +2261,6 @@ mod tests {
         ]))
     }
 
-    /// The proof a fresh pruner derives from `filters`; uniform `Maybe` when nothing lowers.
     fn proven_truth(
         reader: &SearchIndexReader,
         filters: &[Arc<dyn PhysicalExpr>],
@@ -3505,7 +3502,6 @@ mod tests {
         let (index_rel, _heap) = segmented_index_fixture("skip_in_list_pruning_test", 4, false);
         let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
 
-        // A dense membership set confined to the segment holding 11..20.
         let id = column("id", 0);
         let members = (11..=20).map(int_literal).collect();
         let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(

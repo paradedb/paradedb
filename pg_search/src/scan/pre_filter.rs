@@ -1021,8 +1021,6 @@ pub fn try_dynamic_filter_pushdown(
     }
 }
 
-// These are ordinary Rust unit tests. Keeping the module out of a `pg_test` library build avoids
-// compiling helper functions after `#[test]` items have been removed by the non-test harness.
 #[cfg(test)]
 mod tests {
     use super::try_extract_score_threshold;

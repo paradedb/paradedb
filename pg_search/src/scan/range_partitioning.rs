@@ -34,8 +34,7 @@ use crate::query::pdb_query::pdb::Query;
 
 /// Defines value-space split points for scanning the index. When provided, the DataFusion
 /// execution plan turns them into exhaustive query ranges and maps the current execution segments
-/// to those ranges, rather than retaining planner-time segment ownership or relying on dynamic
-/// segment checkout.
+/// to those ranges, rather than relying on dynamic segment checkout.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RangePartitioning {
     /// The index field used to define the boundaries.

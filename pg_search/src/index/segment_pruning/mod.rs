@@ -9,10 +9,9 @@
 
 //! One execution-visible view of segment statistics.
 //!
-//! An immutable segment's statistics are fixed and valid for that segment. What can change between
-//! planning and execution is the visible segment set: inserts add segments and merges replace
-//! them. The snapshot is therefore captured from the exact execution Searcher instead of
-//! carrying planner-visible segment identities forward.
+//! Between planning and execution the visible segment set changes: inserts add segments and
+//! merges replace them. The snapshot is therefore taken from the execution Searcher, never from
+//! planner-visible segment identities.
 //!
 //! Statistics are accelerators, never substitutes for the query predicate. Missing, unreadable,
 //! or unsupported data reads as unknown rather than disappearing behind a default.

@@ -29,10 +29,9 @@ enum StatsRead<T> {
 #[derive(Debug)]
 struct CapturedSegment {
     segment: Segment,
-    /// Seeded `Absent` when the manifest declares no `.stats`, so a mutable segment is never
-    /// asked to open a component. Otherwise opened on first use: most readers never consult
-    /// statistics, and opening `.stats` costs buffer reads per segment, so a reader open must
-    /// not pay for it. Failed opens are cached too.
+    /// Seeded `Absent` from the manifest so a mutable segment is never asked to open a
+    /// component. Otherwise opened on first use, since most readers never consult statistics.
+    /// A failed open is cached as `Unknown`.
     stats: OnceLock<StatsRead<SegmentStats>>,
 }
 
@@ -94,8 +93,7 @@ pub(crate) mod test_support {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{LazyLock, Mutex};
 
-    /// Number of `.stats` open attempts. Tests prove that ordinary searches perform zero opens
-    /// and that the snapshot caches both successful and failed opens.
+    /// Number of `.stats` open attempts, including ones that fail.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -130,8 +128,7 @@ pub(crate) mod test_support {
 
     impl Drop for InjectedStatsFailureGuard {
         fn drop(&mut self) {
-            // Never panic here: this runs during a failing test's unwind, and a poisoned lock
-            // would otherwise turn an assertion failure into a backend abort.
+            // Runs during a failing test's unwind; a panic here would abort the backend.
             FAILURES
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -266,9 +263,6 @@ fn read_logical(
 
 impl SegmentStatsSnapshot {
     /// Capture lightweight segment handles for exactly the manifest `searcher` was built on.
-    /// Manifest metadata decides whether `.stats` may be opened later, because opening any
-    /// component path on a mutable segment would first materialize that entire segment even
-    /// though mutable segments cannot have a persisted statistics component.
     pub(crate) fn capture(
         directory: &MVCCDirectory,
         segments: Vec<Segment>,
@@ -302,8 +296,6 @@ impl SegmentStatsSnapshot {
         self.segments.iter().map(CapturedSegment::id)
     }
 
-    /// Resolve a partition against this execution's captured segments. Callers never have to
-    /// pair an external enumeration with this snapshot's internal ordinals.
     pub(crate) fn segments_intersecting_partition<'a>(
         &'a self,
         field: &'a SearchField,

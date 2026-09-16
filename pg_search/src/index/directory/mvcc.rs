@@ -508,9 +508,8 @@ impl MVCCDirectory {
             })
     }
 
-    /// Whether the manifest declares a persisted statistics component for this segment.
-    /// Consulting metadata first is required for mutable segments: asking their in-memory
-    /// directory to open a nonexistent component would materialize the whole segment.
+    /// Consult this before opening `.stats`: asking a mutable segment's in-memory directory to
+    /// open a nonexistent component would materialize the whole segment.
     pub(crate) fn has_stats_component(&self, segment_id: &SegmentId) -> bool {
         self.segment_meta_entry(segment_id)
             .is_some_and(|entry| entry.stats().is_some())

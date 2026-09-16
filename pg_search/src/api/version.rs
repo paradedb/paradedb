@@ -98,8 +98,6 @@ pub const fn parse_version_component(s: &str) -> u16 {
     result
 }
 
-// These are ordinary Rust unit tests; a `pg_test` library build removes `#[test]` functions and
-// would otherwise leave the module's imports unused.
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -363,7 +363,6 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
-    /// Statistics of the exact segment set this reader's Searcher sees, opened lazily.
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     need_scores: bool,
     total_segment_count: usize,
@@ -488,9 +487,9 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
-    /// Statistics of exactly the segment set `searcher` sees, read through lightweight segment
-    /// handles rather than `SegmentReader`s so consulting them never opens searchable
-    /// components. Built once per open, so readers sharing a manifest share one lazy cache.
+    /// Read through lightweight segment handles rather than `SegmentReader`s, so consulting
+    /// statistics never opens searchable components. Built once per open, so readers sharing a
+    /// manifest share one lazily opened cache.
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     reader: IndexReader,
     searcher: Searcher,

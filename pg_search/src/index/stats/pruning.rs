@@ -14,10 +14,9 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-//! What the planner and the executor take from the component: value-space split points stamped by
-//! a partitioned build, and the current execution segments a range partition has to search. The
-//! planner may retain the values because they define exhaustive query ranges; it never retains the
-//! planner-visible segment ownership of those ranges.
+//! What the planner and the executor take from the component: value-space split points stamped
+//! by a partitioned build, and the execution segments a range partition has to search. The
+//! planner keeps only the values; segment ownership is resolved at execution.
 
 use std::cmp::Ordering;
 use std::ops::Bound;
@@ -73,7 +72,7 @@ pub(crate) fn persisted_split_points(
 
 /// The current execution segments of `reader` that can hold a row of `partition`. A segment
 /// without statistics it can be ranked against is kept, so the range query the caller still
-/// applies stays the source of truth. No planner-time `SegmentId` participates in this mapping.
+/// applies stays the source of truth.
 pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,

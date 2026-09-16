@@ -21,6 +21,7 @@ use crate::index::segment_pruning::predicate::{
     term_truth, terms_truth, truths_for_field,
 };
 use crate::index::stats::EmpiricalStats;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use tantivy::index::SegmentReader;
 use tantivy::query::{
@@ -262,6 +263,9 @@ impl<'a> PruningQueryBuilder<'a> {
                 ) else {
                     return self.uniform(SegmentTruth::Maybe);
                 };
+                if !value_preserves_term_order(&search_field, &value) {
+                    return self.uniform(SegmentTruth::Maybe);
+                }
                 self.for_field(&search_field, |stats| term_truth(stats, &value))
             }
             pdb::Query::TermSet { terms } => {
@@ -283,6 +287,12 @@ impl<'a> PruningQueryBuilder<'a> {
                 else {
                     return self.uniform(SegmentTruth::Maybe);
                 };
+                if !terms
+                    .iter()
+                    .all(|value| value_preserves_term_order(&search_field, value))
+                {
+                    return self.uniform(SegmentTruth::Maybe);
+                }
                 let terms = SortedTerms::new(terms);
                 self.for_field(&search_field, |stats| terms_truth(stats, &terms))
             }
@@ -301,6 +311,14 @@ impl<'a> PruningQueryBuilder<'a> {
                 ) else {
                     return self.uniform(SegmentTruth::Maybe);
                 };
+                if ![&lower, &upper].into_iter().all(|bound| match bound {
+                    std::ops::Bound::Included(value) | std::ops::Bound::Excluded(value) => {
+                        value_preserves_term_order(&search_field, value)
+                    }
+                    std::ops::Bound::Unbounded => true,
+                }) {
+                    return self.uniform(SegmentTruth::Maybe);
+                }
                 self.for_field(&search_field, |stats| range_truth(stats, &lower, &upper))
             }
             _ => self.uniform(SegmentTruth::Maybe),
@@ -364,6 +382,17 @@ impl<'a> PruningQueryBuilder<'a> {
     pub(crate) fn truth_for_query(&self, input: &SearchQueryInput) -> Arc<SegmentTruthTable> {
         SegmentTruthTable::new(Arc::clone(&self.snapshot), self.truths(input))
     }
+}
+
+/// `value_to_term` casts unsigned inputs to the physical I64 field type. Values
+/// outside I64's range wrap, so comparing their original numerical value with
+/// statistics is unsound. Keep execution authoritative for these inputs, including
+/// range endpoints after canonicalization. In-range unsigned values compare exactly.
+fn value_preserves_term_order(field: &SearchField, value: &PdbOwnedValue) -> bool {
+    !matches!(
+        (field.field_entry().field_type(), value),
+        (FieldType::I64(_), PdbOwnedValue::U64(value)) if i64::try_from(*value).is_err()
+    )
 }
 
 type Truths = Box<[SegmentTruth]>;

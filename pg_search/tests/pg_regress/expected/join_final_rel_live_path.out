@@ -1,0 +1,153 @@
+-- JoinScan plans at UPPERREL_FINAL, after the ORDER BY upper rel has run
+-- add_path over paths it shares with the join rel. The parallel settings and
+-- the three-column sort are what make PostgreSQL free one of those shared
+-- paths here, so the join rel's cheapest_total_path must not be walked.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers TO 8;
+SET max_parallel_workers_per_gather TO 4;
+SET paradedb.min_rows_per_worker TO 10;
+SET parallel_leader_participation TO off;
+-- debug_parallel_query is spelled force_parallel_mode before PostgreSQL 16.
+DO $$
+BEGIN
+    PERFORM set_config('debug_parallel_query', 'on', false);
+EXCEPTION WHEN undefined_object THEN
+    PERFORM set_config('force_parallel_mode', 'on', false);
+END
+$$;
+CREATE TABLE users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+INSERT INTO users (uuid, name, color, age, quantity)
+SELECT md5(i::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 7 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+INSERT INTO products (uuid, name, color, age, quantity)
+SELECT md5((i * 3)::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 11 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+INSERT INTO orders (uuid, name, color, age, quantity)
+SELECT md5((i * 3)::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 13 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+CREATE INDEX idxusers_uuid ON users (uuid);
+CREATE INDEX idxproducts_uuid ON products (uuid);
+CREATE INDEX idxorders_uuid ON orders (uuid);
+ANALYZE users;
+ANALYZE products;
+ANALYZE orders;
+-- The heap-filter call in the plan embeds the index OID, which changes on
+-- every database creation; mask it so the plan is stable.
+CREATE FUNCTION explain_live_path(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
+    END LOOP;
+END;
+$$;
+SELECT explain_live_path($$
+SELECT users.id, users.name
+FROM users
+LEFT JOIN products ON users.id = products.id
+JOIN orders ON products.uuid = orders.uuid
+WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
+ORDER BY users.id, products.id, orders.id
+$$);
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: orders, products, users)
+                                                                                                                                                                                                                                                                           explain_live_path                                                                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: users.id, users.name, products.id, orders.id
+   Sort Key: users.id, orders.id
+   Presorted Key: users.id
+   ->  Nested Loop
+         Output: users.id, users.name, products.id, orders.id
+         Join Filter: (users.id = products.id)
+         ->  Index Scan using users_pkey on public.users
+               Output: users.id, users.uuid, users.name, users.color, users.age, users.quantity
+         ->  Materialize
+               Output: products.id, orders.id
+               ->  Gather
+                     Output: products.id, orders.id
+                     Workers Planned: 1
+                     ->  Parallel Hash Join
+                           Output: products.id, orders.id
+                           Hash Cond: (products.uuid = orders.uuid)
+                           Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(orders.id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, orders.ctid, CASE WHEN (paradedb.ctid_is_valid(orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] WHEN (paradedb.xmin_is_visible(orders.xmin, orders.tableoid, orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] ELSE '{}'::record[] END, ROW()) OR (products.color IS NOT NULL))
+                           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.products
+                                 Output: products.id, products.uuid, products.color
+                                 Table: products
+                                 Index: idxproducts
+                                 Worker Selection: Row-capped
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Full Index Scan: true
+                                 Tantivy Query: {"boolean":{"should":["all",{"exists":{"field":"color"}}]}}
+                           ->  Parallel Hash
+                                 Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
+                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on public.orders
+                                       Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
+                                       Table: orders
+                                       Index: idxorders
+                                       Worker Selection: Row-capped
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Full Index Scan: true
+                                       Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}},"all"]}}
+(38 rows)
+
+SELECT users.id, users.name
+FROM users
+LEFT JOIN products ON users.id = products.id
+JOIN orders ON products.uuid = orders.uuid
+WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
+ORDER BY users.id, products.id, orders.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: orders, products, users)
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id |  name   
+----+---------
+  1 | bob
+  2 | cloe
+  3 | sally
+  4 | brandy
+  5 | brisket
+  6 | anchovy
+  8 | bob
+  9 | cloe
+ 10 | sally
+ 11 | brandy
+(10 rows)
+
+DROP FUNCTION explain_live_path(text);
+DROP TABLE users, products, orders;

@@ -948,6 +948,87 @@ pub(crate) fn transparent_path_subpath(path: *mut pg_sys::Path) -> Option<*mut p
     }
 }
 
+/// Returns a live path over the scan/join rel, i.e. the rel whose relids cover
+/// `all_baserels`, for a hook running at `UPPERREL_FINAL`.
+///
+/// Upper-rel `add_path` calls pfree the paths they dominate, and
+/// `create_ordered_paths` adds presorted input paths to the ordered rel as-is,
+/// so once the scan/join rel feeds ORDER BY directly its `cheapest_total_path`
+/// may dangle. The upper rel's own pathlist is live, and so is every `subpath`
+/// below it, so that is descended instead. A DISTINCT or window stage only
+/// adds wrappers, so behind one of those the join rel's pick is still live and
+/// is kept: its wrappers may all have been displaced by a custom path.
+pub(crate) unsafe fn find_live_lower_path(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+) -> Option<*mut pg_sys::Path> {
+    let parse = (*root).parse;
+    if !(*parse).distinctClause.is_null() || (*parse).hasWindowFuncs {
+        let join_rel = find_final_rel(root);
+        if join_rel.is_null() || (*join_rel).cheapest_total_path.is_null() {
+            return None;
+        }
+        return Some((*join_rel).cheapest_total_path);
+    }
+
+    let all_baserels = (*root).all_baserels;
+    let mut best: Option<*mut pg_sys::Path> = None;
+    for path in PgList::<pg_sys::Path>::from_pg(input_rel.pathlist).iter_ptr() {
+        let Some(lower) = descend_to_scan_join_rel(all_baserels, path) else {
+            continue;
+        };
+        if best.is_none_or(|best| cheaper_path(lower, best)) {
+            best = Some(lower);
+        }
+    }
+    best
+}
+
+/// Same preference order as `set_cheapest`.
+unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
+    #[cfg(feature = "pg18")]
+    if (*a).disabled_nodes != (*b).disabled_nodes {
+        return (*a).disabled_nodes < (*b).disabled_nodes;
+    }
+    pg_sys::compare_path_costs(a, b, pg_sys::CostSelector::TOTAL_COST) < 0
+}
+
+/// Wrapper nodes above a scan/join rel, such as Sort, Gather or Projection,
+/// nest a handful deep; a bound this loose only guards against a malformed
+/// self-referencing wrapper.
+const MAX_PATH_WRAPPER_DEPTH: usize = 64;
+
+unsafe fn descend_to_scan_join_rel(
+    all_baserels: *mut pg_sys::Bitmapset,
+    mut path: *mut pg_sys::Path,
+) -> Option<*mut pg_sys::Path> {
+    for _ in 0..MAX_PATH_WRAPPER_DEPTH {
+        if path.is_null() {
+            return None;
+        }
+        let parent = (*path).parent;
+        if !parent.is_null() && pg_sys::bms_is_subset(all_baserels, (*parent).relids) {
+            return Some(path);
+        }
+        let next = match (*path).type_ {
+            pg_sys::NodeTag::T_WindowAggPath => (*(path as *mut pg_sys::WindowAggPath)).subpath,
+            pg_sys::NodeTag::T_UpperUniquePath => (*(path as *mut pg_sys::UpperUniquePath)).subpath,
+            pg_sys::NodeTag::T_UniquePath => (*(path as *mut pg_sys::UniquePath)).subpath,
+            pg_sys::NodeTag::T_AggPath => (*(path as *mut pg_sys::AggPath)).subpath,
+            pg_sys::NodeTag::T_GroupPath => (*(path as *mut pg_sys::GroupPath)).subpath,
+            pg_sys::NodeTag::T_LimitPath => (*(path as *mut pg_sys::LimitPath)).subpath,
+            pg_sys::NodeTag::T_LockRowsPath => (*(path as *mut pg_sys::LockRowsPath)).subpath,
+            pg_sys::NodeTag::T_ProjectSetPath => (*(path as *mut pg_sys::ProjectSetPath)).subpath,
+            _ => transparent_path_subpath(path)?,
+        };
+        if next == path {
+            return None;
+        }
+        path = next;
+    }
+    None
+}
+
 /// Helper to resolve the top-most join or base relation from a `PlannerInfo` (`root`).
 ///
 /// In PostgreSQL, `join_rel_list` contains at most one `RelOptInfo` whose `relids`

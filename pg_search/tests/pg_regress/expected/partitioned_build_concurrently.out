@@ -61,7 +61,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: cic_users_idx (u), cic_posts_idx (p)
    Aggregates: COUNT(*)

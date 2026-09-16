@@ -442,7 +442,7 @@ await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 
 Then verify specific segments using the `segment_ids` parameter:
 
-<!-- prettier-ignore-start -->
+{/* prettier-ignore-start */}
 
 <CodeGroup>
 ```sql SQL
@@ -579,13 +579,13 @@ if (oddSegments.Length > 0)
 
 </CodeGroup>
 
-<!-- prettier-ignore-end -->
+{/* prettier-ignore-end */}
 
 ### Automation Example
 
 Distribute verification across N workers:
 
-<!-- prettier-ignore-start -->
+{/* prettier-ignore-start */}
 
 <CodeGroup>
 ```sql SQL
@@ -677,7 +677,7 @@ await dbContext.Database.VerifyIndex(
 
 </CodeGroup>
 
-<!-- prettier-ignore-end -->
+{/* prettier-ignore-end */}
 
 ## Verifying All ParadeDB Indexes
 
@@ -720,7 +720,7 @@ await dbContext.Database.VerifyAllIndexes().ToListAsync();
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
-<!-- prettier-ignore-start -->
+{/* prettier-ignore-start */}
 
 <CodeGroup>
 ```sql SQL
@@ -846,7 +846,7 @@ await dbContext.Database.VerifyAllIndexes(
 
 </CodeGroup>
 
-<!-- prettier-ignore-end -->
+{/* prettier-ignore-end */}
 
 ## Listing All ParadeDB Indexes
 

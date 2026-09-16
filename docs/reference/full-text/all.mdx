@@ -12,7 +12,7 @@ without changing the query's meaning.
 
 To use it, pass the [key field](/reference/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
 
-<!-- prettier-ignore-start -->
+{/* prettier-ignore-start */}
 
 <CodeGroup>
 ```sql SQL
@@ -133,7 +133,7 @@ await dbContext
 
 </CodeGroup>
 
-<!-- prettier-ignore-end -->
+{/* prettier-ignore-end */}
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
 like [Top K](/reference/full-text/top-k) or [aggregate](/reference/aggregates/overview) queries.

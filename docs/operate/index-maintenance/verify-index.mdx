@@ -442,6 +442,8 @@ await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 
 Then verify specific segments using the `segment_ids` parameter:
 
+<!-- prettier-ignore-start -->
+
 <CodeGroup>
 ```sql SQL
 -- Worker 1: Verify even segments
@@ -451,12 +453,12 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 
 -- Worker 2: Verify odd segments
-SELECT \* FROM pdb.verify_index('search_idx',
-heapallindexed := true,
-segment_ids := ARRAY[1, 3]
+SELECT * FROM pdb.verify_index('search_idx',
+    heapallindexed := true,
+    segment_ids := ARRAY[1, 3]
 );
 
-````
+```
 
 ```ts Drizzle
 import { diagnostics } from "@paradedb/drizzle-paradedb";
@@ -486,7 +488,7 @@ if (oddSegments.length) {
     }),
   );
 }
-````
+```
 
 ```python Django
 from paradedb import paradedb_verify_index
@@ -577,9 +579,13 @@ if (oddSegments.Length > 0)
 
 </CodeGroup>
 
+<!-- prettier-ignore-end -->
+
 ### Automation Example
 
 Distribute verification across N workers:
+
+<!-- prettier-ignore-start -->
 
 <CodeGroup>
 ```sql SQL
@@ -589,16 +595,16 @@ FROM pdb.index_segments('search_idx')
 WHERE segment_idx % 4 = 0;
 
 -- Run verification with those segments
-SELECT \* FROM pdb.verify_index('search_idx',
-heapallindexed := true,
-segment_ids := (
-SELECT array_agg(segment_idx)
-FROM pdb.index_segments('search_idx')
-WHERE segment_idx % 4 = 0
-)
+SELECT * FROM pdb.verify_index('search_idx',
+    heapallindexed := true,
+    segment_ids := (
+        SELECT array_agg(segment_idx)
+        FROM pdb.index_segments('search_idx')
+        WHERE segment_idx % 4 = 0
+    )
 );
 
-````
+```
 
 ```ts Drizzle
 import { diagnostics } from "@paradedb/drizzle-paradedb";
@@ -613,7 +619,7 @@ await db.execute(
       .filter((segmentIdx) => segmentIdx % 4 === 0),
   }),
 );
-````
+```
 
 ```python Django
 from paradedb import paradedb_index_segments, paradedb_verify_index
@@ -671,6 +677,8 @@ await dbContext.Database.VerifyIndex(
 
 </CodeGroup>
 
+<!-- prettier-ignore-end -->
+
 ## Verifying All ParadeDB Indexes
 
 To verify all ParadeDB indexes in the database at once:
@@ -712,22 +720,24 @@ await dbContext.Database.VerifyAllIndexes().ToListAsync();
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
+<!-- prettier-ignore-start -->
+
 <CodeGroup>
 ```sql SQL
 -- Verify indexes in the 'public' schema only
 SELECT * FROM pdb.verify_all_indexes(schema_pattern := 'public');
 
 -- Verify indexes matching a name pattern
-SELECT \* FROM pdb.verify*all_indexes(index_pattern := 'search*%');
+SELECT * FROM pdb.verify_all_indexes(index_pattern := 'search_%');
 
 -- Combine filters
-SELECT \* FROM pdb.verify*all_indexes(
-schema_pattern := 'app*%',
-index_pattern := '%\_idx',
-heapallindexed := true
+SELECT * FROM pdb.verify_all_indexes(
+    schema_pattern := 'app_%',
+    index_pattern := '%_idx',
+    heapallindexed := true
 );
 
-````
+```
 
 ```ts Drizzle
 import { diagnostics } from "@paradedb/drizzle-paradedb";
@@ -754,7 +764,7 @@ await db.execute(
     heapAllIndexed: true,
   }),
 );
-````
+```
 
 ```python Django
 from paradedb import paradedb_verify_all_indexes
@@ -835,6 +845,8 @@ await dbContext.Database.VerifyAllIndexes(
 ```
 
 </CodeGroup>
+
+<!-- prettier-ignore-end -->
 
 ## Listing All ParadeDB Indexes
 

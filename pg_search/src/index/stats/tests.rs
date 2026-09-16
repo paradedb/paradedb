@@ -298,10 +298,8 @@ mod tests {
         let mut pruned_somewhere = false;
         for partition in 0..3 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = ranges
-                .iter()
-                .filter(|r| r.intersects(&range.lower, &range.upper))
-                .count();
+            let (lower, upper) = range.values().unwrap();
+            let expected = ranges.iter().filter(|r| r.intersects(lower, upper)).count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
             assert_eq!(chosen.len(), expected, "partition {partition}");
             pruned_somewhere |= chosen.len() < stats.len();
@@ -474,7 +472,8 @@ mod tests {
         };
         for partition in 0..4 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = if late_row.intersects(&range.lower, &range.upper) {
+            let (lower, upper) = range.values().unwrap();
+            let expected = if late_row.intersects(lower, upper) {
                 2
             } else {
                 1
@@ -577,10 +576,8 @@ mod tests {
         let mut pruned_somewhere = false;
         for partition in 0..3 {
             let range = boundaries.partition_range(partition).unwrap();
-            let expected = ranges
-                .iter()
-                .filter(|r| r.intersects(&range.lower, &range.upper))
-                .count();
+            let (lower, upper) = range.values().unwrap();
+            let expected = ranges.iter().filter(|r| r.intersects(lower, upper)).count();
             let chosen = segments_for_partition(&reader, &boundaries, partition);
             assert_eq!(chosen.len(), expected, "partition {partition}");
             pruned_somewhere |= chosen.len() < stats.len();

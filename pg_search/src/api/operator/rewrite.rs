@@ -16,9 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::{
-    RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
-    is_pdb_query_castable, is_text_like, pdb_query_typoid, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible,
+    PdbQueryRhs, RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
+    is_text_like, pdb_query_typoid, searchqueryinput_typoid, validate_lhs_type_as_text_compatible,
 };
 use crate::api::FieldName;
 use crate::api::builder_fns::{
@@ -246,8 +245,11 @@ impl SearchOperator {
         }
         let field = self.require_field(lhs, field);
         let rhs_type = get_expr_result_type(rhs);
-        if is_pdb_query_castable(rhs_type) {
-            return build_pdb_query_funcexpr(field, rhs, rhs_type, self.query_input_fn());
+        // Text is by far the most common RHS, so skip the pdb.* type lookups for it.
+        if !is_text_like(rhs_type)
+            && let Some(rhs_kind) = PdbQueryRhs::from_oid(rhs_type)
+        {
+            return build_pdb_query_funcexpr(field, rhs, rhs_kind, self.query_input_fn());
         }
         let (text_fn, array_fn) = match self {
             Self::Conjunction => (

@@ -2183,6 +2183,147 @@ mod tests {
         SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
     }
 
+    fn assert_pruning_matches_tantivy(reader: &SearchIndexReader, expected: usize) {
+        use tantivy::collector::{Count, TopDocs};
+
+        // Bypass candidate filtering for the oracle, retaining the identical query and Searcher.
+        let query = reader.query();
+        assert_eq!(
+            reader.searcher().search(query, &Count).unwrap(),
+            expected,
+            "{query:?}"
+        );
+        assert_eq!(reader.search().count(), expected, "{query:?}");
+        assert_eq!(
+            reader.count_matched_docs().unwrap(),
+            expected as u64,
+            "{query:?}"
+        );
+        assert_eq!(reader.collect(Count), expected, "{query:?}");
+        if reader.need_scores() {
+            assert_eq!(
+                reader.collect(TopDocs::with_limit(10).order_by_score()),
+                reader
+                    .searcher()
+                    .search(query, &TopDocs::with_limit(10).order_by_score())
+                    .unwrap(),
+                "{query:?}"
+            );
+        }
+    }
+
+    #[pg_test]
+    fn segment_pruning_preserves_nested_single_clause_booleans() {
+        let (index_rel, _) = segmented_index_fixture("pruning_single_boolean", 1, false);
+        for should in [false, true] {
+            for minimum in [1, 2, -1] {
+                let inner = SearchQueryInput::Boolean {
+                    must: if should {
+                        vec![]
+                    } else {
+                        vec![SearchQueryInput::All]
+                    },
+                    should: if should {
+                        vec![SearchQueryInput::All]
+                    } else {
+                        vec![]
+                    },
+                    must_not: vec![],
+                    minimum_should_match: Some(minimum),
+                };
+                for negated in [false, true] {
+                    let query = SearchQueryInput::Boolean {
+                        must: if negated {
+                            vec![SearchQueryInput::All]
+                        } else {
+                            vec![SearchQueryInput::All, inner.clone()]
+                        },
+                        should: vec![],
+                        must_not: if negated { vec![inner.clone()] } else { vec![] },
+                        minimum_should_match: None,
+                    };
+                    for scoring in [false, true] {
+                        let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                        assert_pruning_matches_tantivy(&reader, if negated { 0 } else { 10 });
+                    }
+                }
+            }
+        }
+    }
+
+    #[pg_test]
+    fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {
+        use crate::query::TermInput;
+
+        Spi::run(
+            "CREATE TABLE pruning_signed_terms (id bigint PRIMARY KEY, x bigint NOT NULL);
+             CREATE INDEX pruning_signed_terms_idx ON pruning_signed_terms USING paradedb (id, x)
+             WITH (background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO pruning_signed_terms VALUES (1, -1), (2, -2), (3, '-9223372036854775808');
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'pruning_signed_terms_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index_rel = PgSearchRelation::open(oid);
+        let field = FieldName::from("x");
+        let mut queries = Vec::new();
+        for value in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX - 1, u64::MAX] {
+            let expected = usize::from(value > i64::MAX as u64);
+            let value = PdbOwnedValue::U64(value);
+            for query in [
+                SearchQueryInput::FieldedQuery {
+                    field: field.clone(),
+                    query: pdb::Query::Term {
+                        value: value.clone(),
+                    },
+                },
+                SearchQueryInput::FieldedQuery {
+                    field: field.clone(),
+                    query: pdb::Query::TermSet {
+                        terms: vec![value.clone()],
+                    },
+                },
+                SearchQueryInput::TermSet {
+                    terms: vec![TermInput {
+                        field: field.clone(),
+                        value,
+                    }],
+                },
+            ] {
+                queries.push((query, expected));
+            }
+        }
+        // Neither endpoint overflows during range normalization, but both wrap in term encoding.
+        queries.push((
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::Range {
+                    lower_bound: Bound::Included(PdbOwnedValue::U64(u64::MAX - 1)),
+                    upper_bound: Bound::Excluded(PdbOwnedValue::U64(u64::MAX)),
+                },
+            },
+            1,
+        ));
+        for (query, expected) in queries {
+            for scoring in [false, true] {
+                let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                let snapshot = reader.segment_stats_snapshot();
+                let field = reader.schema().search_field("x").unwrap();
+                assert!(snapshot.len() > 0);
+                for ordinal in 0..snapshot.len() {
+                    assert!(
+                        snapshot.empirical(ordinal, &field).is_some(),
+                        "must exercise statistics"
+                    );
+                }
+                assert_pruning_matches_tantivy(&reader, expected);
+            }
+        }
+    }
+
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
     /// still install the index's tokenizers: the `Parse` query below matches rows only if
     /// the shared managers now hold them.

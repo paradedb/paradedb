@@ -263,8 +263,9 @@ pub(crate) fn boolean_truth(
         possible_should += usize::from(truth != SegmentTruth::Never);
         guaranteed_should += usize::from(truth == SegmentTruth::Always);
     }
-    let (mut must_not_has_always, mut must_not_all_never) = (false, true);
+    let (mut must_not_count, mut must_not_has_always, mut must_not_all_never) = (0, false, true);
     for truth in must_not {
+        must_not_count += 1;
         must_not_has_always |= truth == SegmentTruth::Always;
         must_not_all_never &= truth == SegmentTruth::Never;
     }
@@ -277,6 +278,15 @@ pub(crate) fn boolean_truth(
     // to prove against, and under `must_not` a wrong `Always` becomes a wrong `Never`.
     let minimum_should_match = minimum_should_match.unwrap_or(0);
     if minimum_should_match < 0 {
+        return SegmentTruth::Maybe;
+    }
+    // `scorer()` bypasses the minimum for one positive child, whereas
+    // `pruning_scorer()` takes the general Boolean path. Nested Booleans can reach
+    // either path, so an oversized minimum cannot prove Never (or Always under NOT).
+    if must_count + should_count == 1
+        && must_not_count == 0
+        && minimum_should_match as usize > should_count
+    {
         return SegmentTruth::Maybe;
     }
     let required =
@@ -476,6 +486,8 @@ mod tests {
     #[case::explicit_zero_still_unions_should(vec![], vec![Never], vec![], Some(0), Never)]
     #[case::negative_minimum_fails_open(vec![], vec![Always], vec![], Some(-1), Maybe)]
     #[case::negative_minimum_fails_open_with_must(vec![Always], vec![], vec![], Some(-1), Maybe)]
+    #[case::single_should_oversized_minimum(vec![], vec![Always], vec![], Some(2), Maybe)]
+    #[case::single_must_positive_minimum(vec![Always], vec![], vec![], Some(1), Maybe)]
     fn boolean_truth_cases(
         #[case] must: Vec<SegmentTruth>,
         #[case] should: Vec<SegmentTruth>,
@@ -495,6 +507,92 @@ mod tests {
         let additional = SegmentTruthTable::uniform(Arc::clone(&snapshot), SegmentTruth::Never);
         let possible = SegmentTruthTable::uniform(snapshot, SegmentTruth::Maybe);
         assert_eq!(possible.conjunction(&additional).at(0), SegmentTruth::Never);
+    }
+
+    #[test]
+    fn single_clause_boolean_proofs_agree_with_tantivy_execution() {
+        use tantivy::collector::{Count, TopDocs};
+        use tantivy::query::{AllQuery, BooleanQuery, EmptyQuery, EnableScoring, Occur, Query};
+        use tantivy::{DocSet, TERMINATED};
+
+        let mut schema = Schema::builder();
+        let id = schema.add_u64_field("id", INDEXED);
+        let index = Index::create_in_ram(schema.build());
+        let mut writer: tantivy::IndexWriter<TantivyDocument> = index.writer(50_000_000).unwrap();
+        writer.add_document(doc!(id => 1u64)).unwrap();
+        writer.commit().unwrap();
+        let searcher = index.reader().unwrap().searcher();
+        let segment = searcher.segment_reader(0);
+
+        for occur in [Occur::Must, Occur::Should] {
+            for minimum in [0, 1, 2, -1] {
+                for child_truth in [Never, Always] {
+                    let child: Box<dyn Query> = match child_truth {
+                        Never => Box::new(EmptyQuery),
+                        Always => Box::new(AllQuery),
+                        Maybe => unreachable!(),
+                    };
+                    let query = BooleanQuery::with_minimum_required_clauses(
+                        vec![(occur, child)],
+                        minimum as usize,
+                    );
+                    let proof = boolean_truth(
+                        (occur == Occur::Must).then_some(child_truth),
+                        (occur == Occur::Should).then_some(child_truth),
+                        [],
+                        Some(minimum),
+                    );
+                    let nested = BooleanQuery::new(vec![
+                        (Occur::Must, Box::new(query.clone())),
+                        (Occur::Must, Box::new(AllQuery)),
+                    ]);
+                    let negated = BooleanQuery::new(vec![
+                        (Occur::Must, Box::new(AllQuery)),
+                        (Occur::MustNot, Box::new(query.clone())),
+                    ]);
+                    let negated_proof = boolean_truth([Always], [], [proof], None);
+
+                    for (query, proof) in [
+                        (&query as &dyn Query, proof),
+                        (&nested as &dyn Query, proof),
+                        (&negated as &dyn Query, negated_proof),
+                    ] {
+                        let check = |count: usize| match proof {
+                            Never => assert_eq!(count, 0, "{query:?}"),
+                            Always => assert_eq!(count, 1, "{query:?}"),
+                            Maybe => {}
+                        };
+                        check(searcher.search(query, &Count).unwrap());
+                        check(
+                            searcher
+                                .search(query, &TopDocs::with_limit(1).order_by_score())
+                                .unwrap()
+                                .len(),
+                        );
+                        for scoring in [false, true] {
+                            let weight = query
+                                .weight(if scoring {
+                                    EnableScoring::enabled_from_searcher(&searcher)
+                                } else {
+                                    EnableScoring::disabled_from_searcher(&searcher)
+                                })
+                                .unwrap();
+                            let mut scorer = weight.scorer(segment, 1.0).unwrap();
+                            check(scorer.count_including_deleted() as usize);
+                            let mut scorer = weight
+                                .pruning_scorer(segment, 1.0, f32::NEG_INFINITY)
+                                .unwrap();
+                            let mut count = 0;
+                            while scorer.doc() != TERMINATED {
+                                count += 1;
+                                scorer.advance();
+                            }
+                            check(count);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn truth_from_mask(mask: u8) -> SegmentTruth {

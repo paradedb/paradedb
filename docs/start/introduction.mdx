@@ -7,7 +7,7 @@ canonical: https://www.paradedb.com/docs/start/introduction
 
 When queries get too slow, developers usually reach for systems like Elasticsearch. ParadeDB makes text and vector search, filters, facets, and joins fast in Postgres.
 
-ParadeDB is powered by our **pg_search** extension. It runs inside standard Postgres as a native index on your tables: no fork, no sidecar process, no external cluster. Under the hood, ParadeDB combines inverted (based on [Tantivy](https://github.com/quickwit-oss/tantivy)), columnar (based on [DataFusion](https://github.com/apache/datafusion)), and ParadeDB-built vector index structures into a unified index with search-optimized query execution paths.
+ParadeDB is powered by our **pg_search** extension. It runs inside standard Postgres as a native index on your tables, with no fork, sidecar process, or external cluster. Under the hood, ParadeDB combines inverted indexes (based on [Tantivy](https://github.com/quickwit-oss/tantivy)), columnar execution (based on [DataFusion](https://github.com/apache/datafusion)), and ParadeDB-built vector structures into one unified index.
 
 ![ParadeDB architecture: a Postgres table backed by a ParadeDB search index for full-text search, vectors, and aggregates.](/images/architecture_paradedb.png)
 

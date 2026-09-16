@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789561479984,
+  "lastUpdate": 1789602913373,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4202,6 +4202,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.095,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c4f2575437cdae75d5081eecb4be83a651d2a91",
+          "message": "fix: walk a live lower path for JoinScan at `UPPERREL_FINAL` (#6371)\n\n## Ticket(s) Closed\n\n- Closes #6364\n\n## What\n\nThis PR fixes a backend abort while JoinScan plans a query with `ORDER\nBY` and parallel paths.\n\n## Why\n\nSince the hook moved to `UPPERREL_FINAL`, JoinScan walks\n`join_rel->cheapest_total_path`. By then `create_ordered_paths` has\nadded the presorted join paths to the ordered rel as-is, and `add_path`\npfrees the ones it dominates. When a `GatherMerge` over a partial path\nwins, that pointer is dangling. With debug assertions on,\n`walk_path_restrictinfo` trips `panic_misaligned_pointer_dereference`.\nThat's a non-unwinding panic, so the backend aborts and the log only\nshows `thread caused non-unwinding panic. aborting.`. A release build\nreads the garbage and goes on.\n\nStep 1: build with debug assertions and start Postgres.\n\n```sh\ncargo pgrx install --package pg_search --pg-config ~/.pgrx/18.1/pgrx-install/bin/pg_config\ncargo pgrx start pg18\n```\n\nStep 2: run the new regress test on `main`.\n\n```sh\npsql -h localhost -p 28818 -d pg_search -f pg_search/tests/pg_regress/sql/join_final_rel_live_path.sql\n```\n\n```\nserver closed the connection unexpectedly\n```\n\n## How\n\n- `check_join_path_predicates` takes the path to walk instead of a rel.\n- JoinScan gets that path from `find_live_lower_path`. It descends the\nupper rel's own pathlist through the known wrappers and picks the\ncheapest path over the join rel, with the same preference order as\n`set_cheapest`.\n- Behind a `DISTINCT` or window stage it keeps the join rel's own path.\nThose stages only add wrappers, so the path is still live there, and the\naggregate scan's custom path can be the only survivor above the join.\n- AggregateScan passes `input_rel.cheapest_total_path`, so nothing\nchanges for it.\n\n## Tests\n\n- `join_final_rel_live_path`: aborts on `main`, passes here. It needs\n`debug_parallel_query = on` (`force_parallel_mode` on PG15).",
+          "timestamp": "2026-09-16T16:34:05-07:00",
+          "tree_id": "886f7ddc20074611ddd39ec10a1da258c73c8d2e",
+          "url": "https://github.com/paradedb/paradedb/commit/7c4f2575437cdae75d5081eecb4be83a651d2a91"
+        },
+        "date": 1789602909117,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.654345065332197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.864,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.919,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.23,
             "unit": "ms"
           }
         ]

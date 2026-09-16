@@ -312,6 +312,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "project/changelog",
                   {
                     "group": "v0.25",
                     "pages": [

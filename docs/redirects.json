@@ -20,6 +20,14 @@
     "destination": "/project/roadmap"
   },
   {
+    "source": "/changelog",
+    "destination": "/project/changelog"
+  },
+  {
+    "source": "/changelog/",
+    "destination": "/project/changelog/"
+  },
+  {
     "source": "/documentation/getting-started/ai-agents",
     "destination": "/start/ai-agents"
   },

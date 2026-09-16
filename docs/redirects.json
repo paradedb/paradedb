@@ -456,6 +456,26 @@
     "destination": "/operate/deploy/ci/gitlab-ci"
   },
   {
+    "source": "/changelog/0.25.9",
+    "destination": "/project/changelog/0.25.9"
+  },
+  {
+    "source": "/changelog/0.25.8",
+    "destination": "/project/changelog/0.25.8"
+  },
+  {
+    "source": "/changelog/0.25.7",
+    "destination": "/project/changelog/0.25.7"
+  },
+  {
+    "source": "/changelog/0.25.6",
+    "destination": "/project/changelog/0.25.6"
+  },
+  {
+    "source": "/changelog/0.25.5",
+    "destination": "/project/changelog/0.25.5"
+  },
+  {
     "source": "/changelog/0.25.4",
     "destination": "/project/changelog/0.25.4"
   },

@@ -4,12 +4,14 @@ description: How to deploy ParadeDB as a Kubernetes cluster into production
 canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/kubernetes
 ---
 
-For production deployments, we recommend running ParadeDB on Kubernetes with [CloudNativePG](https://cloudnative-pg.io/). Both ParadeDB Community and Enterprise binaries can be deployed on Kubernetes.
+For Kubernetes deployments, we recommend running ParadeDB with [CloudNativePG](https://cloudnative-pg.io/). Both ParadeDB Community and Enterprise binaries can be deployed on Kubernetes.
 
 <Note>
-  We recommend running ParadeDB Enterprise, not Community, with Kubernetes in
-  production to maximize uptime. See
-  [overview](/operate/deploy/overview#self-hosted-paradedb).
+  ParadeDB Community can run on Kubernetes as a single-node deployment. Use
+  [ParadeDB Enterprise](/operate/deploy/enterprise) when ParadeDB indexes need
+  physical replication for [high
+  availability](/operate/deploy/self-hosted/high-availability), failover, or
+  read replicas that can serve ParadeDB queries.
 </Note>
 
 This guide uses the [ParadeDB Helm Chart](https://github.com/paradedb/charts). The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
@@ -21,7 +23,7 @@ For local testing, we recommend [Minikube](https://minikube.sigs.k8s.io/docs/sta
 
 ## Install the Prometheus Stack
 
-The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. To enable this, you need to have the Prometheus CRDs installed before installing the CloudNativePG operator. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install it with:
+The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. To enable this, you need to have the Prometheus CRDs installed before installing the CloudNativePG operator. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install them with:
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -75,9 +77,8 @@ cluster:
 </CodeGroup>
 
 <Note>
-  If you are using ParadeDB Enterprise, `instances` should be set to a number
-  greater than `1` for [high
-  availability](/operate/deploy/self-hosted/high-availability).
+  If you are using ParadeDB Enterprise for high availability, set `instances` to
+  a number greater than `1`.
 </Note>
 
 Next, create a namespace for this step or use an existing namespace. The namespace can be any value.
@@ -189,5 +190,5 @@ kubectl --namespace prometheus-community port-forward svc/prometheus-community-g
 
 You can then access the Grafana dashboard at `localhost:3000` using `admin` as the username
 and `prom-operator` as the password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
-file used as the `values.yaml` file in [Installing the Prometheus CRDs](#installing-the-prometheus-stack) and can be modified by providing
+file used as the `values.yaml` file in [Install the Prometheus Stack](#install-the-prometheus-stack) and can be modified by providing
 your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/docs/1.30/monitoring).

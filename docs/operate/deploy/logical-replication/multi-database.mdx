@@ -124,7 +124,7 @@ COMMIT;
 
 After completing the schema migration for all source databases:
 
-1. Configure each source database as a publisher following the [getting started guide](/operate/deploy/logical-replication/getting-started)
+1. Configure each source database as a publisher following the [Getting Started guide](/operate/deploy/logical-replication/getting-started)
 2. Set up ParadeDB as a subscriber for all source databases
 3. Create publications on each source database for their respective schemas:
 
@@ -157,7 +157,7 @@ CREATE SUBSCRIPTION orders_sub
 - **Avoid Distributed Joins in Application**: Execute cross-database joins directly in ParadeDB instead of implementing complex join logic in your application
 - **Simple Architecture**: Uses standard Postgres logical replication without extra infrastructure
 - **Namespace Isolation**: Schema-based separation prevents naming conflicts
-- **No Source Database Changes**: Microservices continue operating independently; ParadeDB acts as a read replica
+- **No Source Database Changes**: Microservices continue operating independently; ParadeDB acts as a logical subscriber and search node
 
 ### Cons
 

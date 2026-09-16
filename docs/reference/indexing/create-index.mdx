@@ -1,10 +1,12 @@
 ---
 title: Create an Index
-description: Index a Postgres table for full text search
+description: Index a Postgres table for ParadeDB search workloads
 canonical: https://www.paradedb.com/docs/reference/indexing/create-index
 ---
 
-Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the ParadeDB index.
+Before a table can be queried by ParadeDB, it must be indexed. ParadeDB uses a
+custom index type called the [ParadeDB
+index](/concepts/how-the-paradedb-index-works).
 The following code block creates a ParadeDB index over several columns in the `mock_items` table.
 
 <CodeGroup>
@@ -86,12 +88,13 @@ modelBuilder.Entity<MockItem>()
   fact that the index is now much more than BM25 scoring — it also powers
   [vector search](/reference/vector/overview),
   [aggregates](/reference/aggregates/overview), [top
-  K](/reference/full-text/top-k), and [filtering](/reference/filtering/overview). `USING
-  bm25` remains supported as a backwards-compatible alias for `USING paradedb`.
+  K](/reference/full-text/top-k), and
+  [filtering](/reference/filtering/overview). `USING bm25` remains supported as
+  a backwards-compatible alias for `USING paradedb`.
 </Note>
 
 <Note>
-  See the [getting started guide](/start/connect-your-app) for more detail on
+  See the [Getting Started guide](/start/connect-your-app) for more detail on
   how to set up your ORM to run index creation commands.
 </Note>
 
@@ -328,7 +331,10 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
-Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
+Most ordinary scalar columns can be added directly to a ParadeDB index. The
+separate indexing pages cover cases that need extra configuration, such as
+JSON, arrays, composite fields, expressions, vectors, and text fields that need
+columnar storage.
 
 ## Track Create Index Progress
 
@@ -353,8 +359,7 @@ The `key_field` must:
 2. Be the first column in the column list.
 3. Be untokenized, if it is a text field.
 
-See [Choosing a Key Field](/guides/choosing-a-key-field) for more detailed
-guidance.
+Use this section as the source of truth for choosing a key field.
 
 ## Token Filters
 

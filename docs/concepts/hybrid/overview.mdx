@@ -1,0 +1,29 @@
+---
+title: How Hybrid Search Works
+description: Understand how ParadeDB combines text and vector search into a single ranking
+canonical: https://www.paradedb.com/docs/concepts/hybrid/overview
+---
+
+<Note>
+  Hybrid search uses [vector search](/concepts/vector/overview), a beta feature
+  available in versions `0.25.0` and above.
+</Note>
+
+Hybrid search combines the strengths of [text search](/concepts/full-text/overview)
+and [vector search](/concepts/vector/overview). Text search is strongest when
+the query terms and indexed text overlap. Vector search is strongest when the
+right result is semantically related but uses different words.
+
+Because those signals fail in different ways, combining them often produces a
+better result set than either one alone.
+
+## Fusing by Rank
+
+BM25 scores and vector distances operate on different scales, so they cannot be
+added together directly. ParadeDB's hybrid examples use
+[Reciprocal Rank Fusion](/reference/hybrid/rrf), which discards raw scores and
+uses only each row's position, or rank, in each result list.
+
+With rank fusion, a row that ranks first contributes the same amount whether
+its BM25 score was `1` or `100`. That makes text and vector results comparable
+without forcing them onto a shared scoring scale.

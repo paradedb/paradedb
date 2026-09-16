@@ -24,7 +24,7 @@
               "start/introduction",
               "start/alternatives",
               {
-                "group": "Quickstart",
+                "group": "Getting Started",
                 "pages": [
                   "start/install",
                   "start/connect-your-app",
@@ -43,22 +43,10 @@
             ]
           },
           {
-            "tab": "Guides",
-            "icon": "map",
-            "pages": [
-              "guides/search-as-you-type",
-              "guides/faceted-search",
-              "guides/hybrid-search",
-              "guides/multi-language-search",
-              "guides/search-json",
-              "guides/choosing-a-key-field",
-              "guides/rag-and-agents"
-            ]
-          },
-          {
             "tab": "Reference",
             "icon": "book-open",
             "pages": [
+              "reference/overview",
               {
                 "group": "Indexing",
                 "pages": [
@@ -71,7 +59,7 @@
                     ]
                   },
                   {
-                    "group": "What You Can Index",
+                    "group": "Specialized Indexing",
                     "pages": [
                       "reference/indexing/indexing-expressions",
                       "reference/indexing/indexing-json",
@@ -85,6 +73,7 @@
               {
                 "group": "Full-Text / Lexical Search",
                 "pages": [
+                  "reference/full-text/overview",
                   {
                     "group": "Text Analysis",
                     "pages": [
@@ -238,13 +227,11 @@
             "tab": "Concepts",
             "icon": "lightbulb",
             "pages": [
-              "concepts/why-search-inside-postgres",
               "concepts/architecture",
               "concepts/how-the-paradedb-index-works",
               "concepts/full-text/overview",
-              "concepts/how-tantivy-works",
-              "concepts/how-block-wand-works",
-              "concepts/what-is-pgrx",
+              "concepts/vector/overview",
+              "concepts/hybrid/overview",
               "concepts/guarantees",
               "concepts/limitations"
             ]
@@ -301,19 +288,13 @@
                 ]
               },
               {
-                "group": "Troubleshooting",
+                "group": "Administration",
                 "pages": [
-                  "operate/troubleshooting/my-query-returns-no-rows",
-                  "operate/troubleshooting/my-query-is-slow",
-                  "operate/troubleshooting/my-query-is-not-using-the-index",
-                  "operate/troubleshooting/reading-explain",
-                  "operate/troubleshooting/error-messages",
-                  "operate/troubleshooting/index-size-and-segments"
+                  "operate/deploy/upgrading",
+                  "operate/deploy/third-party-extensions",
+                  "operate/deploy/citus"
                 ]
               },
-              "operate/deploy/upgrading",
-              "operate/deploy/third-party-extensions",
-              "operate/deploy/citus",
               {
                 "group": "Continuous Integration",
                 "pages": [
@@ -628,7 +609,7 @@
     "metatags": {
       "charset": "UTF-8",
       "viewport": "width=device-width, initial-scale=1.0",
-      "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
+      "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, vector search, semantic search, hybrid search, faceted search, columnar, olap",
       "author": "ParadeDB",
       "google": "notranslate",
       "generator": "Mintlify",
@@ -651,15 +632,15 @@
       "apple-mobile-web-app-title": "ParadeDB Docs",
       "og:type": "website",
       "og:locale": "en_US",
-      "og:description": "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
+      "og:description": "We think you should just use Postgres.",
       "og:image": "https://www.paradedb.com/opengraph-image.png",
-      "og:image:alt": "ParadeDB: Search without a second system.",
+      "og:image:alt": "ParadeDB: Just use Postgres.",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
-      "twitter:description": "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
+      "twitter:description": "We think you should just use Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: Search without a second system."
+      "twitter:image:alt": "ParadeDB: Just use Postgres."
     },
     "indexing": "navigable"
   },

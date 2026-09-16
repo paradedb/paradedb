@@ -4,9 +4,9 @@ description: Caveats for aggregate support
 canonical: https://www.paradedb.com/docs/reference/aggregates/limitations
 ---
 
-## ParadeDB Operator
+## ParadeDB Predicate
 
-In order for ParadeDB to push down an aggregate, a ParadeDB text search operator must be present in the query.
+In order for ParadeDB to push down an aggregate, a ParadeDB predicate must be present in the query.
 
 <CodeGroup>
 ```sql SQL
@@ -112,16 +112,16 @@ Aggregate pushdown works across joins as well as single tables. When every parti
 
 ### Supported shapes
 
-| Feature | Supported |
-| --- | --- |
-| Number of tables | Two or more (arbitrary join trees) |
-| Aggregate functions | `COUNT`, `COUNT(DISTINCT ...)`, `SUM`, `SUM(DISTINCT ...)`, `AVG`, `AVG(DISTINCT ...)`, `MIN`, `MAX`, `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`, `BOOL_AND`, `BOOL_OR`, `ARRAY_AGG`, `STRING_AGG` |
-| `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` and the supported `DATE(timestamp)` form described above |
-| `HAVING` clause | Comparisons against aggregate results and group columns |
-| Per-aggregate `FILTER (WHERE ...)` | Yes |
-| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)`, and no `pdb.agg()` in the query uses `terms` |
-| `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
-| `pdb.agg()` | `terms` (scalar or array fields; with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
+| Feature                                      | Supported                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Number of tables                             | Two or more (arbitrary join trees)                                                                                                                                                                                                                                                                                                                                                                                             |
+| Aggregate functions                          | `COUNT`, `COUNT(DISTINCT ...)`, `SUM`, `SUM(DISTINCT ...)`, `AVG`, `AVG(DISTINCT ...)`, `MIN`, `MAX`, `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`, `BOOL_AND`, `BOOL_OR`, `ARRAY_AGG`, `STRING_AGG`                                                                                                                                                                                                                          |
+| `GROUP BY`                                   | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` and the supported `DATE(timestamp)` form described above                                                                                                                                                                                                                                                                                  |
+| `HAVING` clause                              | Comparisons against aggregate results and group columns                                                                                                                                                                                                                                                                                                                                                                        |
+| Per-aggregate `FILTER (WHERE ...)`           | Yes                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ORDER BY ... LIMIT K`                       | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)`, and no `pdb.agg()` in the query uses `terms`                                                                                                                                                                                                                                                  |
+| `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `pdb.agg()`                                  | `terms` (scalar or array fields; with `size`, `min_doc_count` of 1 or more, `missing`, and `order` by `_count`, `_key`, or a metric sub-aggregation, but not `include` or `exclude`), `sum`, `avg`, `min`, `max`, `value_count`, `cardinality`, and nested `aggs` built from these. The `visibility` argument is honored; over a join, `threshold` makes one decision for every table, judged on the largest table's estimate. |
 
 ### `pdb.agg()` over joins
 

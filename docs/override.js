@@ -16,8 +16,7 @@
       "@type": "ImageObject",
       url: "https://www.paradedb.com/brand/paradedb-logo-light.svg",
     },
-    description:
-      "One Postgres for your application data, full-text search, vector retrieval, and aggregations. Home of the pg_search extension.",
+    description: "We think you should just use Postgres.",
     email: "hello@paradedb.com",
     contactPoint: [
       {

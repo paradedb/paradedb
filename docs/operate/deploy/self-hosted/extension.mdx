@@ -6,15 +6,16 @@ canonical: https://www.paradedb.com/docs/operate/deploy/self-hosted/extension
 ---
 
 <Note>
-  We recommend running ParadeDB Enterprise, not Community, in production to
-  maximize uptime. See
-  [overview](/operate/deploy/overview#self-hosted-paradedb).
+  ParadeDB Community can run as a single-node extension install. Use [ParadeDB
+  Enterprise](/operate/deploy/enterprise) when ParadeDB indexes need physical
+  replication for high availability, failover, or read replicas that can serve
+  ParadeDB queries.
 </Note>
 
 If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
 Postgres instead of deploying the ParadeDB Helm chart.
 
-This can be done by installing the `pg_search` extension, which powers all of ParadeDB's custom functionalities.
+Install the `pg_search` extension, which powers ParadeDB's search features.
 
 ## Prerequisites
 

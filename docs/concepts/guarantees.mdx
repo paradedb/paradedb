@@ -39,9 +39,9 @@ Physical replication refers to running ParadeDB itself in a multi-node, high-ava
 [ParadeDB Enterprise](/operate/deploy/enterprise) supports both:
 
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
-- It supports physical replication and high availability, ensuring that the ParadeDB index remains consistent and crash-safe across nodes.
+- It supports physical replication of ParadeDB indexes, enabling high availability, failover, and read replicas that can serve ParadeDB queries.
 
-If your deployment requires high availability, or failover, we recommend using [ParadeDB Enterprise](/operate/deploy/enterprise).
+If your deployment requires high availability, failover, or read replicas for ParadeDB queries, use [ParadeDB Enterprise](/operate/deploy/enterprise).
 
 ### Data Integrity
 

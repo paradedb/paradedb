@@ -4,10 +4,10 @@ description: Move from the sandbox to a production deployment
 canonical: https://www.paradedb.com/docs/start/go-to-production
 ---
 
-The quickstart proves that ParadeDB can search, rank, filter, and aggregate from
-inside Postgres. A production rollout is mostly about choosing the right
-topology, indexing the right fields, and giving Postgres enough room to do the
-work.
+The Getting Started flow shows that ParadeDB can search, retrieve vectors,
+rank, filter, and aggregate from inside Postgres. A production rollout is
+mostly about choosing the right topology, indexing the right fields, and giving
+Postgres enough room to do the work.
 
 ## Production Checklist
 
@@ -26,9 +26,10 @@ crash-safe: changes to ParadeDB indexes are write-ahead logged and support crash
 recovery and point-in-time recovery. See [Guarantees](/concepts/guarantees) for
 the full details.
 
-[ParadeDB Enterprise](/operate/deploy/enterprise) adds capabilities for multi-node
-production environments, including physical replication, high availability, read
-replicas, commercial licensing, and support.
+[ParadeDB Enterprise](/operate/deploy/enterprise) adds commercial licensing,
+support, and physical replication for ParadeDB indexes. Physical replication is
+what enables high availability, failover, and read replicas that can serve
+ParadeDB queries.
 
 ## Deployment
 
@@ -67,8 +68,8 @@ replicas, commercial licensing, and support.
 ## Index Design
 
 Start from the queries your application actually runs. Add fields to the
-ParadeDB index when they need to participate in search, filtering, `ORDER BY`,
-`GROUP BY`, or aggregations.
+ParadeDB index when they need to participate in full-text search, vector
+retrieval, filtering, `ORDER BY`, `GROUP BY`, or aggregations.
 
 <CardGroup cols={2}>
   <Card
@@ -81,16 +82,24 @@ ParadeDB index when they need to participate in search, filtering, `ORDER BY`,
   <Card
     title="Choosing a Key Field"
     icon="key"
-    href="/guides/choosing-a-key-field"
+    href="/reference/indexing/create-index#choosing-a-key-field"
   >
     Pick the unique row identifier that ParadeDB stores in the index.
+  </Card>
+  <Card
+    title="Vector Fields"
+    icon="chart-scatter"
+    href="/reference/indexing/indexing-vectors"
+  >
+    Index embeddings alongside text and filters for nearest-neighbor and hybrid
+    search.
   </Card>
   <Card
     title="Columnar Fields"
     icon="columns-3"
     href="/reference/indexing/columnar"
   >
-    Make fields available for fast filters, sorting, and aggregations.
+    Make scalar and tokenizer-backed fields available through columnar storage.
   </Card>
   <Card
     title="Performance Tuning"
@@ -110,6 +119,6 @@ Before cutting over traffic, verify the important paths:
 - Check backup, restore, and upgrade procedures.
 - Set monitoring around slow queries, index size, and segment growth.
 
-When something does not look right, start with [My Query Is Not Using the
-Index](/operate/troubleshooting/my-query-is-not-using-the-index) or [Reading
-EXPLAIN Output](/operate/troubleshooting/reading-explain).
+When something does not look right, compare the query plan with the relevant
+query reference page and the [Read Throughput](/operate/performance-tuning/reads)
+notes.

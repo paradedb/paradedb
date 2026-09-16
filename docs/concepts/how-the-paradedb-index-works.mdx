@@ -1,11 +1,58 @@
 ---
 title: How the ParadeDB Index Works
-description: Segments, the LSM structure, and the custom scan
+description: Understand the index structures ParadeDB adds to Postgres
 canonical: https://www.paradedb.com/docs/concepts/how-the-paradedb-index-works
 ---
 
-<Note>
-  Placeholder page from the docs restructure proposal. Content to be written.
-</Note>
+The ParadeDB index is a Postgres index access method designed for search and
+analytics workloads. It stores several purpose-built structures together so one
+index can serve full-text search, vector search, filtering, sorting, joins, and
+aggregations.
 
-Split out of [Architecture](/concepts/architecture): index internals with room to breathe, including Block WAND.
+## One Index, Multiple Structures
+
+Each ParadeDB index is built from segment-local structures:
+
+- **Inverted index** for tokenized text search and BM25 scoring.
+- **Columnar storage** for scalar values used in filters, sorting, grouping,
+  and aggregates.
+- **Vector structures** for nearest-neighbor retrieval over pgvector `vector`
+  columns.
+
+Keeping these structures together is what lets ParadeDB compose workloads that
+usually require separate systems or separate indexes. A query can match text,
+restrict by scalar filters, retrieve vectors, and aggregate results without
+shipping data out of Postgres.
+
+## Segments and Writes
+
+ParadeDB uses a log-structured layout. Incoming writes are added to a mutable
+segment as part of the current Postgres transaction. When that segment reaches
+the configured size, it becomes immutable and is later merged with other
+segments.
+
+This layout is optimized for update-heavy tables because writes are appended
+instead of constantly rewriting one large index structure. Each immutable
+segment carries its own inverted, columnar, and vector data.
+
+## Query Execution
+
+ParadeDB queries run through Postgres' planner and executor. When a supported
+query uses a ParadeDB operator and a matching ParadeDB index exists, ParadeDB
+can install a custom scan node and push eligible work into the index.
+
+That pushed-down work can include text predicates, filters, Top K ordering,
+aggregates, joins, and vector retrieval. If a query does not contain a ParadeDB
+operator, Postgres executes it through its ordinary planning paths.
+
+Use `EXPLAIN` to check which path a query takes. A ParadeDB-accelerated query
+will show a custom scan, or in narrower cases a ParadeDB index scan.
+
+## Related Reference
+
+- [Create an Index](/reference/indexing/create-index) covers index syntax and
+  framework examples.
+- [Columnar Storage](/reference/indexing/columnar) covers fields used for
+  filters, sorting, grouping, and aggregates.
+- [Indexing Vectors](/reference/indexing/indexing-vectors) covers vector fields
+  inside the ParadeDB index.

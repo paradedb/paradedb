@@ -1,13 +1,56 @@
 ---
-title: Aggregate Syntax
-description: Accelerate aggregates with the ParadeDB index
+title: Aggregates
+description: Accelerate SQL and JSON aggregates with the ParadeDB index
 canonical: https://www.paradedb.com/docs/reference/aggregates/overview
 ---
 
-The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. It executes the aggregate using the
-[columnar](/concepts/architecture#columnar-index) portion of the ParadeDB index, which can significantly accelerate performance compared to vanilla Postgres.
+ParadeDB can execute aggregate work using the [columnar](/concepts/architecture#columnar-index) portion of the ParadeDB index, which can significantly accelerate performance compared to vanilla Postgres.
 
-For example, the following query counts the total number of results for a search query.
+There are two aggregate surfaces:
+
+- **Native SQL aggregates** for normal Postgres queries: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `VARIANCE`, `BOOL_AND`, `BOOL_OR`, `ARRAY_AGG`, `STRING_AGG`, `GROUP BY`, `HAVING`, and per-aggregate `FILTER`.
+- **`pdb.agg` JSON aggregates** for Elasticsearch-compatible bucket and metric aggregations, including facets, histograms, percentiles, cardinality, and top hits.
+
+## Native SQL Aggregates
+
+Use standard SQL aggregate functions when you want ordinary Postgres-shaped results. ParadeDB can push these aggregates into the index when the query contains a ParadeDB predicate and the aggregate fields are in the ParadeDB index.
+
+```sql
+SELECT
+  COUNT(*) AS count,
+  AVG(rating) AS avg_rating,
+  MIN(created_at) AS oldest_item,
+  MAX(created_at) AS newest_item
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+Grouped aggregates use normal `GROUP BY` syntax:
+
+```sql
+SELECT rating, COUNT(*) AS count
+FROM mock_items
+WHERE description ||| 'running shoes'
+GROUP BY rating
+ORDER BY rating
+LIMIT 5;
+```
+
+If a query does not otherwise need a full-text predicate, add [`pdb.all()`](/reference/full-text/all) to make the query eligible for aggregate pushdown:
+
+```sql
+SELECT COUNT(*)
+FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+See [Limitations](/reference/aggregates/limitations) for the full list of supported aggregate shapes and fallback cases.
+
+## JSON Aggregates
+
+The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. This is useful when you want bucketed or faceted responses in Elasticsearch-compatible JSON.
+
+For example, the following query counts the total number of results for a search query:
 
 <CodeGroup>
 ```sql SQL
@@ -249,11 +292,11 @@ await dbContext
 
 By default, `pdb.agg` runs transaction visibility checks so that deleted or updated-away rows are not factored into the result set. This behavior is controlled by the `visibility` argument, which takes one of three modes.
 
-| Mode | Behavior |
-| --- | --- |
-| `'transaction'` | Check transaction visibility. Aggregate results match vanilla Postgres. This is the default. |
-| `'raw'` | Skip the checks and aggregate raw index data. Faster, and approximate whenever the index still holds entries for rows your transaction cannot see. |
-| `'threshold'` | Check transaction visibility only when the query's estimated matching row count is below `paradedb.visibility_threshold`. |
+| Mode            | Behavior                                                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'transaction'` | Check transaction visibility. Aggregate results match vanilla Postgres. This is the default.                                                       |
+| `'raw'`         | Skip the checks and aggregate raw index data. Faster, and approximate whenever the index still holds entries for rows your transaction cannot see. |
+| `'threshold'`   | Check transaction visibility only when the query's estimated matching row count is below `paradedb.visibility_threshold`.                          |
 
 If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by skipping these visibility checks.
 To do so, set `visibility` to `'raw'`.
@@ -336,11 +379,16 @@ SET paradedb.visibility_threshold = 50000;
 The estimate is made for the query as a whole, so a bucketed aggregation such as `GROUP BY` or `terms` resolves to one decision for every bucket. A query matching a million rows across fifty thousand buckets aggregates every bucket from raw index data, including the low-cardinality ones.
 
 <Note>
-If a single query contains multiple `pdb.agg` calls, all of them must use the same `visibility` setting. Omitting the argument selects `'transaction'`, so an omitted argument alongside an explicit `'raw'` is a conflict, not a default.
+  If a single query contains multiple `pdb.agg` calls, all of them must use the
+  same `visibility` setting. Omitting the argument selects `'transaction'`, so
+  an omitted argument alongside an explicit `'raw'` is a conflict, not a
+  default.
 </Note>
 
 <Note>
-The `solve_mvcc` argument is deprecated in favor of `visibility`. Passing a boolean is still accepted, where `true` means `'transaction'` and `false` means `'raw'`.
+  The `solve_mvcc` argument is deprecated in favor of `visibility`. Passing a
+  boolean is still accepted, where `true` means `'transaction'` and `false`
+  means `'raw'`.
 </Note>
 
 ## JSON Fields

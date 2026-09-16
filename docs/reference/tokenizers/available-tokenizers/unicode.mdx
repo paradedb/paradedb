@@ -8,7 +8,7 @@ The `unicode_words` tokenizer splits text according to word boundaries defined b
 rules. All characters are [lowercased](/reference/token-filters/lowercase) by default.
 
 This tokenizer is the default text tokenizer. If no tokenizer is specified for a text field, the `unicode_words` tokenizer will be used
-(unless the text field is the [key field](/guides/choosing-a-key-field), in which case the text is not tokenized).
+(unless the text field is the [key field](/reference/indexing/create-index#choosing-a-key-field), in which case the text is not tokenized).
 
 ```sql
 -- The following two configurations are equivalent

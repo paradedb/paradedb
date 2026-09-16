@@ -1,17 +1,37 @@
 ---
-title: How Vector Search Works
-description: Understand how ParadeDB natively supports vector types
+title: Vector / Semantic Search
+description: Reference pages for indexing, querying, and tuning vector and semantic search
 canonical: https://www.paradedb.com/docs/reference/vector/overview
 ---
 
 <Note>This is a beta feature available in versions `0.25.0` and above.</Note>
 
-Today, most Postgres users rely on the [pgvector](https://github.com/pgvector/pgvector) extension for similarity (i.e. vector) search. pgvector works well for many use cases, but has a few limitations:
+Use these pages when you need the exact SQL shape for vector search in
+ParadeDB. For the mental model, see [How Vector Search Works](/concepts/vector/overview).
 
-- **Filtering Performance:** Its indexes are separate from the ParadeDB index, so performance suffers when composing vector search with text search and other filters.
-- **Memory Constraints:** Index build times balloon when the entire index does not fit in memory, preventing pgvector from scaling to large datasets.
-- **Index Quality Under Updates:** Indexes can degrade over time under update-heavy workloads.
-
-The ParadeDB index supports pgvector's `vector` type and is designed to solve these limitations. Vectors are indexed with a SPANN-style index, the state-of-the-art approach for billion-scale vector search.
-
-Because vectors live in the same index as text and filters, vector search can also be combined with [text search](/concepts/full-text/overview) into a single ranking. See [Hybrid Search](/reference/hybrid/overview).
+<CardGroup cols={2}>
+  <Card
+    title="Indexing Vectors"
+    icon="database"
+    href="/reference/indexing/indexing-vectors"
+  >
+    Add pgvector `vector` columns to a ParadeDB index.
+  </Card>
+  <Card
+    title="Querying Vectors"
+    icon="chart-scatter"
+    href="/reference/vector/querying"
+  >
+    Run nearest-neighbor queries with filters and deterministic ordering.
+  </Card>
+  <Card
+    title="Tuning Recall and Latency"
+    icon="ruler"
+    href="/reference/vector/tuning"
+  >
+    Adjust vector search parameters for larger datasets.
+  </Card>
+  <Card title="Hybrid Search" icon="shuffle" href="/reference/hybrid/overview">
+    Combine vector and full-text rankings.
+  </Card>
+</CardGroup>

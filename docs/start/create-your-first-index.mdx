@@ -146,7 +146,8 @@ await dbContext.Database.ExecuteSqlRawAsync("""
 The first indexed column, `id`, is also the `key_field`. ParadeDB uses the key
 field as the row's stable identifier inside the index. In your own schema, use a
 primary key or another column with a `UNIQUE` constraint. See [Choosing a Key
-Field](/guides/choosing-a-key-field) for the full rules.
+Field](/reference/indexing/create-index#choosing-a-key-field) for the full
+rules.
 
 Everything after `id` is a field you can search, filter, sort, group, or
 aggregate. The `description` column is indexed for full-text search, `embedding`

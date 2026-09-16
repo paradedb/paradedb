@@ -11,46 +11,54 @@ canonical: https://www.paradedb.com/docs/operate/deploy/enterprise
   case-by-case basis.
 </Note>
 
-ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
+ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise. Both
+editions expose the same search APIs. The Enterprise boundary is deployment and
+licensing: Enterprise adds commercial licensing, support, and physical
+replication for ParadeDB indexes.
 
 [ParadeDB Community](https://github.com/paradedb/paradedb) is our open source product, licensed under [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html).
 This license permits free use, modification, and distribution of the software, provided that distributed, derivative works of the software are released under the same license
 (copyleft provision).
 
+ParadeDB Community supports single-node deployments. Use ParadeDB Enterprise
+when the ParadeDB index itself needs to be physically replicated for high
+availability, failover, or read replicas that can serve ParadeDB queries.
+
 In addition to all of the features of ParadeDB Community, ParadeDB Enterprise:
 
 1. Waives the copyleft provision of AGPL-3.0
-2. Contains several closed-source features that are recommended for ParadeDB to service enterprise, production workloads
+2. Supports physical replication of ParadeDB indexes across Postgres instances
+3. Enables high availability, failover, and read replicas for ParadeDB queries
+4. Includes commercial support
 
 For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
 
 ## Feature Comparison
 
-|                                      | ParadeDB Community | ParadeDB Enterprise |
-| ------------------------------------ | ------------------ | ------------------- |
-| **Index Configuration**              |                    |
-| Support for most Postgres types      | ✅                 | ✅                  |
-| Custom tokenizers and filters        | ✅                 | ✅                  |
-| Multiple tokenizers per field        | ✅                 | ✅                  |
-| **Search**                           |                    |
-| Full text search with BM25           | ✅                 | ✅                  |
-| Vector search                        | ✅                 | ✅                  |
-| Hybrid search                        | ✅                 | ✅                  |
-| Top K                                | ✅                 | ✅                  |
-| Filtering                            | ✅                 | ✅                  |
-| Aggregates and facets                | ✅                 | ✅                  |
-| **Concurrency and Consistency**      |                    |
-| Postgres MVCC-safe<sup>1</sup>       | ✅                 | ✅                  |
-| Concurrent, non-blocking writes      | ✅                 | ✅                  |
-| Block storage integration            | ✅                 | ✅                  |
-| Buffer cache integration<sup>2</sup> | ✅                 | ✅                  |
-| **Deployment** <sup>3</sup>          |                    |
-| Maximum cluster size <sup>4</sup>    | 1                  | Unlimited           |
-| Crash Recovery                       | ✅                 | ✅                  |
-| Point in Time Recovery               | ✅                 | ✅                  |
-| Logical Replication                  | ✅                 | ✅                  |
-| High Availability Support            | ❌                 | ✅                  |
-| Read Replica Support                 | ❌                 | ✅                  |
+|                                           | ParadeDB Community | ParadeDB Enterprise |
+| ----------------------------------------- | ------------------ | ------------------- |
+| **Index Configuration**                   |                    |
+| Support for most Postgres types           | ✅                 | ✅                  |
+| Custom tokenizers and filters             | ✅                 | ✅                  |
+| Multiple tokenizers per field             | ✅                 | ✅                  |
+| **Search**                                |                    |
+| Full-text search with BM25                | ✅                 | ✅                  |
+| Vector search                             | ✅                 | ✅                  |
+| Hybrid search                             | ✅                 | ✅                  |
+| Top K                                     | ✅                 | ✅                  |
+| Filtering                                 | ✅                 | ✅                  |
+| Aggregates and facets                     | ✅                 | ✅                  |
+| **Concurrency and Consistency**           |                    |
+| Postgres MVCC-safe<sup>1</sup>            | ✅                 | ✅                  |
+| Concurrent, non-blocking writes           | ✅                 | ✅                  |
+| Block storage integration                 | ✅                 | ✅                  |
+| Buffer cache integration<sup>2</sup>      | ✅                 | ✅                  |
+| **Deployment** <sup>3</sup>               |                    |
+| Maximum ParadeDB index nodes <sup>4</sup> | 1                  | Unlimited           |
+| Crash Recovery                            | ✅                 | ✅                  |
+| Point in Time Recovery                    | ✅                 | ✅                  |
+| High Availability for ParadeDB indexes    | ❌                 | ✅                  |
+| Read replicas for ParadeDB queries        | ❌                 | ✅                  |
 
 <Info>
 **Footnotes**
@@ -63,9 +71,12 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
   2. The ParadeDB index is built on block storage, Postgres' native storage API.
   This means that it leverages the Postgres buffer cache, which minimizes disk
   I/O.
-  3. All listed deployment features and limitations are specific to the ParadeDB index. For instance,
-  ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
-  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are only available on the primary, as
-  the Community edition does not support physical replication.
+  3. Deployment features and limitations are specific to the ParadeDB index.
+  ParadeDB Community can still use standard Postgres replication, crash recovery,
+  and point-in-time recovery for heap tables and other Postgres indexes like
+  B-tree indexes.
+  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are
+  only available on the primary because Community does not physically replicate
+  the ParadeDB index.
 </p>
 </Info>

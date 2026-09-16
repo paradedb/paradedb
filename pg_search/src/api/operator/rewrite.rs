@@ -89,25 +89,6 @@ impl SearchOperator {
     pub(super) fn classify_query(self, query: pdb::Query) -> pdb::Query {
         let (query, score) = match query {
             pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
-            pdb::Query::UnclassifiedArray {
-                array,
-                fuzzy_data,
-                slop_data,
-            } if matches!(self, Self::Conjunction | Self::Disjunction) => {
-                // Bare match arrays use fuzzy term-set conversion before setting conjunction mode.
-                let mut query = term_set_str(array);
-                query.apply_fuzzy_data(fuzzy_data);
-                query.apply_slop_data(slop_data);
-                assert!(matches!(query, pdb::Query::MatchArray { .. }));
-                let pdb::Query::MatchArray {
-                    conjunction_mode, ..
-                } = &mut query
-                else {
-                    unreachable!()
-                };
-                *conjunction_mode = Some(self == Self::Conjunction);
-                return query;
-            }
             query => (query, None),
         };
         let (mut query, fuzzy_data, slop_data) = match query {

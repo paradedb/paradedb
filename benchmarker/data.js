@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789501306273,
+  "lastUpdate": 1789561479984,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4153,6 +4153,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.156,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f1c7374c1173900b767bdaa7f609fcd28bf7820",
+          "message": "fix: use PostgreSQL projection for DataFusion aggregates (#6172)\n\n# Ticket(s) Closed\n\n- Closes #6168\n\n## What\n\nFix DataFusion `AggregateScan` projection for aggregate wrappers and\ncomposite output expressions.\n\nDataFusion now supports:\n\n- wrapped aggregates, such as `COUNT(*) * 2`, casts, `COALESCE`, and\nstring expressions;\n- multiple aggregates in one output expression;\n- mixed aggregate and grouping expressions;\n- functionally dependent output columns PostgreSQL permits beside\ngrouped keys;\n- structurally distinct aggregates in `HAVING`, including `FILTER`\nvariants;\n- nested `pdb.agg()` expressions when any request requires DataFusion.\n\n## Why\n\nDataFusion previously wrote aggregate results directly into the final\noutput slot. PostgreSQL therefore never evaluated the original target\nlist, which produced wrong results for wrappers and could use an\naggregate Datum as the wrong type.\n\nUsing placeholder `Const`s for DataFusion would not be a safe fit: they\ndo not naturally represent multiple aggregates, grouping values used by\nwrappers, or PostgreSQL's target-list and slot-lifetime contract.\n\n## How\n\nDataFusion now exposes a flat raw tuple through `custom_scan_tlist`:\n\n```text\n[group expressions..., deduplicated Aggrefs..., predicate resjunk Vars...]\n```\n\n- PostgreSQL `setrefs` rewrites the original target list against those\nraw values.\n- DataFusion fills the scan slot with raw group and aggregate results.\n- PostgreSQL evaluates the original target list through its normal\n`ExecProject` path.\n- `HAVING` matches aggregates structurally, preserving `FILTER`,\n`DISTINCT`, and aggregate `ORDER BY` identity.\n- Arrow-to-Postgres conversions run in per-tuple memory, reset once per\nemitted row.\n\n## Tests\n\nAdded or updated DataFusion aggregate coverage for:\n\n- aggregate wrappers, casts, NULL handling, and `COALESCE`;\n- multiple aggregates and aggregate/group-expression combinations;\n- filtered aggregates in `HAVING`;\n- functionally dependent output columns;\n- DISTINCT output ordering;\n- nested numeric and non-numeric `pdb.agg()` routing;\n- fallback diagnostics for unsupported GROUP BY and DISTINCT\nexpressions.\n\n## User-visible changes\n\n- `EXPLAIN VERBOSE` for DataFusion aggregate plans now shows real\naggregate expressions instead of `pdb.agg_fn(...)` placeholders.\n- Unsupported `DISTINCT` expressions now identify the offending\none-based column, replacing the old zero-based `target index N` suffix.\n- Unsupported `GROUP BY` expressions now identify the offending\none-based grouping item.\n\n## Non-goal\n\nThis PR does not redesign Tantivy aggregate projection. Tantivy retains\nits separate wrapped-projection contract; any Tantivy-specific\nprojection work should be handled independently.",
+          "timestamp": "2026-09-16T17:33:09+05:30",
+          "tree_id": "a60d96be537e9dc8725baebf660394e5571c99a3",
+          "url": "https://github.com/paradedb/paradedb/commit/7f1c7374c1173900b767bdaa7f609fcd28bf7820"
+        },
+        "date": 1789561472985,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6618339757555283,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.008,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.095,
             "unit": "ms"
           }
         ]

@@ -631,6 +631,94 @@ mod tests {
         assert!(matches!(p3, SearchQueryInput::FieldedQuery { .. }));
     }
 
+    // #6104: the split points a partitioned build stores are in the index's stored
+    // form -- a numeric(10,2) bound arrives as the scaled I64 (123 for 1.23) -- so
+    // the partition query must take them as given. A `Query::Range` would convert
+    // them the way it converts user input: scaling a `Numeric64` bound a second
+    // time moves the executed cut past the segments the partition prunes to and
+    // silently drops the rows the middle partitions hold.
+    #[pg_test]
+    fn test_range_partitioning_bounds_stay_in_stored_form() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::query::SearchQueryInput;
+        use crate::query::pdb_query::pdb::Query;
+        use crate::scan::range_partitioning::RangeSplitPoints;
+
+        let split_points = RangeSplitPoints {
+            partition_by: FieldName::from("amount"),
+            points: vec![PdbOwnedValue::I64(123), PdbOwnedValue::I64(456)],
+        };
+
+        let build = split_points.build(3);
+
+        // partition 0: (-∞, 123), upper excluded; the NULL_PARTITION Boolean wraps the
+        // range with the NOT-Exists rule that routes NULLs here
+        let p0 = build.partition_bounds(0);
+        let SearchQueryInput::Boolean { should, .. } = &p0 else {
+            panic!("expected the null-partition Boolean, got {p0:?}");
+        };
+        let [range_query, null_query] = should.as_slice() else {
+            panic!("expected [range, not-exists] as the partition's shoulds, got {should:?}");
+        };
+        assert!(matches!(null_query, SearchQueryInput::Boolean { .. }));
+        let SearchQueryInput::FieldedQuery { field, query } = range_query else {
+            panic!("expected a fielded partition query, got {range_query:?}");
+        };
+        assert_eq!(field.as_ref(), "amount");
+        let Query::StoredRange {
+            lower_bound,
+            upper_bound,
+        } = query
+        else {
+            panic!("expected the partition query to take its bounds as stored, got {query:?}");
+        };
+        assert_eq!(*lower_bound, std::ops::Bound::Unbounded);
+        assert_eq!(
+            *upper_bound,
+            std::ops::Bound::Excluded(PdbOwnedValue::I64(123))
+        );
+
+        // partition 1: [123, 456)
+        let p1 = build.partition_bounds(1);
+        let SearchQueryInput::FieldedQuery { query, .. } = &p1 else {
+            panic!("expected a fielded partition query, got {p1:?}");
+        };
+        let Query::StoredRange {
+            lower_bound,
+            upper_bound,
+        } = query
+        else {
+            panic!("expected the partition query to take its bounds as stored, got {query:?}");
+        };
+        assert_eq!(
+            *lower_bound,
+            std::ops::Bound::Included(PdbOwnedValue::I64(123))
+        );
+        assert_eq!(
+            *upper_bound,
+            std::ops::Bound::Excluded(PdbOwnedValue::I64(456))
+        );
+
+        // partition 2: [456, ∞)
+        let p2 = build.partition_bounds(2);
+        let SearchQueryInput::FieldedQuery { query, .. } = &p2 else {
+            panic!("expected a fielded partition query, got {p2:?}");
+        };
+        let Query::StoredRange {
+            lower_bound,
+            upper_bound,
+        } = query
+        else {
+            panic!("expected the partition query to take its bounds as stored, got {query:?}");
+        };
+        assert_eq!(
+            *lower_bound,
+            std::ops::Bound::Included(PdbOwnedValue::I64(456))
+        );
+        assert_eq!(*upper_bound, std::ops::Bound::Unbounded);
+    }
+
     #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioning_repartition() {

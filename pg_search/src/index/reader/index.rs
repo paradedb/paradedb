@@ -470,7 +470,8 @@ pub(crate) mod test_support {
     ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
         let mut sql = format!(
             "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
-             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
+             CREATE INDEX {name}_idx ON {name}
+             USING paradedb (id, (title::pdb.unicode_words('columnar=true')))
              WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
@@ -2456,6 +2457,13 @@ mod tests {
     #[pg_test]
     fn analyzed_text_terms_fail_open_for_segment_pruning() {
         let (index_rel, _heap) = segmented_index_fixture("analyzed_text_pruning_test", 2, false);
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let title = probe.schema().search_field("title").unwrap();
+        let snapshot = probe.segment_stats_snapshot();
+        assert!(
+            (0..snapshot.len()).all(|idx| snapshot.empirical(idx, &title).is_some()),
+            "the test must exercise the analyzed-text guard with available whole-value statistics"
+        );
         let queries = [
             term_query("title", "silver"),
             SearchQueryInput::FieldedQuery {

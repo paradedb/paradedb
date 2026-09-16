@@ -993,12 +993,16 @@ unsafe fn cheaper_path(a: *mut pg_sys::Path, b: *mut pg_sys::Path) -> bool {
     pg_sys::compare_path_costs(a, b, pg_sys::CostSelector::TOTAL_COST) < 0
 }
 
+/// Wrapper nodes above a scan/join rel, such as Sort, Gather or Projection,
+/// nest a handful deep; a bound this loose only guards against a malformed
+/// self-referencing wrapper.
+const MAX_PATH_WRAPPER_DEPTH: usize = 64;
+
 unsafe fn descend_to_scan_join_rel(
     all_baserels: *mut pg_sys::Bitmapset,
     mut path: *mut pg_sys::Path,
 ) -> Option<*mut pg_sys::Path> {
-    // Bounded so a malformed self-referencing wrapper cannot spin forever.
-    for _ in 0..64 {
+    for _ in 0..MAX_PATH_WRAPPER_DEPTH {
         if path.is_null() {
             return None;
         }

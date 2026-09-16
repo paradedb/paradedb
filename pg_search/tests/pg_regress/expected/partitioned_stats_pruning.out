@@ -94,7 +94,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: sp_users_idx (u), sp_posts_idx (p)
    Aggregates: COUNT(*)
@@ -181,7 +181,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: sp_users_idx (u), sp_posts_idx (p)
    Aggregates: COUNT(*)
@@ -244,7 +244,7 @@ WHERE u.id @@@ pdb.all() AND v.kind @@@ 'up';
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: sp_users_idx (u), sp_votes_idx (v)
    Aggregates: COUNT(*)
@@ -286,7 +286,7 @@ WHERE a.kind @@@ 'up' AND b.kind @@@ 'down';
                                                                                                            QUERY PLAN                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: sp_votes_idx (a), sp_votes_idx (b)
    Aggregates: COUNT(*)
@@ -334,7 +334,7 @@ WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
                                                                                                                      QUERY PLAN                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: sp_users_idx (u), sp_posts_idx (p)
    Aggregates: COUNT(*)

@@ -24,6 +24,7 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use super::join_targetlist::ExtractedDataFusionTarget;
 use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::expr_contains_search_predicate;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -1158,7 +1159,7 @@ impl PathPredicateDeclineReason {
 /// correctly applied as post-join filters, so the DataFusion path declines.
 fn analyze_join_path_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
-    input_rel: &pg_sys::RelOptInfo,
+    path: *mut pg_sys::Path,
     sources: &[JoinAggSource],
 ) -> PathRestrictInfo {
     let mut info = PathRestrictInfo {
@@ -1174,7 +1175,6 @@ fn analyze_join_path_restrictinfo(
     {
         collect_on_clause_nodes(unsafe { (*(*root).parse).jointree.cast() }, &mut on_clauses);
     }
-    let path = input_rel.cheapest_total_path;
     if !path.is_null() {
         let cx = PathWalkContext {
             root,
@@ -1404,12 +1404,16 @@ fn walk_path_restrictinfo(
 
 /// Validate that the selected lower path has complete, supported
 /// join-predicate coverage.
+///
+/// `path` must still be owned by a live pathlist. Upper-rel `add_path` calls
+/// pfree the paths they dominate, so a lower rel's `cheapest_total_path` is
+/// not a safe handle once later planner stages have run.
 pub fn check_join_path_predicates(
     root: *mut pg_sys::PlannerInfo,
-    input_rel: &pg_sys::RelOptInfo,
+    path: *mut pg_sys::Path,
     sources: &[JoinAggSource],
 ) -> JoinPathPredicateCheck {
-    let info = analyze_join_path_restrictinfo(root, input_rel, sources);
+    let info = analyze_join_path_restrictinfo(root, path, sources);
     match info.coverage {
         PathPredicateCoverage::Incomplete(tag) => JoinPathPredicateCheck::IncompletePath(tag),
         PathPredicateCoverage::Complete if let Some(reason) = info.decline_reason => {
@@ -1425,7 +1429,8 @@ pub fn check_join_path_predicates(
 /// source tables via `plan_position`.
 pub enum FilterExprBuildContext<'a> {
     Having {
-        targetlist: &'a super::join_targetlist::JoinAggregateTargetList,
+        /// Planner-only; HAVING aggregates are matched by whole-`Aggref` equality.
+        extracted_target: &'a ExtractedDataFusionTarget,
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     },
@@ -1486,52 +1491,15 @@ impl FilterExpr {
                 // translated expression can reference `agg_{idx}` columns at
                 // exec time.
                 //
-                // We can't do pointer comparison because havingQual has its
-                // own copy of the Aggref node. Instead we match by function
-                // OID + aggstar, and for non-star aggregates also match on
-                // the (rti, attno) of the first argument. For COUNT(*) that's
-                // enough; for column aggregates the (rti, attno) check
-                // disambiguates cases like COUNT(a) vs COUNT(b).
-                let FilterExprBuildContext::Having { targetlist, .. } = ctx else {
+                // `havingQual` holds its own copy of the Aggref, so match by
+                // `equal`, which covers FILTER, DISTINCT, and aggregate ORDER BY.
+                let FilterExprBuildContext::Having {
+                    extracted_target, ..
+                } = ctx
+                else {
                     return None;
                 };
-                let aggref = unsafe { &*(node as *mut pg_sys::Aggref) };
-                for (idx, agg) in targetlist.aggregates.iter().enumerate() {
-                    if aggref.aggfnoid.to_u32() == agg.func_oid
-                        && (aggref.aggstar
-                            == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
-                    {
-                        if aggref.aggstar {
-                            return Some(Self::AggRef(idx));
-                        }
-                        // Non-star: confirm the argument column matches.
-                        // Compare by `plan_position` rather than rti so the
-                        // match is robust to rti aliasing across sub-
-                        // PlannerInfos. `plan_position` is the canonical
-                        // identity; targetlist refs don't carry rti.
-                        if !agg.field_refs.is_empty() {
-                            let args =
-                                unsafe { PgList::<pg_sys::TargetEntry>::from_pg(aggref.args) };
-                            if let Some(first_arg) = args.get_ptr(0)
-                                && let Some(var) =
-                                    unsafe { (*first_arg).expr.find_single_node::<pg_sys::Var>() }
-                            {
-                                let var = unsafe { &*var };
-                                let rti = var.varno as pg_sys::Index;
-                                let attno = var.varattno;
-                                if let Some(r) = agg.field_refs.first() {
-                                    let var_pp = ctx.resolve_var(rti, attno);
-                                    if var_pp == Some(r.plan_position) && attno == r.attno {
-                                        return Some(Self::AggRef(idx));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // HAVING referenced an aggregate we didn't extract - bail out
-                // of the DataFusion path and let Postgres handle it natively.
-                None
+                unsafe { extracted_target.aggregate_index(node) }.map(Self::AggRef)
             }
             pg_sys::NodeTag::T_Var => {
                 // A plain column reference. HAVING can only reference group
@@ -1555,7 +1523,10 @@ impl FilterExpr {
                             field_name,
                         })
                     }
-                    FilterExprBuildContext::Having { targetlist, .. } => targetlist
+                    FilterExprBuildContext::Having {
+                        extracted_target, ..
+                    } => extracted_target
+                        .targetlist()
                         .group_columns
                         .iter()
                         .find(|gc| gc.plan_position == pp && gc.attno == attno)

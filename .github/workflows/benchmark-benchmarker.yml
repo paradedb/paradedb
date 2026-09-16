@@ -143,6 +143,9 @@ jobs:
 
       - name: Build benchmarker (k6 + loader)
         working-directory: benchmarker
+        env:
+          # xk6@latest can require a newer Go version than benchmarker's go.mod.
+          GOTOOLCHAIN: auto
         run: make
 
       - name: Pull ${{ env.DATASET }} dataset (public S3, anonymous)
@@ -251,8 +254,7 @@ jobs:
 
       - name: Publish Latency (mean + percentiles)
         continue-on-error: true # Don't let a publish hiccup block the dashboards/comment below.
-        # paradedb fork: shallow-clones only the gh-pages branch on publish.
-        uses: paradedb/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "benchmarker hn-ci (latency)"
           ref: ${{ steps.determine-ref.outputs.ref }}

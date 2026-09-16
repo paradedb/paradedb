@@ -330,7 +330,7 @@ ORDER BY p.category;
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       PgSearchScan: table=s, segments=1, eager=[supplier_name], dynamic_filters=1, visibility=eager, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
@@ -410,8 +410,8 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata -> 'brand'::text))
@@ -422,12 +422,13 @@ ORDER BY 1;
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(15 rows)
+           :   TantivyDecodeExec: decode=[metadata.brand]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, fetch=[metadata.brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT p.metadata -> 'brand'
 FROM ec_products p
@@ -474,8 +475,8 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata ->> 'brand'::text))
@@ -487,7 +488,7 @@ ORDER BY brand_text;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=p, segments=2, eager=[metadata.brand], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (12 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json

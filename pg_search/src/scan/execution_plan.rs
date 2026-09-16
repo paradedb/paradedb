@@ -512,6 +512,12 @@ impl PgSearchScanPlan {
         !self.deferred_fields.is_empty()
     }
 
+    /// The planner's row estimate for this scan, whole-plan and never divided among the
+    /// partitions the way `partition_statistics` divides it.
+    pub fn planner_estimated_rows(&self) -> u64 {
+        self.planner_estimated_rows
+    }
+
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
     }

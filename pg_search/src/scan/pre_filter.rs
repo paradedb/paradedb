@@ -352,12 +352,15 @@ pub(crate) fn dynamic_filter_generation(dynamic: &DynamicFilterPhysicalExpr) -> 
     )
 }
 
-/// One DataFusion filter source whose updates are guaranteed to tighten during a single execution.
+/// One DataFusion filter source whose updates are assumed to only tighten during a single
+/// execution. A skipped segment is never reopened, so a producer that loosens its predicate after
+/// a skip would lose rows silently.
 ///
-/// The producers currently admitted by `PgSearchScan` are Top-K thresholds, min/max aggregate
-/// bounds, and hash-join filters published after their build information becomes authoritative.
-/// DataFusion's generic `DynamicFilterPhysicalExpr` API does not encode this property, so all
-/// downcasts are centralized here: adding another producer requires auditing this contract first.
+/// DataFusion's `DynamicFilterPhysicalExpr` API does not encode this property and nothing here
+/// can check it, so every source is admitted through this one downcast. Audited against
+/// DataFusion 55: Top-K thresholds only rise, min/max aggregate bounds move through
+/// `scalar_max`/`scalar_min`, and a hash join publishes its build-side filter once after the
+/// partition barrier. Re-audit the producers on every DataFusion upgrade.
 struct MonotonicDynamicFilterSource {
     expr: Arc<DynamicFilterPhysicalExpr>,
     /// The generation whose proofs are folded into the pruner's set; `None` before the first

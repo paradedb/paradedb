@@ -304,7 +304,7 @@ impl MultiSegmentSearchResults {
         assert!(
             Arc::ptr_eq(&rejected, &self.runtime_rejected)
                 || rejected.is_superset(&self.runtime_rejected),
-            "execution-time segment rejection requires a monotonic dynamic-filter source"
+            "execution-time segment rejections accumulate within one scan"
         );
         self.runtime_rejected = rejected;
     }

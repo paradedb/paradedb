@@ -1384,9 +1384,9 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
         // Multiple sources may push dynamic filters (Top K from SortExec, min/max aggregate
-        // bounds, and join-key bounds from HashJoinExec). These producers tighten monotonically
-        // during one execution; segment rejection relies on that contract and deliberately fails
-        // loudly if a future producer loosens a filter after rows could already have been skipped.
+        // bounds, and join-key bounds from HashJoinExec). Segment rejection assumes every
+        // producer only tightens during one execution; that assumption is not checked at runtime
+        // and is admitted in one place, `MonotonicDynamicFilterSource`.
         //
         // The pushdown pass can potentially run more than once. Producers assume
         // pushed-down filters remain installed between passes and may not re-push

@@ -32,7 +32,7 @@ struct CapturedSegment {
     stats: OnceLock<StatsRead<SegmentStats>>,
 }
 
-/// Statistics captured from exactly one Searcher/manifest view.
+/// Lazily opened statistics tied to one frozen searcher.
 pub(crate) struct SegmentStatsSnapshot {
     /// The segment readers stay with the searcher; each captured segment holds only its id and
     /// its statistics cache, so capture never clones a reader.

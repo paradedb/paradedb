@@ -1,0 +1,82 @@
+-- JoinScan plans at UPPERREL_FINAL, after the ORDER BY upper rel has run
+-- add_path over paths it shares with the join rel. The parallel settings and
+-- the three-column sort are what make PostgreSQL free one of those shared
+-- paths here, so the join rel's cheapest_total_path must not be walked.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers TO 8;
+SET max_parallel_workers_per_gather TO 4;
+SET paradedb.min_rows_per_worker TO 10;
+SET parallel_leader_participation TO off;
+-- debug_parallel_query is spelled force_parallel_mode before PostgreSQL 16.
+DO $$
+BEGIN
+    PERFORM set_config('debug_parallel_query', 'on', false);
+EXCEPTION WHEN undefined_object THEN
+    PERFORM set_config('force_parallel_mode', 'on', false);
+END
+$$;
+
+CREATE TABLE users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+
+CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
+    text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
+    sort_by = 'age DESC NULLS LAST',
+    target_segment_count = 2
+);
+
+INSERT INTO users (uuid, name, color, age, quantity)
+SELECT md5(i::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 7 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+INSERT INTO products (uuid, name, color, age, quantity)
+SELECT md5((i * 3)::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 11 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+INSERT INTO orders (uuid, name, color, age, quantity)
+SELECT md5((i * 3)::text)::uuid,
+       (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
+       (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
+       i * 13 % 100 + 1,
+       CASE WHEN i % 10 = 0 THEN NULL ELSE i END
+FROM generate_series(1, 11) i;
+
+CREATE INDEX idxusers_uuid ON users (uuid);
+CREATE INDEX idxproducts_uuid ON products (uuid);
+CREATE INDEX idxorders_uuid ON orders (uuid);
+ANALYZE users;
+ANALYZE products;
+ANALYZE orders;
+
+-- The plan embeds the index OID in the heap-filter call, so only the rows
+-- are checked; planning alone is what used to bring the backend down.
+SELECT users.id, users.name
+FROM users
+LEFT JOIN products ON users.id = products.id
+JOIN orders ON products.uuid = orders.uuid
+WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
+ORDER BY users.id, products.id, orders.id;
+
+DROP TABLE users, products, orders;

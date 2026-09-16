@@ -1,0 +1,37 @@
+---
+title: Vector / Semantic Search
+description: Reference pages for indexing, querying, and tuning vector and semantic search
+canonical: https://www.paradedb.com/docs/reference/vector/overview
+---
+
+<Note>This is a beta feature available in versions `0.25.0` and above.</Note>
+
+Use these pages when you need the exact SQL shape for vector search in
+ParadeDB. For the mental model, see [How Vector Search Works](/concepts/vector/overview).
+
+<CardGroup cols={2}>
+  <Card
+    title="Indexing Vectors"
+    icon="database"
+    href="/reference/indexing/indexing-vectors"
+  >
+    Add pgvector `vector` columns to a ParadeDB index.
+  </Card>
+  <Card
+    title="Querying Vectors"
+    icon="chart-scatter"
+    href="/reference/vector/querying"
+  >
+    Run nearest-neighbor queries with filters and deterministic ordering.
+  </Card>
+  <Card
+    title="Tuning Recall and Latency"
+    icon="ruler"
+    href="/reference/vector/tuning"
+  >
+    Adjust vector search parameters for larger datasets.
+  </Card>
+  <Card title="Hybrid Search" icon="shuffle" href="/reference/hybrid/overview">
+    Combine vector and full-text rankings.
+  </Card>
+</CardGroup>

@@ -16,54 +16,54 @@ EXCEPTION WHEN undefined_object THEN
     PERFORM set_config('force_parallel_mode', 'on', false);
 END
 $$;
-CREATE TABLE users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
-CREATE TABLE products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
-CREATE TABLE orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
-CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE TABLE jflp_users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE jflp_products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE jflp_orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE INDEX jflp_users_idx ON jflp_users USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_products_idx ON jflp_products USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_orders_idx ON jflp_orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-INSERT INTO users (uuid, name, color, age, quantity)
+INSERT INTO jflp_users (uuid, name, color, age, quantity)
 SELECT md5(i::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
        i * 7 % 100 + 1,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
-INSERT INTO products (uuid, name, color, age, quantity)
+INSERT INTO jflp_products (uuid, name, color, age, quantity)
 SELECT md5((i * 3)::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
        i * 11 % 100 + 1,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
-INSERT INTO orders (uuid, name, color, age, quantity)
+INSERT INTO jflp_orders (uuid, name, color, age, quantity)
 SELECT md5((i * 3)::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
        i * 13 % 100 + 1,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
-CREATE INDEX idxusers_uuid ON users (uuid);
-CREATE INDEX idxproducts_uuid ON products (uuid);
-CREATE INDEX idxorders_uuid ON orders (uuid);
-ANALYZE users;
-ANALYZE products;
-ANALYZE orders;
+CREATE INDEX jflp_users_uuid_idx ON jflp_users (uuid);
+CREATE INDEX jflp_products_uuid_idx ON jflp_products (uuid);
+CREATE INDEX jflp_orders_uuid_idx ON jflp_orders (uuid);
+ANALYZE jflp_users;
+ANALYZE jflp_products;
+ANALYZE jflp_orders;
 -- The heap-filter call in the plan embeds the index OID, which changes on
 -- every database creation; mask it so the plan is stable.
 CREATE FUNCTION explain_live_path(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
@@ -76,49 +76,49 @@ BEGIN
 END;
 $$;
 SELECT explain_live_path($$
-SELECT users.id, users.name
-FROM users
-LEFT JOIN products ON users.id = products.id
-JOIN orders ON products.uuid = orders.uuid
-WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
-ORDER BY users.id, products.id, orders.id
+SELECT jflp_users.id, jflp_users.name
+FROM jflp_users
+LEFT JOIN jflp_products ON jflp_users.id = jflp_products.id
+JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
+WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
+ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id
 $$);
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: orders, products, users)
-                                                                                                                                                                                                                                                                           explain_live_path                                                                                                                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: jflp_orders, jflp_products, jflp_users)
+                                                                                                                                                                                                                                                                                                  explain_live_path                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Incremental Sort
-   Output: users.id, users.name, products.id, orders.id
-   Sort Key: users.id, orders.id
-   Presorted Key: users.id
+   Output: jflp_users.id, jflp_users.name, jflp_products.id, jflp_orders.id
+   Sort Key: jflp_users.id, jflp_orders.id
+   Presorted Key: jflp_users.id
    ->  Nested Loop
-         Output: users.id, users.name, products.id, orders.id
-         Join Filter: (users.id = products.id)
-         ->  Index Scan using users_pkey on public.users
-               Output: users.id, users.uuid, users.name, users.color, users.age, users.quantity
+         Output: jflp_users.id, jflp_users.name, jflp_products.id, jflp_orders.id
+         Join Filter: (jflp_users.id = jflp_products.id)
+         ->  Index Scan using jflp_users_pkey on public.jflp_users
+               Output: jflp_users.id, jflp_users.uuid, jflp_users.name, jflp_users.color, jflp_users.age, jflp_users.quantity
          ->  Materialize
-               Output: products.id, orders.id
+               Output: jflp_products.id, jflp_orders.id
                ->  Gather
-                     Output: products.id, orders.id
+                     Output: jflp_products.id, jflp_orders.id
                      Workers Planned: 1
                      ->  Parallel Hash Join
-                           Output: products.id, orders.id
-                           Hash Cond: (products.uuid = orders.uuid)
-                           Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(orders.id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, orders.ctid, CASE WHEN (paradedb.ctid_is_valid(orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] WHEN (paradedb.xmin_is_visible(orders.xmin, orders.tableoid, orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] ELSE '{}'::record[] END, ROW()) OR (products.color IS NOT NULL))
-                           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.products
-                                 Output: products.id, products.uuid, products.color
-                                 Table: products
-                                 Index: idxproducts
+                           Output: jflp_products.id, jflp_orders.id
+                           Hash Cond: (jflp_products.uuid = jflp_orders.uuid)
+                           Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(jflp_orders.id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, jflp_orders.ctid, CASE WHEN (paradedb.ctid_is_valid(jflp_orders.ctid) IS NOT TRUE) THEN (ARRAY[jflp_orders.*])::record[] WHEN (paradedb.xmin_is_visible(jflp_orders.xmin, jflp_orders.tableoid, jflp_orders.ctid) IS NOT TRUE) THEN (ARRAY[jflp_orders.*])::record[] ELSE '{}'::record[] END, ROW()) OR (jflp_products.color IS NOT NULL))
+                           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jflp_products
+                                 Output: jflp_products.id, jflp_products.uuid, jflp_products.color
+                                 Table: jflp_products
+                                 Index: jflp_products_idx
                                  Worker Selection: Row-capped
                                  Exec Method: NormalScanExecState
                                  Scores: false
                                  Full Index Scan: true
                                  Tantivy Query: {"boolean":{"should":["all",{"exists":{"field":"color"}}]}}
                            ->  Parallel Hash
-                                 Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
-                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on public.orders
-                                       Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
-                                       Table: orders
-                                       Index: idxorders
+                                 Output: jflp_orders.id, jflp_orders.uuid, jflp_orders.ctid, jflp_orders.*, jflp_orders.xmin, jflp_orders.tableoid
+                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on public.jflp_orders
+                                       Output: jflp_orders.id, jflp_orders.uuid, jflp_orders.ctid, jflp_orders.*, jflp_orders.xmin, jflp_orders.tableoid
+                                       Table: jflp_orders
+                                       Index: jflp_orders_idx
                                        Worker Selection: Row-capped
                                        Exec Method: NormalScanExecState
                                        Scores: false
@@ -126,13 +126,13 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: or
                                        Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}},"all"]}}
 (38 rows)
 
-SELECT users.id, users.name
-FROM users
-LEFT JOIN products ON users.id = products.id
-JOIN orders ON products.uuid = orders.uuid
-WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
-ORDER BY users.id, products.id, orders.id;
-WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: orders, products, users)
+SELECT jflp_users.id, jflp_users.name
+FROM jflp_users
+LEFT JOIN jflp_products ON jflp_users.id = jflp_products.id
+JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
+WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
+ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: jflp_orders, jflp_products, jflp_users)
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id |  name   
@@ -150,4 +150,4 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 (10 rows)
 
 DROP FUNCTION explain_live_path(text);
-DROP TABLE users, products, orders;
+DROP TABLE jflp_users, jflp_products, jflp_orders;

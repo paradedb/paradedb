@@ -1,0 +1,98 @@
+---
+title: Operator Reference
+description: ParadeDB operators and their SQL function equivalents
+canonical: https://www.paradedb.com/docs/reference/operators-and-functions
+---
+
+This page is the compact map of ParadeDB's SQL search surface. Use operators for common field predicates, and use `@@@` with a `pdb.*` query builder when the query needs explicit options, parser syntax, or a query object.
+
+For example, these two queries express the same match-disjunction search:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description ||| 'running shoes';
+
+SELECT id, description
+FROM mock_items
+WHERE description @@@ pdb.match_disjunction('running shoes');
+```
+
+## Search Operators
+
+| Operator | Typical use                      | Function equivalent                          | Detailed reference                                                                 |
+| -------- | -------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `@@@`    | General ParadeDB predicate       | `pdb.parse(...)`, `pdb.all()`, or builder    | [Query Parser](/reference/full-text/query-parser), [All](/reference/full-text/all) |
+| `\|\|\|` | Tokenized text match, any token  | `pdb.match_disjunction(...)`                 | [Match Disjunction](/reference/full-text/match#match-disjunction)                  |
+| `&&&`    | Tokenized text match, all tokens | `pdb.match_conjunction(...)`                 | [Match Conjunction](/reference/full-text/match#match-conjunction)                  |
+| `===`    | Exact token match or token set   | `pdb.term(...)`, `pdb.term_set(...)`         | [Term](/reference/full-text/term)                                                  |
+| `###`    | Phrase match                     | `pdb.phrase(...)` or `pdb.phrase_array(...)` | [Phrase](/reference/full-text/phrase)                                              |
+| `##`     | Proximity clause, any order      | `pdb.proximity(...)`                         | [Proximity](/reference/full-text/proximity)                                        |
+| `##>`    | Proximity clause, ordered        | `pdb.proximity_in_order(...)`                | [Proximity](/reference/full-text/proximity)                                        |
+
+`##` and `##>` build proximity clauses and are normally wrapped by `@@@`:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description @@@ ('sleek' ## 1 ## 'shoes');
+```
+
+## Vector Operators
+
+Vector search uses `pgvector` distance operators in `ORDER BY ... LIMIT` queries. ParadeDB can accelerate these when the vector column is in the ParadeDB index and the query also contains a ParadeDB predicate such as `id @@@ pdb.all()`.
+
+| Operator | Distance      | ParadeDB vector operator class |
+| -------- | ------------- | ------------------------------ |
+| `<->`    | L2            | `vector_l2_ops`                |
+| `<=>`    | Cosine        | `vector_cosine_ops`            |
+| `<#>`    | Inner product | `vector_ip_ops`                |
+
+See [Querying Vectors](/reference/vector/querying) for examples and [Tuning Recall and Latency](/reference/vector/tuning) for recall controls.
+
+## Operator Inputs
+
+| Operator    | Right-hand side inputs                                         | Notes                                                                             |
+| ----------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `@@@`       | `text`, `pdb.query`, `pdb.proximityclause`, `searchqueryinput` | `text` is parsed with ParadeDB's query parser. Query builders return `pdb.query`. |
+| `\|\|\|`    | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | `text` is tokenized with the indexed field's tokenizer.                           |
+| `&&&`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | Same tokenization as match disjunction, but all query tokens must match.          |
+| `===`       | `text`, `text[]`, `pdb.query`, `pdb.fuzzy`, `pdb.boost`        | `text` is treated as a finalized token; `text[]` becomes a term set.              |
+| `###`       | `text`, `text[]`, `pdb.query`, `pdb.slop`, `pdb.boost`         | Matches ordered adjacent tokens unless slop is supplied.                          |
+| `##`, `##>` | proximity clauses, text, or text arrays                        | Text and `text[]` are implicitly converted into proximity clauses.                |
+
+## Function Modifiers
+
+Some operator inputs are modifier types rather than standalone predicates:
+
+| Modifier      | Used with                     | Reference                                                       |
+| ------------- | ----------------------------- | --------------------------------------------------------------- |
+| `::pdb.fuzzy` | match, term                   | [Fuzzy](/reference/full-text/fuzzy)                             |
+| `::pdb.boost` | match, term, phrase, builders | [Relevance Tuning](/reference/full-text/boost)                  |
+| `::pdb.const` | `@@@` and query builders      | [Relevance Tuning](/reference/full-text/boost#constant-scoring) |
+| `::pdb.slop`  | `###`                         | [Phrase](/reference/full-text/phrase#adding-slop)               |
+
+## Choosing Operators or Functions
+
+Use the symbolic operators for short, field-local predicates:
+
+```sql
+WHERE description &&& 'running shoes'
+WHERE category === 'footwear'
+```
+
+Use `@@@` with a `pdb.*` function when the query is not just one simple operator:
+
+```sql
+WHERE id @@@ pdb.parse('description:(running shoes) AND rating:>3')
+WHERE description @@@ pdb.regex('key.*')
+WHERE id @@@ pdb.all()
+```
+
+Use ordinary Postgres predicates for scalar filters. ParadeDB can push many of these predicates into the index when the filtered columns are indexed:
+
+```sql
+WHERE description ||| 'shoes' AND rating >= 4 AND in_stock IS TRUE
+```
+
+See [Filtering](/reference/filtering/overview) for supported filter pushdown behavior.

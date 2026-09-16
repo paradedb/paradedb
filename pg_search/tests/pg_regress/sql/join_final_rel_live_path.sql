@@ -18,44 +18,44 @@ EXCEPTION WHEN undefined_object THEN
 END
 $$;
 
-CREATE TABLE users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
-CREATE TABLE products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
-CREATE TABLE orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE jflp_users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE jflp_products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
+CREATE TABLE jflp_orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
 
-CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_users_idx ON jflp_users USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxproducts ON products USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_products_idx ON jflp_products USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_orders_idx ON jflp_orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
 
-INSERT INTO users (uuid, name, color, age, quantity)
+INSERT INTO jflp_users (uuid, name, color, age, quantity)
 SELECT md5(i::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
        i * 7 % 100 + 1,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
-INSERT INTO products (uuid, name, color, age, quantity)
+INSERT INTO jflp_products (uuid, name, color, age, quantity)
 SELECT md5((i * 3)::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
        i * 11 % 100 + 1,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
-INSERT INTO orders (uuid, name, color, age, quantity)
+INSERT INTO jflp_orders (uuid, name, color, age, quantity)
 SELECT md5((i * 3)::text)::uuid,
        (ARRAY['alice','bob','cloe','sally','brandy','brisket','anchovy'])[i % 7 + 1],
        (ARRAY['red','green','blue','orange','purple','pink','yellow',NULL])[i % 8 + 1],
@@ -63,12 +63,12 @@ SELECT md5((i * 3)::text)::uuid,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
 
-CREATE INDEX idxusers_uuid ON users (uuid);
-CREATE INDEX idxproducts_uuid ON products (uuid);
-CREATE INDEX idxorders_uuid ON orders (uuid);
-ANALYZE users;
-ANALYZE products;
-ANALYZE orders;
+CREATE INDEX jflp_users_uuid_idx ON jflp_users (uuid);
+CREATE INDEX jflp_products_uuid_idx ON jflp_products (uuid);
+CREATE INDEX jflp_orders_uuid_idx ON jflp_orders (uuid);
+ANALYZE jflp_users;
+ANALYZE jflp_products;
+ANALYZE jflp_orders;
 
 -- The heap-filter call in the plan embeds the index OID, which changes on
 -- every database creation; mask it so the plan is stable.
@@ -83,20 +83,20 @@ END;
 $$;
 
 SELECT explain_live_path($$
-SELECT users.id, users.name
-FROM users
-LEFT JOIN products ON users.id = products.id
-JOIN orders ON products.uuid = orders.uuid
-WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
-ORDER BY users.id, products.id, orders.id
+SELECT jflp_users.id, jflp_users.name
+FROM jflp_users
+LEFT JOIN jflp_products ON jflp_users.id = jflp_products.id
+JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
+WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
+ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id
 $$);
 
-SELECT users.id, users.name
-FROM users
-LEFT JOIN products ON users.id = products.id
-JOIN orders ON products.uuid = orders.uuid
-WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
-ORDER BY users.id, products.id, orders.id;
+SELECT jflp_users.id, jflp_users.name
+FROM jflp_users
+LEFT JOIN jflp_products ON jflp_users.id = jflp_products.id
+JOIN jflp_orders ON jflp_products.uuid = jflp_orders.uuid
+WHERE (jflp_orders.id @@@ '4') OR (jflp_products.color IS NOT NULL)
+ORDER BY jflp_users.id, jflp_products.id, jflp_orders.id;
 
 DROP FUNCTION explain_live_path(text);
-DROP TABLE users, products, orders;
+DROP TABLE jflp_users, jflp_products, jflp_orders;

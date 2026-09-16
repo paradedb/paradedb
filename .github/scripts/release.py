@@ -475,13 +475,7 @@ def update_version_snippet(repo_root, clean_ver):
     """Update exported version variable in docs/snippets/version.mdx."""
     snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
     snippet_file.parent.mkdir(parents=True, exist_ok=True)
-    content = dedent(
-        f"""\
-        // This snippet exports the latest released version of ParadeDB for the documentation site.
-        // Do not edit manually: this file is updated automatically by release.py upon release.
-        export const version = "{clean_ver}";
-        """
-    )
+    content = f'export const version = "{clean_ver}";\n'
     with open(snippet_file, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Updated {snippet_file} with version '{clean_ver}'")

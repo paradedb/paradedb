@@ -1,0 +1,28 @@
+---
+title: 0.15.21
+description: "ParadeDB release notes for 0.15.21"
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed an issue where Top K queries would return inconsistent results
+- Various fixes to correctness issues in JOINs
+
+## Performance Improvements 🚀
+
+- Optimized fast field execution methods and query cost estimations, which has significantly improved certain types of JOINs
+- Introduced a new `paradedb.aggregate` function, intended as an escape hatch for fast aggregate
+  execution over single tables
+
+## New Features 🎉
+
+- Introduced a token filter for stop words
+
+## New Contributors 👋
+
+- [blaginin](https://github.com/blaginin) made their first contribution in [#2577](https://github.com/paradedb/paradedb/pull/2577)
+
+## Full Changelog
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.15.21).

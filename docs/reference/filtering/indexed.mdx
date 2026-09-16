@@ -1,0 +1,311 @@
+---
+title: Indexed Columns
+description: Push filters into the ParadeDB index scan
+canonical: https://www.paradedb.com/docs/reference/filtering/indexed
+---
+
+Indexed columns are columns or expressions included in the ParadeDB index.
+For filters over built-in scalar types and literal text columns, this is the most efficient path because the filter can be pushed directly into the ParadeDB scan.
+For filters backed by another database index, see [External Indexes](/reference/filtering/external-indexes).
+
+Adding filters to a search query is as simple as using regular SQL `WHERE` clauses.
+For instance, the following query filters out results that do not meet `rating > 2`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2;
+```
+
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  );
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny('running shoes')),
+    rating__gt=2
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .match_any("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+<Note>
+In order for the ParadeDB index to be used, at least one ParadeDB operator must be present in the query. Any of the following search operators qualify:
+
+| Operator | Meaning                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------- |
+| `@@@`    | [General search condition](/concepts/full-text/overview)                                      |
+| `\|\|\|` | [Match disjunction](/reference/full-text/match#match-disjunction) — contains any of the terms |
+| `&&&`    | [Match conjunction](/reference/full-text/match#match-conjunction) — contains all of the terms |
+| `===`    | [Term](/reference/full-text/term) — exact token match                                         |
+| `###`    | [Phrase](/reference/full-text/phrase) — tokens in order and position                          |
+
+For queries that do not require text search, add [`pdb.all`](/reference/full-text/all) to force the ParadeDB
+index without changing the query output.
+
+</Note>
+
+## Filter Pushdown
+
+### Non-Text Columns
+
+While not required, filtering performance over non-text columns can be improved by including them in the ParadeDB index.
+When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself.
+This can result in faster query execution over large datasets.
+
+For example, if `rating` and `created_at` are frequently used in filters, they can be added to the ParadeDB index during index creation:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, rating, created_at)
+WITH (key_field = 'id');
+```
+
+Filter pushdown is currently supported for the following combinations of types and operators:
+
+| Operator                                   | Left Operand Type | Right Operand Type | Example                    |
+| ------------------------------------------ | ----------------- | ------------------ | -------------------------- |
+| `=`, `<`, `>`, `<=`, `>=`, `<>`, `BETWEEN` | `int2`            | `int2`             | `WHERE rating = 2`         |
+|                                            | `int4`            | `int4`             |
+|                                            | `int8`            | `int8`             |
+|                                            | `int2`            | `int4`             |
+|                                            | `int2`            | `int8`             |
+|                                            | `int4`            | `int8`             |
+|                                            | `float4`          | `float4`           |
+|                                            | `float8`          | `float8`           |
+|                                            | `float4`          | `float8`           |
+|                                            | `numeric`         | `numeric`          | `WHERE price = 99.99`      |
+|                                            | `date`            | `date`             |
+|                                            | `time`            | `time`             |
+|                                            | `timetz`          | `timetz`           |
+|                                            | `timestamp`       | `timestamp`        |
+|                                            | `timestamptz`     | `timestamptz`      |
+|                                            | `uuid`            | `uuid`             |
+| `=`                                        | `bool`            | `bool`             | `WHERE in_stock = true`    |
+| `IN`, `ANY`, `ALL`                         | `bool`            | `bool[]`           | `WHERE rating IN (1,2,3)`  |
+|                                            | `int2`            | `int2[]`           |
+|                                            | `int4`            | `int4[]`           |
+|                                            | `int8`            | `int8[]`           |
+|                                            | `int2`            | `int4[]`           |
+|                                            | `int2`            | `int8[]`           |
+|                                            | `int4`            | `int8[]`           |
+|                                            | `float4`          | `float4[]`         |
+|                                            | `float8`          | `float8[]`         |
+|                                            | `float4`          | `float8[]`         |
+|                                            | `date`            | `date[]`           |
+|                                            | `timetz`          | `timetz[]`         |
+|                                            | `timestamp`       | `timestamp[]`      |
+|                                            | `timestamptz`     | `timestamptz[]`    |
+|                                            | `uuid`            | `uuid[]`           |
+| `IS`, `IS NOT`                             | `bool`            | `bool`             | `WHERE in_stock IS true`   |
+| `IS NULL`, `IS NOT NULL`                   | `bool`            |                    | `WHERE rating IS NOT NULL` |
+|                                            | `int2`            |                    |
+|                                            | `int4`            |                    |
+|                                            | `int8`            |                    |
+|                                            | `float4`          |                    |
+|                                            | `float8`          |                    |
+|                                            | `numeric`         |                    |
+|                                            | `date`            |                    |
+|                                            | `time`            |                    |
+|                                            | `timetz`          |                    |
+|                                            | `timestamp`       |                    |
+|                                            | `timestamptz`     |                    |
+|                                            | `uuid`            |                    |
+
+### Text Columns
+
+Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'shoes' AND category = 'Footwear';
+```
+
+```ts Drizzle
+import { and, eq } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      eq(mockItems.category, "Footwear"),
+    ),
+  );
+```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    description=ParadeDB(Term('shoes')),
+    category='Footwear'
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "shoes"), MockItem.category == "Footwear")
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: "Footwear")
+        .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, "shoes") && item.Category == "Footwear"
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/reference/tokenizers/available-tokenizers/literal) tokenizer:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, (category::pdb.literal))
+WITH (key_field = 'id');
+```
+
+Pushdown of set filters over text columns also requires the literal tokenizer:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'shoes' AND category IN ('Footwear', 'Apparel');
+```
+
+```ts Drizzle
+import { and, inArray } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      inArray(mockItems.category, ["Footwear", "Apparel"]),
+    ),
+  );
+```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    description=ParadeDB(Term('shoes')),
+    category__in=['Footwear', 'Apparel']
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "shoes"), MockItem.category.in_(["Footwear", "Apparel"]))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: ["Footwear", "Apparel"])
+        .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, "shoes")
+        && new[] { "Footwear", "Apparel" }.Contains(item.Category)
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
+</CodeGroup>

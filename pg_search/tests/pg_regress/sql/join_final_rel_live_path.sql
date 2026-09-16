@@ -70,8 +70,27 @@ ANALYZE users;
 ANALYZE products;
 ANALYZE orders;
 
--- The plan embeds the index OID in the heap-filter call, so only the rows
--- are checked; planning alone is what used to bring the backend down.
+-- The heap-filter call in the plan embeds the index OID, which changes on
+-- every database creation; mask it so the plan is stable.
+CREATE FUNCTION explain_live_path(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
+    END LOOP;
+END;
+$$;
+
+SELECT explain_live_path($$
+SELECT users.id, users.name
+FROM users
+LEFT JOIN products ON users.id = products.id
+JOIN orders ON products.uuid = orders.uuid
+WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
+ORDER BY users.id, products.id, orders.id
+$$);
+
 SELECT users.id, users.name
 FROM users
 LEFT JOIN products ON users.id = products.id
@@ -79,4 +98,5 @@ JOIN orders ON products.uuid = orders.uuid
 WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
 ORDER BY users.id, products.id, orders.id;
 
+DROP FUNCTION explain_live_path(text);
 DROP TABLE users, products, orders;

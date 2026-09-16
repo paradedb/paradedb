@@ -64,8 +64,68 @@ CREATE INDEX idxorders_uuid ON orders (uuid);
 ANALYZE users;
 ANALYZE products;
 ANALYZE orders;
--- The plan embeds the index OID in the heap-filter call, so only the rows
--- are checked; planning alone is what used to bring the backend down.
+-- The heap-filter call in the plan embeds the index OID, which changes on
+-- every database creation; mask it so the plan is stable.
+CREATE FUNCTION explain_live_path(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) ' || query LOOP
+        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
+    END LOOP;
+END;
+$$;
+SELECT explain_live_path($$
+SELECT users.id, users.name
+FROM users
+LEFT JOIN products ON users.id = products.id
+JOIN orders ON products.uuid = orders.uuid
+WHERE (orders.id @@@ '4') OR (products.color IS NOT NULL)
+ORDER BY users.id, products.id, orders.id
+$$);
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: orders, products, users)
+                                                                                                                                                                                                                                                                           explain_live_path                                                                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: users.id, users.name, products.id, orders.id
+   Sort Key: users.id, orders.id
+   Presorted Key: users.id
+   ->  Nested Loop
+         Output: users.id, users.name, products.id, orders.id
+         Join Filter: (users.id = products.id)
+         ->  Index Scan using users_pkey on public.users
+               Output: users.id, users.uuid, users.name, users.color, users.age, users.quantity
+         ->  Materialize
+               Output: products.id, orders.id
+               ->  Gather
+                     Output: products.id, orders.id
+                     Workers Planned: 1
+                     ->  Parallel Hash Join
+                           Output: products.id, orders.id
+                           Hash Cond: (products.uuid = orders.uuid)
+                           Join Filter: (paradedb.search_with_query_input_ctid_or_row_strict(orders.id, '{"with_index":{"oid":N,"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput, orders.ctid, CASE WHEN (paradedb.ctid_is_valid(orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] WHEN (paradedb.xmin_is_visible(orders.xmin, orders.tableoid, orders.ctid) IS NOT TRUE) THEN (ARRAY[orders.*])::record[] ELSE '{}'::record[] END, ROW()) OR (products.color IS NOT NULL))
+                           ->  Parallel Custom Scan (ParadeDB Base Scan) on public.products
+                                 Output: products.id, products.uuid, products.color
+                                 Table: products
+                                 Index: idxproducts
+                                 Worker Selection: Row-capped
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Full Index Scan: true
+                                 Tantivy Query: {"boolean":{"should":["all",{"exists":{"field":"color"}}]}}
+                           ->  Parallel Hash
+                                 Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
+                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on public.orders
+                                       Output: orders.id, orders.uuid, orders.ctid, orders.*, orders.xmin, orders.tableoid
+                                       Table: orders
+                                       Index: idxorders
+                                       Worker Selection: Row-capped
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Full Index Scan: true
+                                       Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"4","lenient":null,"conjunction_mode":null}}}},"all"]}}
+(38 rows)
+
 SELECT users.id, users.name
 FROM users
 LEFT JOIN products ON users.id = products.id
@@ -89,4 +149,5 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
  11 | brandy
 (10 rows)
 
+DROP FUNCTION explain_live_path(text);
 DROP TABLE users, products, orders;

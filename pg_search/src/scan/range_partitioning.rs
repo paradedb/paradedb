@@ -45,12 +45,24 @@ pub struct RangePartitioning {
     pub split_points: Vec<PdbOwnedValue>,
 }
 
-/// The rows one partition holds: a half-open value range, and whether the NULLs are among them.
+/// The rows one partition holds. Derived from the partition index in one place, so the range
+/// query and segment pruning cannot disagree about them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartitionRange {
-    pub lower: Bound<PdbOwnedValue>,
-    pub upper: Bound<PdbOwnedValue>,
-    pub includes_nulls: bool,
+    values: Option<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>)>,
+    includes_nulls: bool,
+}
+
+impl PartitionRange {
+    /// The half-open value range, or `None` when a NULL split point closes the partition so no
+    /// value belongs to it.
+    pub fn values(&self) -> Option<(&Bound<PdbOwnedValue>, &Bound<PdbOwnedValue>)> {
+        self.values.as_ref().map(|(lower, upper)| (lower, upper))
+    }
+
+    pub fn includes_nulls(&self) -> bool {
+        self.includes_nulls
+    }
 }
 
 impl RangePartitioning {
@@ -67,75 +79,41 @@ impl RangePartitioning {
     ///   [`Self::NULL_PARTITION`].
     /// - A multi-valued field can fall into multiple partition ranges and duplicate the row. This is statically prevented during index configuration for `partition_by` columns.
     pub fn partition_bounds(&self, partition: usize) -> SearchQueryInput {
-        if self.split_points.is_empty() {
+        let Some(range) = self.partition_range(partition) else {
             return SearchQueryInput::All;
-        }
-
-        let lower = if partition > 0 {
-            let val = &self.split_points[partition - 1];
-            if matches!(val, PdbOwnedValue::Null) {
-                std::ops::Bound::Unbounded
-            } else {
-                std::ops::Bound::Included(val.clone())
-            }
-        } else {
-            std::ops::Bound::Unbounded
         };
-
-        let mut is_empty_range = false;
-        let upper = if partition < self.split_points.len() {
-            let val = &self.split_points[partition];
-            if matches!(val, PdbOwnedValue::Null) {
-                is_empty_range = true;
-                std::ops::Bound::Unbounded
-            } else {
-                std::ops::Bound::Excluded(val.clone())
-            }
-        } else {
-            std::ops::Bound::Unbounded
-        };
-
-        let range_query = if is_empty_range {
-            SearchQueryInput::Empty
-        } else {
-            SearchQueryInput::FieldedQuery {
+        let range_query = range
+            .values()
+            .map(|(lower, upper)| SearchQueryInput::FieldedQuery {
                 field: self.partition_by.clone(),
                 query: Query::Range {
-                    lower_bound: lower,
-                    upper_bound: upper,
+                    lower_bound: lower.clone(),
+                    upper_bound: upper.clone(),
                 },
-            }
-        };
-
-        if partition == Self::NULL_PARTITION {
-            let null_query = SearchQueryInput::Boolean {
+            });
+        let null_query = range.includes_nulls().then(|| SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: self.partition_by.clone(),
+                query: Query::Exists,
+            }],
+            minimum_should_match: None,
+        });
+        match (range_query, null_query) {
+            (Some(range_query), Some(null_query)) => SearchQueryInput::Boolean {
                 must: vec![],
-                should: vec![],
-                must_not: vec![SearchQueryInput::FieldedQuery {
-                    field: self.partition_by.clone(),
-                    query: Query::Exists,
-                }],
+                should: vec![range_query, null_query],
+                must_not: vec![],
                 minimum_should_match: None,
-            };
-
-            if is_empty_range {
-                null_query
-            } else {
-                SearchQueryInput::Boolean {
-                    must: vec![],
-                    should: vec![range_query, null_query],
-                    must_not: vec![],
-                    minimum_should_match: None,
-                }
-            }
-        } else {
-            range_query
+            },
+            (Some(query), None) | (None, Some(query)) => query,
+            (None, None) => SearchQueryInput::Empty,
         }
     }
 
-    /// The rows of `partition`, or `None` when the partition is not a range: no split points
-    /// at all (every row), or a NULL upper split (no row). The same rows
-    /// [`Self::partition_bounds`] selects.
+    /// The rows of `partition`, or `None` without split points, when every row belongs to the
+    /// single partition. [`Self::partition_bounds`] queries exactly these rows.
     pub fn partition_range(&self, partition: usize) -> Option<PartitionRange> {
         if self.split_points.is_empty() {
             return None;
@@ -147,14 +125,13 @@ impl RangePartitioning {
             None | Some(PdbOwnedValue::Null) => Bound::Unbounded,
             Some(val) => Bound::Included(val.clone()),
         };
-        let upper = match self.split_points.get(partition) {
-            Some(PdbOwnedValue::Null) => return None,
-            Some(val) => Bound::Excluded(val.clone()),
-            None => Bound::Unbounded,
+        let values = match self.split_points.get(partition) {
+            Some(PdbOwnedValue::Null) => None,
+            Some(val) => Some((lower, Bound::Excluded(val.clone()))),
+            None => Some((lower, Bound::Unbounded)),
         };
         Some(PartitionRange {
-            lower,
-            upper,
+            values,
             includes_nulls: partition == Self::NULL_PARTITION,
         })
     }

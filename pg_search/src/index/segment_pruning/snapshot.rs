@@ -270,6 +270,9 @@ impl SegmentStatsSnapshot {
         field: &SearchField,
         range: &PartitionRange,
     ) -> bool {
+        let Some((lower, upper)) = range.values() else {
+            return range.includes_nulls();
+        };
         let segment_id = self.segments[ord].id;
         let stats = match self.stats(ord) {
             StatsRead::Known(stats) => stats,
@@ -285,17 +288,17 @@ impl SegmentStatsSnapshot {
             StatsRead::Absent => None,
             StatsRead::Unknown => return true,
         };
-        let (lower, upper) = (&range.lower, &range.upper);
         match (logical, empirical) {
             (None, None) => true,
             (Some(bounds), None) => {
-                (range.includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
+                (range.includes_nulls() && bounds.may_hold_nulls())
+                    || bounds.intersects(lower, upper)
             }
             (None, Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
+                (range.includes_nulls() && empirical.nullable) || empirical.intersects(lower, upper)
             }
             (Some(bounds), Some(empirical)) => {
-                (range.includes_nulls && empirical.nullable)
+                (range.includes_nulls() && empirical.nullable)
                     || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
             }
         }

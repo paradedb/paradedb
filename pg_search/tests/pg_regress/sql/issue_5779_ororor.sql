@@ -31,6 +31,14 @@ WHERE (title_x ||| 'quick fox'::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
+-- A bare array cast carries no fuzzy data. It must build an exact match array
+-- on the const fold path rather than trip the MatchArray assertion.
+SELECT id, title_x
+FROM issue_5779_ororor_repro
+WHERE (title_x ||| ARRAY['quick', 'brown']::pdb.fuzzy)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
 -- Case 1: plan_cache_mode = auto. Postgres uses custom plans for the first 5
 -- executions and may switch to a generic plan on the 6th. The reproducer must
 -- not error on execution 6.

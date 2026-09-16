@@ -10,11 +10,12 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::index::mvcc::MVCCDirectory;
-use crate::index::stats::{EmpiricalStats, SegmentStats};
+use crate::index::stats::{EmpiricalStats, LogicalBounds, SegmentStats};
 use crate::postgres::types::is_datetime_type;
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::{SearchField, SearchFieldType};
-use tantivy::index::{Segment, SegmentId};
+use tantivy::Searcher;
+use tantivy::index::{Segment, SegmentId, SegmentReader};
 
 /// Absence describes missing statistics, never missing field values. Unknown means a read or
 /// conversion failed; it must not be used as evidence for pruning.
@@ -28,9 +29,10 @@ enum StatsRead<T> {
 #[derive(Debug)]
 struct CapturedSegment {
     segment: Segment,
-    has_stats_component: bool,
-    /// Opened on first use. Most readers never consult statistics, and opening `.stats` costs
-    /// buffer reads per segment, so a reader open must not pay for it. Failed opens are cached too.
+    /// Seeded `Absent` when the manifest declares no `.stats`, so a mutable segment is never
+    /// asked to open a component. Otherwise opened on first use: most readers never consult
+    /// statistics, and opening `.stats` costs buffer reads per segment, so a reader open must
+    /// not pay for it. Failed opens are cached too.
     stats: OnceLock<StatsRead<SegmentStats>>,
 }
 
@@ -40,74 +42,26 @@ impl CapturedSegment {
     }
 
     fn stats(&self) -> &StatsRead<SegmentStats> {
-        self.stats
-            .get_or_init(|| capture_stats(&self.segment, self.has_stats_component))
-    }
-
-    fn read_empirical(&self, field: &SearchField) -> StatsRead<EmpiricalStats> {
-        let stats = match self.stats() {
-            StatsRead::Known(stats) => stats,
-            StatsRead::Absent => return StatsRead::Absent,
-            StatsRead::Unknown => return StatsRead::Unknown,
-        };
-        let value = stats.empirical(field.field());
-        #[cfg(any(test, feature = "pg_test"))]
-        let value = test_support::maybe_fail(
-            self.id(),
-            test_support::InjectedStatsFailure::Empirical,
-            value,
-        );
-        let value = match value {
-            Ok(Some(value)) => value,
-            Ok(None) => return StatsRead::Absent,
-            Err(error) => {
-                pgrx::debug1!(
-                    "segment pruning could not read field {:?} from .stats for {:?}: {error}",
-                    field.field(),
-                    self.id()
-                );
-                return StatsRead::Unknown;
-            }
-        };
-        if matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
-            match value.into_dates() {
-                Some(value) => StatsRead::Known(value),
-                None => StatsRead::Unknown,
-            }
-        } else {
-            StatsRead::Known(value)
-        }
+        self.stats.get_or_init(|| capture_stats(&self.segment))
     }
 
     /// Logical bounds describe where the build routed rows; empirical bounds describe what
     /// the segment contains. Both must overlap when available. An unreadable entry keeps the
     /// segment, whereas an absent entry still permits the other kind of bounds to prune it.
     fn may_intersect_partition(&self, field: &SearchField, range: &PartitionRange) -> bool {
-        let empirical = match self.read_empirical(field) {
+        let stats = match self.stats() {
+            StatsRead::Known(stats) => stats,
+            StatsRead::Absent | StatsRead::Unknown => return true,
+        };
+        let empirical = match read_empirical(stats, self.id(), field) {
             StatsRead::Known(value) => Some(value),
             StatsRead::Absent => None,
             StatsRead::Unknown => return true,
         };
-        let StatsRead::Known(stats) = self.stats() else {
-            return true;
-        };
-        let logical = stats.logical(field.field());
-        #[cfg(any(test, feature = "pg_test"))]
-        let logical = test_support::maybe_fail(
-            self.id(),
-            test_support::InjectedStatsFailure::Logical,
-            logical,
-        );
-        let logical = match logical {
-            Ok(value) => value,
-            Err(error) => {
-                pgrx::debug1!(
-                    "segment partitioning could not read logical field {:?} from .stats for {:?}: {error}",
-                    field.field(),
-                    self.id()
-                );
-                return true;
-            }
+        let logical = match read_logical(stats, self.id(), field) {
+            StatsRead::Known(value) => Some(value),
+            StatsRead::Absent => None,
+            StatsRead::Unknown => return true,
         };
         let (lower, upper) = (&range.lower, &range.upper);
         match (logical, empirical) {
@@ -176,9 +130,11 @@ pub(crate) mod test_support {
 
     impl Drop for InjectedStatsFailureGuard {
         fn drop(&mut self) {
+            // Never panic here: this runs during a failing test's unwind, and a poisoned lock
+            // would otherwise turn an assertion failure into a backend abort.
             FAILURES
                 .lock()
-                .expect("injected statistics failure lock poisoned")
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&self.segment_id);
         }
     }
@@ -221,10 +177,7 @@ pub(crate) mod test_support {
     }
 }
 
-fn capture_stats(segment: &Segment, has_stats_component: bool) -> StatsRead<SegmentStats> {
-    if !has_stats_component {
-        return StatsRead::Absent;
-    }
+fn capture_stats(segment: &Segment) -> StatsRead<SegmentStats> {
     #[cfg(any(test, feature = "pg_test"))]
     test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let opened = SegmentStats::of_segment(segment);
@@ -247,18 +200,98 @@ fn capture_stats(segment: &Segment, has_stats_component: bool) -> StatsRead<Segm
     }
 }
 
+fn read_empirical(
+    stats: &SegmentStats,
+    segment_id: SegmentId,
+    field: &SearchField,
+) -> StatsRead<EmpiricalStats> {
+    let value = stats.empirical(field.field());
+    #[cfg(any(test, feature = "pg_test"))]
+    let value = test_support::maybe_fail(
+        segment_id,
+        test_support::InjectedStatsFailure::Empirical,
+        value,
+    );
+    let value = match value {
+        Ok(Some(value)) => value,
+        Ok(None) => return StatsRead::Absent,
+        Err(error) => {
+            pgrx::debug1!(
+                "segment pruning could not read field {:?} from .stats for {segment_id:?}: {error}",
+                field.field()
+            );
+            return StatsRead::Unknown;
+        }
+    };
+    if matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+        match value.into_dates() {
+            Some(value) => StatsRead::Known(value),
+            None => {
+                pgrx::debug1!(
+                    "segment pruning could not lift field {:?} statistics to dates for {segment_id:?}",
+                    field.field()
+                );
+                StatsRead::Unknown
+            }
+        }
+    } else {
+        StatsRead::Known(value)
+    }
+}
+
+fn read_logical(
+    stats: &SegmentStats,
+    segment_id: SegmentId,
+    field: &SearchField,
+) -> StatsRead<LogicalBounds> {
+    let value = stats.logical(field.field());
+    #[cfg(any(test, feature = "pg_test"))]
+    let value = test_support::maybe_fail(
+        segment_id,
+        test_support::InjectedStatsFailure::Logical,
+        value,
+    );
+    match value {
+        Ok(Some(value)) => StatsRead::Known(value),
+        Ok(None) => StatsRead::Absent,
+        Err(error) => {
+            pgrx::debug1!(
+                "segment partitioning could not read logical field {:?} from .stats for {segment_id:?}: {error}",
+                field.field()
+            );
+            StatsRead::Unknown
+        }
+    }
+}
+
 impl SegmentStatsSnapshot {
-    /// Capture lightweight segment handles belonging to `directory`. Manifest metadata decides
-    /// whether `.stats` may be opened later, because opening any component path on a mutable
-    /// segment would first materialize that entire segment even though mutable segments cannot
-    /// have a persisted statistics component.
-    pub(crate) fn capture_segments(directory: &MVCCDirectory, segments: &[Segment]) -> Arc<Self> {
+    /// Capture lightweight segment handles for exactly the manifest `searcher` was built on.
+    /// Manifest metadata decides whether `.stats` may be opened later, because opening any
+    /// component path on a mutable segment would first materialize that entire segment even
+    /// though mutable segments cannot have a persisted statistics component.
+    pub(crate) fn capture(
+        directory: &MVCCDirectory,
+        segments: Vec<Segment>,
+        searcher: &Searcher,
+    ) -> Arc<Self> {
+        debug_assert_eq!(
+            segments.iter().map(Segment::id).collect::<Vec<_>>(),
+            searcher
+                .segment_readers()
+                .iter()
+                .map(SegmentReader::segment_id)
+                .collect::<Vec<_>>(),
+            "snapshot and searcher must name the same frozen manifest",
+        );
         let captured = segments
-            .iter()
+            .into_iter()
             .map(|segment| CapturedSegment {
-                segment: segment.clone(),
-                has_stats_component: directory.has_stats_component(&segment.id()),
-                stats: OnceLock::new(),
+                stats: if directory.has_stats_component(&segment.id()) {
+                    OnceLock::new()
+                } else {
+                    OnceLock::from(StatsRead::Absent)
+                },
+                segment,
             })
             .collect::<Box<[_]>>();
         Arc::new(Self { segments: captured })

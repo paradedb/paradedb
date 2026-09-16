@@ -53,7 +53,7 @@ use tantivy::collector::sort_key::{
     SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
-use tantivy::index::{Index, Order, Segment, SegmentId};
+use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::ProbeStats;
@@ -488,10 +488,10 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
-    /// Lightweight handles for the exact visible segment generation. Statistics are read
-    /// through these handles, never through `SegmentReader`, so consulting them does not require
-    /// opening a segment's searchable components.
-    segments: Vec<Segment>,
+    /// Statistics of exactly the segment set `searcher` sees, read through lightweight segment
+    /// handles rather than `SegmentReader`s so consulting them never opens searchable
+    /// components. Built once per open, so readers sharing a manifest share one lazy cache.
+    segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     reader: IndexReader,
     searcher: Searcher,
     total_segment_count: usize,
@@ -522,27 +522,21 @@ impl SearchIndexReader {
             setup_tokenizers(index_relation, &mut index)?;
         }
 
-        let segments = index.searchable_segments()?;
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        debug_assert_eq!(
-            segments.iter().map(Segment::id).collect::<Vec<_>>(),
-            searcher
-                .segment_readers()
-                .iter()
-                .map(SegmentReader::segment_id)
-                .collect::<Vec<_>>(),
-            "lightweight segment handles and SegmentReaders must name the same frozen manifest",
-        );
+        // Both the searcher and this call read the directory's cached manifest, so the handles
+        // and the SegmentReaders name the same frozen segment set.
+        let segment_stats_snapshot =
+            SegmentStatsSnapshot::capture(&directory, index.searchable_segments()?, &searcher);
 
         Ok(IndexComponents {
             cleanup_lock,
             directory,
             index,
-            segments,
+            segment_stats_snapshot,
             reader,
             searcher,
             total_segment_count,
@@ -645,7 +639,7 @@ impl SearchIndexReader {
             cleanup_lock,
             directory,
             index,
-            segments,
+            segment_stats_snapshot,
             reader,
             searcher,
             total_segment_count,
@@ -655,7 +649,6 @@ impl SearchIndexReader {
 
         let index_created_by_version = index_relation.created_by_version();
         let need_scores = need_scores || search_query_input.need_scores();
-        let segment_stats_snapshot = SegmentStatsSnapshot::capture_segments(&directory, &segments);
         let query = {
             search_query_input
                 .into_tantivy_query(
@@ -2118,6 +2111,22 @@ mod tests {
             reader.search().count(),
             10,
             "the tokenized query resolves through the registered tokenizers"
+        );
+        let sibling = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            SearchQueryInput::All,
+            /* need_scores */ false,
+            None,
+            /* needs_tokenizer_manager */ false,
+        )
+        .expect("from_manifest");
+        assert!(
+            Arc::ptr_eq(
+                reader.segment_stats_snapshot(),
+                sibling.segment_stats_snapshot()
+            ),
+            "readers built from one manifest share its statistics snapshot and cache"
         );
 
         // Registration must reach managers shared with the already-built searcher (execution

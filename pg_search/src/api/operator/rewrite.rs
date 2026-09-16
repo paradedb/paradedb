@@ -117,6 +117,19 @@ impl SearchOperator {
         }
     }
 
+    /// The acceptance rule for a `pdb.query` RHS: unclassified and score adjusted input
+    /// classifies, anything already classified is rejected. Both the const-fold path and the
+    /// runtime `*_search_query_input` functions call this, so a prepared statement behaves the
+    /// same under generic and custom plans.
+    pub(super) fn classify_rhs(self, query: pdb::Query) -> pdb::Query {
+        match query {
+            query @ (pdb::Query::UnclassifiedString { .. }
+            | pdb::Query::UnclassifiedArray { .. }
+            | pdb::Query::ScoreAdjusted { .. }) => self.classify_query(query),
+            _ => self.invalid_rhs(),
+        }
+    }
+
     unsafe fn require_field(self, lhs: *mut pg_sys::Node, field: Option<FieldName>) -> FieldName {
         validate_lhs_type_as_text_compatible(lhs, self.name());
         field.unwrap_or_else(|| {
@@ -134,8 +147,8 @@ impl SearchOperator {
                     "The right-hand side of the `@@@` operator must be a text value, pdb.query, or a complete proximity clause"
                 )
             }
-            Self::Term => unreachable!(
-                "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value"
+            Self::Term => panic!(
+                "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value."
             ),
             _ => panic!(
                 "The right-hand side of the `{}(field, TEXT)` operator must be a text value.",
@@ -169,12 +182,8 @@ impl SearchOperator {
         let query = match rhs {
             RHSValue::Text(text) => self.text_query(text),
             RHSValue::TextArray(array) => self.array_query(array),
-            RHSValue::PdbQuery(
-                query @ (pdb::Query::UnclassifiedString { .. }
-                | pdb::Query::UnclassifiedArray { .. }
-                | pdb::Query::ScoreAdjusted { .. }),
-            ) => self.classify_query(query),
-            RHSValue::PdbQuery(query) if self == Self::Parse => query,
+            RHSValue::PdbQuery(query) if self == Self::Parse => self.classify_query(query),
+            RHSValue::PdbQuery(query) => self.classify_rhs(query),
             RHSValue::ProximityClause(prox) if self == Self::Parse => proximity(prox),
             _ => self.invalid_rhs(),
         };

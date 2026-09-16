@@ -26,7 +26,7 @@ use pgrx::{AnyElement, extension_sql, opname, pg_extern, pg_operator};
 /// Runtime classification for `===` expressions that cannot be folded during planning.
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    to_search_query_input(field, SearchOperator::Term.classify_query(query))
+    to_search_query_input(field, SearchOperator::Term.classify_rhs(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]

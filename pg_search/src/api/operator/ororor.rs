@@ -29,7 +29,7 @@ pub fn match_disjunction_search_query_input(
     field: FieldName,
     query: pdb::Query,
 ) -> SearchQueryInput {
-    to_search_query_input(field, SearchOperator::Disjunction.classify_query(query))
+    to_search_query_input(field, SearchOperator::Disjunction.classify_rhs(query))
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]

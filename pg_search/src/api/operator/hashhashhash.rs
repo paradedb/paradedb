@@ -33,7 +33,7 @@ use pgrx::{AnyElement, extension_sql, opname, pg_extern, pg_operator};
 /// Runtime classification for `###` expressions that cannot be folded during planning.
 #[pg_extern(immutable, parallel_safe)]
 pub fn phrase_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    to_search_query_input(field, SearchOperator::Phrase.classify_query(query))
+    to_search_query_input(field, SearchOperator::Phrase.classify_rhs(query))
 }
 
 // The `# # #` spelling below is the SQL operator `###`. Edition 2024 reserves `##` as a token

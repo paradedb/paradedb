@@ -1598,7 +1598,9 @@ impl AggregateScan {
         }
 
         let path_info = match datafusion_build::check_join_path_predicates(
-            root, input_rel, &sources,
+            root,
+            input_rel.cheapest_total_path,
+            &sources,
         ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {

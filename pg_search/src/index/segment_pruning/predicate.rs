@@ -52,6 +52,8 @@ impl SegmentTruth {
     }
 }
 
+/// One truth value per segment of one statistics snapshot. Tables combine only when they hold
+/// that snapshot by identity, so every value refers to the same frozen view.
 #[derive(Debug)]
 pub(crate) struct SegmentTruthTable {
     snapshot: Arc<SegmentStatsSnapshot>,

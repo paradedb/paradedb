@@ -1,0 +1,52 @@
+---
+title: Full-Text / Lexical Search
+description: Full-text query syntax, scoring, filtering, sorting, and highlighting
+canonical: https://www.paradedb.com/docs/reference/full-text/overview
+---
+
+Use these pages for ParadeDB full-text query syntax, text analysis, filtering,
+sorting, scoring, and highlighting. For the mental model, see [How Text Search
+Works](/concepts/full-text/overview).
+
+<CardGroup cols={2}>
+  <Card
+    title="Text Analysis"
+    icon="language"
+    href="/reference/tokenizers/overview"
+  >
+    Configure tokenizers, token filters, and per-field text processing.
+  </Card>
+  <Card
+    title="Query Types"
+    icon="magnifying-glass"
+    href="/reference/full-text/match"
+  >
+    Choose the core predicate for tokenized text, exact terms, and ordered
+    phrases.
+  </Card>
+  <Card
+    title="Advanced Query Functions"
+    icon="wand-magic-sparkles"
+    href="/reference/full-text/query-builder"
+  >
+    Use fuzzy, regex, proximity, more-like-this, range, and all-row query
+    builders.
+  </Card>
+  <Card
+    title="Query Parser"
+    icon="terminal"
+    href="/reference/full-text/query-parser"
+  >
+    Accept Tantivy query strings from users when you need parser syntax.
+  </Card>
+  <Card
+    title="Filtering and Sorting"
+    icon="arrow-down-wide-short"
+    href="/reference/filtering/overview"
+  >
+    Push filters and Top K ordering into ParadeDB queries.
+  </Card>
+  <Card title="Relevance Tuning" icon="gauge" href="/reference/full-text/score">
+    Sort by BM25 score, tune relevance, and highlight matched text.
+  </Card>
+</CardGroup>

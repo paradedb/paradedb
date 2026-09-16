@@ -76,6 +76,7 @@ run_psql_file() {
   fi
 
   # Published 0.25 docs require key_field; the 0.26 test extension warns on it.
+  # TODO: Remove this exception once key_field is removed from the docs.
   if grep -E '(^|:) WARNING:' <<<"$output" |
     grep -Ev 'WARNING:  key_field is deprecated as of 0\.26\.0 and is a no-op; it no longer needs to be provided$' >/dev/null; then
     return 1

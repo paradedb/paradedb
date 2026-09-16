@@ -368,6 +368,32 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
 (18 rows)
 ```
 
+## Range Co-Partitioned Joins (Beta)
+
+<Warning>
+  Range co-partitioned joins are currently a Beta feature under active
+  development.
+</Warning>
+
+Without range co-partitioning, parallel joins must exchange data across worker processes—either by broadcasting the build side to all workers or by shuffling both sides across workers.
+
+When both tables participating in an equi-join have ParadeDB indexes partitioned on the join keys using [`partition_by`](/documentation/indexing/partition-by), range co-partitioning eliminates cross-worker data exchange entirely:
+
+```sql
+SET paradedb.enable_range_partitioned_join TO on;
+```
+
+### How Co-Partitioning Works
+
+With range co-partitioning enabled:
+
+1. Worker-local joins: Rather than broadcasting or shuffling rows across workers, each parallel worker joins only its corresponding range partition of Table A with Table B locally.
+2. Worker-local cardinality reduction: Downstream cardinality-reducing operations like `TopK` sorting and partial aggregations also run worker-locally before results are gathered to the leader process.
+3. Physical over-partitioning: Because real-world tables almost never share identical key distributions or row counts, partition boundaries chosen during independent index builds will not naturally align. To allow the planner to align partitions effectively, we recommend [physically over-partitioning](/documentation/indexing/partition-by#physical-over-partitioning) both tables by setting `target_segment_count` to 2–8X your CPU core count (e.g. 16 to 64 segments).
+4. Partition pruning: Partitions with non-intersecting ranges between the two tables are eliminated without scanning.
+
+See the [Partitioning Guide](/documentation/indexing/partition-by) for full setup instructions, syntax, and column selection advice.
+
 ## Performance
 
 If your join query isn't as fast as you'd like, we invite you to [open a GitHub issue](https://github.com/paradedb/paradedb/issues).

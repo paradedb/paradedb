@@ -602,6 +602,46 @@ mod tests {
         .unwrap();
     }
 
+    /// A sampled range partition may name a normalized key the build would have refused. Its
+    /// statistics do not order like the split points, so every segment is kept.
+    #[pg_test]
+    fn normalized_text_keys_keep_every_segment() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_text_norm (id BIGSERIAL PRIMARY KEY, name TEXT);
+            CREATE INDEX stats_text_norm_idx ON stats_text_norm USING paradedb (id, name)
+                WITH (target_segment_count = 8, background_layer_sizes = '0',
+                      text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true, "normalizer": "lowercase"}}');
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO stats_text_norm (name) SELECT 'Zed' || i FROM generate_series(1, 10) i;
+            INSERT INTO stats_text_norm (name) SELECT 'alice' || i FROM generate_series(1, 10) i;
+            RESET paradedb.global_mutable_segment_rows;
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_text_norm_idx");
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_eq!(reader.segment_ids().len(), 2);
+        // Lowercased statistics would wrongly place the 'Zed' segment above this split point.
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("name"),
+            split_points: vec![PdbOwnedValue::Str("b".into())],
+        };
+        for partition in 0..2 {
+            assert_eq!(
+                segments_for_partition(&reader, &boundaries, partition).len(),
+                2,
+                "partition {partition}"
+            );
+        }
+    }
+
     /// Routing compares raw text, but the partition query reads the fast column. A normalizer
     /// reorders that column, so such a key cannot hold a box and the build refuses it.
     #[pg_test(

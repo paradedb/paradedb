@@ -45,8 +45,7 @@ pub struct RangePartitioning {
     pub split_points: Vec<PdbOwnedValue>,
 }
 
-/// The rows one partition holds. Derived from the partition index in one place, so the range
-/// query and segment pruning cannot disagree about them.
+/// The rows one partition holds: the value range and whether the NULLs are among them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartitionRange {
     values: Option<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>)>,

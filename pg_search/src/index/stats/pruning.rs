@@ -65,8 +65,9 @@ pub(crate) fn persisted_split_points(
 }
 
 /// The current execution segments of `reader` that can hold a row of `partition`. A segment
-/// without statistics it can be ranked against is kept, so the range query the caller still
-/// applies stays the source of truth.
+/// without statistics it can be ranked against is kept, as is every segment when the field's
+/// statistics do not order like the split points, so the range query the caller still applies
+/// stays the source of truth.
 pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,
@@ -82,6 +83,9 @@ pub(crate) fn segments_for_partition(
     else {
         return all();
     };
+    if !field.stats_order_matches_values() {
+        return all();
+    }
     reader
         .segment_stats_snapshot()
         .segments_intersecting_partition(&field, &range)

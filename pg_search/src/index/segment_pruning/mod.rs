@@ -14,14 +14,15 @@
 //! them. The proof table is therefore rebuilt against the exact execution Searcher instead of
 //! carrying planner-visible segment identities forward.
 //!
-//! Statistics are accelerators, never substitutes for the query predicate. Every visible segment
-//! has a dense snapshot entry and every predicate has one [`predicate::SegmentTruth`] value for every snapshot
-//! entry. Missing, unreadable, unsupported, or incomparable data therefore has an explicit `Maybe`
-//! state rather than disappearing behind `Option` or a default Boolean.
+//! Statistics are accelerators, never substitutes for the query predicate. Missing, unreadable,
+//! unsupported, or incomparable data is an explicit [`predicate::SegmentTruth::Maybe`], never a
+//! default.
 
 pub(crate) mod predicate;
 mod snapshot;
 
 pub(crate) use snapshot::SegmentStatsSnapshot;
 #[cfg(any(test, feature = "pg_test"))]
-pub(crate) use snapshot::test_support::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
+pub(crate) use snapshot::test_support::{
+    EMPIRICAL_READS, FIELD_PROOF_PASSES, InjectedStatsFailure, STATS_OPENS, inject_stats_failure,
+};

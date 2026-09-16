@@ -9,21 +9,33 @@
 
 use std::fmt::{self, Display};
 use std::io;
-use std::sync::{Arc, OnceLock};
+use std::ops::Bound;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::api::HashMap;
 use crate::index::stats::{EmpiricalStats, LogicalBounds, SegmentStats};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
 use tantivy::index::{SegmentId, SegmentReader};
+use tantivy::schema::Field;
 use tantivy::{Searcher, SegmentOrdinal};
 
 /// Absence describes missing statistics, never missing field values. Unknown means a read or
 /// conversion failed; it must not be used as evidence for pruning.
-enum StatsRead<T> {
+pub(super) enum StatsRead<T> {
     Absent,
     Known(T),
     Unknown,
+}
+
+impl<T> StatsRead<T> {
+    pub(super) fn known(&self) -> Option<&T> {
+        match self {
+            Self::Known(value) => Some(value),
+            Self::Absent | Self::Unknown => None,
+        }
+    }
 }
 
 struct CapturedSegment {
@@ -40,6 +52,9 @@ pub(crate) struct SegmentStatsSnapshot {
     searcher: Searcher,
     ordinal_by_id: HashMap<SegmentId, usize>,
     segments: Box<[CapturedSegment]>,
+    /// Only requested fields are decoded. Entries, including failed reads, live as long as
+    /// this frozen view and are shared by readers and their range-partition derivatives.
+    empirical_by_field: Mutex<HashMap<Field, Arc<[StatsRead<EmpiricalStats>]>>>,
 }
 
 impl fmt::Debug for SegmentStatsSnapshot {
@@ -60,6 +75,8 @@ pub(crate) mod test_support {
 
     /// Number of `.stats` open attempts, including ones that fail.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
+    pub(crate) static EMPIRICAL_READS: AtomicUsize = AtomicUsize::new(0);
+    pub(crate) static FIELD_PROOF_PASSES: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {
@@ -168,6 +185,8 @@ fn read_empirical(
     segment_id: SegmentId,
     field: &SearchField,
 ) -> StatsRead<EmpiricalStats> {
+    #[cfg(any(test, feature = "pg_test"))]
+    test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let value = stats.empirical_for(field);
     #[cfg(any(test, feature = "pg_test"))]
     let value = test_support::maybe_fail(
@@ -224,6 +243,7 @@ impl SegmentStatsSnapshot {
             searcher: searcher.clone(),
             ordinal_by_id,
             segments,
+            empirical_by_field: Mutex::new(HashMap::default()),
         })
     }
 
@@ -231,28 +251,39 @@ impl SegmentStatsSnapshot {
         self.segments.len()
     }
 
-    pub(crate) fn doc_count(&self, segment_idx: usize) -> u32 {
-        self.searcher
-            .segment_reader(segment_idx as SegmentOrdinal)
-            .num_docs()
-    }
-
     pub(crate) fn segment_index(&self, segment_id: SegmentId) -> Option<usize> {
         self.ordinal_by_id.get(&segment_id).copied()
     }
 
+    pub(super) fn empirical_for_field(
+        &self,
+        field: &SearchField,
+    ) -> Arc<[StatsRead<EmpiricalStats>]> {
+        // A panic while decoding poisons the lock; the cached entries stay valid regardless.
+        let mut fields = self
+            .empirical_by_field
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Arc::clone(fields.entry(field.field()).or_insert_with(|| {
+            (0..self.len())
+                .map(|idx| match self.stats(idx) {
+                    StatsRead::Known(stats) => read_empirical(stats, self.segments[idx].id, field),
+                    StatsRead::Absent => StatsRead::Absent,
+                    StatsRead::Unknown => StatsRead::Unknown,
+                })
+                .collect()
+        }))
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn empirical(
         &self,
         segment_idx: usize,
         field: &SearchField,
     ) -> Option<EmpiricalStats> {
-        let StatsRead::Known(stats) = self.stats(segment_idx) else {
-            return None;
-        };
-        match read_empirical(stats, self.segments[segment_idx].id, field) {
-            StatsRead::Known(value) => Some(value),
-            StatsRead::Absent | StatsRead::Unknown => None,
-        }
+        self.empirical_for_field(field)[segment_idx]
+            .known()
+            .cloned()
     }
 
     fn stats(&self, ord: usize) -> &StatsRead<SegmentStats> {
@@ -268,17 +299,16 @@ impl SegmentStatsSnapshot {
         &self,
         ord: usize,
         field: &SearchField,
-        range: &PartitionRange,
+        includes_nulls: bool,
+        (lower, upper): (&Bound<PdbOwnedValue>, &Bound<PdbOwnedValue>),
+        empirical: &StatsRead<EmpiricalStats>,
     ) -> bool {
-        let Some((lower, upper)) = range.values() else {
-            return range.includes_nulls();
-        };
         let segment_id = self.segments[ord].id;
         let stats = match self.stats(ord) {
             StatsRead::Known(stats) => stats,
             StatsRead::Absent | StatsRead::Unknown => return true,
         };
-        let empirical = match read_empirical(stats, segment_id, field) {
+        let empirical = match empirical {
             StatsRead::Known(value) => Some(value),
             StatsRead::Absent => None,
             StatsRead::Unknown => return true,
@@ -291,14 +321,13 @@ impl SegmentStatsSnapshot {
         match (logical, empirical) {
             (None, None) => true,
             (Some(bounds), None) => {
-                (range.includes_nulls() && bounds.may_hold_nulls())
-                    || bounds.intersects(lower, upper)
+                (includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
             }
             (None, Some(empirical)) => {
-                (range.includes_nulls() && empirical.nullable) || empirical.intersects(lower, upper)
+                (includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
             }
             (Some(bounds), Some(empirical)) => {
-                (range.includes_nulls() && empirical.nullable)
+                (includes_nulls && empirical.nullable)
                     || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
             }
         }
@@ -309,10 +338,23 @@ impl SegmentStatsSnapshot {
         field: &'a SearchField,
         range: &'a PartitionRange,
     ) -> impl Iterator<Item = SegmentId> + 'a {
+        // Empty and NULL-only partitions need no statistics.
+        let proof = range
+            .values()
+            .map(|bounds| (bounds, self.empirical_for_field(field)));
         self.segments
             .iter()
             .enumerate()
-            .filter(move |(ord, _)| self.may_intersect_partition(*ord, field, range))
+            .filter(move |(ord, _)| match &proof {
+                Some((bounds, stats)) => self.may_intersect_partition(
+                    *ord,
+                    field,
+                    range.includes_nulls(),
+                    *bounds,
+                    &stats[*ord],
+                ),
+                None => range.includes_nulls(),
+            })
             .map(|(_, segment)| segment.id)
     }
 }

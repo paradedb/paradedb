@@ -242,10 +242,10 @@ pub struct MultiSegmentSearchResults {
     /// Cumulative execution-time dynamic proofs are installed as Top-K thresholds evolve.
     /// Deferred scorers consult this set before opening; an already-active segment is dropped at
     /// the next batch boundary if it has become impossible.
-    runtime_rejected: HashSet<SegmentId>,
-    /// Segments this scan would have opened but dropped because of `runtime_rejected`. Counted
-    /// where the skip happens so statically pruned segments and segments owned by other parallel
-    /// workers are never reported.
+    runtime_rejected: Arc<HashSet<SegmentId>>,
+    /// Segments this scan opened, or would have opened, and dropped because of
+    /// `runtime_rejected`. Counted where the skip happens so statically pruned segments and
+    /// segments owned by other parallel workers are never reported.
     runtime_skipped: usize,
 }
 
@@ -300,9 +300,10 @@ impl MultiSegmentSearchResults {
         self.iterators.iter().map(|it| it.segment_id()).collect()
     }
 
-    pub(crate) fn replace_runtime_rejected(&mut self, rejected: HashSet<SegmentId>) {
+    pub(crate) fn replace_runtime_rejected(&mut self, rejected: Arc<HashSet<SegmentId>>) {
         assert!(
-            rejected.is_superset(&self.runtime_rejected),
+            Arc::ptr_eq(&rejected, &self.runtime_rejected)
+                || rejected.is_superset(&self.runtime_rejected),
             "execution-time segment rejection requires a monotonic dynamic-filter source"
         );
         self.runtime_rejected = rejected;
@@ -426,11 +427,28 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
-/// One inverted-index pushdown and the canonical values used to prove its segment rejections.
+/// One inverted-index pushdown and the canonical values its terms were built from. The query is
+/// built by the constructor from the stored values, so the proof and the query cannot come from
+/// different value sets.
 pub(crate) struct PushedDownInList {
-    pub(crate) query: Box<dyn Query>,
-    pub(crate) field_name: String,
-    pub(crate) canonical_terms: Vec<PdbOwnedValue>,
+    query: Box<dyn Query>,
+    field_name: FieldName,
+    canonical_terms: Vec<PdbOwnedValue>,
+}
+
+impl PushedDownInList {
+    pub(crate) fn new(
+        field_name: FieldName,
+        canonical_terms: Vec<PdbOwnedValue>,
+        query_from: impl FnOnce(&[PdbOwnedValue]) -> Option<Box<dyn Query>>,
+    ) -> Option<Self> {
+        let query = query_from(&canonical_terms)?;
+        Some(Self {
+            query,
+            field_name,
+            canonical_terms,
+        })
+    }
 }
 
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
@@ -2250,7 +2268,7 @@ mod tests {
     fn rejected_segments(
         reader: &SearchIndexReader,
         filters: &[Arc<dyn PhysicalExpr>],
-    ) -> HashSet<SegmentId> {
+    ) -> Arc<HashSet<SegmentId>> {
         dynamically_rejected_segments(reader, filters, &dynamic_schema())
     }
 

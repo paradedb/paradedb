@@ -388,7 +388,7 @@ impl Scanner {
         self.score_threshold = threshold;
     }
 
-    pub(crate) fn set_runtime_rejected_segments(&mut self, rejected: HashSet<SegmentId>) {
+    pub(crate) fn set_runtime_rejected_segments(&mut self, rejected: Arc<HashSet<SegmentId>>) {
         self.search_results.replace_runtime_rejected(rejected)
     }
 

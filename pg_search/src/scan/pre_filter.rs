@@ -467,10 +467,14 @@ fn dynamic_truth(
     None
 }
 
+/// The column an expression reads. A cast is looked through only when it cannot manufacture a
+/// NULL: an unsafe cast errors on an invalid value, so nullness passes through unchanged.
 fn physical_column(expr: &Arc<dyn PhysicalExpr>) -> Option<&Column> {
     if let Some(column) = expr.downcast_ref::<Column>() {
         Some(column)
-    } else if let Some(cast) = expr.downcast_ref::<CastExpr>() {
+    } else if let Some(cast) = expr.downcast_ref::<CastExpr>()
+        && !cast.cast_options().safe
+    {
         physical_column(cast.expr())
     } else {
         None

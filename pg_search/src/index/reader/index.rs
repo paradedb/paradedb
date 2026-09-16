@@ -2601,7 +2601,8 @@ mod tests {
 
     #[pg_test]
     fn literal_text_terms_still_use_segment_pruning() {
-        Spi::run(
+        let index_rel = index_from_sql(
+            "literal_text_pruning_test_idx",
             "CREATE TABLE literal_text_pruning_test (
                  id bigint PRIMARY KEY,
                  title text NOT NULL
@@ -2617,16 +2618,7 @@ mod tests {
              INSERT INTO literal_text_pruning_test
              SELECT g, 'quiet river ' || g FROM generate_series(11, 20) g;
              RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'literal_text_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
+        );
         let query = term_query("title", "silver dragon 1");
 
         let reader = open_snapshot_reader(&index_rel, query, false);

@@ -97,30 +97,6 @@
   }
 }
 
-#banner [data-streamdown="image-wrapper"] {
-  display: inline-flex !important;
-  align-items: center;
-  flex: none;
-  margin: 0 !important;
-  vertical-align: middle;
-}
-
-#banner [data-streamdown="image-wrapper"] > div,
-#banner [data-streamdown="image-wrapper"] > button {
-  display: none !important;
-}
-
-#banner img.banner-cloud {
-  display: inline-block;
-  flex: none;
-  height: 1.45rem;
-  width: auto;
-  margin: 0;
-  max-width: none;
-  border-radius: 0;
-  vertical-align: middle;
-}
-
 .topbar-right-container nav ul {
   gap: 1.25rem !important;
 }
@@ -148,10 +124,8 @@
   color: #ffffff !important;
 }
 
-/* Enlarge the navbar logo; Mintlify's default is 1.5rem (h-6) */
 img.nav-logo {
-  height: 3rem !important;
-  max-height: none !important;
+  height: 2rem !important;
 }
 
 /* Larger tab bar; Mintlify's default is 0.875rem text with 1rem icons */
@@ -162,4 +136,357 @@ a.nav-tabs-item {
 a.nav-tabs-item span[class*="h-4"] {
   height: 1.25rem !important;
   width: 1.25rem !important;
+}
+
+.card {
+  border-radius: 0 !important;
+}
+
+#pagination > a {
+  border: 0;
+  border-radius: 0;
+}
+
+.architecture-diagram {
+  --architecture-node-inset: 18px;
+  --architecture-surface: #ffffff;
+  --architecture-background: #f9fafc;
+  --architecture-border: #dfe3eb;
+  --architecture-text: #1e293b;
+  --architecture-muted: #606d82;
+  --architecture-line: #99a3b5;
+  --architecture-accent: #4f46e5;
+  --architecture-accent-soft: #eeedff;
+  --architecture-index: #f6f5ff;
+  --architecture-index-border: #ccc9f3;
+  --architecture-divider: #e0def4;
+  --architecture-shadow:
+    0 1px 2px rgb(30 27 75 / 4%), 0 4px 12px rgb(30 27 75 / 3%);
+  container-type: inline-size;
+  margin: 2.5rem 0;
+  color: var(--architecture-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dark .architecture-diagram {
+  --architecture-surface: #17171e;
+  --architecture-background: #101015;
+  --architecture-border: #30303c;
+  --architecture-text: #ececf3;
+  --architecture-muted: #a6a6b9;
+  --architecture-line: #73738c;
+  --architecture-accent-soft: #202028;
+  --architecture-index: var(--architecture-surface);
+  --architecture-index-border: #3e3e4b;
+  --architecture-divider: var(--architecture-border);
+  --architecture-shadow: 0 1px 2px rgb(0 0 0 / 12%), 0 4px 12px rgb(0 0 0 / 8%);
+}
+
+.architecture-diagram svg {
+  display: block;
+  flex: none;
+  stroke-linecap: round;
+  stroke-linejoin: miter;
+}
+
+.architecture-app {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 11px 20px;
+  border: 1px solid var(--architecture-border);
+  border-radius: 0;
+  background: var(--architecture-surface);
+  box-shadow: var(--architecture-shadow);
+  font-weight: 500;
+}
+
+.architecture-app svg,
+.architecture-heading svg {
+  width: 22px;
+  height: 22px;
+}
+
+.architecture-connection {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  height: 48px;
+  color: var(--architecture-line);
+}
+
+.architecture-connection svg {
+  width: 16px;
+  height: 48px;
+}
+
+.architecture-connection span {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--architecture-muted);
+  font-size: 12px;
+}
+
+.architecture-sql span {
+  left: calc(50% + 14px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.architecture-postgres {
+  padding: 22px;
+  border: 1px solid var(--architecture-border);
+  border-radius: 0;
+  background: var(--architecture-background);
+}
+
+.architecture-database-heading,
+.architecture-index-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.architecture-database-heading {
+  margin-bottom: 22px;
+}
+
+.architecture-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.architecture-database-heading svg {
+  width: 1em;
+  height: 1em;
+}
+
+.architecture-table {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 17px var(--architecture-node-inset);
+  border: 1px solid var(--architecture-border);
+  border-radius: 0;
+  background: var(--architecture-surface);
+  box-shadow: var(--architecture-shadow);
+}
+
+.architecture-table-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--architecture-muted);
+}
+
+.architecture-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.architecture-detail {
+  margin-top: 4px;
+  color: var(--architecture-muted);
+  font-size: 12px;
+  text-wrap: balance;
+}
+
+.architecture-writes {
+  justify-content: flex-start;
+  padding-left: calc(var(--architecture-node-inset) + 7px);
+}
+
+.architecture-writes span {
+  left: calc(var(--architecture-node-inset) + 41px);
+}
+
+.architecture-index {
+  overflow: hidden;
+  border: 1px solid var(--architecture-index-border);
+  border-radius: 0;
+  background: var(--architecture-index);
+  box-shadow: var(--architecture-shadow);
+}
+
+.architecture-index-heading {
+  padding: 17px var(--architecture-node-inset);
+  border-bottom: 1px solid var(--architecture-divider);
+}
+
+.architecture-index-heading .architecture-heading {
+  gap: 12px;
+}
+
+.architecture-heading .architecture-brand {
+  width: 22px;
+  height: 22px;
+  margin: 3px;
+  color: var(--architecture-accent);
+}
+
+.architecture-extension {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid var(--architecture-divider);
+  border-radius: 0;
+  background: var(--architecture-accent-soft);
+  color: var(--architecture-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.architecture-structures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 24px 0 22px;
+}
+
+.architecture-structure {
+  padding: 0 6px;
+  text-align: center;
+}
+
+.architecture-structure + .architecture-structure {
+  border-left: 1px solid var(--architecture-divider);
+}
+
+.architecture-structure svg {
+  width: 56px;
+  height: 40px;
+  margin: 0 auto 14px;
+  color: var(--architecture-accent);
+}
+
+@container (max-width: 380px) {
+  .architecture-postgres {
+    --architecture-node-inset: 14px;
+    padding: 16px;
+  }
+
+  .architecture-table {
+    padding-block: 15px;
+  }
+
+  .architecture-index-heading {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding-block: 15px;
+  }
+
+  .architecture-structures {
+    grid-template-columns: 1fr;
+    padding: 0 14px;
+  }
+
+  .architecture-structure {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    column-gap: 16px;
+    padding: 14px 0;
+    text-align: left;
+  }
+
+  .architecture-structure + .architecture-structure {
+    border-top: 1px solid var(--architecture-divider);
+    border-left: 0;
+  }
+
+  .architecture-structure svg {
+    grid-row: span 2;
+    align-self: center;
+    width: 48px;
+    height: 32px;
+    margin: 0;
+  }
+}
+
+@container (max-width: 320px) {
+  .architecture-index-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .architecture-extension {
+    margin-left: 40px;
+  }
+}
+
+.architecture-detail-diagram .architecture-svg {
+  width: 100%;
+  height: auto;
+  font-family: inherit;
+  font-size: 17px;
+  fill: var(--architecture-text);
+}
+
+.architecture-svg-boundary {
+  fill: var(--architecture-background);
+  stroke: var(--architecture-border);
+}
+
+.architecture-svg-surface {
+  fill: var(--architecture-surface);
+  stroke: var(--architecture-border);
+}
+
+.architecture-svg-index {
+  fill: var(--architecture-index);
+  stroke: var(--architecture-index-border);
+}
+
+.architecture-svg-line {
+  fill: none;
+  stroke: var(--architecture-line);
+  stroke-width: 1.5;
+}
+
+.architecture-svg-rule {
+  fill: none;
+  stroke: var(--architecture-border);
+}
+
+.architecture-svg-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.architecture-svg-label {
+  fill: var(--architecture-muted);
+  font-size: 14px;
+}
+
+.architecture-svg-stage-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.architecture-svg-small {
+  font-size: 13px;
+}
+
+.architecture-detail-diagram .architecture-svg-compact {
+  display: none;
+}
+
+@container (max-width: 420px) {
+  .architecture-detail-diagram .architecture-svg-wide {
+    display: none;
+  }
+
+  .architecture-detail-diagram .architecture-svg-compact {
+    display: block;
+    max-width: 380px;
+    margin: 0 auto;
+  }
 }

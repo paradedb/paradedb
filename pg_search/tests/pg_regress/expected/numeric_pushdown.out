@@ -2193,7 +2193,7 @@ WHERE id @@@ paradedb.all();
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Output: (sum(val)), (avg(val)), (min(val)), (max(val))
    Backend: DataFusion
    Indexes: max_scale_idx (max_scale_test)
    Aggregates: SUM(val), AVG(val), MIN(val), MAX(val)
@@ -2316,7 +2316,7 @@ WHERE id @@@ paradedb.all();
                                                                                                                    QUERY PLAN                                                                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Output: (sum(val)), (avg(val)), (min(val)), (max(val))
    Backend: DataFusion
    Indexes: negative_scale_idx (negative_scale_test)
    Aggregates: SUM(val), AVG(val), MIN(val), MAX(val)
@@ -3239,7 +3239,7 @@ WHERE id @@@ paradedb.all();
                                                                                                                                               QUERY PLAN                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Output: (sum(val_small)), (avg(val_small)), (min(val_small)), (max(val_small))
    Backend: DataFusion
    Indexes: numeric_prec_only_idx (numeric_precision_only_test)
    Aggregates: SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)

@@ -118,6 +118,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  upper_supplier |      name       
 ----------------+-----------------
  TECHCORP       | 
@@ -195,6 +199,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  supplier_null |      name       
 ---------------+-----------------
  f             | 
@@ -270,6 +278,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  combo_id |      name       
 ----------+-----------------
       119 | 
@@ -347,6 +359,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  safe_supplier |      name       
 ---------------+-----------------
  TechCorp      | 
@@ -424,6 +440,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
    name_id   |      name       
 -------------+-----------------
  TechCorp-1  | 
@@ -501,6 +521,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -630,6 +654,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  has_name |      name       
 ----------+-----------------
  t        | 
@@ -705,6 +733,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  name_len |      name       
 ----------+-----------------
         8 | 
@@ -778,6 +810,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  big_id |      name       
 --------+-----------------
     100 | 
@@ -851,6 +887,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
        ratio        |      name       
 --------------------+-----------------
  0.3333333333333333 | 
@@ -926,6 +966,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  upper_name |      name       
 ------------+-----------------
  TECHCORP   | 
@@ -1001,6 +1045,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  short_name |      name       
 ------------+-----------------
  TechC      | 
@@ -1080,6 +1128,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
  supplier_or_default |      name       
 ---------------------+-----------------
  TechCorp            | 
@@ -1219,6 +1271,10 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+<<<<<<< HEAD
+=======
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
             mixed_key             |      name       
 ----------------------------------+-----------------
  D9CE5A9B751D2E18071CC135E51C524B | 
@@ -1234,6 +1290,80 @@ ORDER BY p.name
 
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
+<<<<<<< HEAD
+=======
+-- TEST 11: DISTINCT expression in both SELECT and ORDER BY
+-- =============================================================================
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
+    LIMIT 10;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: p INNER s
+   Join Cond: p.supplier_id = s.id
+   Limit: 10
+   Distinct: true
+   Order By: name IS NULL asc, s.name asc, p.name asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=10), expr=[col_2@1 IS NULL ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :   AggregateExec: mode=Single, gby=[name@3 IS NULL as col_1, name@3 as col_2, name@1 as col_3], aggr=[min(p_0.ctid_0) as ctid_0, min(s_1.ctid_1) as ctid_1]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@3, name@5, ctid_1@0, name@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
+    LIMIT 10;
+ supplier_null |   name    |      name       
+---------------+-----------+-----------------
+ f             | FastParts | 
+ f             | TechCorp  | 
+ f             | TechCorp  | Headphones
+ f             | TechCorp  | Keyboard
+ f             | TechCorp  | WIRELESS ROUTER
+ f             | TechCorp  | Wireless Mouse
+ t             |           | USB Cable
+ t             |           | tablet
+ t             |           | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY supplier_null, s.name, p.name
+    LIMIT 10;
+WARNING:  Aggregate Scan (DataFusion) not used: DISTINCT column 1 is an expression; only plain columns are pushed down (table: join)
+ supplier_null |   name    |      name       
+---------------+-----------+-----------------
+ f             | FastParts | 
+ f             | TechCorp  | 
+ f             | TechCorp  | Headphones
+ f             | TechCorp  | Keyboard
+ f             | TechCorp  | WIRELESS ROUTER
+ f             | TechCorp  | Wireless Mouse
+ t             |           | USB Cable
+ t             |           | tablet
+ t             |           | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+>>>>>>> 7f1c7374c (fix: use PostgreSQL projection for DataFusion aggregates (#6172))
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dex_products CASCADE;

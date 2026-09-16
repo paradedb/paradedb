@@ -47,7 +47,7 @@ SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price) FROM numagg 
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Output: (sum(price)), (avg(price)), (min(price)), (max(price)), (count(price))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
@@ -80,7 +80,7 @@ SELECT SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight) FROM nu
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Output: (sum(weight)), (avg(weight)), (min(weight)), (max(weight)), (count(weight))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(weight), AVG(weight), MIN(weight), MAX(weight), COUNT(weight)
@@ -112,7 +112,7 @@ SELECT SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount) FROM nu
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Output: (sum(amount)), (avg(amount)), (min(amount)), (max(amount)), (count(amount))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(amount), AVG(amount), MIN(amount), MAX(amount), COUNT(amount)
@@ -173,7 +173,7 @@ SELECT COUNT(free) FROM numagg WHERE description ||| 'apple OR basket OR crate';
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT'::text)
+   Output: (count(free))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: COUNT(free)
@@ -410,7 +410,7 @@ SELECT SUM(price), MIN(price), MAX(price) FROM numagg WHERE description ||| 'dur
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Output: (sum(price)), (min(price)), (max(price))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(price), MIN(price), MAX(price)
@@ -523,7 +523,7 @@ SELECT SUM(amount), AVG(amount), COUNT(*) FROM numagg WHERE description ||| 'non
                                                                                                                                 QUERY PLAN                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text)
+   Output: (sum(amount)), (avg(amount)), (count(*))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(amount), AVG(amount), COUNT(*)
@@ -552,7 +552,7 @@ SELECT SUM(price) FILTER (WHERE category = 'grocery') FROM numagg WHERE descript
                                                                                                                                   QUERY PLAN                                                                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text)
+   Output: (sum(price) FILTER (WHERE (category = 'grocery'::text)))
    Backend: DataFusion
    Indexes: numagg_idx (numagg)
    Aggregates: SUM(price)
@@ -692,7 +692,7 @@ SELECT SUM(n.price), SUM(n.amount), MIN(n.weight) FROM numagg n JOIN numagg_line
                                                                                                                                           QUERY PLAN                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text)
+   Output: (sum(n.price)), (sum(n.amount)), (min(n.weight))
    Backend: DataFusion
    Indexes: numagg_idx (n), numagg_lines_idx (l)
    Aggregates: SUM(price), SUM(amount), MIN(weight)

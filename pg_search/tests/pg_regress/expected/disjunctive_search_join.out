@@ -472,7 +472,7 @@ WHERE (w.abstract @@@ 'compaction' OR r.bio @@@ 'compiler' OR o.location @@@ 'Mu
                                                                                                             QUERY PLAN                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: work_items_bm25_idx (w), researchers_bm25_idx (r), organisations_bm25_idx (o)
    Aggregates: COUNT(*)

@@ -77,7 +77,7 @@ WHERE f.content @@@ 'Section';
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
@@ -152,7 +152,7 @@ WHERE f.content @@@ 'Section';
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('pdb.agg'::text)
+   Output: (pdb.agg('{"terms": {"size": 5, "field": "title", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: pdb.agg({"terms":{"size":5,"field":"title","order":{"_key":"asc"}}})
@@ -239,7 +239,7 @@ WHERE f.content @@@ 'Section';
                                                                                                     QUERY PLAN                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
@@ -347,7 +347,7 @@ WHERE f.content @@@ 'Section';
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('pdb.agg'::text)
+   Output: (pdb.agg('{"terms": {"size": 5, "field": "title", "order": {"_key": "asc"}}}'::jsonb))
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: pdb.agg({"terms":{"size":5,"field":"title","order":{"_key":"asc"}}})

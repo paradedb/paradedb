@@ -1,7 +1,7 @@
 -- Regression test for issue #5779, `&&&` operator variant.
 -- The `&&&` operator paired with `pdb.fuzzy` failed under generic prepared plans.
 -- The RHS `$1::pdb.fuzzy(...)` is not folded to a `Const` under a generic plan,
--- so the operator's `exec_rewrite` path saw the RHS type as `pdb.fuzzy` and
+-- so the operator's `rewrite_exec` path saw the RHS type as `pdb.fuzzy` and
 -- raised: "The right-hand side of the `&&&(field, TEXT)` operator must be a
 -- text value".
 --

@@ -12,6 +12,8 @@ without changing the query's meaning.
 
 To use it, pass the [key field](/reference/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
 
+<!-- prettier-ignore-start -->
+
 <CodeGroup>
 ```sql SQL
 -- Top K executed by standard Postgres
@@ -27,8 +29,7 @@ FROM mock_items
 WHERE rating IS NOT NULL AND id @@@ pdb.all()
 ORDER BY rating
 LIMIT 5;
-
-````
+```
 
 ```ts Drizzle
 import { and, isNotNull } from "drizzle-orm";
@@ -59,7 +60,7 @@ await db
   .where(and(isNotNull(mockItems.rating), search.all(mockItems.id)))
   .orderBy(mockItems.rating)
   .limit(5);
-````
+```
 
 ```python Django
 from paradedb import All, ParadeDB
@@ -131,6 +132,8 @@ await dbContext
 ```
 
 </CodeGroup>
+
+<!-- prettier-ignore-end -->
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
 like [Top K](/reference/full-text/top-k) or [aggregate](/reference/aggregates/overview) queries.

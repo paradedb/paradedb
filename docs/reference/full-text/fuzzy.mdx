@@ -21,6 +21,8 @@ a comment with your use case.
 To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).
 Fuzziness is supported for [match](/reference/full-text/match) and [term](/reference/full-text/term) queries.
 
+<!-- prettier-ignore-start -->
+
 <CodeGroup>
 ```sql SQL
 -- Fuzzy match disjunction
@@ -40,8 +42,7 @@ SELECT id, description
 FROM mock_items
 WHERE description === 'shose'::pdb.fuzzy(2)
 LIMIT 5;
-
-````
+```
 
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
@@ -75,7 +76,7 @@ await db
   .from(mockItems)
   .where(search.term(mockItems.description, search.fuzzy("shose", 2)))
   .limit(5);
-````
+```
 
 ```python Django
 from paradedb import Fuzzy, MatchAll, MatchAny, ParadeDB, Term
@@ -178,6 +179,8 @@ await dbContext
 ```
 
 </CodeGroup>
+
+<!-- prettier-ignore-end -->
 
 ## How It Works
 

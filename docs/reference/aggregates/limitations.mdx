@@ -8,6 +8,8 @@ canonical: https://www.paradedb.com/docs/reference/aggregates/limitations
 
 In order for ParadeDB to push down an aggregate, a ParadeDB predicate must be present in the query.
 
+<!-- prettier-ignore-start -->
+
 <CodeGroup>
 ```sql SQL
 -- Not pushed down
@@ -18,8 +20,7 @@ WHERE rating = 5;
 SELECT COUNT(id) FROM mock_items
 WHERE rating = 5
 AND id @@@ pdb.all();
-
-````
+```
 
 ```ts Drizzle
 import { and, count, eq } from "drizzle-orm";
@@ -36,7 +37,7 @@ await db
   .select({ count: count(mockItems.id) })
   .from(mockItems)
   .where(and(eq(mockItems.rating, 5), search.all(mockItems.id)));
-````
+```
 
 ```python Django
 from paradedb import All, ParadeDB
@@ -90,6 +91,8 @@ await dbContext
 ```
 
 </CodeGroup>
+
+<!-- prettier-ignore-end -->
 
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/reference/full-text/all) to the query's
 `WHERE` clause.

@@ -73,9 +73,7 @@ with connection.cursor() as cursor:
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import create_engine, text
-
-engine = create_engine("postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase")
+from sqlalchemy import text
 
 with engine.begin() as conn:
     conn.execute(text("""

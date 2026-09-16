@@ -89,20 +89,8 @@ pub(crate) fn segments_for_partition(
     else {
         return all;
     };
-    let snapshot = reader.segment_stats_snapshot();
-    snapshot
-        .segment_ids()
-        .enumerate()
-        .filter_map(|(segment_idx, segment_id)| {
-            snapshot
-                .may_intersect_partition(
-                    segment_idx,
-                    &field,
-                    &range.lower,
-                    &range.upper,
-                    range.includes_nulls,
-                )
-                .then_some(segment_id)
-        })
+    reader
+        .segment_stats_snapshot()
+        .segments_intersecting_partition(&field, &range)
         .collect()
 }

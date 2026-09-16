@@ -443,9 +443,8 @@ pub(crate) mod test_support {
         with_mutable: bool,
     ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
         let mut sql = format!(
-            "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL, title text NOT NULL);
-             CREATE INDEX {name}_idx ON {name}
-             USING paradedb (id, bucket, (title::pdb.unicode_words('columnar=true')))
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX {name}_idx ON {name} USING paradedb (id, title)
              WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
@@ -457,14 +456,14 @@ pub(crate) mod test_support {
                 "quiet river"
             };
             sql.push_str(&format!(
-                "INSERT INTO {name} SELECT g, g * 10, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
             ));
         }
         if with_mutable {
             let lo = immutable_batches * 10 + 1;
             sql.push_str(&format!(
                 "SET paradedb.global_mutable_segment_rows = 10000;
-                 INSERT INTO {name} SELECT g, g * 10, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
                 lo + 4
             ));
         }
@@ -890,8 +889,8 @@ impl SearchIndexReader {
         self.total_docs
     }
 
-    pub(crate) fn segment_stats_snapshot(&self) -> Arc<SegmentStatsSnapshot> {
-        Arc::clone(&self.segment_stats_snapshot)
+    pub(crate) fn segment_stats_snapshot(&self) -> &Arc<SegmentStatsSnapshot> {
+        &self.segment_stats_snapshot
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -2162,25 +2161,62 @@ mod tests {
         let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let id = probe.schema().search_field("id").unwrap();
         // No fixture row has an id in this range, so readable statistics rule every segment out.
-        let (lower, upper) = (
-            Bound::Included(PdbOwnedValue::I64(100)),
-            Bound::Included(PdbOwnedValue::I64(200)),
-        );
+        let range = crate::scan::range_partitioning::PartitionRange {
+            lower: Bound::Included(PdbOwnedValue::I64(100)),
+            upper: Bound::Included(PdbOwnedValue::I64(200)),
+            includes_nulls: false,
+        };
         let snapshot = probe.segment_stats_snapshot();
-        assert!(
-            (0..snapshot.segment_ids().len())
-                .all(|idx| !snapshot.may_intersect_partition(idx, &id, &lower, &upper, false)),
-            "the fixture must have readable statistics so missing stats cannot make the test pass"
+        assert_eq!(snapshot.segment_ids().len(), 2);
+        assert_eq!(
+            snapshot
+                .segments_intersecting_partition(&id, &range)
+                .count(),
+            0,
+            "readable statistics must reject all segments before failure injection"
         );
         let segment = snapshot.segment_ids().next().unwrap();
-        for failure in [InjectedStatsFailure::Open, InjectedStatsFailure::Read] {
-            let _failure = inject_stats_failure(segment, failure);
+        for operation in [
+            InjectedStatsFailure::Open,
+            InjectedStatsFailure::Empirical,
+            InjectedStatsFailure::Logical,
+        ] {
+            let failure = inject_stats_failure(segment, operation);
             let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
             let snapshot = reader.segment_stats_snapshot();
-            let idx = snapshot.segment_ids().position(|id| id == segment).unwrap();
-            assert!(
-                snapshot.may_intersect_partition(idx, &id, &lower, &upper, false),
-                "a segment without readable statistics may hold any partition"
+            for attempt in 1..=2 {
+                assert_eq!(
+                    snapshot
+                        .segments_intersecting_partition(&id, &range)
+                        .collect::<Vec<_>>(),
+                    vec![segment],
+                    "only the segment with unreadable statistics must be retained: {operation:?}"
+                );
+                let expected_hits = if operation == InjectedStatsFailure::Open {
+                    1
+                } else {
+                    attempt
+                };
+                assert_eq!(
+                    failure.hits(),
+                    expected_hits,
+                    "the real operation must reach its injected error; failed opens are cached"
+                );
+            }
+            assert_eq!(
+                reader.search().count(),
+                20,
+                "statistics failures must preserve query results"
+            );
+            drop(failure);
+            let recovered = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+            assert_eq!(
+                recovered
+                    .segment_stats_snapshot()
+                    .segments_intersecting_partition(&id, &range)
+                    .count(),
+                0,
+                "a new snapshot must not inherit another execution's failed read"
             );
         }
     }
@@ -2200,18 +2236,23 @@ mod tests {
 
         let snapshot = reader.segment_stats_snapshot();
         let id = reader.schema().search_field("id").unwrap();
-        let (lower, upper) = (Bound::Unbounded, Bound::Unbounded);
-        let consult = || {
-            (0..snapshot.segment_ids().len())
-                .all(|idx| snapshot.may_intersect_partition(idx, &id, &lower, &upper, false))
+        let range = crate::scan::range_partitioning::PartitionRange {
+            lower: Bound::Unbounded,
+            upper: Bound::Unbounded,
+            includes_nulls: true,
         };
-        assert!(consult());
+        let consult = || {
+            snapshot
+                .segments_intersecting_partition(&id, &range)
+                .count()
+        };
+        assert_eq!(consult(), 4);
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
             4,
             "the first read of each immutable segment opens its .stats exactly once"
         );
-        assert!(consult());
+        assert_eq!(consult(), 4);
         assert_eq!(
             STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
             4,

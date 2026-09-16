@@ -147,7 +147,7 @@ mod tests {
 
     #[pg_test]
     fn matches_scan_by_deferred_ctid_plan_position() {
-        let ffhelper = Arc::new(FFHelper::empty());
+        let ffhelper = Arc::new(FFHelper::default());
         let scan = PgSearchScanPlan::new(
             None,
             empty_schema(),
@@ -196,7 +196,7 @@ mod tests {
         use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 
         let schema = sort_schema();
-        let ffhelper = Arc::new(FFHelper::empty());
+        let ffhelper = Arc::new(FFHelper::default());
         let scan = PgSearchScanPlan::new(
             None,
             schema.clone(),
@@ -214,7 +214,7 @@ mod tests {
             Arc::new(scan),
             dummy_lex_ordering(&schema),
             vec![],
-            ffhelper,
+            crate::api::HashMap::default(),
             5,
             None,
             None,
@@ -234,7 +234,7 @@ mod tests {
 
         let plan_pos = 3_usize;
         let schema = sort_schema();
-        let ffhelper_scan = Arc::new(FFHelper::empty());
+        let ffhelper_scan = Arc::new(FFHelper::default());
         let scan = PgSearchScanPlan::new(
             None,
             schema.clone(),
@@ -257,7 +257,7 @@ mod tests {
             Arc::new(scan),
             dummy_lex_ordering(&schema),
             vec![],
-            Arc::new(FFHelper::empty()),
+            crate::api::HashMap::default(),
             5,
             Some(vis_data),
             None,

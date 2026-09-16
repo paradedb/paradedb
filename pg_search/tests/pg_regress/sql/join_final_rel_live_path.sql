@@ -22,19 +22,19 @@ CREATE TABLE jflp_users (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, 
 CREATE TABLE jflp_products (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
 CREATE TABLE jflp_orders (id SERIAL8 NOT NULL PRIMARY KEY, uuid UUID, name TEXT, color VARCHAR, age INTEGER, quantity INTEGER);
 
-CREATE INDEX idxusers ON jflp_users USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_users_idx ON jflp_users USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxproducts ON jflp_products USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_products_idx ON jflp_products USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
     target_segment_count = 2
 );
-CREATE INDEX idxorders ON jflp_orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
+CREATE INDEX jflp_orders_idx ON jflp_orders USING bm25 (id, uuid, name, color, age, quantity) WITH (
     text_fields = '{ "uuid": { "tokenizer": { "type": "keyword" }, "fast": true }, "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }',
     numeric_fields = '{ "age": { "fast": true }, "quantity": { "fast": true } }',
     sort_by = 'age DESC NULLS LAST',
@@ -63,9 +63,9 @@ SELECT md5((i * 3)::text)::uuid,
        CASE WHEN i % 10 = 0 THEN NULL ELSE i END
 FROM generate_series(1, 11) i;
 
-CREATE INDEX idxusers_uuid ON jflp_users (uuid);
-CREATE INDEX idxproducts_uuid ON jflp_products (uuid);
-CREATE INDEX idxorders_uuid ON jflp_orders (uuid);
+CREATE INDEX jflp_users_uuid_idx ON jflp_users (uuid);
+CREATE INDEX jflp_products_uuid_idx ON jflp_products (uuid);
+CREATE INDEX jflp_orders_uuid_idx ON jflp_orders (uuid);
 ANALYZE jflp_users;
 ANALYZE jflp_products;
 ANALYZE jflp_orders;

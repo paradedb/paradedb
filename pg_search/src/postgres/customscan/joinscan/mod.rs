@@ -2258,12 +2258,12 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
-        let join_rel = planning::find_final_rel(root);
-        let lower_rel = if !join_rel.is_null() {
-            &*join_rel
-        } else {
-            input_rel
+        // `input_rel` is the last upper rel below FINAL, so its own paths are
+        // still live; the join rel's `cheapest_total_path` may not be.
+        let Some(lower_path) = planning::find_live_lower_path(root, input_rel) else {
+            return Err(JoinPathDecline::Quiet);
         };
+        let lower_rel = &*(*lower_path).parent;
 
         let sources = datafusion_build::collect_join_agg_sources(root, lower_rel);
         if sources.is_empty() {
@@ -2308,7 +2308,7 @@ impl JoinScan {
 
         // Inspect lower join path predicates
         let path_info = match datafusion_build::check_join_path_predicates(
-            root, lower_rel, &sources,
+            root, lower_path, &sources,
         ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {

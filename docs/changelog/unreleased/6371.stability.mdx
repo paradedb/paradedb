@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a backend abort when the join scan planned a query with `ORDER BY` and parallel paths. The planner could free the join path the scan inspected before the scan ran, and debug builds aborted on the stale pointer (#6364).

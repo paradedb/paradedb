@@ -1159,7 +1159,7 @@ impl PathPredicateDeclineReason {
 /// correctly applied as post-join filters, so the DataFusion path declines.
 fn analyze_join_path_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
-    input_rel: &pg_sys::RelOptInfo,
+    path: *mut pg_sys::Path,
     sources: &[JoinAggSource],
 ) -> PathRestrictInfo {
     let mut info = PathRestrictInfo {
@@ -1175,7 +1175,6 @@ fn analyze_join_path_restrictinfo(
     {
         collect_on_clause_nodes(unsafe { (*(*root).parse).jointree.cast() }, &mut on_clauses);
     }
-    let path = input_rel.cheapest_total_path;
     if !path.is_null() {
         let cx = PathWalkContext {
             root,
@@ -1405,12 +1404,16 @@ fn walk_path_restrictinfo(
 
 /// Validate that the selected lower path has complete, supported
 /// join-predicate coverage.
+///
+/// `path` must still be owned by a live pathlist. Upper-rel `add_path` calls
+/// pfree the paths they dominate, so a lower rel's `cheapest_total_path` is
+/// not a safe handle once later planner stages have run.
 pub fn check_join_path_predicates(
     root: *mut pg_sys::PlannerInfo,
-    input_rel: &pg_sys::RelOptInfo,
+    path: *mut pg_sys::Path,
     sources: &[JoinAggSource],
 ) -> JoinPathPredicateCheck {
-    let info = analyze_join_path_restrictinfo(root, input_rel, sources);
+    let info = analyze_join_path_restrictinfo(root, path, sources);
     match info.coverage {
         PathPredicateCoverage::Incomplete(tag) => JoinPathPredicateCheck::IncompletePath(tag),
         PathPredicateCoverage::Complete if let Some(reason) = info.decline_reason => {

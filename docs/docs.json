@@ -326,7 +326,7 @@
                       "project/changelog/0.25.1",
                       "project/changelog/0.25.0"
                     ],
-                    "expanded": false
+                    "expanded": true
                   },
                   {
                     "group": "Older",

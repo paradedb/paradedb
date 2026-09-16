@@ -5,7 +5,9 @@
 -- raised: "The right-hand side of the `|||(field, TEXT)` operator must be a
 -- text value".
 --
--- Both cases below must return the same rows as a non-parameterized query.
+-- The queries use two tokens so the disjunction is distinguishable from the
+-- `&&&` conjunction on the same fixture, and each prepared statement runs a
+-- second value so the plans are not specific to one parameter.
 
 CREATE TABLE issue_5779_ororor_repro (
     id int,
@@ -25,11 +27,13 @@ CREATE INDEX issue_5779_ororor_idx ON issue_5779_ororor_repro
 -- Baseline: the same query as a literal must return the fuzzy match set.
 SELECT id, title_x
 FROM issue_5779_ororor_repro
-WHERE (title_x ||| 'quick'::pdb.fuzzy(2, f, t))
+WHERE (title_x ||| 'quick fox'::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
--- Case 1: plan_cache_mode = auto.
+-- Case 1: plan_cache_mode = auto. Postgres uses custom plans for the first 5
+-- executions and may switch to a generic plan on the 6th. The reproducer must
+-- not error on execution 6.
 SET plan_cache_mode = auto;
 
 PREPARE issue_5779_ororor_auto(text) AS
@@ -39,17 +43,19 @@ WHERE (title_x ||| $1::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
-EXECUTE issue_5779_ororor_auto('quick');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('quick fox');
+EXECUTE issue_5779_ororor_auto('lazy dog');
 
 DEALLOCATE issue_5779_ororor_auto;
 
--- Case 2: plan_cache_mode = force_generic_plan.
+-- Case 2: plan_cache_mode = force_generic_plan. Fails on the very first
+-- execution before the fix.
 SET plan_cache_mode = force_generic_plan;
 
 PREPARE issue_5779_ororor_generic(text) AS
@@ -59,9 +65,67 @@ WHERE (title_x ||| $1::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
-EXECUTE issue_5779_ororor_generic('quick');
+EXECUTE issue_5779_ororor_generic('quick fox');
+EXECUTE issue_5779_ororor_generic('lazy dog');
 
 DEALLOCATE issue_5779_ororor_generic;
+
+-- Case 3: the text[] overloads under a generic plan, with and without a fuzzy
+-- typmod. The plain cast carries no fuzzy data and must stay an exact match
+-- array instead of tripping the MatchArray conversion.
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_ororor_arr(text[]) AS
+SELECT id, title_x
+FROM issue_5779_ororor_repro
+WHERE (title_x ||| $1::pdb.fuzzy(2, f, t))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_ororor_arr(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_ororor_arr(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_ororor_arr;
+
+PREPARE issue_5779_ororor_arr_plain(text[]) AS
+SELECT id, title_x
+FROM issue_5779_ororor_repro
+WHERE (title_x ||| $1::pdb.fuzzy)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_ororor_arr_plain(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_ororor_arr_plain(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_ororor_arr_plain;
+
+-- Case 4: a finished query is rejected at plan time under a custom plan, and
+-- the generic plan must reject it the same way instead of running it.
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_5779_ororor_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_ororor_repro
+WHERE (title_x ||| $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_ororor_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_ororor_classified;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_ororor_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_ororor_repro
+WHERE (title_x ||| $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_ororor_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_ororor_classified;
 
 RESET plan_cache_mode;
 

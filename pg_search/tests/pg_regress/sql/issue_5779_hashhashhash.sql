@@ -48,6 +48,7 @@ EXECUTE issue_5779_hashhashhash_auto('quick brown');
 EXECUTE issue_5779_hashhashhash_auto('quick brown');
 EXECUTE issue_5779_hashhashhash_auto('quick brown');
 EXECUTE issue_5779_hashhashhash_auto('quick brown');
+EXECUTE issue_5779_hashhashhash_auto('lazy dog');
 
 DEALLOCATE issue_5779_hashhashhash_auto;
 
@@ -62,8 +63,65 @@ WHERE (title_x ### $1::pdb.slop(3))
 ORDER BY id;
 
 EXECUTE issue_5779_hashhashhash_generic('quick brown');
+EXECUTE issue_5779_hashhashhash_generic('lazy dog');
 
 DEALLOCATE issue_5779_hashhashhash_generic;
+
+-- Case 3: the text[] overloads under a generic plan, with and without a slop
+-- typmod. The plain cast carries no slop data and must stay an exact phrase.
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_hashhashhash_arr(text[]) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop(3))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_hashhashhash_arr(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_hashhashhash_arr(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_hashhashhash_arr;
+
+PREPARE issue_5779_hashhashhash_arr_plain(text[]) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_hashhashhash_arr_plain(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_hashhashhash_arr_plain(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_hashhashhash_arr_plain;
+
+-- Case 4: a finished query is rejected at plan time under a custom plan, and
+-- the generic plan must reject it the same way instead of running it.
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_5779_hashhashhash_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_hashhashhash_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_hashhashhash_classified;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_hashhashhash_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_hashhashhash_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_hashhashhash_classified;
 
 RESET plan_cache_mode;
 

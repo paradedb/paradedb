@@ -5,7 +5,9 @@
 -- raised: "The right-hand side of the `&&&(field, TEXT)` operator must be a
 -- text value".
 --
--- Both cases below must return the same rows as a non-parameterized query.
+-- The queries use two tokens so the conjunction is distinguishable from the
+-- `|||` disjunction on the same fixture, and each prepared statement runs a
+-- second value so the plans are not specific to one parameter.
 
 CREATE TABLE issue_5779_andandand_repro (
     id int,
@@ -25,7 +27,7 @@ CREATE INDEX issue_5779_andandand_idx ON issue_5779_andandand_repro
 -- Baseline: the same query as a literal must return the fuzzy match set.
 SELECT id, title_x
 FROM issue_5779_andandand_repro
-WHERE (title_x &&& 'quick'::pdb.fuzzy(2, f, t))
+WHERE (title_x &&& 'quick fox'::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
@@ -41,13 +43,14 @@ WHERE (title_x &&& $1::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
-EXECUTE issue_5779_andandand_auto('quick');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('quick fox');
+EXECUTE issue_5779_andandand_auto('lazy dog');
 
 DEALLOCATE issue_5779_andandand_auto;
 
@@ -62,9 +65,67 @@ WHERE (title_x &&& $1::pdb.fuzzy(2, f, t))
   AND (id @@@ pdb.all())
 ORDER BY id;
 
-EXECUTE issue_5779_andandand_generic('quick');
+EXECUTE issue_5779_andandand_generic('quick fox');
+EXECUTE issue_5779_andandand_generic('lazy dog');
 
 DEALLOCATE issue_5779_andandand_generic;
+
+-- Case 3: the text[] overloads under a generic plan, with and without a fuzzy
+-- typmod. The plain cast carries no fuzzy data and must stay an exact match
+-- array instead of tripping the MatchArray conversion.
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_andandand_arr(text[]) AS
+SELECT id, title_x
+FROM issue_5779_andandand_repro
+WHERE (title_x &&& $1::pdb.fuzzy(2, f, t))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_andandand_arr(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_andandand_arr(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_andandand_arr;
+
+PREPARE issue_5779_andandand_arr_plain(text[]) AS
+SELECT id, title_x
+FROM issue_5779_andandand_repro
+WHERE (title_x &&& $1::pdb.fuzzy)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_andandand_arr_plain(ARRAY['quick', 'brown']);
+EXECUTE issue_5779_andandand_arr_plain(ARRAY['lazy', 'dog']);
+
+DEALLOCATE issue_5779_andandand_arr_plain;
+
+-- Case 4: a finished query is rejected at plan time under a custom plan, and
+-- the generic plan must reject it the same way instead of running it.
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_5779_andandand_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_andandand_repro
+WHERE (title_x &&& $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_andandand_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_andandand_classified;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_5779_andandand_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_andandand_repro
+WHERE (title_x &&& $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+
+EXECUTE issue_5779_andandand_classified(pdb.term('quick'));
+
+DEALLOCATE issue_5779_andandand_classified;
 
 RESET plan_cache_mode;
 

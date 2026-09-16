@@ -284,8 +284,17 @@ pub fn locate_owned_value_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<G
 ///
 /// An equality term against a literal that is not on the grid can never match a stored value,
 /// so callers turn it into an empty query rather than rounding it onto a neighbour.
+///
+/// Literals that are not ordinary decimals — `NaN` and the infinities, which PostgreSQL accepts
+/// as `numeric` values — report `true`. They have no place on the grid, and the point of the
+/// grid check is only to catch a literal that was silently rounded onto a neighbour. Saying
+/// `true` here leaves them to the existing scaling path, which has dedicated representations
+/// for them, so their behaviour is unchanged.
 pub fn literal_is_on_grid(value: &PdbOwnedValue, scale: i16) -> Result<bool> {
-    Ok(locate_owned_value_on_grid(value, scale)?.is_exact())
+    match locate_owned_value_on_grid(value, scale) {
+        Ok(position) => Ok(position.is_exact()),
+        Err(_) => Ok(true),
+    }
 }
 
 // ============================================================================
@@ -525,18 +534,29 @@ pub fn scale_numeric_bound(
         Bound::Excluded(v) => (v, false),
     };
 
-    match locate_owned_value_on_grid(&value, scale)? {
-        GridPosition::Exact(scaled) => Ok(if inclusive {
+    match locate_owned_value_on_grid(&value, scale) {
+        Ok(GridPosition::Exact(scaled)) => Ok(if inclusive {
             Bound::Included(PdbOwnedValue::I64(scaled))
         } else {
             Bound::Excluded(PdbOwnedValue::I64(scaled))
         }),
-        position @ GridPosition::Between { .. } => {
+        Ok(position @ GridPosition::Between { .. }) => {
             let grid = match side {
                 BoundSide::Lower => position.ceil(),
                 BoundSide::Upper => position.floor(),
             };
             Ok(Bound::Included(PdbOwnedValue::I64(grid)))
+        }
+        // Not an ordinary decimal — `NaN`, the infinities, or a value out of `i64` range. The
+        // grid has nothing to say about these, so hand them back to the path that handled them
+        // before this function learned about grids, and keep its behaviour exactly.
+        Err(_) => {
+            let scaled = scale_owned_value(value, scale)?;
+            Ok(if inclusive {
+                Bound::Included(scaled)
+            } else {
+                Bound::Excluded(scaled)
+            })
         }
     }
 }
@@ -954,6 +974,34 @@ mod tests {
             scale_numeric_bound(Bound::Unbounded, 2, BoundSide::Upper).unwrap(),
             Bound::Unbounded
         );
+    }
+
+    #[test]
+    fn test_special_values_fall_back_to_the_previous_path() {
+        // `NaN` and the infinities are valid PostgreSQL numerics but are not points on any
+        // grid, so the parser rejects them outright.
+        assert!(locate_on_grid("NaN", 2).is_err());
+        assert!(locate_on_grid("Infinity", 2).is_err());
+
+        // The callers must not turn that into a failed query. `literal_is_on_grid` reports
+        // `true` so the term is built by the existing path rather than dropped.
+        assert!(literal_is_on_grid(&s("NaN"), 2).unwrap());
+        assert!(literal_is_on_grid(&s("Infinity"), 2).unwrap());
+        assert!(literal_is_on_grid(&s("-Infinity"), 2).unwrap());
+
+        // And a bound carrying one of them scales exactly as it did before.
+        for literal in ["NaN", "Infinity", "-Infinity"] {
+            let via_bound = scale_numeric_bound(Bound::Included(s(literal)), 2, BoundSide::Upper);
+            let via_previous_path = scale_owned_value(s(literal), 2);
+            assert_eq!(
+                via_bound.is_ok(),
+                via_previous_path.is_ok(),
+                "{literal} changed whether the conversion succeeds"
+            );
+            if let (Ok(Bound::Included(from_bound)), Ok(direct)) = (via_bound, via_previous_path) {
+                assert_eq!(from_bound, direct, "{literal} scaled to a different value");
+            }
+        }
     }
 
     #[test]

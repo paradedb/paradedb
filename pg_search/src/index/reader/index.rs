@@ -35,7 +35,6 @@ use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -239,12 +238,12 @@ pub struct MultiSegmentSearchResults {
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
-    /// Cumulative execution-time dynamic proofs are installed as Top-K thresholds evolve.
-    /// Deferred scorers consult this set before opening; an already-active segment is dropped at
-    /// the next batch boundary if it has become impossible.
-    runtime_rejected: Arc<HashSet<SegmentId>>,
+    /// The cumulative execution-time proof, installed as dynamic filters evolve. A deferred
+    /// scorer consults it before opening; an active segment is dropped at the next batch
+    /// boundary once proven impossible.
+    runtime_truth: Option<Arc<SegmentTruthTable>>,
     /// Segments this scan opened, or would have opened, and dropped because of
-    /// `runtime_rejected`. Counted where the skip happens so statically pruned segments and
+    /// `runtime_truth`. Counted where the skip happens so statically pruned segments and
     /// segments owned by other parallel workers are never reported.
     runtime_skipped: usize,
 }
@@ -271,10 +270,16 @@ impl Iterator for TopKSearchResults {
 }
 
 impl MultiSegmentSearchResults {
+    fn proven_impossible(&self, iterator: &ScorerIter) -> bool {
+        self.runtime_truth
+            .as_ref()
+            .is_some_and(|truth| truth.for_segment(iterator.segment_id()) == SegmentTruth::Never)
+    }
+
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
         loop {
             if let Some(current) = self.iterators.last()
-                && self.runtime_rejected.contains(&current.segment_id())
+                && self.proven_impossible(current)
             {
                 self.iterators.pop();
                 self.runtime_skipped += 1;
@@ -284,7 +289,7 @@ impl MultiSegmentSearchResults {
                 return self.iterators.last_mut();
             }
             let next = self.lazy_iterators.as_mut()?.next()?;
-            if self.runtime_rejected.contains(&next.segment_id()) {
+            if self.proven_impossible(&next) {
                 self.runtime_skipped += 1;
                 continue;
             }
@@ -300,18 +305,13 @@ impl MultiSegmentSearchResults {
         self.iterators.iter().map(|it| it.segment_id()).collect()
     }
 
-    pub(crate) fn replace_runtime_rejected(&mut self, rejected: Arc<HashSet<SegmentId>>) {
-        assert!(
-            Arc::ptr_eq(&rejected, &self.runtime_rejected)
-                || rejected.is_superset(&self.runtime_rejected),
-            "execution-time segment rejections accumulate within one scan"
-        );
-        self.runtime_rejected = rejected;
+    pub(crate) fn replace_runtime_truth(&mut self, truth: Arc<SegmentTruthTable>) {
+        self.runtime_truth = Some(truth);
     }
 
-    /// Segments skipped because of runtime rejection since the last call.
-    pub(crate) fn take_runtime_skipped(&mut self) -> usize {
-        std::mem::take(&mut self.runtime_skipped)
+    /// Segments skipped because of runtime rejection.
+    pub(crate) fn runtime_skipped(&self) -> usize {
+        self.runtime_skipped
     }
 
     /// Returns the total estimated number of documents across all segments in these results.
@@ -347,7 +347,7 @@ impl MultiSegmentSearchResults {
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
-            runtime_rejected: Default::default(),
+            runtime_truth: None,
             runtime_skipped: 0,
         }
     }
@@ -425,30 +425,6 @@ pub struct SearchIndexReader {
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
     _cleanup_lock: Arc<PinnedBuffer>,
-}
-
-/// One inverted-index pushdown and the canonical values its terms were built from. The query is
-/// built by the constructor from the stored values, so the proof and the query cannot come from
-/// different value sets.
-pub(crate) struct PushedDownInList {
-    query: Box<dyn Query>,
-    field_name: FieldName,
-    canonical_terms: Vec<PdbOwnedValue>,
-}
-
-impl PushedDownInList {
-    pub(crate) fn new(
-        field_name: FieldName,
-        canonical_terms: Vec<PdbOwnedValue>,
-        query_from: impl FnOnce(&[PdbOwnedValue]) -> Option<Box<dyn Query>>,
-    ) -> Option<Self> {
-        let query = query_from(&canonical_terms)?;
-        Some(Self {
-            query,
-            field_name,
-            canonical_terms,
-        })
-    }
 }
 
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
@@ -1091,7 +1067,7 @@ impl SearchIndexReader {
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
-            runtime_rejected: Default::default(),
+            runtime_truth: None,
             runtime_skipped: 0,
         }
     }
@@ -1180,7 +1156,7 @@ impl SearchIndexReader {
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
-            runtime_rejected: Default::default(),
+            runtime_truth: None,
             runtime_skipped: 0,
         }
     }
@@ -2215,9 +2191,7 @@ mod tests {
     use crate::index::stats::SegmentStats;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
-    use crate::scan::pre_filter::{
-        DynamicSegmentPruner, dynamically_rejected_segments, try_dynamic_filter_pushdown,
-    };
+    use crate::scan::pre_filter::{DynamicSegmentPruner, try_dynamic_filter_pushdown};
     use crate::scan::range_partitioning::RangePartitioning;
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field as ArrowField, Schema as ArrowSchema};
@@ -2258,6 +2232,30 @@ mod tests {
         (Arc::clone(&dynamic), dynamic as Arc<dyn PhysicalExpr>)
     }
 
+    fn dynamic(
+        column: Arc<dyn PhysicalExpr>,
+        predicate: Arc<dyn PhysicalExpr>,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(DynamicFilterPhysicalExpr::new(vec![column], predicate))
+    }
+
+    fn single_field_schema(name: &str, data_type: DataType) -> Arc<ArrowSchema> {
+        Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            name, data_type, false,
+        )]))
+    }
+
+    /// Runs `setup`, then opens the index it created.
+    fn index_from_sql(index_name: &str, setup: &str) -> PgSearchRelation {
+        Spi::run(setup).unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{index_name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        PgSearchRelation::open(index_oid)
+    }
+
     fn dynamic_schema() -> Arc<ArrowSchema> {
         Arc::new(ArrowSchema::new(vec![
             ArrowField::new("id", DataType::Int64, false),
@@ -2265,11 +2263,28 @@ mod tests {
         ]))
     }
 
+    /// The proof a fresh pruner derives from `filters`; uniform `Maybe` when nothing lowers.
+    fn proven_truth(
+        reader: &SearchIndexReader,
+        filters: &[Arc<dyn PhysicalExpr>],
+        schema: &Arc<ArrowSchema>,
+    ) -> Arc<SegmentTruthTable> {
+        DynamicSegmentPruner::new(filters)
+            .refresh(reader, schema)
+            .unwrap_or_else(|| {
+                SegmentTruthTable::uniform(
+                    Arc::clone(reader.segment_stats_snapshot()),
+                    SegmentTruth::Maybe,
+                )
+            })
+    }
+
     fn rejected_segments(
         reader: &SearchIndexReader,
         filters: &[Arc<dyn PhysicalExpr>],
-    ) -> Arc<HashSet<SegmentId>> {
-        dynamically_rejected_segments(reader, filters, &dynamic_schema())
+        schema: &Arc<ArrowSchema>,
+    ) -> HashSet<SegmentId> {
+        proven_truth(reader, filters, schema).rejected()
     }
 
     fn range_query(field: &str, lower: i64, upper: i64) -> SearchQueryInput {
@@ -3273,16 +3288,18 @@ mod tests {
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let (dynamic, dynamic_expr) = dynamic_i64_bound(Operator::Gt, 0);
 
-        assert!(rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]).is_empty());
+        assert!(
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema()).is_empty()
+        );
         dynamic
             .update(binary(column("id", 0), Operator::Gt, int_literal(25)))
             .unwrap();
-        let rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]);
-        assert_eq!(rejected.len(), 2, "1..20 cannot satisfy id > 25");
+        let truth = proven_truth(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema());
+        assert_eq!(truth.rejected().len(), 2, "1..20 cannot satisfy id > 25");
 
         SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
         let mut remaining = reader.search();
-        remaining.replace_runtime_rejected(rejected);
+        remaining.replace_runtime_truth(truth);
         assert_eq!(
             remaining.by_ref().count(),
             20,
@@ -3294,11 +3311,10 @@ mod tests {
             "dynamically rejected deferred scorers must never open"
         );
         assert_eq!(
-            remaining.take_runtime_skipped(),
+            remaining.runtime_skipped(),
             2,
             "each rejected deferred segment is skipped exactly once"
         );
-        assert_eq!(remaining.take_runtime_skipped(), 0);
 
         // Activate one scorer, then choose a direction whose tighter bound rejects that segment.
         // This models a Top-K cutoff becoming selective between scanner batches.
@@ -3309,7 +3325,8 @@ mod tests {
             .searcher()
             .segment_reader(first_address.segment_ord)
             .segment_id();
-        let gt_rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]);
+        let gt_rejected =
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema());
         let (op, broad, tight) = if gt_rejected.contains(&active_segment) {
             (Operator::Gt, 0, 25)
         } else {
@@ -3318,17 +3335,20 @@ mod tests {
         dynamic
             .update(binary(column("id", 0), op, int_literal(broad)))
             .unwrap();
-        assert!(rejected_segments(&reader, &[Arc::clone(&dynamic_expr)]).is_empty());
+        assert!(
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema()).is_empty()
+        );
         dynamic
             .update(binary(column("id", 0), op, int_literal(tight)))
             .unwrap();
-        let rejected = rejected_segments(&reader, &[dynamic_expr]);
+        let truth = proven_truth(&reader, &[dynamic_expr], &dynamic_schema());
+        let rejected = truth.rejected();
         assert_eq!(rejected.len(), 2);
         assert!(
             rejected.contains(&active_segment),
             "the tightened bound must make the active segment impossible"
         );
-        active.replace_runtime_rejected(rejected);
+        active.replace_runtime_truth(truth);
         assert_eq!(active.by_ref().count(), 20);
         assert_eq!(
             SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
@@ -3336,7 +3356,7 @@ mod tests {
             "one active scorer plus two possible segments; the fourth never opens"
         );
         assert_eq!(
-            active.take_runtime_skipped(),
+            active.runtime_skipped(),
             2,
             "the abandoned active segment and the never-opened segment are both skipped"
         );
@@ -3344,7 +3364,8 @@ mod tests {
 
     #[pg_test]
     fn dynamic_segment_pruning_retains_proofs_when_precision_regresses() {
-        Spi::run(
+        let index_rel = index_from_sql(
+            "dynamic_nan_pruning_test_idx",
             "CREATE TABLE dynamic_nan_pruning_test (
                  id bigint PRIMARY KEY,
                  value double precision NOT NULL
@@ -3358,25 +3379,12 @@ mod tests {
              INSERT INTO dynamic_nan_pruning_test VALUES (2, 10.0);
              INSERT INTO dynamic_nan_pruning_test VALUES (3, 'NaN');
              RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'dynamic_nan_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
+        );
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let snapshot = reader.segment_stats_snapshot();
         assert_eq!(snapshot.len(), 3, "the fixture must contain three segments");
 
-        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
-            "value",
-            DataType::Float64,
-            false,
-        )]));
+        let schema = single_field_schema("value", DataType::Float64);
         let value = column("value", 0);
         let above_negative_one = binary(
             Arc::clone(&value),
@@ -3399,15 +3407,16 @@ mod tests {
             pruner
                 .refresh(&reader, &schema)
                 .expect("the first generation must be evaluated")
+                .rejected()
                 .is_empty(),
             "value > -1 cannot reject any fixture segment"
         );
         dynamic.update(Arc::clone(&above_five)).unwrap();
-        let rejected_above_five = pruner
+        let above_five_truth = pruner
             .refresh(&reader, &schema)
             .expect("the finite update must be evaluated");
         assert_eq!(
-            rejected_above_five.len(),
+            above_five_truth.rejected().len(),
             1,
             "value > 5 proves the segment containing only zero impossible"
         );
@@ -3450,22 +3459,23 @@ mod tests {
 
         dynamic.update(above_nan).unwrap();
         assert!(
-            dynamically_rejected_segments(&reader, &[dynamic_expr], &schema).is_empty(),
+            rejected_segments(&reader, &[dynamic_expr], &schema).is_empty(),
             "NaN deliberately makes a fresh statistics proof fail open"
         );
-        let rejected_above_nan = pruner
+        let above_nan_truth = pruner
             .refresh(&reader, &schema)
             .expect("the updated generation must be evaluated");
         assert_eq!(
-            rejected_above_nan, rejected_above_five,
+            above_nan_truth.rejected(),
+            above_five_truth.rejected(),
             "a tighter filter must retain every rejection proven by an earlier generation"
         );
 
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected_above_five);
-        results.replace_runtime_rejected(rejected_above_nan);
+        results.replace_runtime_truth(above_five_truth);
+        results.replace_runtime_truth(above_nan_truth);
         assert_eq!(results.by_ref().count(), 2);
-        assert_eq!(results.take_runtime_skipped(), 1);
+        assert_eq!(results.runtime_skipped(), 1);
     }
 
     #[pg_test]
@@ -3475,27 +3485,27 @@ mod tests {
         let membership = |negated: bool| {
             let id = column("id", 0);
             let members = vec![int_literal(15), int_literal(16)];
-            Arc::new(DynamicFilterPhysicalExpr::new(
-                vec![Arc::clone(&id)],
+            dynamic(
+                Arc::clone(&id),
                 in_list(id, members, &negated, &dynamic_schema()).unwrap(),
-            )) as Arc<dyn PhysicalExpr>
+            )
         };
 
-        let rejected = rejected_segments(&reader, &[membership(false)]);
+        let truth = proven_truth(&reader, &[membership(false)], &dynamic_schema());
         assert_eq!(
-            rejected.len(),
+            truth.rejected().len(),
             3,
             "only the segment holding 11..20 can contain 15 or 16"
         );
         assert!(
-            rejected_segments(&reader, &[membership(true)]).is_empty(),
+            rejected_segments(&reader, &[membership(true)], &dynamic_schema()).is_empty(),
             "NOT IN can only reject a segment whose every row equals a member"
         );
 
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         assert_eq!(results.by_ref().count(), 10);
-        assert_eq!(results.take_runtime_skipped(), 3);
+        assert_eq!(results.runtime_skipped(), 3);
     }
 
     #[pg_test]
@@ -3528,19 +3538,19 @@ mod tests {
             "the skipped membership predicate is rewritten out of the row filter"
         );
 
-        let rejected = pruner
+        let truth = pruner
             .refresh(&reader, &dynamic_schema())
             .expect("the original source still publishes the membership predicate");
         assert_eq!(
-            rejected.len(),
+            truth.rejected().len(),
             3,
             "every segment outside 11..20 is impossible"
         );
 
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         assert_eq!(results.by_ref().count(), 10);
-        assert_eq!(results.take_runtime_skipped(), 3);
+        assert_eq!(results.runtime_skipped(), 3);
     }
 
     #[pg_test]
@@ -3551,25 +3561,22 @@ mod tests {
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let (_, id_filter) = dynamic_i64_bound(Operator::Gt, 20);
         let bucket = column("bucket", 1);
-        let bucket_filter = Arc::new(DynamicFilterPhysicalExpr::new(
-            vec![Arc::clone(&bucket)],
+        let bucket_filter = dynamic(
+            Arc::clone(&bucket),
             binary(bucket, Operator::Lt, int_literal(300)),
-        )) as Arc<dyn PhysicalExpr>;
-        let rejected = rejected_segments(&reader, &[id_filter, bucket_filter]);
-        assert_eq!(rejected.len(), 3);
+        );
+        let truth = proven_truth(&reader, &[id_filter, bucket_filter], &dynamic_schema());
+        assert_eq!(truth.rejected().len(), 3);
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(results.count(), 10);
         assert_eq!(SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed), 1);
 
         let bucket = column("bucket", 1);
-        let null_filter = Arc::new(DynamicFilterPhysicalExpr::new(
-            vec![Arc::clone(&bucket)],
-            is_null(bucket).unwrap(),
-        )) as Arc<dyn PhysicalExpr>;
+        let null_filter = dynamic(Arc::clone(&bucket), is_null(bucket).unwrap());
         assert_eq!(
-            rejected_segments(&reader, &[null_filter]).len(),
+            rejected_segments(&reader, &[null_filter], &dynamic_schema()).len(),
             4,
             "IS NULL rejects every segment whose statistics prove bucket is always present"
         );
@@ -3577,7 +3584,8 @@ mod tests {
 
     #[pg_test]
     fn dynamic_numeric64_comparisons_use_storage_scale() {
-        Spi::run(
+        let index_rel = index_from_sql(
+            "dynamic_numeric64_pruning_test_idx",
             "CREATE TABLE dynamic_numeric64_pruning_test (
                  id bigint PRIMARY KEY,
                  price numeric(10, 2) NOT NULL
@@ -3591,16 +3599,7 @@ mod tests {
              INSERT INTO dynamic_numeric64_pruning_test
              SELECT g, g::numeric(10, 2) FROM generate_series(10, 20) g;
              RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'dynamic_numeric64_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
+        );
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let price_field = reader.schema().search_field("price").unwrap();
         assert!(
@@ -3617,42 +3616,39 @@ mod tests {
         // DataFusion exposes Numeric64 fast fields as storage-scaled Int64 values. For scale 2,
         // 15.00 arrives as 1500. Treating 1500 as a logical value would scale it again to 150000
         // and incorrectly reject the segment containing prices 10.00 through 20.00.
-        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
-            "price",
-            DataType::Int64,
-            false,
-        )]));
+        let schema = single_field_schema("price", DataType::Int64);
         let price_above = |storage_value: i64| {
             let price = column("price", 0);
-            Arc::new(DynamicFilterPhysicalExpr::new(
-                vec![Arc::clone(&price)],
+            dynamic(
+                Arc::clone(&price),
                 binary(price, Operator::Gt, int_literal(storage_value)),
-            )) as Arc<dyn PhysicalExpr>
+            )
         };
 
-        let rejected = dynamically_rejected_segments(&reader, &[price_above(1500)], &schema);
+        let truth = proven_truth(&reader, &[price_above(1500)], &schema);
         assert!(
-            rejected.is_empty(),
+            truth.rejected().is_empty(),
             "a storage-scaled bound inside the segment's range must not reject it"
         );
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         assert_eq!(results.count(), 11);
 
-        let rejected = dynamically_rejected_segments(&reader, &[price_above(2000)], &schema);
+        let truth = proven_truth(&reader, &[price_above(2000)], &schema);
         assert_eq!(
-            rejected.len(),
+            truth.rejected().len(),
             snapshot.len(),
             "a storage-scaled bound above the segment's maximum rejects it"
         );
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         assert_eq!(results.count(), 0);
     }
 
     #[pg_test]
     fn dynamic_cast_comparisons_fail_open() {
-        Spi::run(
+        let index_rel = index_from_sql(
+            "dynamic_cast_pruning_test_idx",
             "CREATE TABLE dynamic_cast_pruning_test (
                  id bigint PRIMARY KEY,
                  f double precision NOT NULL
@@ -3664,16 +3660,7 @@ mod tests {
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO dynamic_cast_pruning_test VALUES (1, 2.1);
              RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'dynamic_cast_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
+        );
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         let search_field = reader.schema().search_field("f").unwrap();
         assert!(
@@ -3687,11 +3674,7 @@ mod tests {
             "the fixture must have readable statistics so missing stats cannot make the test pass"
         );
 
-        let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
-            "f",
-            DataType::Float64,
-            false,
-        )]));
+        let schema = single_field_schema("f", DataType::Float64);
         let f = column("f", 0);
         let cast =
             Arc::new(CastExpr::new(Arc::clone(&f), DataType::Int64, None)) as Arc<dyn PhysicalExpr>;
@@ -3712,16 +3695,14 @@ mod tests {
             "the authoritative DataFusion predicate must match 2.1 after casting to BIGINT"
         );
 
-        let dynamic =
-            Arc::new(DynamicFilterPhysicalExpr::new(vec![f], predicate)) as Arc<dyn PhysicalExpr>;
-        let rejected = dynamically_rejected_segments(&reader, &[dynamic], &schema);
+        let truth = proven_truth(&reader, &[dynamic(f, predicate)], &schema);
         assert!(
-            rejected.is_empty(),
+            truth.rejected().is_empty(),
             "a casted comparison must not reject a segment using raw-column statistics"
         );
 
         let mut results = reader.search();
-        results.replace_runtime_rejected(rejected);
+        results.replace_runtime_truth(truth);
         assert_eq!(
             results.count(),
             1,

@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::index::fast_fields_helper::{
     FFHelper, FFType, WhichFastField, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
+use crate::index::segment_pruning::predicate::SegmentTruthTable;
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
@@ -29,7 +29,6 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
 use std::sync::Arc;
-use tantivy::index::SegmentId;
 use tantivy::query::Scorer;
 use tantivy::{DocId, DocSet, Score, SegmentOrdinal};
 
@@ -388,13 +387,13 @@ impl Scanner {
         self.score_threshold = threshold;
     }
 
-    pub(crate) fn set_runtime_rejected_segments(&mut self, rejected: Arc<HashSet<SegmentId>>) {
-        self.search_results.replace_runtime_rejected(rejected)
+    pub(crate) fn set_runtime_truth(&mut self, truth: Arc<SegmentTruthTable>) {
+        self.search_results.replace_runtime_truth(truth)
     }
 
-    /// Segments this scanner skipped because of runtime rejection since the last call.
-    pub(crate) fn take_runtime_skipped_segments(&mut self) -> usize {
-        self.search_results.take_runtime_skipped()
+    /// Segments this scanner skipped because of runtime rejection.
+    pub(crate) fn runtime_skipped_segments(&self) -> usize {
+        self.search_results.runtime_skipped()
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {

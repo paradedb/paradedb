@@ -527,6 +527,15 @@ impl SearchIndexSchema {
         }
     }
 
+    /// The field whose `.stats` a proof about `name` may consult. A JSON path has no statistics
+    /// of its own.
+    pub fn stats_field(&self, name: &FieldName) -> Option<SearchField> {
+        if name.path().is_some() {
+            return None;
+        }
+        self.search_field(name.root())
+    }
+
     /// Returns an additional existence check without replacing the original query.
     ///
     /// For a scalar fast field, `color @@@ 'blue'` gets an `exists(color)` guard.
@@ -907,6 +916,14 @@ impl SearchField {
     pub fn stats_describe_terms(&self) -> bool {
         self.stats_order_matches_values()
             && (!matches!(self.field_entry.field_type(), FieldType::Str(_)) || self.is_keyword())
+    }
+
+    /// Whether `.stats` order the way this field's fast-field values compare. Statistics are the
+    /// min/max of the fast column itself, so every fast field qualifies, normalizer included;
+    /// values that bypass the fast column, such as query literals, need
+    /// `stats_order_matches_values` instead.
+    pub fn stats_order_matches_fast_values(&self) -> bool {
+        self.is_fast()
     }
 
     #[allow(deprecated)]

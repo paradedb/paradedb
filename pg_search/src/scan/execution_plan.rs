@@ -1276,11 +1276,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 // deferred scorer. A tightening Top-K bound can therefore abandon the active
                 // segment at this batch boundary and prevent remaining segment scorers from ever
                 // opening. The DataFusion pre-filter below remains the exact row-level authority.
-                if dynamic_segment_pruner.is_active()
-                    && let Some(rejected) =
-                    dynamic_segment_pruner.refresh(&reader, &schema)
-                {
-                    scanner.set_runtime_rejected_segments(rejected);
+                if let Some(truth) = dynamic_segment_pruner.refresh(&reader, &schema) {
+                    scanner.set_runtime_truth(truth);
                 }
                 let (pre_filters, score_threshold) =
                     build_filters(&dynamic_filters, &schema, score_column_schema_idx);
@@ -1302,12 +1299,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     pre_filters_wrapper.as_ref(),
                 );
                 timer.done();
-                let skipped = scanner.take_runtime_skipped_segments();
-                if skipped > 0
-                    && let Some(counter) = &segments_pruned_dynamic
-                {
-                    counter.add(skipped);
-                }
 
                 if pushed && !pushdown_metric_recorded {
                     let tag = strategy_sink.load(Ordering::Relaxed);
@@ -1351,6 +1342,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         if let Some(ref counter) = rows_pruned {
                             counter.add(scanner.pre_filter_rows_pruned);
+                        }
+                        if let Some(ref counter) = segments_pruned_dynamic {
+                            counter.add(scanner.runtime_skipped_segments());
                         }
                         break;
                     }

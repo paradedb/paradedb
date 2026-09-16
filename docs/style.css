@@ -124,10 +124,8 @@
   color: #ffffff !important;
 }
 
-/* Enlarge the navbar logo; Mintlify's default is 1.5rem (h-6) */
 img.nav-logo {
-  height: 3rem !important;
-  max-height: none !important;
+  height: 2rem !important;
 }
 
 /* Larger tab bar; Mintlify's default is 0.875rem text with 1rem icons */

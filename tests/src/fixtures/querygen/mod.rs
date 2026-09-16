@@ -235,6 +235,8 @@ impl std::fmt::Display for SetupScript {
 /// killed midway rolls back cleanly and the retry starts from scratch (`CREATE TABLE` has no
 /// `IF NOT EXISTS`). `BEGIN`/`COMMIT` are kept out of the returned script, which is replayed
 /// statement by statement.
+///
+/// The seed also decides whether the BM25 indexes are `partition_by` (see `pick_partition_by`).
 pub fn generated_queries_setup(
     pool: &MutexObjectPool<PgConnection>,
     tables: &[(&str, usize)],
@@ -281,6 +283,7 @@ fn generated_queries_setup_inner(
     let mut rng = StdRng::seed_from_u64(qgen_seed);
     let pg_seed: f64 = rng.random_range(-1.0..=1.0);
     let bulk_inserts = pick_bulk_inserts(&mut rng);
+    let partition_by = pick_partition_by(&mut rng, columns_def);
 
     let seed_sql = format!("SET seed TO {pg_seed};\n");
     seed_sql.as_str().execute_result(conn)?;
@@ -288,6 +291,10 @@ fn generated_queries_setup_inner(
     let mut setup_sql = seed_sql;
     setup_sql.push_str(&format!("-- PARADEDB_QGEN_SEED: {qgen_seed}\n"));
     setup_sql.push_str(&format!("-- qgen bulk inserts: {bulk_inserts}\n"));
+    setup_sql.push_str(&format!(
+        "-- qgen partition_by: {}\n",
+        partition_by.as_deref().unwrap_or("none")
+    ));
 
     let column_definitions = columns_def
         .iter()
@@ -401,13 +408,21 @@ fn generated_queries_setup_inner(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
-        // Total commits per table = the sample-row `INSERT` + `bulk_inserts`
-        // bulk chunks. Pin `target_segment_count` to that so the layered merge
-        // policy short-circuits (it returns empty layer sizes when
-        // `current_segments <= target`) and the chunks survive as distinct
-        // segments instead of being merged back into one.
-        let target_segments = bulk_inserts.get() + 1;
+        // In incremental mode this equals the insert-commit count, preventing the generated
+        // segments from immediately merging together. A partitioned build gets two partitions:
+        // more would leave segments of a handful of rows on these tables, and a segment in
+        // which no row has a given JSON key trips the aggregate scan (#6353).
+        let target_segments = if partition_by.is_some() {
+            2
+        } else {
+            bulk_inserts.get() + 1
+        };
         let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
+
+        let partition_by_clause = partition_by
+            .as_deref()
+            .map(|fields| format!(",\n    partition_by = '{fields}'"))
+            .unwrap_or_default();
 
         let bulk_insert_sql = build_bulk_inserts(
             tname,
@@ -417,21 +432,34 @@ fn generated_queries_setup_inner(
             bulk_inserts,
         );
 
+        let create_index_sql = format!(
+            r#"CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
+    text_fields = '{{ {text_fields} }}',
+    numeric_fields = '{{ {numeric_fields} }}',
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}{partition_by_clause}
+);
+"#,
+        );
+        // TODO(#5738): drop this toggle once partitioning also applies to rows inserted after
+        // CREATE INDEX (partitioning M3); then every index can be created before the data.
+        let (index_before_data, index_after_data) = if partition_by.is_some() {
+            ("", create_index_sql.as_str())
+        } else {
+            (create_index_sql.as_str(), "")
+        };
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
     {column_definitions}
 );
--- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
-);
+{index_before_data}
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
+
+{index_after_data}
 
 {b_tree_indexes}
 
@@ -539,6 +567,9 @@ pub struct PgGucs {
     pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
     pub columnar_exec: bool,
+    /// Enable range co-partitioning for joins whose indexes declare compatible `partition_by`
+    /// fields.
+    pub range_partitioned_join: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -574,6 +605,62 @@ fn qgen_seed() -> Option<u64> {
         s.parse::<u64>()
             .unwrap_or_else(|_| panic!("PARADEDB_QGEN_SEED must parse as u64; got '{s}'"))
     })
+}
+
+/// `PARADEDB_QGEN_PARTITION_BY` overrides the seeded choice. Only integer fields are candidates:
+/// text fields would need a raw normalizer the fixture does not set.
+///
+/// A partitioned layout under a parallel join currently aborts the backend at plan time
+/// (#6364). The roll stays on so the generators keep reaching that path; `none` is the
+/// escape hatch until the fix lands.
+fn pick_partition_by(rng: &mut impl RngExt, columns_def: &[Column]) -> Option<String> {
+    let mode = std::env::var("PARADEDB_QGEN_PARTITION_BY")
+        .ok()
+        .unwrap_or_default();
+    match mode.to_ascii_lowercase().as_str() {
+        "none" => return None,
+        "" | "random" => {}
+        _ => {
+            let names: Vec<&str> = columns_def.iter().map(|c| c.name).collect();
+            if mode.split(',').all(|field| names.contains(&field)) {
+                return Some(mode);
+            }
+        }
+    }
+
+    let integer_types = [
+        "INT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "SERIAL8",
+        "BIGSERIAL",
+    ];
+    let candidates = columns_def
+        .iter()
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
+        .filter(|c| integer_types.contains(&c.sql_type.to_uppercase().as_str()))
+        .filter(|c| {
+            c.is_primary_key
+                || c.bm25_options
+                    .as_ref()
+                    .is_some_and(|o| o.config_json.contains(r#""fast": true"#))
+        })
+        .map(|c| c.name)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() || rng.random_bool(1.0 / 3.0) {
+        return None;
+    }
+    let first = rng.random_range(0..candidates.len());
+    let mut fields = vec![candidates[first]];
+    if candidates.len() > 1 && rng.random_bool(0.25) {
+        let mut second = rng.random_range(0..candidates.len() - 1);
+        if second >= first {
+            second += 1;
+        }
+        fields.push(candidates[second]);
+    }
+    Some(fields.join(","))
 }
 
 /// Picks how many separate bulk `INSERT` statements the setup will emit per
@@ -645,7 +732,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 10]>()
+        any::<[bool; 11]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -658,6 +745,7 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
+                    range_partitioned_join: b[10],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -682,6 +770,7 @@ impl PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
+            range_partitioned_join: false,
         }
     }
 
@@ -697,6 +786,7 @@ impl PgGucs {
             parallel_workers,
             parallel_leader_participation,
             columnar_exec,
+            range_partitioned_join,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -741,6 +831,11 @@ impl PgGucs {
         writeln!(
             gucs,
             "SET paradedb.enable_columnar_exec TO {columnar_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
         // Pin `min_rows_per_worker` low when we want parallel workers to be used.

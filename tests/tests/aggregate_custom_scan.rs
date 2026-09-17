@@ -97,6 +97,9 @@ fn test_coalesce_default_precision(
         "SELECT COUNT({argument}), MIN({argument}), MAX({argument})
          FROM coalesce_defaults WHERE id @@@ pdb.all()"
     );
+    // A segment where no document has the JSON path reads it through an unsigned column, which
+    // turns a negative default into zero.
+    let pushdown = pushdown && (field == "value" || default >= 0);
     assert_uses_custom_scan(&mut conn, pushdown, &query);
     assert_eq!(
         query.fetch_one::<(i64, i64, i64)>(&mut conn),

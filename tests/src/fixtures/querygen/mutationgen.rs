@@ -18,7 +18,7 @@
 //! Heap churn around a qgen case, so the comparison does not assume a freshly built,
 //! all-visible table.
 //!
-//! Each case draws a [`Churn`] with up to three parts:
+//! Each case draws a [`Churn`] with two parts:
 //!
 //! 1. `committed`: mutations committed on the case's own session before either side runs. They
 //!    pile up over the run, so later cases query heaps with dead tuples, HOT chains, cleared
@@ -27,13 +27,11 @@
 //! 2. `own`: mutations left uncommitted in the transaction that runs both sides, rolled back once
 //!    the case is over. Both sides see the session's own writes; the rollback then leaves aborted
 //!    tuples behind for the cases after it.
-//! 3. `concurrent`: mutations a second session holds open across both sides, either rolled back
-//!    afterwards (in-progress rows from another backend) or committed between the two sides
-//!    under `REPEATABLE READ` (the candidate reads an index that already holds rows its snapshot
-//!    must exclude).
 //!
-//! The oracle stays sound because both sides of a case run under one snapshot. The index, on the
-//! other hand, sees every one of these rows and has to filter them.
+//! Both sides of a case run in one transaction, so they share a snapshot and the comparison
+//! stays sound. The index, on the other hand, sees every one of these rows and has to filter
+//! them. Rows another backend holds in flight are a stressgres subject: they need a second live
+//! session, which no reproduction script can replay.
 //!
 //! Row picks and written values come from Postgres `random()`, re-seeded per phase from proptest,
 //! so a case replays under the same `PROPTEST_RNG_SEED`. `PARADEDB_QGEN_CHURN=off` disables the
@@ -49,25 +47,6 @@ use sqlx::PgConnection;
 use super::{Column, PgGucs, SetupScript};
 use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
-
-/// Which rows a mutation may touch. The two transactions a case holds open take disjoint halves
-/// of the key space so neither waits on the other's row locks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IdScope {
-    Any,
-    Odd,
-    Even,
-}
-
-impl IdScope {
-    fn predicate(self) -> &'static str {
-        match self {
-            IdScope::Any => "TRUE",
-            IdScope::Odd => "id % 2 = 1",
-            IdScope::Even => "id % 2 = 0",
-        }
-    }
-}
 
 /// The `INSERT` column list and the matching random value list, derived once from the schema.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,12 +120,9 @@ impl Mutation {
         matches!(self, Mutation::Vacuum { .. })
     }
 
-    pub fn statements(&self, scope: IdScope, shape: &InsertShape) -> Vec<String> {
+    pub fn statements(&self, shape: &InsertShape) -> Vec<String> {
         let pick = |table: &str, rows: usize| {
-            format!(
-                "id IN (SELECT id FROM {table} WHERE {} ORDER BY random() LIMIT {rows})",
-                scope.predicate()
-            )
+            format!("id IN (SELECT id FROM {table} ORDER BY random() LIMIT {rows})")
         };
         let insert = |table: &str, rows: usize| {
             format!(
@@ -177,23 +153,6 @@ impl Mutation {
             }
         }
     }
-}
-
-/// What the second session does with its open transaction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fate {
-    /// Rolled back once the case is over: both sides saw in-progress rows from another backend.
-    Rollback,
-    /// Committed after the baseline ran, so the candidate reads an index holding rows its
-    /// snapshot excludes. With `vacuum`, the dead ones are also reclaimed before the candidate
-    /// runs.
-    CommitBetween { vacuum: bool },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Concurrent {
-    pub mutations: Vec<Mutation>,
-    pub fate: Fate,
 }
 
 /// Session settings for one churn phase.
@@ -243,8 +202,7 @@ impl Session {
 pub struct Churn {
     pub committed: Vec<Mutation>,
     pub own: Vec<Mutation>,
-    pub concurrent: Option<Concurrent>,
-    pub sessions: [Session; 3],
+    pub sessions: [Session; 2],
     pub shape: InsertShape,
 }
 
@@ -257,53 +215,13 @@ pub struct CaseChurn {
     pub begin: String,
     /// Run on the comparison session after `begin`, before either side.
     pub own: Vec<String>,
-    /// Run by the second session inside its own transaction, before either side.
-    pub concurrent: Vec<String>,
-    pub fate: Option<Fate>,
-    /// Run by the second session right after committing between the sides.
-    pub between: Vec<String>,
 }
 
 impl CaseChurn {
-    /// Whether the second session commits between the two sides.
-    pub fn commits_between(&self) -> bool {
-        matches!(self.fate, Some(Fate::CommitBetween { .. }))
-    }
-
     /// The case block of a reproduction script. The comparison queries follow it, inside the
-    /// transaction it opens. A second session's rolled-back churn is replayed as a rolled-back
-    /// block up front: that rebuilds the heap it left behind, which is what later cases see too,
-    /// though not the in-progress timing the failing case itself saw.
+    /// transaction it opens, and the rollback comes after them.
     pub fn repro_sql(&self) -> String {
         let mut sql = String::new();
-        match self.fate {
-            Some(Fate::CommitBetween { .. }) if !self.concurrent.is_empty() => {
-                writeln!(
-                    sql,
-                    "-- Second session, opened before the queries below and committed between \
-                     them (its statements are in the churn log above once committed):"
-                )
-                .unwrap();
-                writeln!(sql, "--   BEGIN;").unwrap();
-                for line in self.concurrent.iter().flat_map(|s| s.lines()) {
-                    writeln!(sql, "--   {line}").unwrap();
-                }
-                writeln!(sql, "--   COMMIT;").unwrap();
-                for line in self.between.iter().flat_map(|s| s.lines()) {
-                    writeln!(sql, "--   {line}").unwrap();
-                }
-            }
-            Some(_) if !self.concurrent.is_empty() => {
-                writeln!(
-                    sql,
-                    "-- Second session, held open across both queries below and rolled back \
-                     after them; replayed here as rolled back beforehand:"
-                )
-                .unwrap();
-                sql.push_str(&rolled_back_block(&self.concurrent));
-            }
-            _ => {}
-        }
         writeln!(
             sql,
             "-- Case transaction; both queries below run inside it and it is rolled back after:"
@@ -316,17 +234,13 @@ impl CaseChurn {
         sql
     }
 
-    /// What the case leaves behind for the cases after it: its rolled-back transactions. Appended
+    /// What the case leaves behind for the cases after it: its rolled-back transaction. Appended
     /// to the churn log once the case is over, so a later failure's script rebuilds the aborted
     /// tuples and index entries too.
-    pub fn log_rolled_back(&self, log: &mut String, peer_rolled_back: bool) {
+    pub fn log_rolled_back(&self, log: &mut String) {
         if !self.own.is_empty() {
             log.push_str("-- churn: the case transaction, rolled back after the case\n");
             log.push_str(&rolled_back_block(&self.own));
-        }
-        if peer_rolled_back && !self.concurrent.is_empty() {
-            log.push_str("-- churn: a second session's transaction, rolled back after the case\n");
-            log.push_str(&rolled_back_block(&self.concurrent));
         }
     }
 }
@@ -436,28 +350,6 @@ fn arb_committed(
     proptest::collection::vec(mutation, 0..=3)
 }
 
-fn arb_concurrent(
-    tables: &[(&str, usize)],
-    columns: &[Column],
-) -> impl Strategy<Value = Concurrent> + use<> {
-    let rollback =
-        proptest::collection::vec(arb_any(tables, columns), 1..=3).prop_map(|mutations| {
-            Concurrent {
-                mutations,
-                fate: Fate::Rollback,
-            }
-        });
-    let commit = (
-        proptest::collection::vec(arb_size_neutral(tables, columns), 1..=3),
-        any::<bool>(),
-    )
-        .prop_map(|(mutations, vacuum)| Concurrent {
-            mutations,
-            fate: Fate::CommitBetween { vacuum },
-        });
-    prop_oneof![rollback, commit]
-}
-
 fn arb_session() -> impl Strategy<Value = Session> + Clone {
     (
         -1.0..=1.0f64,
@@ -490,13 +382,11 @@ pub fn arb_churn(
     (
         arb_committed(tables, columns),
         proptest::collection::vec(arb_any(tables, columns), 0..=3),
-        proptest::option::of(arb_concurrent(tables, columns)),
-        proptest::array::uniform3(arb_session()),
+        proptest::array::uniform2(arb_session()),
     )
-        .prop_map(move |(committed, own, concurrent, sessions)| Churn {
+        .prop_map(move |(committed, own, sessions)| Churn {
             committed,
             own,
-            concurrent,
             sessions,
             shape: shape.clone(),
         })
@@ -508,11 +398,10 @@ impl Churn {
         Self {
             committed: Vec::new(),
             own: Vec::new(),
-            concurrent: None,
             sessions: [Session {
                 seed: 0.0,
                 mutable_segment_rows: None,
-            }; 3],
+            }; 2],
             shape,
         }
     }
@@ -541,7 +430,7 @@ impl Churn {
             case_churn: None,
         };
         let case = self.case_churn();
-        if !case.own.is_empty() || !case.concurrent.is_empty() {
+        if !case.own.is_empty() {
             setup.case_churn = Some(case);
         }
         Ok(setup)
@@ -558,7 +447,7 @@ impl Churn {
         let mut dml: Vec<String> = session.statements();
         let mut vacuums = Vec::new();
         for mutation in &self.committed {
-            let statements = mutation.statements(IdScope::Any, &self.shape);
+            let statements = mutation.statements(&self.shape);
             if mutation.is_vacuum() {
                 vacuums.extend(statements);
             } else {
@@ -578,42 +467,17 @@ impl Churn {
     }
 
     fn case_churn(&self) -> CaseChurn {
-        let fate = self.concurrent.as_ref().map(|c| c.fate);
-        let isolation = match fate {
-            // One snapshot for both sides is what makes a commit in between harmless.
-            Some(Fate::CommitBetween { .. }) => " ISOLATION LEVEL REPEATABLE READ",
-            _ => "",
-        };
         let mut own = Vec::new();
         if !self.own.is_empty() {
             own.extend(self.sessions[1].statements());
             for mutation in &self.own {
-                own.extend(mutation.statements(IdScope::Odd, &self.shape));
+                own.extend(mutation.statements(&self.shape));
             }
             own.extend(Session::closing_statements());
         }
-        let mut concurrent = Vec::new();
-        let mut between = Vec::new();
-        if let Some(c) = &self.concurrent {
-            concurrent.extend(self.sessions[2].statements());
-            for mutation in &c.mutations {
-                concurrent.extend(mutation.statements(IdScope::Even, &self.shape));
-            }
-            if let Fate::CommitBetween { vacuum: true } = c.fate {
-                let mut tables: Vec<&str> = c.mutations.iter().map(Mutation::table).collect();
-                tables.sort_unstable();
-                tables.dedup();
-                for table in tables {
-                    between.push(format!("VACUUM (TRUNCATE false) {table};"));
-                }
-            }
-        }
         CaseChurn {
-            begin: format!("BEGIN{isolation};"),
+            begin: "BEGIN;".to_string(),
             own,
-            concurrent,
-            fate,
-            between,
         }
     }
 }

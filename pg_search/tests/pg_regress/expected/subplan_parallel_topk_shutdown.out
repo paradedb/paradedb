@@ -49,7 +49,7 @@ WARNING:  Aggregate Scan not used: could not extract search query from quals. To
  Aggregate
    Output: count(*)
    ->  Custom Scan (ParadeDB Base Scan) on public.sp_outer
-         Filter: (NOT (hashed SubPlan 1))
+         Filter: (NOT (ANY (sp_outer.age = (hashed SubPlan 1).col1)))
          Table: sp_outer
          Index: sp_outer_idx
          Worker Selection: Cost model

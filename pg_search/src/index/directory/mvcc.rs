@@ -1002,6 +1002,7 @@ pub fn index_memory_segment(
 mod tests {
     use super::*;
 
+    use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
@@ -1038,8 +1039,6 @@ mod tests {
     /// the readers a JoinScan opens in different processes.
     #[pg_test]
     unsafe fn test_segment_view_replays_origin_reader() {
-        use crate::index::reader::index::SearchIndexReader;
-
         Spi::run("CREATE TABLE t (id SERIAL8, data TEXT);").unwrap();
         // Two immutable segments of unequal size, then a small batch that lands in the
         // mutable segment.
@@ -1113,5 +1112,77 @@ mod tests {
                 o.segment_id()
             );
         }
+    }
+
+    /// A parallel scan publishes its segment view before any participant reads from it, and a
+    /// merge can retire those segments while the claims for them are still outstanding. This is
+    /// why every participant, the leader included, re-opens through the published view: a plain
+    /// [`MvccSatisfies::Snapshot`] open lists whatever is undeleted right now, so it can no
+    /// longer resolve a segment the shared work queue still hands out.
+    #[pg_test]
+    unsafe fn test_segment_view_replays_retired_segments() {
+        // `target_segment_count = 1` keeps the merge policy engaged, `layer_sizes` puts a
+        // foreground layer in reach so merging stays synchronous with the insert that triggers
+        // it, and no background layers keeps the background merger out of it.
+        Spi::run(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, title TEXT NOT NULL);
+             CREATE INDEX t_idx ON t USING paradedb (id, title)
+             WITH (target_segment_count = 1, layer_sizes = '1kb', background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'silver dragon ' || g FROM generate_series(1, 10) g;
+             SET paradedb.global_mutable_segment_rows = 10000;
+             INSERT INTO t SELECT g, 'mutable ' || g FROM generate_series(11, 15) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("fixture setup");
+        pg_sys::CommandCounterIncrement();
+
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let origin =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open origin");
+        let view = origin.segment_view();
+        let published = view.ids().collect::<Vec<_>>();
+        assert_eq!(published.len(), 2, "one sealed and one mutable segment");
+
+        // What a scan keeps when it replaces its reader: the reader goes, its pins stay.
+        let pins = origin.pinned_segments();
+        drop(origin);
+
+        // A mutable segment is mergeable once the index stops collecting rows into one, and it
+        // is then a merge candidate on its own. This insert creates a segment, so its cleanup
+        // runs the foreground merge that retires the published ones.
+        Spi::run(
+            "SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO t SELECT g, 'quiet river ' || g FROM generate_series(16, 25) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .expect("merge trigger");
+        pg_sys::CommandCounterIncrement();
+
+        let fresh =
+            SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
+        let live = fresh.segment_ids();
+        let retired = published
+            .iter()
+            .filter(|id| !live.contains(id))
+            .collect::<Vec<_>>();
+        assert!(
+            !retired.is_empty(),
+            "the merge must retire at least one published segment: published={published:?}, live={live:?}"
+        );
+
+        let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))
+            .expect("open replay");
+        assert_eq!(
+            replay.segment_ids(),
+            published,
+            "the published view still resolves every segment it pinned"
+        );
+        drop(pins);
     }
 }

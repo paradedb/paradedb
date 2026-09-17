@@ -395,6 +395,18 @@ pub unsafe fn load_metas(
                 }
             }
 
+            // A mutable segment has no delete bitset: once all its ctids are removed it has no
+            // documents, and a scorer that starts from "all docs" still hands out doc 0 for it.
+            // It can't match anything, so query readers skip it. Vacuum and merge still see it.
+            if matches!(
+                solve_mvcc,
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+            ) && entry.is_mutable()
+                && entry.num_docs() == 0
+            {
+                return;
+            }
+
             total_segments += 1;
             total_docs += entry.num_docs();
 

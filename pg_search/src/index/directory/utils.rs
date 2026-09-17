@@ -35,12 +35,26 @@ use tantivy::{
 };
 
 /// Persist the index-level file registry, write-once at index creation.
-pub fn save_index_files(indexrel: &PgSearchRelation, entries: &[IndexFileEntry]) -> Result<()> {
+pub fn save_index_files(
+    indexrel: &PgSearchRelation,
+    directory_entries: &mut HashMap<PathBuf, FileEntry>,
+) -> Result<()> {
+    let entries: Vec<IndexFileEntry> = directory_entries
+        .extract_if(|path, _| path.segment_id().is_none())
+        .map(|(path, file_entry)| IndexFileEntry {
+            filename: path.to_str().expect("path should be valid UTF8").to_owned(),
+            file_entry,
+        })
+        .collect();
+    if entries.is_empty() {
+        return Ok(());
+    }
+
     let bytes_list = MetaPage::open(indexrel)
         .index_files_bytes()
         .expect("an index writing index-level files must have a registry block");
     if bytes_list.is_empty() {
-        let bytes = serde_json::to_vec(entries)?;
+        let bytes = serde_json::to_vec(&entries)?;
         unsafe {
             bytes_list.writer().write(&bytes)?;
         }

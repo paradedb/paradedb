@@ -23,9 +23,8 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, IndexFileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
-    bm25_max_free_space,
+    FileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -691,14 +690,6 @@ impl Directory for MVCCDirectory {
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
-        let index_files: Vec<IndexFileEntry> = payload
-            .iter()
-            .filter(|(path, _)| path.segment_id().is_none())
-            .map(|(path, file_entry)| IndexFileEntry {
-                filename: path.to_str().expect("path should be valid UTF8").to_owned(),
-                file_entry: *file_entry,
-            })
-            .collect();
         if let Some(filename) = &meta.centroid_index
             && !payload.contains_key(Path::new(filename))
             && self.indexrel.index_file(Path::new(filename))?.is_none()
@@ -707,13 +698,8 @@ impl Directory for MVCCDirectory {
                 "centroid index file {filename} was not written through this directory"
             )));
         }
-        if !index_files.is_empty() {
-            save_index_files(&self.indexrel, &index_files)
-                .map_err(|err| TantivyError::InternalError(err.to_string()))?;
-        }
-        for entry in index_files {
-            payload.remove(Path::new(&entry.filename));
-        }
+        save_index_files(&self.indexrel, payload)
+            .map_err(|err| TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {

@@ -1,0 +1,235 @@
+-- A plain index scan gets its SIREAD lock from `index_beginscan`. Our scans read the bm25
+-- index without it, so they take the lock themselves. The lock sits on the heap relation,
+-- which is the target every write to the table conflict-checks.
+\echo 'Test: SERIALIZABLE predicate locks'
+Test: SERIALIZABLE predicate locks
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS ssi_doctors CASCADE;
+CREATE TABLE ssi_doctors (id int PRIMARY KEY, name text, status text);
+INSERT INTO ssi_doctors
+SELECT g, 'doc' || g, CASE WHEN g <= 2 THEN 'oncall' ELSE 'offcall' END
+FROM generate_series(1, 10) g;
+CREATE INDEX ssi_doctors_idx ON ssi_doctors USING bm25 (id, name, status)
+WITH (text_fields = '{"status": {"tokenizer": {"type": "keyword"}, "fast": true}, "name": {"fast": true}}');
+-- Until the table has row stats, the base scan reports its worker selection as the row
+-- heuristic, and whether the build left stats behind varies by cluster.
+ANALYZE ssi_doctors;
+DROP TABLE IF EXISTS ssi_shifts CASCADE;
+CREATE TABLE ssi_shifts (id int PRIMARY KEY, doctor_id int, ward text);
+INSERT INTO ssi_shifts SELECT g, g, 'ward' || g FROM generate_series(1, 10) g;
+CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
+WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+ANALYZE ssi_shifts;
+-- Names instead of oids, and deduplicated: the Postgres plan in the last section leaves a
+-- lock per heap tuple it reads.
+CREATE VIEW ssi_locks AS
+SELECT DISTINCT locktype, relation::regclass::text AS relation, mode
+FROM pg_locks
+WHERE mode = 'SIReadLock'
+  AND relation IN ('ssi_doctors'::regclass, 'ssi_doctors_idx'::regclass,
+                   'ssi_shifts'::regclass, 'ssi_shifts_idx'::regclass);
+-- An EXPLAIN without ANALYZE reads nothing, so it must take no lock.
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, name
+   Sort Key: ssi_doctors.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.ssi_doctors
+         Output: id, name
+         Table: ssi_doctors
+         Index: ssi_doctors_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: id, name
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"oncall","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype | relation | mode 
+----------+----------+------
+(0 rows)
+
+COMMIT;
+-- base scan
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, name
+   Sort Key: ssi_doctors.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.ssi_doctors
+         Output: id, name
+         Table: ssi_doctors
+         Index: ssi_doctors_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: id, name
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"oncall","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+ id | name 
+----+------
+  1 | doc1
+  2 | doc2
+(2 rows)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |  relation   |    mode    
+----------+-------------+------------
+ relation | ssi_doctors | SIReadLock
+(1 row)
+
+COMMIT;
+-- base scan answered from the columnar store, which never reaches the heap
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY name;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: name
+   Sort Key: ssi_doctors.name
+   ->  Custom Scan (ParadeDB Base Scan) on public.ssi_doctors
+         Output: name
+         Table: ssi_doctors
+         Index: ssi_doctors_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: name
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"oncall","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
+
+SELECT name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY name;
+ name 
+------
+ doc1
+ doc2
+(2 rows)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |  relation   |    mode    
+----------+-------------+------------
+ relation | ssi_doctors | SIReadLock
+(1 row)
+
+COMMIT;
+-- aggregate scan
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.ssi_doctors
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: ssi_doctors_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"oncall","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';
+ count 
+-------
+     2
+(1 row)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |  relation   |    mode    
+----------+-------------+------------
+ relation | ssi_doctors | SIReadLock
+(1 row)
+
+COMMIT;
+-- the `paradedb.aggregate` function, which the planner never sees
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SELECT * FROM paradedb.aggregate(index=>'ssi_doctors_idx',
+                                 query=>paradedb.term('status', 'oncall'),
+                                 agg=>'{"matches": {"value_count": {"field": "id"}}}');
+          aggregate          
+-----------------------------
+ {"matches": {"value": 2.0}}
+(1 row)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |  relation   |    mode    
+----------+-------------+------------
+ relation | ssi_doctors | SIReadLock
+(1 row)
+
+COMMIT;
+-- join scan, which locks every source it reads. It needs the LIMIT to be chosen at all.
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id
+WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10;
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: d.id, s.ward
+   Relation Tree: d INNER s
+   Join Cond: d.id = s.doctor_id
+   Limit: 10
+   Order By: d.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[d, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(doctor_id@1, id@1)], projection=[ctid_0@2, id@3, ctid_1@0]
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"ward","query_string":"ward1","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"oncall","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
+
+SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id
+WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10;
+ id | ward  
+----+-------
+  1 | ward1
+(1 row)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |  relation   |    mode    
+----------+-------------+------------
+ relation | ssi_doctors | SIReadLock
+ relation | ssi_shifts  | SIReadLock
+(2 rows)
+
+COMMIT;
+-- Postgres' own plan for the same read locks the index, because the bm25 access method
+-- does not set `ampredlocks`.
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SET LOCAL paradedb.enable_custom_scan = off;
+SET LOCAL paradedb.enable_aggregate_custom_scan = off;
+SET LOCAL paradedb.planner_warnings = 'off';
+SET LOCAL enable_seqscan = off;
+-- No EXPLAIN here: the pushed-down `Index Cond` prints the index oid, which moves from run
+-- to run. The locked relation below says which plan ran.
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+ id | name 
+----+------
+  1 | doc1
+  2 | doc2
+(2 rows)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype |    relation     |    mode    
+----------+-----------------+------------
+ relation | ssi_doctors_idx | SIReadLock
+ tuple    | ssi_doctors     | SIReadLock
+(2 rows)
+
+COMMIT;
+DROP VIEW ssi_locks;
+DROP TABLE ssi_shifts;
+DROP TABLE ssi_doctors;

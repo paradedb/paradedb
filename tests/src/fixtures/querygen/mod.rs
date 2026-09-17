@@ -19,6 +19,7 @@ pub mod crossrelgen;
 pub mod distinctgen;
 pub mod groupbygen;
 pub mod joingen;
+pub mod mutationgen;
 pub mod numericgen;
 pub mod opexprgen;
 pub mod orderbygen;
@@ -29,7 +30,7 @@ pub mod windowgen;
 
 use std::fmt::{Debug, Write};
 use std::num::NonZeroUsize;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use futures::executor::block_on;
@@ -44,6 +45,7 @@ use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{TransientKind, classify_transient};
 use crossrelgen::CrossRelExpr;
 use joingen::{JoinExpr, JoinType};
+use mutationgen::CaseChurn;
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
 
@@ -169,6 +171,12 @@ pub struct SetupScript {
     pub sql: String,
     pub tables: Vec<String>,
     pub qgen_seed: Option<u64>,
+    /// Churn committed so far, shared by every per-case copy of this script, so a repro rebuilds
+    /// the heap the failing case queried rather than the one the setup built.
+    pub churn_log: Arc<Mutex<String>>,
+    /// The uncommitted churn of the case this copy belongs to; `compare_outcome_on` frames the
+    /// case with it. `None` on the script `generated_queries_setup` returns.
+    pub case_churn: Option<CaseChurn>,
 }
 
 impl SetupScript {
@@ -177,7 +185,22 @@ impl SetupScript {
             sql,
             tables,
             qgen_seed: None,
+            churn_log: Arc::new(Mutex::new(String::new())),
+            case_churn: None,
         }
+    }
+
+    /// The setup section of a reproduction script: the schema, then every mutation committed
+    /// since.
+    pub fn repro_setup_sql(&self) -> String {
+        let log = self
+            .churn_log
+            .lock()
+            .expect("churn log lock should not be poisoned");
+        if log.is_empty() {
+            return self.sql.clone();
+        }
+        format!("{}\n{log}", self.sql)
     }
 
     pub fn drop_tables_sql(&self) -> String {
@@ -424,6 +447,8 @@ ANALYZE {tname};
         sql: setup_sql,
         tables: table_names,
         qgen_seed: Some(qgen_seed),
+        churn_log: Arc::new(Mutex::new(String::new())),
+        case_churn: None,
     })
 }
 
@@ -847,17 +872,145 @@ where
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
-    compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
+    compare_outcome_on(
+        &sides, pg_query, bm25_query, gucs, conn, None, setup, run_query,
+    )
+}
+
+/// The transactions a case's uncommitted churn holds open around both sides (see
+/// [`mutationgen`]): the comparison session's own, and the second session's on `peer`. Opened
+/// before the sides run, closed after them whatever happened in between, so no pooled
+/// connection goes back with a transaction still open.
+struct CaseFrame<'a> {
+    churn: Option<&'a CaseChurn>,
+    peer: Option<&'a mut PgConnection>,
+    own_open: bool,
+    peer_open: bool,
+}
+
+impl<'a> CaseFrame<'a> {
+    fn open(
+        churn: Option<&'a CaseChurn>,
+        conn: &mut PgConnection,
+        peer: Option<&'a mut PgConnection>,
+        setup: &SetupScript,
+    ) -> Result<Self, sqlx::Error> {
+        let mut frame = Self {
+            churn,
+            peer,
+            own_open: false,
+            peer_open: false,
+        };
+        if let Some(churn) = churn
+            && let Err(e) = frame.open_inner(churn, conn)
+        {
+            frame.close(conn, setup);
+            return Err(e);
+        }
+        Ok(frame)
+    }
+
+    fn open_inner(
+        &mut self,
+        churn: &CaseChurn,
+        conn: &mut PgConnection,
+    ) -> Result<(), sqlx::Error> {
+        if !churn.concurrent.is_empty() {
+            let peer = self.peer.as_deref_mut().ok_or_else(|| {
+                sqlx::Error::Configuration(
+                    "concurrent churn needs a second pooled connection; use the retrying comparison"
+                        .into(),
+                )
+            })?;
+            "BEGIN;".execute_result(peer)?;
+            self.peer_open = true;
+            for statement in &churn.concurrent {
+                statement.execute_result(peer)?;
+            }
+        }
+        churn.begin.as_str().execute_result(conn)?;
+        self.own_open = true;
+        for statement in &churn.own {
+            statement.execute_result(conn)?;
+        }
+        Ok(())
+    }
+
+    /// Between the sides: the second session commits, runs what follows its commit, and the
+    /// whole thing joins the churn log, since every later case queries the result.
+    fn between(&mut self, setup: &SetupScript) -> Result<(), sqlx::Error> {
+        let Some(churn) = self.churn else {
+            return Ok(());
+        };
+        if !churn.commits_between() || !self.peer_open {
+            return Ok(());
+        }
+        let peer = self
+            .peer
+            .as_deref_mut()
+            .expect("a second session was opened for the concurrent churn");
+        "COMMIT;".execute_result(peer)?;
+        self.peer_open = false;
+        for statement in &churn.between {
+            statement.execute_result(peer)?;
+        }
+        let mut log = setup
+            .churn_log
+            .lock()
+            .expect("churn log lock should not be poisoned");
+        log.push_str("-- churn: committed by a second session between the two sides of a case\n");
+        log.push_str("BEGIN;\n");
+        for statement in &churn.concurrent {
+            log.push_str(statement.trim_end());
+            log.push('\n');
+        }
+        log.push_str("COMMIT;\n");
+        for statement in &churn.between {
+            log.push_str(statement.trim_end());
+            log.push('\n');
+        }
+        Ok(())
+    }
+
+    /// Best effort: a session that is already gone rolls back on its own. The rolled-back
+    /// transactions then join the churn log, since the aborted tuples and index entries they
+    /// leave behind are part of the heap every later case queries.
+    fn close(&mut self, conn: &mut PgConnection, setup: &SetupScript) {
+        let own_ran = self.own_open;
+        let peer_ran = self.peer_open;
+        if self.own_open {
+            let _ = "ROLLBACK;".execute_result(conn);
+            self.own_open = false;
+        }
+        if self.peer_open {
+            if let Some(peer) = self.peer.as_deref_mut() {
+                let _ = "ROLLBACK;".execute_result(peer);
+            }
+            self.peer_open = false;
+        }
+        if let Some(churn) = self.churn
+            && (own_ran || peer_ran)
+        {
+            let mut log = setup
+                .churn_log
+                .lock()
+                .expect("churn log lock should not be poisoned");
+            churn.log_rolled_back(&mut log, peer_ran);
+        }
+    }
 }
 
 /// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
-/// Postgres, such as one backend of pg_search against another.
+/// Postgres, such as one backend of pg_search against another. `peer` is the second session the
+/// case's concurrent churn runs on, if the setup carries any.
+#[allow(clippy::too_many_arguments)]
 pub fn compare_outcome_on<R, F>(
     sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
+    peer: Option<&mut PgConnection>,
     setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
@@ -865,11 +1018,29 @@ where
     R: Eq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
+    let mut frame = match CaseFrame::open(setup.case_churn.as_ref(), conn, peer, setup) {
+        Ok(frame) => frame,
+        Err(e) => {
+            return match classify_transient(&e) {
+                Some(kind) => CaseOutcome::Transient(kind, e),
+                None => CaseOutcome::Failure(handle_compare_error(
+                    TestCaseError::fail(format!("{e}: error applying the case's churn")),
+                    pg_query,
+                    bm25_query,
+                    gucs,
+                    setup,
+                )),
+            };
+        }
+    };
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
+        compare_outcome_inner(
+            sides, pg_query, bm25_query, gucs, conn, &mut frame, setup, run_query,
+        )
     }));
+    frame.close(conn, setup);
     match outcome {
         Ok(o) => o,
         Err(panic) => {
@@ -934,9 +1105,31 @@ where
             setup,
         ))
     };
+    let needs_peer = setup
+        .case_churn
+        .as_ref()
+        .is_some_and(|churn| !churn.concurrent.is_empty());
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        match compare_outcome_on(sides, pg_query, bm25_query, gucs, conn, setup, &run_query) {
-            CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
+        let mut peer = needs_peer.then(|| pool.pull());
+        match compare_outcome_on(
+            sides,
+            pg_query,
+            bm25_query,
+            gucs,
+            conn,
+            peer.as_deref_mut(),
+            setup,
+            &run_query,
+        ) {
+            CaseOutcome::Transient(kind, e) => {
+                // Either session may be the dead one; like `retry_transient` does with `conn`,
+                // keep the peer out of the pool rather than hand a dead connection to a later
+                // case.
+                if kind == TransientKind::ConnectionLost {
+                    std::mem::forget(peer);
+                }
+                Attempt::Transient(kind, e)
+            }
             verdict => Attempt::Done(verdict),
         }
     });
@@ -1014,12 +1207,14 @@ pub fn compare_plan_retrying(
     CaseOutcome::Match
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compare_outcome_inner<R, F>(
     sides: &Sides,
     pg_query: &str,
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
+    frame: &mut CaseFrame<'_>,
     setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
@@ -1034,6 +1229,8 @@ where
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let pg_result = run_query(pg_query, QuerySide::Baseline, conn)?;
+
+        frame.between(setup)?;
 
         sides
             .candidate
@@ -1173,6 +1370,13 @@ pub fn handle_compare_error(
         .unwrap_or_else(|| "<from proptest output above>".to_string());
 
     let drop_tables_sql = setup.drop_tables_sql();
+    let (case_sql, rollback_sql) = match &setup.case_churn {
+        Some(churn) => (
+            format!("--\n-- Case churn\n{}", churn.repro_sql()),
+            "ROLLBACK;\n",
+        ),
+        None => (String::new(), ""),
+    };
 
     let repro_script = format!(
         r#"
@@ -1185,7 +1389,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 --
 -- Table and index setup
 {setup_sql}
---
+{case_sql}--
 -- Default GUCs:
 {default_gucs}
 --
@@ -1203,7 +1407,7 @@ EXPLAIN
 {bm25_query};
 --
 -- Cleanup:
-{drop_tables_sql}
+{rollback_sql}{drop_tables_sql}
 --
 -- ==== END REPRODUCTION SCRIPT ====
 
@@ -1217,7 +1421,7 @@ Original error:
         failure_type = failure_type,
         qgen_seed = qgen_seed,
         proptest_seed = proptest_seed,
-        setup_sql = setup.sql,
+        setup_sql = setup.repro_setup_sql(),
         default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,

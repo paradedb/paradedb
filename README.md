@@ -43,9 +43,7 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
 
 ## What is ParadeDB?
 
-When queries get too slow, developers usually reach for systems like Elasticsearch. [ParadeDB](https://paradedb.com) makes text and vector search, filters, facets, and joins fast in Postgres.
-
-Built as a Postgres extension, ParadeDB pairs Postgres' transactional storage with a unified index combining inverted, vector, and columnar data structures. Keep your application data in one place and query it with standard SQL, with ACID transactions and the Postgres tools you already use. No Elasticsearch. Zero ETL.
+[ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filters, facets, aggregations, and joins. Built as a Postgres extension, it keeps your application data and search engine in one database with standard SQL and ACID transactions, no second system to deploy, and nothing to sync.
 
 - [x] [Full-Text Search](https://www.paradedb.com/docs/concepts/full-text/overview)
   - [x] [BM25 Scoring](https://www.paradedb.com/docs/reference/full-text/score)

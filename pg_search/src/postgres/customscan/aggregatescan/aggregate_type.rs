@@ -213,22 +213,22 @@ impl AggregateType {
         let field = aggregate_field.field_name().clone();
         let missing = aggregate_field.missing()?;
 
-        // Tantivy casts `missing` to the type of each segment's column before it aggregates, so
-        // a fractional default is truncated unless that column is a float. A JSON path can be an
-        // integer column in one segment and have no column in another, so only a declared float
-        // field is safe. `COUNT` never looks at the value.
+        // `COUNT` never reads the value.
         if aggfnoid != F_COUNT_ANY
-            && missing.is_some_and(|missing| missing.fract() != 0.0)
-            && !bm25_index.schema().is_ok_and(|schema| {
-                schema
-                    .search_field(&field)
-                    .is_some_and(|f| matches!(f.field_type(), SearchFieldType::F64(_)))
-            })
+            && let Some(missing) = missing
         {
-            bail!(
-                "COALESCE default for '{}' has a fractional part, but the field is not a float column",
-                field
-            );
+            let field_type = bm25_index
+                .schema()
+                .ok()
+                .and_then(|schema| schema.search_field(&field))
+                .map(|search_field| search_field.field_type());
+            if !missing_fits_every_column(field_type, missing) {
+                bail!(
+                    "COALESCE default {} for '{}' does not fit the field's column type",
+                    missing,
+                    field
+                );
+            }
         }
 
         // Check if aggregate pushdown is supported for this field type on the
@@ -849,6 +849,23 @@ impl ParsedAggregateField {
             ),
             _ => bail!("unsupported constant type in COALESCE default value"),
         })
+    }
+}
+
+/// Tantivy casts `missing` to each segment's column type before it aggregates. An `i64` column
+/// drops a fraction, and a `u64` column also turns a negative into zero. A declared field has the
+/// same column type in every segment. A JSON path can get an `i64`, `u64` or `f64` column from its
+/// values, and an empty `u64` column where no document has the path, so only a non-negative
+/// integer that fits in `i64` is exact there.
+fn missing_fits_every_column(field_type: Option<SearchFieldType>, missing: f64) -> bool {
+    let is_integer = missing.fract() == 0.0;
+    match field_type {
+        Some(SearchFieldType::F64(_)) => true,
+        Some(SearchFieldType::I64(_)) => {
+            is_integer && missing >= i64::MIN as f64 && missing < i64::MAX as f64
+        }
+        Some(SearchFieldType::U64(_)) => is_integer && missing >= 0.0 && missing < u64::MAX as f64,
+        _ => is_integer && missing >= 0.0 && missing < i64::MAX as f64,
     }
 }
 

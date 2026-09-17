@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789667188567,
+  "lastUpdate": 1789680116629,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4349,6 +4349,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.086,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e1513a4e0d6add1bea44c0305b813c57ee095dc",
+          "message": "fix: skip mutable segments with no live documents in query readers (#6380)\n\n## Ticket(s) Closed\n\n- Closes #6376\n\n## What\n\nThis PR keeps a mutable segment with no live documents out of query\nreaders.\n\n## Why\n\nA mutable segment has no delete bitset. When every ctid in it is\nremoved, it has zero documents, but it still reached the reader.\n`AllScorer::new(0)` in our tantivy fork starts at doc 0 anyway, so a\n`NOT (... @@@ ...)` query got a doc 0 that has no values and reads as\nctid `0`. A query served from columns returns a phantom row with `id =\n-9223372036854775808`. A query that goes to the heap passes ctid `0` to\n`table_index_fetch_tuple`, and an assert build aborts on\n`ItemPointerIsValid(tid)`.\n\n## How\n\n`load_metas` skips a mutable segment with `num_docs() == 0` for\n`Snapshot` and `LargestSegment`. Parallel workers follow the leader's\nsegment view, so they skip it too. `Vacuum` and `Mergeable` still see\nit. A writer that opens with `Snapshot` never has it in the metas it\nloads or the metas it saves, so `save_new_metas` doesn't treat it as\ndeleted.\n\n## Tests\n\n- `mutable_segment_emptied`",
+          "timestamp": "2026-09-17T14:01:00-07:00",
+          "tree_id": "5edc0176ad09742f6c5480f125a4581108403191",
+          "url": "https://github.com/paradedb/paradedb/commit/3e1513a4e0d6add1bea44c0305b813c57ee095dc"
+        },
+        "date": 1789680111918,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6491455896213494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.571,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.931,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.963,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.035,
             "unit": "ms"
           }
         ]

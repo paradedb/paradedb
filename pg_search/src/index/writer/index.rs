@@ -713,17 +713,25 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_max_docs_per_segment() {
-        let relation_oid = get_relation_oid(true);
-        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 25);
+        for with_vector in [false, true] {
+            let relation_oid = get_relation_oid(with_vector);
+            let config = IndexWriterConfig {
+                memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+                max_docs_per_segment: Some(DEFAULT_MAX_DOCS_PER_SEGMENT),
+            };
+            let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+            assert_eq!(segment_ids.len(), 25);
+        }
     }
 
     #[pg_test]
-    fn test_index_writer_max_docs_per_segment_requires_vector_field() {
-        let relation_oid = get_relation_oid(false);
-        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
-        assert_eq!(segment_ids.len(), 2);
+    fn test_index_writer_default_segment_limit() {
+        for with_vector in [false, true] {
+            let relation_oid = get_relation_oid(with_vector);
+            let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
+            assert!(config.max_docs_per_segment.is_none());
+            let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+            assert_eq!(segment_ids.len(), 2);
+        }
     }
 }

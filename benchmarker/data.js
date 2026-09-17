@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789602913373,
+  "lastUpdate": 1789613688071,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4251,6 +4251,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.23,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b89b660c58bb8d17fe5643b769402a6b5852e8cd",
+          "message": "test: property-test partitioned joins (#6348)\n\n## Related issue\n\nAdds `partition_by` property-test coverage as a prerequisite for #6078.\n\n## What and why\n\n`partition_by` changes physical segment placement and join execution,\nbut must preserve SQL results. Rather than a dedicated partition test,\nthis PR makes partitioned indexes part of the shared query-generator\nfixture, so every existing generator compares its randomized cases over\npartitioned indexes against PostgreSQL.\n\n## Implementation\n\n- `generated_queries_setup` decides from the qgen seed whether the BM25\nindexes are `partition_by` none, one, or two of the integer fast fields,\nand records the choice in the repro script.\n`PARADEDB_QGEN_PARTITION_BY=none|random|<fields>` overrides the roll.\n- A partitioned index is built after the rows are loaded, since until\npartitioning M3 an index created empty records no split points\n(`TODO(#5738)` to remove the toggle). A partitioned build gets two\npartitions so each segment holds enough rows for every JSON key to be\npresent (#6353).\n- `paradedb.enable_range_partitioned_join` joins the random GUC draw so\nthe co-partitioned join path is exercised.\n- No plan-shape assertions: executed MPP launches remain asserted in\npg_regress (`mpp_range_boundary`, `mpp_worker_sizing`).\n- The numeric predicate generator gains an `IN` list variant.\n\n## Known failure\n\nA partitioned layout under a parallel join currently aborts the backend\nat plan time (#6364, bisected to #6239). The seeded roll stays on by\ndesign, so the qgen suite can fail on that abort until #6364 is fixed.\nThe bugs surfaced while building this coverage are filed as #6353,\n#6363, and #6364, each with a self-contained reproduction.\n\n## Validation\n\n- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --\n-D warnings --no-deps`, `RUSTDOCFLAGS=\"-D warnings\" cargo doc\n--workspace --no-deps --document-private-items`, `cargo machete`, `taplo\nformat --check`\n- `cargo test -p tests --lib querygen`\n- PostgreSQL 17: `PARADEDB_QGEN_PARTITION_BY=id cargo test --package\ntests --test qgen` (16 passed)\n- PostgreSQL 17: `PARADEDB_QGEN_PARTITION_BY=none cargo test --package\ntests --test qgen` (16 passed)\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-09-16T19:33:54-07:00",
+          "tree_id": "76109dc36f47c8f78b20b5d65e41239745a3e862",
+          "url": "https://github.com/paradedb/paradedb/commit/b89b660c58bb8d17fe5643b769402a6b5852e8cd"
+        },
+        "date": 1789613684116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6941706428286718,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.616,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.072,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.251,
             "unit": "ms"
           }
         ]

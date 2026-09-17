@@ -4,8 +4,8 @@
 -- NUMERIC PUSHDOWN TESTS
 -- ============================================================================
 -- Tests for NUMERIC column pushdown with two storage strategies:
--- 1. Numeric64 (I64 fixed-point): NUMERIC(p,s) where p <= 18
--- 2. NumericBytes (lexicographic bytes): NUMERIC with p > 18 or unlimited
+-- 1. Numeric64 (I64 fixed-point): NUMERIC(p,s) where p <= 18 and |s| <= 18
+-- 2. NumericBytes (lexicographic bytes): NUMERIC outside that range, or unlimited
 -- ============================================================================
 
 -- ============================================================================

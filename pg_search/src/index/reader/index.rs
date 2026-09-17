@@ -123,9 +123,11 @@ pub struct TopKSearch {
 
 impl TopKSearch {
     fn from_results(results: TopKSearchResults) -> Self {
+        let mut segment_info = BTreeMap::new();
+        io_stats::attach(&mut segment_info);
         Self {
             results,
-            segment_info: BTreeMap::new(),
+            segment_info,
         }
     }
 
@@ -622,6 +624,7 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
+        tantivy::postings::set_postings_read_buffer_size(crate::gucs::postings_read_buffer_size());
         let IndexComponents {
             cleanup_lock,
             directory,

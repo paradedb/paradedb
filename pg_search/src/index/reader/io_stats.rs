@@ -36,6 +36,8 @@ mod imp {
     struct IoCounters {
         blks_hit: u64,
         blks_read: u64,
+        read_calls: u64,
+        requested_bytes: u64,
     }
 
     type SegmentIo = BTreeMap<String, IoCounters>;
@@ -45,7 +47,10 @@ mod imp {
         static PER_SEGMENT: RefCell<Vec<(SegmentId, SegmentIo)>> = RefCell::default();
     }
 
-    pub fn record<R>(component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+    pub fn record<R>(component: &SegmentComponent, bytes: usize, read: impl FnOnce() -> R) -> R {
+        if !crate::gucs::experiment_io_stats() {
+            return read();
+        }
         let (hit0, read0) = snapshot();
         let result = read();
         let (hit1, read1) = snapshot();
@@ -53,6 +58,8 @@ mod imp {
             let slot = current.entry(component.to_string()).or_default();
             slot.blks_hit += hit1.saturating_sub(hit0) as u64;
             slot.blks_read += read1.saturating_sub(read0) as u64;
+            slot.read_calls += 1;
+            slot.requested_bytes += bytes as u64;
         });
         result
     }
@@ -83,7 +90,9 @@ mod imp {
             if io.is_empty() {
                 continue;
             }
-            if let Some(serde_json::Value::Object(map)) = segment_info.get_mut(&segment_id) {
+            if let serde_json::Value::Object(map) =
+                segment_info.entry(segment_id).or_insert_with(|| json!({}))
+            {
                 map.insert("io".to_string(), json!(io));
             }
         }
@@ -96,7 +105,7 @@ mod imp {
     use tantivy::index::{SegmentComponent, SegmentId};
 
     #[inline(always)]
-    pub fn record<R>(_component: &SegmentComponent, read: impl FnOnce() -> R) -> R {
+    pub fn record<R>(_component: &SegmentComponent, _bytes: usize, read: impl FnOnce() -> R) -> R {
         read()
     }
 

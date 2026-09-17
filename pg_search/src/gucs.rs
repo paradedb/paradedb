@@ -77,6 +77,8 @@ static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
 /// The scale factor for the chunk size in a Top K query.
 static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+static POSTINGS_READ_BUFFER_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+static EXPERIMENT_IO_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
@@ -483,6 +485,25 @@ pub fn init() {
         &TOPK_RETRY_SCALE_FACTOR,
         1,
         100,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.postings_read_buffer_size",
+        c"Experimental lazy postings read buffer size; zero uses eager reads",
+        c"Read-ahead bytes for each term postings cursor",
+        &POSTINGS_READ_BUFFER_SIZE,
+        0,
+        1_048_576,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_io_stats",
+        c"Enable component I/O counters for the lazy postings experiment",
+        c"Disabled for timing runs",
+        &EXPERIMENT_IO_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -980,6 +1001,14 @@ pub fn max_window_aggregate_response_bytes() -> usize {
 
 pub fn topk_retry_scale_factor() -> i32 {
     TOPK_RETRY_SCALE_FACTOR.get()
+}
+
+pub fn postings_read_buffer_size() -> usize {
+    POSTINGS_READ_BUFFER_SIZE.get() as usize
+}
+
+pub fn experiment_io_stats() -> bool {
+    EXPERIMENT_IO_STATS.get()
 }
 
 pub fn global_mutable_segment_rows() -> Option<usize> {

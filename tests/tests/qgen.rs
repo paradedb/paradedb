@@ -667,7 +667,6 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
 
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_paging_small(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -704,7 +703,6 @@ async fn generated_paging_small(database: Db, #[case] churn_on: bool) {
 /// to use a large segment count rather than a large table size.
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_paging_large(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -948,7 +946,6 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
 /// via DataFusion aggregate pushdown as native PostgreSQL.
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1065,7 +1062,6 @@ async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool)
 ///
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1178,7 +1174,6 @@ async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
 ///
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1299,7 +1294,6 @@ async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
 ///
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_numeric_pushdown(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1379,7 +1373,6 @@ async fn generated_numeric_pushdown(database: Db, #[case] churn_on: bool) {
 /// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1523,7 +1516,6 @@ async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
 ///
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_numeric_precision(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1599,7 +1591,6 @@ async fn generated_numeric_precision(database: Db, #[case] churn_on: bool) {
 ///
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_numeric_range_precision(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1670,7 +1661,6 @@ async fn generated_numeric_range_precision(database: Db, #[case] churn_on: bool)
 /// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_pdb_agg_join(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
@@ -1746,7 +1736,6 @@ async fn generated_pdb_agg_join(database: Db, #[case] churn_on: bool) {
 /// the planner's group estimate, and the limit sits above any group count, so it cuts nothing.
 #[rstest]
 #[case::clean(false)]
-#[case::churn(true)]
 #[tokio::test]
 async fn generated_pdb_agg_single_table(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(

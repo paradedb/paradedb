@@ -1181,17 +1181,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
-            let mut reader = match &range_boundaries {
-                Some(rb) => reader
-                    .and_range_partition_bounds(&rb.partition_bounds(target_partition)),
-                None => reader,
-            };
-            let range_filters_removed = reader.range_filters_removed();
-            if range_filters_removed > 0 {
-                MetricBuilder::new(&plan_metrics)
-                    .counter("range_filters_removed", target_partition)
-                    .add(range_filters_removed);
-            }
+            let mut reader = reader;
 
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
@@ -1211,10 +1201,19 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let search_results = if let Some(range_boundaries) = &range_boundaries {
                 // Range partitioned mode has no shared scan state: each partition searches the
-                // segments its bounds can reach, per their `.stats`. Unless every candidate
-                // is covered, the attached query still enforces exact row ownership.
+                // segments its bounds can reach, per their `.stats`. The partition query is
+                // omitted only when every segment this scan will search is covered by it;
+                // otherwise it still enforces exact row ownership.
                 let segment_ids =
                     segments_for_partition(&reader, range_boundaries, target_partition);
+                let bounds = range_boundaries.partition_bounds(target_partition);
+                if reader.partition_filter_is_redundant(&bounds, &segment_ids) {
+                    MetricBuilder::new(&plan_metrics)
+                        .counter("range_filters_removed", target_partition)
+                        .add(1);
+                } else {
+                    reader = reader.and_query_input(&bounds);
+                }
                 reader.search_segments(segment_ids.into_iter())
             } else {
                 // Standard mode delegates to the parallel state if present

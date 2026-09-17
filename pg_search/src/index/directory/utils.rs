@@ -487,15 +487,12 @@ pub unsafe fn load_metas(
         }
     }
 
-    let settings = metapage.settings_bytes();
-    let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
-
     Ok(LoadedMetas {
         entries: alive_entries,
         meta: IndexMeta {
             segments: alive_segments,
             schema: tantivy_schema.clone(),
-            index_settings: deserialized_settings,
+            index_settings: metapage.settings()?,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
             // Every index requires the stats plugin; a segment written before it existed just

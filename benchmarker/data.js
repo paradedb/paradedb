@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789613688071,
+  "lastUpdate": 1789667188567,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4300,6 +4300,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.251,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "93437997+IamYipi@users.noreply.github.com",
+            "name": "Javier Garcia",
+            "username": "IamYipi"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "530ff73974e5a7e75199a79c7c885252acd24494",
+          "message": "fix: apply the indexed representation to more_like_this seed values (#6388)\n\nFixes #6103.\n\n## Problem\n\nThe key-value form of `pdb.more_like_this` reads the seed row and\nconverts each datum with `TantivyValue::try_from_datum`, which knows the\nPostgreSQL type but not the representation the field was indexed with.\n\n- A **`Numeric64`** field is physically an I64 column, so it received\nthe string form of the NUMERIC and Tantivy failed to build a weight.\n- A **`NumericBytes`** field is a Bytes column, which Tantivy's\nMoreLikeThis has no handling for at all, so the field contributed\nnothing and the query returned an empty result with no explanation.\n\n## Reproduced\n\nOn `main` at `b89b660`, PostgreSQL 18 via pgrx, with the schema from the\nissue:\n\n| field | before | after |\n|---|---|---|\n| `i` (int, control) | `{1,2}` | `{1,2}` |\n| `n64` (`numeric(10,2)`) | `ERROR: weight should be constructable:\nInvalidArgument(\"invalid value\")` | `{1,2}` |\n| `nb` (`numeric(30,2)`) | `NULL`, no rows, no error | clear error, see\nbelow |\n\n## Fix\n\n**Numeric64** — route the seed values through `convert_value_for_field`,\nthe same schema-aware conversion the other query paths already use. The\nNUMERIC field then agrees with the integer control.\n\n**NumericBytes** — reject it the way this function already rejects json\nand vector fields: a clear error when the field is named explicitly, and\nskipped when it is not. That pattern is right above the change:\n\n```rust\nif search_field.is_json() {\n    panic!(\"json fields are not supported for more_like_this\");\n}\nif is_vector {\n    panic!(\"vector fields are not supported for more_like_this\");\n}\n```\n\nso a `NumericBytes` field named explicitly now reports:\n\n```\nERROR:  numeric field 'nb' is not supported for more_like_this: its precision or scale\nis too wide for the fixed-point representation, so it is stored as bytes, which\nMoreLikeThis cannot compare\n```\n\nand a query with no field list skips it and still works. The issue left\nthis open between adding Bytes-term support and a clear error; the\nlatter keeps the change inside ParadeDB and matches the existing\nhandling of unsupported field types. Happy to go the other way if you\nwould rather have Bytes participate.\n\n## Tests\n\nAdded to `more_like_this`, covering the key-value form over both\nrepresentations:\n\n- the `Numeric64` field alone, and alongside an integer field, both\nagreeing with the integer control\n- the `NumericBytes` field named explicitly, showing the error\n- a query with no field list, where it is skipped and the query still\nreturns rows\n\nThe section sets `paradedb.planner_warnings = 'off'` so the expected\noutput does not carry `array_agg` planner warnings, as the rest of the\nfile does.\n\nVerified on PostgreSQL 18 via pgrx:\n\n```\ncargo pgrx regress --package pg_search pg18 more_like_this   ->  PASS\n  ... with the fix reverted                                  ->  FAIL\ncargo pgrx regress --package pg_search pg18 --auto           ->  passed=367 failed=1\n```\n\n`cargo fmt --check` and `cargo clippy` are clean on the changed file.\n\nThe single failure in the full run is `issue_3678`, about parallel path\nselection and `pdb.score()`. It fails identically on a clean checkout of\n`main` in my environment (64 cores), so it looks environment-sensitive\nhere rather than related to this change.",
+          "timestamp": "2026-09-17T10:18:41-07:00",
+          "tree_id": "039e482b18e04a45d2783586efeb63d46c46e0df",
+          "url": "https://github.com/paradedb/paradedb/commit/530ff73974e5a7e75199a79c7c885252acd24494"
+        },
+        "date": 1789667184465,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.693054446151223,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.633,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.953,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.086,
             "unit": "ms"
           }
         ]

@@ -18,6 +18,7 @@
 use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
+use tests::fixtures::querygen::mutationgen::{arb_churn, churn_enabled};
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
@@ -43,8 +44,14 @@ use sqlx::{PgConnection, Row};
 /// draws its randomness from the Antithesis SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
 fn qgen_proptest_config() -> proptest::test_runner::Config {
-    #[allow(unused_mut)]
     let mut config = proptest::test_runner::Config::default();
+    if churn_enabled() {
+        // Committed churn accumulates across cases, so a shrunk case runs against a different
+        // heap than the one that failed and its script would not be the failing one. The first
+        // failure's script is the faithful repro, and a persisted seed replays only in a full run.
+        config.max_shrink_iters = 0;
+        config.failure_persistence = None;
+    }
     #[cfg(feature = "dst")]
     {
         config.rng_algorithm = proptest::test_runner::RngAlgorithm::Antithesis;
@@ -303,7 +310,9 @@ async fn generated_joins_small(database: Db) {
         limit in proptest::option::of(1..=50usize),
         offset in proptest::option::of(0..=10usize),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
 
@@ -477,7 +486,8 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 10)], COLUMNS);
+    let tables_and_sizes = [(table_name, 10)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(
@@ -486,7 +496,9 @@ async fn generated_single_relation(database: Db) {
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_single_relation - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
@@ -515,7 +527,8 @@ async fn generated_group_by_aggregates(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
+    let tables_and_sizes = [(table_name, 50)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
@@ -555,7 +568,9 @@ async fn generated_group_by_aggregates(database: Db) {
         limit in prop::option::of(5..21_usize),
         offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
@@ -653,13 +668,16 @@ async fn generated_paging_small(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 1000)], COLUMNS);
+    let tables_and_sizes = [(table_name, 1000)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
@@ -685,12 +703,15 @@ async fn generated_paging_large(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100000)], COLUMNS);
+    let tables_and_sizes = [(table_name, 100000)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
             &format!("SELECT uuid::text FROM {table_name} WHERE name === 'bob' {paging_exprs}"),
@@ -712,11 +733,8 @@ async fn generated_subquery(database: Db) {
 
     let outer_table_name = "products";
     let inner_table_name = "orders";
-    let setup_sql = generated_queries_setup(
-        &pool,
-        &[(outer_table_name, 10), (inner_table_name, 10)],
-        COLUMNS,
-    );
+    let tables_and_sizes = [(outer_table_name, 10), (inner_table_name, 10)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     proptest!(qgen_proptest_config(), |(
         outer_where_expr in arb_wheres(
@@ -735,7 +753,9 @@ async fn generated_subquery(database: Db) {
         ],
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let subquery = GeneratedSubquery {
             kind: subquery_kind,
             polarity: subquery_polarity,
@@ -826,7 +846,9 @@ async fn generated_aggregate_join(database: Db) {
             ],
         ),
         mut gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -942,7 +964,9 @@ async fn generated_aggregate_join_distinct(database: Db) {
             ],
         ),
         mut gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
         let join = arb_joins(
@@ -1032,7 +1056,8 @@ async fn generated_group_by_stddev(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], COLUMNS);
+    let tables_and_sizes = [(table_name, 50)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
@@ -1054,7 +1079,9 @@ async fn generated_group_by_stddev(database: Db) {
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["STDDEV(price)", "VARIANCE(price)", "STDDEV(age)", "VARIANCE(age)"]),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
@@ -1164,7 +1191,9 @@ async fn generated_join_aggregates(database: Db) {
             vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
         ),
         mut gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Generate join expression (INNER JOIN only)
         let join = arb_joins(
             Just(JoinType::Inner),
@@ -1258,7 +1287,8 @@ async fn generated_numeric_pushdown(database: Db) {
 
     let table_name = "users";
     // Use more rows to get better coverage of value ranges
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100)], COLUMNS);
+    let tables_and_sizes = [(table_name, 100)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
     // Numeric columns for testing - includes both Numeric64 and NumericBytes storage types
     let numeric_columns = columns_named(vec![
@@ -1273,7 +1303,9 @@ async fn generated_numeric_pushdown(database: Db) {
     proptest!(qgen_proptest_config(), |(
         numeric_expr in arb_numeric_expr(vec![table_name], &numeric_columns),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Both queries use the same SQL since numeric comparison operators
         // are handled identically - the pushdown happens internally in BM25
         let where_clause = numeric_expr.to_sql();
@@ -1357,7 +1389,9 @@ async fn generated_join_semi_like(database: Db) {
         nested_term in proptest::sample::select(search_terms.clone()),
         nested_is_anti in proptest::bool::ANY,
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
@@ -1491,7 +1525,8 @@ async fn generated_numeric_precision(database: Db) {
             ),
     ];
 
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 50)], precision_columns);
+    let tables_and_sizes = [(table_name, 50)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, precision_columns);
 
     // High-precision test values that would be indistinguishable in f64
     let precision_test_values = vec![
@@ -1505,7 +1540,9 @@ async fn generated_numeric_precision(database: Db) {
     proptest!(qgen_proptest_config(), |(
         test_value in proptest::sample::select(precision_test_values),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, precision_columns),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - should find exact matches only
         let pg_query = format!(
             "SELECT COUNT(*) FROM {table_name} WHERE big_int = {test_value}"
@@ -1558,7 +1595,8 @@ async fn generated_numeric_range_precision(database: Db) {
             .random_generator_sql("(floor(random() * 100) + 123456789012345600)::numeric(18,0)"),
     ];
 
-    let setup_sql = generated_queries_setup(&pool, &[(table_name, 100)], precision_columns);
+    let tables_and_sizes = [(table_name, 100)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, precision_columns);
 
     // Range boundaries that would collide in f64
     let range_bounds = vec![
@@ -1570,7 +1608,9 @@ async fn generated_numeric_range_precision(database: Db) {
     proptest!(qgen_proptest_config(), |(
         (low, high) in proptest::sample::select(range_bounds),
         gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, precision_columns),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - range filter
         let pg_query = format!(
             "SELECT COUNT(*) FROM {table_name} WHERE big_int >= {low} AND big_int < {high}"
@@ -1621,7 +1661,9 @@ async fn generated_pdb_agg_join(database: Db) {
     proptest!(qgen_proptest_config(), |(
         (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
         mut gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join_expr.to_sql();
         let pg_query = agg.pg_query(&join_clause, &wheres.pg_where());
         let bm25_query = agg.pdb_query(&join_clause, &wheres.bm25_where());
@@ -1680,14 +1722,17 @@ async fn generated_pdb_agg_single_table(database: Db) {
         |_| {},
     );
 
-    let setup_sql = generated_queries_setup(&pool, &[("users", 50)], COLUMNS);
+    let tables_and_sizes = [("users", 50)];
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
     let text_columns = columns_named(vec!["name"]);
 
     proptest!(qgen_proptest_config(), |(
         outer_bm25 in arb_wheres(vec!["users".to_string()], &text_columns),
         agg in arb_pdb_agg_single_table(),
         mut gucs in any::<PgGucs>(),
+        churn in arb_churn(&tables_and_sizes, COLUMNS),
     )| {
+        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let group = agg.outer_group.as_deref().expect("a single-table spec sits beside a GROUP BY");
         let tantivy_query = format!(
             "SELECT {group}, COUNT(*), {} FROM users WHERE {} GROUP BY {group}",

@@ -72,6 +72,7 @@ pub mod planner_warnings;
 pub mod rel;
 pub(crate) mod search_operator_relations;
 pub(crate) mod sequentialscan;
+pub mod serializable;
 pub mod storage;
 pub mod tuplesort;
 pub mod types;

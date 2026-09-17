@@ -152,7 +152,7 @@ jobs:
       # See https://antithesis.com/docs/reference/sdk/rust/instrumentation
       - name: Build pg_search from source
         id: build
-        uses: ./.github/actions/build-pg_search-source
+        uses: paradedb/actions/build-pg_search-source@8b5f4797426e4bcd76eea4f41fae7c788b8a07bc
         with:
           pg-version: ${{ env.PG_VERSION }}
           profile: dst

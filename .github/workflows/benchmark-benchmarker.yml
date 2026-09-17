@@ -16,7 +16,6 @@ on:
       - "**/*.rs"
       - "**/*.toml"
       - ".github/workflows/benchmark-benchmarker.yml"
-      - ".github/actions/build-pg_search-source/**"
       - ".github/actions/setup-pg-search-build-environment/**"
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/setup-postgres/**"
@@ -105,7 +104,7 @@ jobs:
 
       - name: Build pg_search from source
         id: build-pg_search
-        uses: ./.github/actions/build-pg_search-source
+        uses: paradedb/actions/build-pg_search-source@8b5f4797426e4bcd76eea4f41fae7c788b8a07bc
         with:
           pg-version: ${{ env.pg_version }}
           cache-prefix-key: "v2-benchmarks-rust-cache"

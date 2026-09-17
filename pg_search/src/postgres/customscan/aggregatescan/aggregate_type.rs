@@ -30,7 +30,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::{Context, bail};
 use pgrx::PgList;
 use pgrx::pg_sys::{
@@ -212,6 +212,24 @@ impl AggregateType {
         )?;
         let field = aggregate_field.field_name().clone();
         let missing = aggregate_field.missing()?;
+
+        // Tantivy casts `missing` to the type of each segment's column before it aggregates, so
+        // a fractional default is truncated unless that column is a float. A JSON path can be an
+        // integer column in one segment and have no column in another, so only a declared float
+        // field is safe. `COUNT` never looks at the value.
+        if aggfnoid != F_COUNT_ANY
+            && missing.is_some_and(|missing| missing.fract() != 0.0)
+            && !bm25_index.schema().is_ok_and(|schema| {
+                schema
+                    .search_field(&field)
+                    .is_some_and(|f| matches!(f.field_type(), SearchFieldType::F64(_)))
+            })
+        {
+            bail!(
+                "COALESCE default for '{}' has a fractional part, but the field is not a float column",
+                field
+            );
+        }
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL

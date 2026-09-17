@@ -1,0 +1,208 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Tantivy casts a COALESCE default to the column's own type, so a fractional default is only
+-- pushed down to a float column. Every query here must match the run with the aggregate scan off.
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan TO true;
+DROP TABLE IF EXISTS cfd_int CASCADE;
+DROP TABLE IF EXISTS cfd_float CASCADE;
+DROP TABLE IF EXISTS cfd_json_int CASCADE;
+DROP TABLE IF EXISTS cfd_json_none CASCADE;
+CREATE TABLE cfd_int (id SERIAL8 PRIMARY KEY, n INTEGER);
+INSERT INTO cfd_int (n) VALUES (4), (NULL);
+CREATE INDEX cfd_int_idx ON cfd_int USING paradedb (id, n);
+CREATE TABLE cfd_float (id SERIAL8 PRIMARY KEY, x DOUBLE PRECISION);
+INSERT INTO cfd_float (x) VALUES (4), (NULL);
+CREATE INDEX cfd_float_idx ON cfd_float USING paradedb (id, x);
+-- Every score is an integer, so the segment's column is an integer column.
+CREATE TABLE cfd_json_int (id SERIAL8 PRIMARY KEY, metadata JSONB);
+INSERT INTO cfd_json_int (metadata) VALUES ('{"score": 4}'), ('{}');
+CREATE INDEX cfd_json_int_idx ON cfd_json_int USING paradedb (id, (metadata::pdb.simple('columnar=true')));
+-- No row has a score, so the segment has no column for it.
+CREATE TABLE cfd_json_none (id SERIAL8 PRIMARY KEY, metadata JSONB);
+INSERT INTO cfd_json_none (metadata) VALUES ('{"brand": "apple"}');
+CREATE INDEX cfd_json_none_idx ON cfd_json_none USING paradedb (id, (metadata::pdb.simple('columnar=true')));
+-- A fractional default on an integer column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(COALESCE(n, 1.5)), SUM(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'n' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_int)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(COALESCE((n)::numeric, 1.5)), sum(COALESCE((n)::numeric, 1.5))
+   ->  Custom Scan (ParadeDB Base Scan) on public.cfd_int
+         Output: n
+         Table: cfd_int
+         Index: cfd_int_idx
+         Worker Selection: Cost model
+         Exec Method: ColumnarExecState
+         Columnar: n
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(12 rows)
+
+SELECT AVG(COALESCE(n, 1.5)), SUM(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'n' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_int)
+        avg         | sum 
+--------------------+-----
+ 2.7500000000000000 | 5.5
+(1 row)
+
+-- A fractional default on a JSON path with integer values.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_int WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'metadata.score' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_json_int)
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(COALESCE(((metadata ->> 'score'::text))::double precision, '1.5'::double precision))
+   ->  Custom Scan (ParadeDB Base Scan) on public.cfd_json_int
+         Output: metadata
+         Table: cfd_json_int
+         Index: cfd_json_int_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_int WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'metadata.score' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_json_int)
+ avg  
+------
+ 2.75
+(1 row)
+
+-- A fractional default on a JSON path the segment has no column for.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_none WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'metadata.score' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_json_none)
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(COALESCE(((metadata ->> 'score'::text))::double precision, '1.5'::double precision))
+   ->  Custom Scan (ParadeDB Base Scan) on public.cfd_json_none
+         Output: metadata
+         Table: cfd_json_none
+         Index: cfd_json_none_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_none WHERE id @@@ pdb.all();
+WARNING:  Aggregate Scan not used: COALESCE default for 'metadata.score' has a fractional part, but the field is not a float column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: cfd_json_none)
+ avg 
+-----
+ 1.5
+(1 row)
+
+-- Still pushed down: a fractional default on a float column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(COALESCE(x, 1.5)) FROM cfd_float WHERE id @@@ pdb.all();
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.cfd_float
+   Output: pdb.agg_fn('AVG'::text)
+   Index: cfd_float_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: AVG(x)
+     Aggregate Definition: {"0":{"avg":{"field":"x","missing":1.5}}}
+(6 rows)
+
+SELECT AVG(COALESCE(x, 1.5)) FROM cfd_float WHERE id @@@ pdb.all();
+ avg  
+------
+ 2.75
+(1 row)
+
+-- Still pushed down: an integer default on an integer column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(COALESCE(n, 2)) FROM cfd_int WHERE id @@@ pdb.all();
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.cfd_int
+   Output: pdb.agg_fn('AVG'::text)
+   Index: cfd_int_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: AVG(n)
+     Aggregate Definition: {"0":{"avg":{"field":"n","missing":2.0}}}
+(6 rows)
+
+SELECT AVG(COALESCE(n, 2)) FROM cfd_int WHERE id @@@ pdb.all();
+ avg 
+-----
+   3
+(1 row)
+
+-- Still pushed down: COUNT does not use the default.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.cfd_int
+   Output: pdb.agg_fn('COUNT'::text)
+   Index: cfd_int_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(n)
+     Aggregate Definition: {"0":{"value_count":{"field":"n","missing":1.5}}}
+(6 rows)
+
+SELECT COUNT(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+ count 
+-------
+     2
+(1 row)
+
+-- The same results without the aggregate scan, as the reference.
+SET paradedb.enable_aggregate_custom_scan TO false;
+SELECT AVG(COALESCE(n, 1.5)), SUM(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+        avg         | sum 
+--------------------+-----
+ 2.7500000000000000 | 5.5
+(1 row)
+
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_int WHERE id @@@ pdb.all();
+ avg  
+------
+ 2.75
+(1 row)
+
+SELECT AVG(COALESCE((metadata->>'score')::double precision, 1.5)) FROM cfd_json_none WHERE id @@@ pdb.all();
+ avg 
+-----
+ 1.5
+(1 row)
+
+SELECT AVG(COALESCE(x, 1.5)) FROM cfd_float WHERE id @@@ pdb.all();
+ avg  
+------
+ 2.75
+(1 row)
+
+SELECT AVG(COALESCE(n, 2)) FROM cfd_int WHERE id @@@ pdb.all();
+        avg         
+--------------------
+ 3.0000000000000000
+(1 row)
+
+SELECT COUNT(COALESCE(n, 1.5)) FROM cfd_int WHERE id @@@ pdb.all();
+ count 
+-------
+     2
+(1 row)
+
+DROP TABLE cfd_json_none;
+DROP TABLE cfd_json_int;
+DROP TABLE cfd_float;
+DROP TABLE cfd_int;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;

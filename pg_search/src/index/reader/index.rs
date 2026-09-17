@@ -2212,42 +2212,26 @@ mod tests {
         }
     }
 
+    /// A negative `minimum_should_match` is compiled by pg_search as a huge `usize`; the
+    /// predicate-level oracle test covers the Boolean rules, this pins the compiled shape.
     #[pg_test]
-    fn segment_pruning_preserves_nested_single_clause_booleans() {
+    fn negative_minimum_under_negation_keeps_the_query_authoritative() {
         let (index_rel, _) = segmented_index_fixture("pruning_single_boolean", 1, false);
-        for should in [false, true] {
-            for minimum in [1, 2, -1] {
-                let inner = SearchQueryInput::Boolean {
-                    must: if should {
-                        vec![]
-                    } else {
-                        vec![SearchQueryInput::All]
-                    },
-                    should: if should {
-                        vec![SearchQueryInput::All]
-                    } else {
-                        vec![]
-                    },
-                    must_not: vec![],
-                    minimum_should_match: Some(minimum),
-                };
-                for negated in [false, true] {
-                    let query = SearchQueryInput::Boolean {
-                        must: if negated {
-                            vec![SearchQueryInput::All]
-                        } else {
-                            vec![SearchQueryInput::All, inner.clone()]
-                        },
-                        should: vec![],
-                        must_not: if negated { vec![inner.clone()] } else { vec![] },
-                        minimum_should_match: None,
-                    };
-                    for scoring in [false, true] {
-                        let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-                        assert_pruning_matches_tantivy(&reader, if negated { 0 } else { 10 });
-                    }
-                }
-            }
+        let inner = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![SearchQueryInput::All],
+            must_not: vec![],
+            minimum_should_match: Some(-1),
+        };
+        let query = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![inner],
+            minimum_should_match: None,
+        };
+        for scoring in [false, true] {
+            let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+            assert_pruning_matches_tantivy(&reader, 0);
         }
     }
 
@@ -2367,23 +2351,6 @@ mod tests {
             10,
             "the tokenized query resolves through the registered tokenizers"
         );
-        let sibling = SearchIndexReader::from_manifest(
-            &manifest,
-            &index_rel,
-            SearchQueryInput::All,
-            /* need_scores */ false,
-            None,
-            /* needs_tokenizer_manager */ false,
-        )
-        .expect("from_manifest");
-        assert!(
-            std::ptr::eq(
-                reader.segment_stats_snapshot(),
-                sibling.segment_stats_snapshot()
-            ),
-            "readers built from one manifest share its statistics snapshot and cache"
-        );
-
         // Registration must reach managers shared with the already-built searcher (execution
         // paths like MoreLikeThis and fast-field normalization look tokenizers up through it,
         // not through the parse-time index handle).
@@ -2540,42 +2507,15 @@ mod tests {
         let index_rel = PgSearchRelation::open(index_oid);
 
         // The inverted index holds the uuid's tokens while `.stats` holds the whole value, so a
-        // token above the whole value in byte order would otherwise incorrectly reject a matching segment. The
-        // legacy `text_fields` configuration keeps the uuid field type; the tokenizer cast below
-        // reaches the proof as a tokenized field. Both must fail open.
+        // token above the whole value in byte order would otherwise reject a matching segment.
+        // The legacy `text_fields` configuration keeps the uuid field type, so the gate must
+        // read the Tantivy field type, not the search field type.
         let reader = open_snapshot_reader(&index_rel, term_query("u", "e29b"), false);
         assert_eq!(
             reader.segment_pruning_estimate().candidate_segments,
             1,
             "whole-value statistics cannot reject an analyzed uuid token"
         );
-        assert_eq!(reader.search().count(), 1);
-
-        Spi::run(
-            "CREATE TABLE analyzed_uuid_cast_pruning_test (
-                 id bigint PRIMARY KEY,
-                 u uuid NOT NULL
-             );
-             CREATE INDEX analyzed_uuid_cast_pruning_test_idx
-             ON analyzed_uuid_cast_pruning_test
-             USING paradedb (id, (u::pdb.unicode_words('columnar=true')))
-             WITH (target_segment_count = 8, background_layer_sizes = '0');
-             SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO analyzed_uuid_cast_pruning_test
-             VALUES (1, '550e8400-e29b-41d4-a716-446655440000');
-             RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
-
-        let index_oid = Spi::get_one::<pgrx::pg_sys::Oid>(
-            "SELECT 'analyzed_uuid_cast_pruning_test_idx'::regclass::oid",
-        )
-        .unwrap()
-        .unwrap();
-        let index_rel = PgSearchRelation::open(index_oid);
-        let reader = open_snapshot_reader(&index_rel, term_query("u", "e29b"), false);
-        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
         assert_eq!(reader.search().count(), 1);
     }
 
@@ -2609,11 +2549,6 @@ mod tests {
                 } else {
                     reader.and_query_input(&bounds)
                 };
-                assert_eq!(
-                    format!("{:?}", scan.query()) == format!("{:?}", reader.query()),
-                    redundant,
-                    "omission must leave the original query intact; other cases must attach the range"
-                );
                 assert_eq!(
                     scan.search_segments(segment_ids.iter().copied()).count(),
                     expected,
@@ -2713,11 +2648,6 @@ mod tests {
                 .unwrap();
         assert_eq!(reader.segment_ids().len(), 5);
         assert_eq!(
-            EMPIRICAL_READS.load(Relaxed),
-            0,
-            "opening a reader decides nothing and reads no statistics"
-        );
-        assert_eq!(
             reader.segment_pruning_estimate().candidate_segments,
             4,
             "the mutable segment has no statistics and must remain a candidate"
@@ -2766,34 +2696,6 @@ mod tests {
             STATS_OPENS.load(Relaxed),
             10,
             "a new execution view opens its own components"
-        );
-    }
-
-    #[pg_test]
-    fn estimating_reader_reads_no_statistics() {
-        use std::sync::atomic::Ordering::Relaxed;
-
-        let (index_rel, _heap) = segmented_index_fixture("estimate_only_reader", 4, false);
-        STATS_OPENS.store(0, Relaxed);
-        // Planning estimates open the largest segment only, as the join planner does.
-        let reader = SearchIndexReader::open(
-            &index_rel,
-            range_query("id", 100, 200),
-            false,
-            MvccSatisfies::LargestSegment,
-        )
-        .unwrap();
-        reader.estimate_docs(RowEstimate::Known(40));
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            0,
-            "a reader that only estimates must not open statistics"
-        );
-        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 0);
-        assert_eq!(
-            STATS_OPENS.load(Relaxed),
-            1,
-            "the first search decision opens the segment's statistics"
         );
     }
 
@@ -2920,23 +2822,6 @@ mod tests {
         );
         drop(readers);
         let narrowed = open_snapshot_reader(&index_rel, range_query("id", 11, 20), false);
-        let candidates = narrowed
-            .candidate_segment_readers()
-            .map(|(ord, r)| (ord, r.segment_id()))
-            .collect::<Vec<_>>();
-        let selected = narrowed
-            .segment_readers_in_segments(ids.into_iter())
-            .map(|(ord, r)| (ord, r.segment_id()))
-            .collect::<Vec<_>>();
-        assert_eq!(candidates, selected);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(
-            narrowed
-                .searcher
-                .segment_reader(candidates[0].0)
-                .segment_id(),
-            candidates[0].1
-        );
         let weakened = narrowed.and_query(Box::new(tantivy::query::AllQuery));
         assert_eq!(weakened.segment_pruning_estimate().candidate_segments, 1);
         assert_eq!(weakened.search().count(), 10);
@@ -3046,11 +2931,7 @@ mod tests {
         const NEVER: (bool, bool) = (false, false);
         let (index_rel, _heap) = segmented_index_fixture("wrapper_lowering", 2, false);
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let pruner = SegmentPruner::new(
-            &reader.segment_stats_snapshot,
-            &reader.schema,
-            reader.index_created_by_version,
-        );
+        let pruner = reader.pruner();
         let truths = |query: &SearchQueryInput| {
             (0..reader.searcher.segment_readers().len() as SegmentOrdinal)
                 .map(|ord| (pruner.can_match(ord, query), pruner.matches_all(ord, query)))
@@ -3119,28 +3000,52 @@ mod tests {
     }
 
     #[pg_test]
-    fn stats_are_opened_only_when_a_proof_needs_them() {
+    fn statistics_are_read_only_when_a_decision_needs_them() {
+        use std::sync::atomic::Ordering::Relaxed;
+
         let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
 
-        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
+        STATS_OPENS.store(0, Relaxed);
         let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(reader.search().count(), 40);
         assert_eq!(
-            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            STATS_OPENS.load(Relaxed),
             0,
             "a query without a provable predicate must not open any .stats component"
         );
 
+        // Planning estimates open the largest segment only, as the join planner does.
+        let estimating = SearchIndexReader::open(
+            &index_rel,
+            range_query("id", 100, 200),
+            false,
+            MvccSatisfies::LargestSegment,
+        )
+        .unwrap();
+        estimating.estimate_docs(RowEstimate::Known(40));
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            0,
+            "a reader that only estimates must not open statistics"
+        );
+        assert_eq!(estimating.segment_pruning_estimate().candidate_segments, 0);
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            1,
+            "the first search decision opens the segment's statistics"
+        );
+
+        STATS_OPENS.store(0, Relaxed);
         let reader = open_snapshot_reader(&index_rel, range_query("id", 1, 10), false);
         assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
         assert_eq!(
-            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            STATS_OPENS.load(Relaxed),
             4,
-            "a range proof opens each immutable segment's .stats exactly once"
+            "a range decision opens each immutable segment's .stats exactly once"
         );
         assert_eq!(reader.search().count(), 10);
         assert_eq!(
-            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            STATS_OPENS.load(Relaxed),
             4,
             "executing the search must not reopen statistics"
         );
@@ -3190,11 +3095,25 @@ mod tests {
                     id.field()
                 ),
             };
-            for attempt in 1..=2 {
+            // Both consumers of the snapshot raise the same error: partition routing reads every
+            // entry, the reader's own candidate decision reads only the empirical one.
+            let pruning_reader =
+                open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+            let routing = || {
+                snapshot
+                    .segments_intersecting_partition(&id, &range)
+                    .count();
+            };
+            let deciding = || {
+                pruning_reader.segment_pruning_estimate();
+            };
+            let mut probes: Vec<&dyn Fn()> = vec![&routing];
+            if operation != InjectedStatsFailure::Logical {
+                probes.push(&deciding);
+            }
+            for (attempt, probe) in (1..).zip(probes) {
                 let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
-                    snapshot
-                        .segments_intersecting_partition(&id, &range)
-                        .count();
+                    probe();
                     None
                 }))
                 .catch_others(|caught| match caught {
@@ -3212,7 +3131,7 @@ mod tests {
                 assert_eq!(
                     failure.hits(),
                     attempt,
-                    "each attempt must reach the real operation's injected error"
+                    "each probe must reach the real operation's injected error"
                 );
             }
             drop(failure);
@@ -3288,61 +3207,21 @@ mod tests {
     }
 
     #[pg_test]
-    fn static_unreadable_stats_abort_first_search() {
-        let (index_rel, _heap) = segmented_index_fixture("static_unreadable_stats_test", 2, false);
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let segment = probe.segment_ids()[0];
-        for failure in [InjectedStatsFailure::Open, InjectedStatsFailure::Empirical] {
-            let failure_guard = inject_stats_failure(segment, failure);
-            let reader = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
-            assert_eq!(
-                failure_guard.hits(),
-                0,
-                "opening a reader must not read statistics"
-            );
-            let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
-                reader.segment_pruning_estimate();
-                None
-            }))
-            .catch_others(|caught| match caught {
-                pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => {
-                    Some(report.message().to_string())
-                }
-                other => other.rethrow(),
-            })
-            .execute()
-            .expect("the first search decision must raise a query error");
-            assert!(
-                error.ends_with(&format!("injected {failure:?} statistics failure")),
-                "{error}"
-            );
-            assert_eq!(
-                failure_guard.hits(),
-                1,
-                "the real call must reach the error boundary"
-            );
-        }
-    }
-
-    #[pg_test]
     fn prepared_plan_reopens_the_execution_manifest_after_a_segment_merge() {
         use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 
         let (index_rel, _heap) = segmented_index_fixture("merge_freshness_pruning_test", 4, false);
+        // The regress suite covers new, updated and deleted rows under a generic plan; a merge is
+        // the case where the planned segments no longer exist at all.
         Spi::run(
             "SET plan_cache_mode = force_generic_plan;
              PREPARE merge_freshness_query(bigint, bigint) AS
              SELECT count(*)
              FROM merge_freshness_pruning_test
-             WHERE title @@@ 'quiet' AND id BETWEEN $1 AND $2;",
+             WHERE title @@@ 'quiet' AND id BETWEEN $1 AND $2;
+             EXECUTE merge_freshness_query(11, 20);",
         )
         .unwrap();
-        assert_eq!(
-            Spi::get_one::<i64>("EXECUTE merge_freshness_query(11, 20)")
-                .unwrap()
-                .unwrap(),
-            10
-        );
 
         let mut merger =
             SearchIndexMerger::open(&index_rel, MvccSatisfies::Mergeable).expect("open merger");

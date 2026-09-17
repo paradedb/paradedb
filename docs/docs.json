@@ -9,7 +9,7 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "<span class=\"banner-badge\">Coming Soon</span> [ParadeDB Cloud: join the waitlist for early access](https://www.paradedb.com/cloud)",
+    "content": "[ParadeDB Cloud coming soon: join the waitlist for early access](https://www.paradedb.com/cloud)",
     "dismissible": false
   },
   "navigation": {

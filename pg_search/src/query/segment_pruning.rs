@@ -6,9 +6,16 @@
 // it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::ops::Bound;
 
 use super::SearchQueryInput;
 use super::numeric::convert_value_for_field;
@@ -17,158 +24,29 @@ use crate::api::version::Version;
 use crate::api::{FieldName, HashMap};
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::segment_pruning::predicate::{
-    ProvableTerms, SegmentTruth, SegmentTruthTable, boolean_truth, exists_truth, range_truth,
-    terms_truth, truths_for_field,
+    boolean_can_match, boolean_matches_all, range_can_match, range_matches_all, term_can_match,
+    term_matches_all,
 };
-use crate::index::stats::EmpiricalStats;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::{SearchField, SearchIndexSchema};
-use tantivy::index::SegmentReader;
-use tantivy::query::{
-    AllScorer, AllWeight, ConstScorer, EmptyScorer, EmptyWeight, EnableScoring, Explanation, Query,
-    QueryClone, Scorer, Weight,
-};
-use tantivy::schema::{Field, FieldType};
-use tantivy::{DocId, Score, Term};
+use tantivy::SegmentOrdinal;
+use tantivy::schema::FieldType;
 
-/// A range-partition predicate whose result can be decided from the current segment's bounds.
+/// Answers pruning questions directly for one segment of the execution snapshot.
 ///
-/// The exact query remains authoritative for `Maybe`. `Always` avoids opening its range scorer,
-/// while retaining the constant score produced by Tantivy range queries.
-#[derive(Debug)]
-struct SegmentRangeQuery {
-    inner: Box<dyn Query>,
-    truth: Arc<SegmentTruthTable>,
-    removed: Arc<RangeFilterRemovalCounter>,
-}
-
-impl QueryClone for SegmentRangeQuery {
-    fn box_clone(&self) -> Box<dyn Query> {
-        Box::new(Self {
-            inner: self.inner.box_clone(),
-            truth: Arc::clone(&self.truth),
-            removed: Arc::clone(&self.removed),
-        })
-    }
-}
-
-impl Query for SegmentRangeQuery {
-    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-        let scoring_enabled = enable_scoring.is_scoring_enabled();
-        Ok(Box::new(SegmentRangeWeight {
-            inner: self.inner.weight(enable_scoring)?,
-            truth: Arc::clone(&self.truth),
-            removed: Arc::clone(&self.removed),
-            scoring_enabled,
-        }))
-    }
-
-    fn query_terms(
-        &self,
-        field: Field,
-        segment_reader: &SegmentReader,
-        visitor: &mut dyn FnMut(&Term, bool),
-    ) {
-        self.inner.query_terms(field, segment_reader, visitor);
-    }
-}
-
-struct SegmentRangeWeight {
-    inner: Box<dyn Weight>,
-    truth: Arc<SegmentTruthTable>,
-    removed: Arc<RangeFilterRemovalCounter>,
-    scoring_enabled: bool,
-}
-
-/// Per-derived-reader observer for the range-partition optimization. Keeping it next to the
-/// wrapper makes the end-to-end DataFusion test fail if execution stops installing that wrapper.
-#[derive(Debug, Default)]
-pub(crate) struct RangeFilterRemovalCounter(AtomicUsize);
-
-impl RangeFilterRemovalCounter {
-    pub(crate) fn get(&self) -> usize {
-        self.0.load(Ordering::Relaxed)
-    }
-
-    fn increment(&self) {
-        self.0.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-impl Weight for SegmentRangeWeight {
-    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        match self.truth.for_segment(reader.segment_id()) {
-            SegmentTruth::Never => Ok(Box::new(EmptyScorer)),
-            SegmentTruth::Maybe => self.inner.scorer(reader, boost),
-            SegmentTruth::Always => {
-                self.removed.increment();
-                if self.scoring_enabled {
-                    Ok(Box::new(ConstScorer::new(
-                        AllScorer::new(reader.max_doc()),
-                        boost,
-                    )))
-                } else {
-                    // Tantivy recognizes and removes a bare AllScorer from Boolean intersections.
-                    Ok(Box::new(AllScorer::new(reader.max_doc())))
-                }
-            }
-        }
-    }
-
-    fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
-        match self.truth.for_segment(reader.segment_id()) {
-            SegmentTruth::Never => EmptyWeight.explain(reader, doc),
-            SegmentTruth::Maybe => self.inner.explain(reader, doc),
-            SegmentTruth::Always => AllWeight.explain(reader, doc),
-        }
-    }
-
-    fn count(&self, reader: &SegmentReader) -> tantivy::Result<u32> {
-        match self.truth.for_segment(reader.segment_id()) {
-            SegmentTruth::Never => Ok(0),
-            SegmentTruth::Maybe => self.inner.count(reader),
-            SegmentTruth::Always => Ok(reader.num_docs()),
-        }
-    }
-}
-
-pub(crate) fn wrap_range_partition_filter(
-    query: Box<dyn Query>,
-    input: &SearchQueryInput,
-    truth: Arc<SegmentTruthTable>,
-    removed: Arc<RangeFilterRemovalCounter>,
-) -> Box<dyn Query> {
-    let mut contains_range = false;
-    input.visit_ref(&mut |query| {
-        contains_range |= matches!(
-            query,
-            SearchQueryInput::FieldedQuery {
-                query: pdb::Query::Range { .. },
-                ..
-            }
-        );
-    });
-
-    if contains_range && truth.contains(SegmentTruth::Always) {
-        Box::new(SegmentRangeQuery {
-            inner: query,
-            truth,
-            removed,
-        })
-    } else {
-        query
-    }
-}
-
-pub(crate) struct PruningQueryBuilder<'a> {
-    snapshot: Arc<SegmentStatsSnapshot>,
+/// A positive `can_match` answer retains the segment; it is not evidence that a match exists.
+/// `matches_all` requires a guarantee for every document, including NULLs. Unsupported query
+/// shapes provide neither an exclusion nor a match-all guarantee. Statistics errors propagate
+/// through the snapshot as query errors.
+pub(crate) struct SegmentPruner<'a> {
+    snapshot: &'a SegmentStatsSnapshot,
     schema: &'a SearchIndexSchema,
     index_created_by_version: Option<Version>,
 }
 
-impl<'a> PruningQueryBuilder<'a> {
+impl<'a> SegmentPruner<'a> {
     pub(crate) fn new(
-        snapshot: Arc<SegmentStatsSnapshot>,
+        snapshot: &'a SegmentStatsSnapshot,
         schema: &'a SearchIndexSchema,
         index_created_by_version: Option<Version>,
     ) -> Self {
@@ -183,10 +61,9 @@ impl<'a> PruningQueryBuilder<'a> {
         if field.path().is_some() {
             return None;
         }
-        let search_field = self.schema.search_field(field.root())?;
-        search_field
-            .stats_order_matches_values()
-            .then_some(search_field)
+        self.schema
+            .search_field(field.root())
+            .filter(SearchField::stats_order_matches_values)
     }
 
     fn eligible_value_field(&self, field: &FieldName) -> Option<SearchField> {
@@ -194,281 +71,235 @@ impl<'a> PruningQueryBuilder<'a> {
             .filter(SearchField::stats_describe_terms)
     }
 
-    fn uniform(&self, truth: SegmentTruth) -> Truths {
-        std::iter::repeat_n(truth, self.snapshot.len()).collect()
+    fn term_value(&self, field: &SearchField, value: &PdbOwnedValue) -> Option<PdbOwnedValue> {
+        let value = convert_value_for_field(
+            value.clone(),
+            &field.field_type(),
+            self.index_created_by_version,
+        )
+        .ok()?;
+        value_preserves_term_order(field, &value).then_some(value)
     }
 
-    fn for_field(
+    fn range_bounds(
         &self,
         field: &SearchField,
-        truth: impl Fn(Option<&EmpiricalStats>) -> SegmentTruth,
-    ) -> Truths {
-        truths_for_field(&self.snapshot, field, truth)
+        lower: &Bound<PdbOwnedValue>,
+        upper: &Bound<PdbOwnedValue>,
+    ) -> Option<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>)> {
+        let (lower, upper) = canonicalize_range_bounds_for_field(
+            field,
+            self.index_created_by_version,
+            lower.clone(),
+            upper.clone(),
+        )
+        .ok()?;
+        let preserves_order = [&lower, &upper].into_iter().all(|bound| match bound {
+            Bound::Included(value) | Bound::Excluded(value) => {
+                value_preserves_term_order(field, value)
+            }
+            Bound::Unbounded => true,
+        });
+        preserves_order.then_some((lower, upper))
     }
 
-    fn disjunction(&self, children: impl Iterator<Item = Truths>) -> Truths {
-        children.fold(self.uniform(SegmentTruth::Never), |mut acc, child| {
-            for (value, additional) in acc.iter_mut().zip(child.iter()) {
-                *value = value.or(*additional);
-            }
-            acc
+    // Grouped so each field is decoded once per segment check, not once per term.
+    fn terms_by_field(terms: &[super::TermInput]) -> HashMap<&FieldName, Vec<&PdbOwnedValue>> {
+        let mut grouped: HashMap<&FieldName, Vec<&PdbOwnedValue>> = HashMap::default();
+        for term in terms {
+            grouped.entry(&term.field).or_default().push(&term.value);
+        }
+        grouped
+    }
+
+    fn terms_can_match<'v>(
+        &self,
+        segment: SegmentOrdinal,
+        field: &FieldName,
+        mut terms: impl Iterator<Item = &'v PdbOwnedValue>,
+    ) -> bool {
+        let Some(field) = self.eligible_value_field(field) else {
+            return true;
+        };
+        let stats = self.snapshot.empirical(segment as usize, &field);
+        terms.any(|value| {
+            self.term_value(&field, value)
+                .is_none_or(|value| term_can_match(stats.as_ref(), &value))
         })
     }
 
-    fn fielded_truth(&self, field: &FieldName, query: &pdb::Query) -> Truths {
+    fn terms_match_all<'v>(
+        &self,
+        segment: SegmentOrdinal,
+        field: &FieldName,
+        mut terms: impl Iterator<Item = &'v PdbOwnedValue>,
+    ) -> bool {
+        let Some(field) = self.eligible_value_field(field) else {
+            return false;
+        };
+        let stats = self.snapshot.empirical(segment as usize, &field);
+        terms.any(|value| {
+            self.term_value(&field, value)
+                .is_some_and(|value| term_matches_all(stats.as_ref(), &value))
+        })
+    }
+
+    fn field_can_match(
+        &self,
+        segment: SegmentOrdinal,
+        field: &FieldName,
+        query: &pdb::Query,
+    ) -> bool {
         match query {
-            pdb::Query::All => self.uniform(SegmentTruth::Always),
-            pdb::Query::Empty => self.uniform(SegmentTruth::Never),
-            pdb::Query::ScoreAdjusted { query, .. } => self.fielded_truth(field, query),
-            pdb::Query::Exists => match self.eligible_field(field) {
-                Some(search_field) => self.for_field(&search_field, exists_truth),
-                None => self.uniform(SegmentTruth::Maybe),
-            },
-            pdb::Query::Term { value } => self.term_set_truth(field, vec![value.clone()]),
-            pdb::Query::TermSet { terms } => self.term_set_truth(field, terms.clone()),
+            pdb::Query::All => true,
+            pdb::Query::Empty => false,
+            pdb::Query::ScoreAdjusted { query, .. } => self.field_can_match(segment, field, query),
+            pdb::Query::Term { value } => {
+                self.terms_can_match(segment, field, std::iter::once(value))
+            }
+            pdb::Query::TermSet { terms } => {
+                !terms.is_empty() && self.terms_can_match(segment, field, terms.iter())
+            }
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
             } => {
-                let Some(search_field) = self.eligible_value_field(field) else {
-                    return self.uniform(SegmentTruth::Maybe);
+                let Some(field) = self.eligible_value_field(field) else {
+                    return true;
                 };
-                let Ok((lower, upper)) = canonicalize_range_bounds_for_field(
-                    &search_field,
-                    self.index_created_by_version,
-                    lower_bound.clone(),
-                    upper_bound.clone(),
-                ) else {
-                    return self.uniform(SegmentTruth::Maybe);
+                let Some((lower, upper)) = self.range_bounds(&field, lower_bound, upper_bound)
+                else {
+                    return true;
                 };
-                if ![&lower, &upper].into_iter().all(|bound| match bound {
-                    std::ops::Bound::Included(value) | std::ops::Bound::Excluded(value) => {
-                        value_preserves_term_order(&search_field, value)
-                    }
-                    std::ops::Bound::Unbounded => true,
-                }) {
-                    return self.uniform(SegmentTruth::Maybe);
-                }
-                self.for_field(&search_field, |stats| range_truth(stats, &lower, &upper))
+                range_can_match(
+                    self.snapshot.empirical(segment as usize, &field).as_ref(),
+                    &lower,
+                    &upper,
+                )
             }
-            _ => self.uniform(SegmentTruth::Maybe),
+            _ => true,
         }
     }
 
-    fn term_set_truth(&self, field: &FieldName, terms: Vec<PdbOwnedValue>) -> Truths {
-        let Some(search_field) = self.eligible_value_field(field) else {
-            return self.uniform(SegmentTruth::Maybe);
-        };
-        let Some(terms) = terms
-            .into_iter()
-            .map(|value| {
-                convert_value_for_field(
-                    value,
-                    &search_field.field_type(),
-                    self.index_created_by_version,
-                )
-                .ok()
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
-            return self.uniform(SegmentTruth::Maybe);
-        };
-        if !terms
-            .iter()
-            .all(|value| value_preserves_term_order(&search_field, value))
-        {
-            return self.uniform(SegmentTruth::Maybe);
-        }
-        let terms = ProvableTerms::new(terms);
-        self.for_field(&search_field, |stats| terms_truth(stats, &terms))
-    }
-
-    fn truths(&self, input: &SearchQueryInput) -> Truths {
-        match input {
-            SearchQueryInput::All => self.uniform(SegmentTruth::Always),
-            SearchQueryInput::Empty => self.uniform(SegmentTruth::Never),
-            SearchQueryInput::TermSet { terms } => {
-                let mut by_field: HashMap<&FieldName, Vec<PdbOwnedValue>> = HashMap::default();
-                for term in terms {
-                    by_field
-                        .entry(&term.field)
-                        .or_default()
-                        .push(term.value.clone());
-                }
-                self.disjunction(
-                    by_field
-                        .into_iter()
-                        .map(|(field, terms)| self.term_set_truth(field, terms)),
+    fn field_matches_all(
+        &self,
+        segment: SegmentOrdinal,
+        field: &FieldName,
+        query: &pdb::Query,
+    ) -> bool {
+        match query {
+            pdb::Query::All => true,
+            pdb::Query::Empty => false,
+            pdb::Query::ScoreAdjusted { query, .. } => {
+                self.field_matches_all(segment, field, query)
+            }
+            pdb::Query::Exists => self
+                .eligible_field(field)
+                .and_then(|field| self.snapshot.empirical(segment as usize, &field))
+                .is_some_and(|stats| !stats.nullable),
+            pdb::Query::Term { value } => {
+                self.terms_match_all(segment, field, std::iter::once(value))
+            }
+            pdb::Query::TermSet { terms } => {
+                !terms.is_empty() && self.terms_match_all(segment, field, terms.iter())
+            }
+            pdb::Query::Range {
+                lower_bound,
+                upper_bound,
+            } => {
+                let Some(field) = self.eligible_value_field(field) else {
+                    return false;
+                };
+                let Some((lower, upper)) = self.range_bounds(&field, lower_bound, upper_bound)
+                else {
+                    return false;
+                };
+                range_matches_all(
+                    self.snapshot.empirical(segment as usize, &field).as_ref(),
+                    &lower,
+                    &upper,
                 )
             }
-            SearchQueryInput::FieldedQuery { field, query } => self.fielded_truth(field, query),
+            _ => false,
+        }
+    }
+
+    /// False proves that this segment cannot contribute a matching document.
+    pub(crate) fn can_match(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::All => true,
+            SearchQueryInput::Empty => false,
+            SearchQueryInput::FieldedQuery { field, query } => {
+                self.field_can_match(segment, field, query)
+            }
+            SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
+                .into_iter()
+                .any(|(field, values)| self.terms_can_match(segment, field, values.into_iter())),
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
                 minimum_should_match,
-            } => {
-                let lower = |queries: &[SearchQueryInput]| {
-                    queries
-                        .iter()
-                        .map(|query| self.truths(query))
-                        .collect::<Vec<_>>()
-                };
-                let (must, should, must_not) = (lower(must), lower(should), lower(must_not));
-                (0..self.snapshot.len())
-                    .map(|idx| {
-                        boolean_truth(
-                            must.iter().map(|truths| truths[idx]),
-                            should.iter().map(|truths| truths[idx]),
-                            must_not.iter().map(|truths| truths[idx]),
-                            *minimum_should_match,
-                        )
-                    })
-                    .collect()
-            }
+            } => boolean_can_match(
+                must.iter().map(|q| self.can_match(segment, q)),
+                should.iter().map(|q| self.can_match(segment, q)),
+                must_not.iter().map(|q| self.matches_all(segment, q)),
+                *minimum_should_match,
+            ),
             SearchQueryInput::Boost { query, .. }
             | SearchQueryInput::ConstScore { query, .. }
-            | SearchQueryInput::WithIndex { query, .. } => self.truths(query),
+            | SearchQueryInput::WithIndex { query, .. } => self.can_match(segment, query),
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                self.disjunction(disjuncts.iter().map(|query| self.truths(query)))
+                disjuncts.iter().any(|q| self.can_match(segment, q))
             }
-            SearchQueryInput::ScoreFilter { query, .. } => match query.as_deref() {
-                Some(query) => rejections_only(&self.truths(query)),
-                None => self.uniform(SegmentTruth::Maybe),
-            },
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query.as_deref().is_none_or(|q| self.can_match(segment, q))
+            }
             SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                rejections_only(&self.truths(indexed_query))
+                self.can_match(segment, indexed_query)
             }
-            _ => self.uniform(SegmentTruth::Maybe),
+            _ => true,
         }
     }
 
-    pub(crate) fn truth_for_query(&self, input: &SearchQueryInput) -> Arc<SegmentTruthTable> {
-        SegmentTruthTable::new(Arc::clone(&self.snapshot), self.truths(input))
+    /// True proves every document satisfies the query. Used for negation and redundant internal
+    /// filters; ordinary user clauses still run through the original compiled query.
+    pub(crate) fn matches_all(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::All => true,
+            SearchQueryInput::Empty => false,
+            SearchQueryInput::FieldedQuery { field, query } => {
+                self.field_matches_all(segment, field, query)
+            }
+            SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
+                .into_iter()
+                .any(|(field, values)| self.terms_match_all(segment, field, values.into_iter())),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                minimum_should_match,
+            } => boolean_matches_all(
+                must.iter().map(|q| self.matches_all(segment, q)),
+                should.iter().map(|q| self.matches_all(segment, q)),
+                must_not.iter().map(|q| self.can_match(segment, q)),
+                *minimum_should_match,
+            ),
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. } => self.matches_all(segment, query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(|q| self.matches_all(segment, q))
+            }
+            // Score and heap filters may reject any row that matches their indexed child.
+            _ => false,
+        }
     }
 }
 
-/// `value_to_term` casts an unsigned input for an I64 field with `as i64`, so a value above
-/// `i64::MAX` wraps to a negative term and its numerical value says nothing about which rows
-/// it matches. Keep execution authoritative for these inputs, including range endpoints after
-/// canonicalization. In-range unsigned values compare exactly.
+/// `value_to_term` casts unsigned inputs on I64 fields with `as i64`; overflowing values wrap
+/// into negative terms. Numerical bounds cannot prove what those terms match.
 fn value_preserves_term_order(field: &SearchField, value: &PdbOwnedValue) -> bool {
-    !matches!(
-        (field.field_entry().field_type(), value),
-        (FieldType::I64(_), PdbOwnedValue::U64(value)) if i64::try_from(*value).is_err()
-    )
-}
-
-type Truths = Box<[SegmentTruth]>;
-
-/// A filter that re-checks rows outside the index can only inherit impossibility.
-fn rejections_only(truths: &[SegmentTruth]) -> Truths {
-    truths.iter().map(|truth| truth.weakened()).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tantivy::schema::{INDEXED, Schema};
-    use tantivy::{DocSet, Index, TantivyDocument, doc};
-
-    #[derive(Debug, Default)]
-    struct Calls {
-        scorers: AtomicUsize,
-        counts: AtomicUsize,
-        explains: AtomicUsize,
-    }
-
-    #[derive(Debug, Clone)]
-    struct CountingQuery(Arc<Calls>);
-
-    impl Query for CountingQuery {
-        fn weight(&self, _scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
-            Ok(Box::new(CountingWeight(Arc::clone(&self.0))))
-        }
-    }
-
-    struct CountingWeight(Arc<Calls>);
-
-    impl Weight for CountingWeight {
-        fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-            self.0.scorers.fetch_add(1, Ordering::Relaxed);
-            Ok(Box::new(ConstScorer::new(
-                AllScorer::new(reader.max_doc()),
-                boost,
-            )))
-        }
-
-        fn explain(&self, _reader: &SegmentReader, _doc: DocId) -> tantivy::Result<Explanation> {
-            self.0.explains.fetch_add(1, Ordering::Relaxed);
-            Ok(Explanation::new("inner range", 1.0))
-        }
-
-        fn count(&self, reader: &SegmentReader) -> tantivy::Result<u32> {
-            self.0.counts.fetch_add(1, Ordering::Relaxed);
-            Ok(reader.num_docs())
-        }
-    }
-
-    fn query_with_truth(
-        truth: SegmentTruth,
-        scoring: bool,
-    ) -> (Box<dyn Weight>, Arc<Calls>, SegmentReader) {
-        let mut schema = Schema::builder();
-        let id = schema.add_u64_field("id", INDEXED);
-        let index = Index::create_in_ram(schema.build());
-        let mut writer: tantivy::IndexWriter<TantivyDocument> = index.writer(50_000_000).unwrap();
-        writer.add_document(doc!(id => 1u64)).unwrap();
-        writer.commit().unwrap();
-        let searcher = index.reader().unwrap().searcher();
-        let segment = searcher.segment_reader(0).clone();
-        let snapshot = SegmentStatsSnapshot::capture(&searcher);
-        let calls = Arc::new(Calls::default());
-        let query = SegmentRangeQuery {
-            inner: Box::new(CountingQuery(Arc::clone(&calls))),
-            truth: SegmentTruthTable::uniform(snapshot, truth),
-            removed: Arc::new(RangeFilterRemovalCounter::default()),
-        };
-        let weight = query
-            .weight(if scoring {
-                EnableScoring::enabled_from_searcher(&searcher)
-            } else {
-                EnableScoring::disabled_from_searcher(&searcher)
-            })
-            .unwrap();
-        (weight, calls, segment)
-    }
-
-    #[test]
-    fn contained_range_does_not_enter_inner_scorer_and_preserves_score() {
-        let (weight, calls, segment) = query_with_truth(SegmentTruth::Always, true);
-        let mut scorer = weight.scorer(&segment, 2.5).unwrap();
-        assert_eq!(scorer.doc(), 0);
-        assert_eq!(scorer.score(), 2.5);
-        assert_eq!(weight.count(&segment).unwrap(), 1);
-        assert_eq!(weight.explain(&segment, 0).unwrap().value(), 1.0);
-        assert_eq!(calls.scorers.load(Ordering::Relaxed), 0);
-        assert_eq!(calls.counts.load(Ordering::Relaxed), 0);
-        assert_eq!(calls.explains.load(Ordering::Relaxed), 0);
-    }
-
-    #[test]
-    fn unscored_contained_range_becomes_a_removable_all_scorer() {
-        let (weight, calls, segment) = query_with_truth(SegmentTruth::Always, false);
-        let scorer = weight.scorer(&segment, 1.0).unwrap();
-        assert!(scorer.is::<AllScorer>());
-        assert_eq!(calls.scorers.load(Ordering::Relaxed), 0);
-    }
-
-    #[test]
-    fn partially_overlapping_range_delegates_to_exact_query() {
-        let (weight, calls, segment) = query_with_truth(SegmentTruth::Maybe, false);
-        assert_eq!(weight.scorer(&segment, 1.0).unwrap().doc(), 0);
-        assert_eq!(weight.count(&segment).unwrap(), 1);
-        assert_eq!(weight.explain(&segment, 0).unwrap().value(), 1.0);
-        assert_eq!(calls.scorers.load(Ordering::Relaxed), 1);
-        assert_eq!(calls.counts.load(Ordering::Relaxed), 1);
-        assert_eq!(calls.explains.load(Ordering::Relaxed), 1);
-    }
+    !matches!((field.field_entry().field_type(), value),
+        (FieldType::I64(_), PdbOwnedValue::U64(value)) if i64::try_from(*value).is_err())
 }

@@ -50,7 +50,7 @@ SELECT count(*) AS gap_count
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price = 150;
 
--- NULL prevents an Always proof but must not change SQL semantics.
+-- NULL prevents a matches-all guarantee but must not change SQL semantics.
 SELECT array_agg(id ORDER BY id) AS nullable_range
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND nullable_price BETWEEN 101 AND 106;
@@ -156,7 +156,7 @@ EXECUTE segment_pruning_range(501, 504) \gset
 \echo :array_agg
 
 -- One parameterized BaseScan is rescanned for disjoint outer values. Every rescan must rebuild
--- its execution truth instead of accumulating or reusing the preceding outer row's candidates.
+-- its candidate decisions instead of accumulating or reusing the preceding outer row's candidates.
 COPY (
     SELECT array_agg(format('%s:%s', wanted.lo, hit.ids) ORDER BY wanted.lo)
     FROM (VALUES (104::bigint), (204::bigint), (304::bigint)) AS wanted(lo)

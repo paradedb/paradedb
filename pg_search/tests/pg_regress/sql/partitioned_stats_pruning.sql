@@ -101,9 +101,9 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
 
--- Result parity alone would pass if PgSearchScan stopped installing SegmentRangeQuery. This
--- metric is incremented by the scorer wrapper only when execution proves a segment is fully
--- contained and substitutes an all-doc scorer for the exact partition range.
+-- Result parity alone would pass if PgSearchScan always added the partition filter. This
+-- metric counts predicates omitted at attachment because every selected segment is covered
+-- and scores are not needed; it does not count per-segment scorer substitutions.
 CREATE TEMP TABLE sp_range_filter_plan AS
 SELECT line
 FROM sp_explain_analyze_lines(

@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-//! What the planner and the executor take from the component: value-space split points stamped
+//! What the planner and the executor take from the component: logical split points stamped
 //! by a partitioned build, and the execution segments a range partition has to search. The
 //! planner keeps only the values; segment ownership is resolved at execution.
 

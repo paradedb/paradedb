@@ -2164,7 +2164,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn unreadable_stats_fail_open() {
+    fn unreadable_stats_abort_query() {
         let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
         let probe = open_snapshot_reader(&index_rel);
         let id = probe.schema().search_field("id").unwrap();
@@ -2194,41 +2194,83 @@ mod tests {
             let failure = inject_stats_failure(segment, operation);
             let reader = open_snapshot_reader(&index_rel);
             let snapshot = reader.segment_stats_snapshot();
+            let expected_message = match operation {
+                InjectedStatsFailure::Open => format!(
+                    "could not open segment statistics for {segment:?}: injected Open statistics failure"
+                ),
+                InjectedStatsFailure::Empirical => format!(
+                    "could not read empirical statistics for field {:?} in segment {segment:?}: injected Empirical statistics failure",
+                    id.field()
+                ),
+                InjectedStatsFailure::Logical => format!(
+                    "could not read logical statistics for field {:?} in segment {segment:?}: injected Logical statistics failure",
+                    id.field()
+                ),
+            };
             for attempt in 1..=2 {
-                assert_eq!(
+                let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
                     snapshot
                         .segments_intersecting_partition(&id, &range)
-                        .collect::<Vec<_>>(),
-                    vec![segment],
-                    "only the segment with unreadable statistics must be retained: {operation:?}"
+                        .count();
+                    None
+                }))
+                .catch_others(|caught| match caught {
+                    pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => {
+                        Some(report.message().to_string())
+                    }
+                    other => other.rethrow(),
+                })
+                .execute();
+                assert_eq!(
+                    error.as_deref(),
+                    Some(expected_message.as_str()),
+                    "an unreadable component must raise the specific query error: {operation:?}"
                 );
-                let expected_hits = if operation == InjectedStatsFailure::Open {
-                    1
-                } else {
-                    attempt
-                };
                 assert_eq!(
                     failure.hits(),
-                    expected_hits,
-                    "the real operation must reach its injected error; failed opens are cached"
+                    attempt,
+                    "each attempt must reach the real operation's injected error"
                 );
             }
-            assert_eq!(
-                reader.search().count(),
-                20,
-                "statistics failures must preserve query results"
-            );
             drop(failure);
-            let recovered = open_snapshot_reader(&index_rel);
             assert_eq!(
-                recovered
-                    .segment_stats_snapshot()
+                snapshot
                     .segments_intersecting_partition(&id, &range)
                     .count(),
                 0,
-                "a new snapshot must not inherit another execution's failed read"
+                "a failed read must not cache absence or make the segment permanently eligible"
             );
         }
+    }
+
+    #[pg_test]
+    fn missing_stats_keep_segment_eligible() {
+        let (index_rel, _heap) = segmented_index_fixture("missing_stats_test", 1, true);
+        let reader = open_snapshot_reader(&index_rel);
+        let id = reader.schema().search_field("id").unwrap();
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(100), PdbOwnedValue::I64(201)],
+        }
+        .partition_range(1)
+        .unwrap();
+        let segment_ids = reader.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+        let mutable = segment_ids
+            .into_iter()
+            .find(|id| reader.directory.is_mutable(id))
+            .expect("fixture must include a mutable segment");
+        let snapshot = reader.segment_stats_snapshot();
+        for _ in 0..2 {
+            assert_eq!(
+                snapshot
+                    .segments_intersecting_partition(&id, &range)
+                    .collect::<Vec<_>>(),
+                vec![mutable],
+                "missing statistics retain the mutable segment; readable bounds prune the other"
+            );
+        }
+        assert_eq!(reader.search().count(), 15);
     }
 
     /// A `.stats` probe must be answered from the manifest: building a mutable segment's

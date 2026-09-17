@@ -328,14 +328,18 @@ impl SegmentStats {
         })
     }
 
-    /// The `.stats` of `segment`, through its directory. `None` when the segment was written
-    /// without the component.
+    /// Open a segment's `.stats` component through its directory, reading only the footer.
+    ///
+    /// Returns `None` when the component is absent, including for mutable segments. Errors
+    /// opening an existing component or decoding its footer are returned to the caller.
     pub(crate) fn of_segment(segment: &Segment) -> io::Result<Option<Self>> {
         Self::from_component(segment.open_read(stats_component()))
     }
 
-    /// The `.stats` of an open segment reader. `None` when the segment was written without the
-    /// component.
+    /// Open `.stats` through an execution segment reader, using its captured directory view.
+    ///
+    /// Like [`Self::of_segment`], this reads only the footer. An absent component returns
+    /// `None`; errors opening an existing component or decoding its footer are returned.
     pub(crate) fn of_reader(reader: &SegmentReader) -> io::Result<Option<Self>> {
         Self::from_component(reader.open_read(stats_component()))
     }
@@ -348,15 +352,23 @@ impl SegmentStats {
         }
     }
 
+    /// Read and decode a field's observed minimum, maximum, and nullability.
+    ///
+    /// Values retain their stored representation, which may differ from query bounds for
+    /// datetime fields. Returns `None` if the field has no empirical entry and an error if the
+    /// entry cannot be read or decoded.
     pub(crate) fn empirical(&self, field: Field) -> io::Result<Option<EmpiricalStats>> {
         Ok(self
             .read::<EmpiricalWire>(field, EMPIRICAL_IDX)?
             .map(EmpiricalStats::from))
     }
 
-    /// [`Self::empirical`] in the representation query bounds on `field` use. A datetime column
-    /// of a recent index keeps raw micros in an `I64` fast field; its statistics compare as
-    /// `Date`.
+    /// Read a field's empirical statistics in the representation used by its query bounds.
+    ///
+    /// Datetime fields stored as `I64` microseconds are converted to `Date` bounds, matching
+    /// fast-field value conversion during execution. Other field types retain their stored
+    /// representation. Returns `None` for a missing entry and an error for a read, decode, or
+    /// datetime conversion failure.
     pub(crate) fn empirical_for(&self, field: &SearchField) -> io::Result<Option<EmpiricalStats>> {
         let Some(stats) = self.empirical(field.field())? else {
             return Ok(None);
@@ -372,6 +384,9 @@ impl SegmentStats {
         })
     }
 
+    /// Read the logical bounds assigned to a field by a partitioned build. These boundaries
+    /// need not occur among the segment's values. Returns `None` if no bounds were assigned,
+    /// or an error if the entry cannot be read or decoded.
     pub(crate) fn logical(&self, field: Field) -> io::Result<Option<LogicalBounds>> {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?

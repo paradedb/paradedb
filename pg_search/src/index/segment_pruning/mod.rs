@@ -6,6 +6,14 @@
 // it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! One execution-visible view of segment statistics.
 //!
@@ -13,8 +21,9 @@
 //! merges replace them. The snapshot is therefore taken from the execution Searcher, never from
 //! planner-visible segment identities.
 //!
-//! Statistics are accelerators, never substitutes for the query predicate. Missing, unreadable,
-//! or unsupported data reads as unknown rather than disappearing behind a default.
+//! Statistics are accelerators, never substitutes for the query predicate. Missing statistics
+//! leave segments eligible for execution; errors opening or decoding existing statistics abort
+//! the query.
 
 mod snapshot;
 

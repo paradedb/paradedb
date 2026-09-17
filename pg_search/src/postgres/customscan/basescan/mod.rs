@@ -85,6 +85,7 @@ use crate::postgres::customscan::{
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{
     filter_implied_predicates, is_unnest_func, missing_partial_index_predicate,
@@ -1601,6 +1602,8 @@ impl CustomScan for BaseScan {
                 // don't do anything else if we're only explaining the query
                 return;
             }
+
+            predicate_lock_read(state.custom_state().heaprel(), (*estate).es_snapshot);
 
             // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =

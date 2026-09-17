@@ -114,6 +114,7 @@ use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_ta
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
@@ -890,13 +891,20 @@ impl CustomScan for AggregateScan {
             // ExecInitCustomScan already built ps_ProjInfo from ps_ExprContext;
             // assigning a fresh context here would leave the two divergent.
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
-            // MPP: pin the source manifests and mark one launch attempt. The real logical and
-            // physical plan is built once, on first execution; its finished stages provide the
-            // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
-            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
-            {
-                Self::prepare_mpp(state);
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                let snapshot = unsafe { (*estate).es_snapshot };
+                if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
+                    for source in df_state.plan.sources() {
+                        predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                    }
+                }
+                // MPP: pin the source manifests and mark one launch attempt. The real logical and
+                // physical plan is built once, on first execution; its finished stages provide the
+                // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare
+                // MPP.
+                if unsafe { pg_sys::ParallelWorkerNumber } == -1 {
+                    Self::prepare_mpp(state);
+                }
             }
             return;
         }
@@ -909,6 +917,13 @@ impl CustomScan for AggregateScan {
             // TODO: Opening of the index could be deduped between custom scans: see
             // `BaseScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
+
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                predicate_lock_read_oid(
+                    state.custom_state().indexrel().heap_relation_oid(),
+                    (*estate).es_snapshot,
+                );
+            }
 
             // Initialize the harvested child bitmap scan, if any; registering it in
             // custom_ps lets EXPLAIN render it.

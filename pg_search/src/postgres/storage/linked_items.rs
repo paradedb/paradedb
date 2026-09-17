@@ -753,6 +753,21 @@ mod tests {
         SegmentId::generate_random()
     }
 
+    /// Runs `garbage_collect` until a pass removes nothing.
+    ///
+    /// One pass is not guaranteed to collect every dead entry. `recyclable()` takes a
+    /// conditional cleanup lock on the entry's pintest block, which fails whenever another
+    /// backend holds a pin, and the bgwriter or checkpointer routinely holds one while writing
+    /// out a page these tests just dirtied. Deferring that entry to a later pass is the intended
+    /// behavior, so a test that wants everything collected has to keep passing.
+    /// See https://github.com/paradedb/paradedb/issues/6334.
+    unsafe fn garbage_collect_fully(
+        list: &mut LinkedItemList<SegmentMetaEntry>,
+        when_recyclable: pg_sys::FullTransactionId,
+    ) {
+        while !list.garbage_collect(when_recyclable).is_empty() {}
+    }
+
     fn linked_list_block_numbers(
         list: &LinkedItemList<SegmentMetaEntry>,
     ) -> HashSet<pg_sys::BlockNumber> {
@@ -797,9 +812,12 @@ mod tests {
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
-        list.garbage_collect(pg_sys::FullTransactionId {
-            value: delete_xid.into_inner() as u64,
-        });
+        garbage_collect_fully(
+            &mut list,
+            pg_sys::FullTransactionId {
+                value: delete_xid.into_inner() as u64,
+            },
+        );
 
         assert!(
             list.lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
@@ -841,9 +859,12 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(&entries, None);
-            list.garbage_collect(pg_sys::FullTransactionId {
-                value: deleted_xid.into_inner() as u64,
-            });
+            garbage_collect_fully(
+                &mut list,
+                pg_sys::FullTransactionId {
+                    value: deleted_xid.into_inner() as u64,
+                },
+            );
 
             for entry in entries {
                 if entry.xmax() == not_deleted_xid {
@@ -909,9 +930,12 @@ mod tests {
             list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect(pg_sys::FullTransactionId {
-                value: deleted_xid.into_inner() as u64,
-            });
+            garbage_collect_fully(
+                &mut list,
+                pg_sys::FullTransactionId {
+                    value: deleted_xid.into_inner() as u64,
+                },
+            );
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

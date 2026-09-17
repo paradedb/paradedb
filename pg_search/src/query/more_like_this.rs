@@ -21,6 +21,7 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{FieldSource, strip_tokenizer_cast, unwrap_alias_datum};
+use crate::query::numeric::convert_value_for_field;
 use crate::schema::SearchFieldType;
 use pgrx::spi::SpiError;
 use serde::{Deserialize, Serialize};
@@ -175,6 +176,12 @@ impl MoreLikeThisQueryBuilder {
                 }
 
                 let is_vector = matches!(search_field.field_type(), SearchFieldType::Vector(..));
+                // Tantivy's MoreLikeThis collects terms from text and numeric columns; it has no
+                // handling for Bytes columns, which is how a NUMERIC wider than the fixed-point
+                // representation is stored. Such a field contributes nothing, so naming one used
+                // to return an empty result with no explanation.
+                let is_numeric_bytes =
+                    matches!(search_field.field_type(), SearchFieldType::NumericBytes(..));
                 if let Some(ref fields) = fields {
                     if !fields.contains(&search_field.field_name().clone().into_inner()) {
                         return false;
@@ -185,8 +192,16 @@ impl MoreLikeThisQueryBuilder {
                     if is_vector {
                         panic!("vector fields are not supported for more_like_this");
                     }
+                    if is_numeric_bytes {
+                        panic!(
+                            "numeric field '{}' is not supported for more_like_this: its precision \
+                             or scale is too wide for the fixed-point representation, so it is \
+                             stored as bytes, which MoreLikeThis cannot compare",
+                            search_field.field_name()
+                        );
+                    }
                 }
-                !categorized.is_json && !is_vector
+                !categorized.is_json && !is_vector && !is_numeric_bytes
             })
             .collect::<Vec<_>>();
         let expressions = index_relation.index_expressions();
@@ -230,6 +245,7 @@ impl MoreLikeThisQueryBuilder {
             .collect::<Vec<_>>()
             .join(", ");
 
+        let index_created_by_version = self.index_created_by_version;
         let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
             pgrx::Spi::connect(|client| {
                 let mut doc_fields = Vec::new();
@@ -261,12 +277,25 @@ impl MoreLikeThisQueryBuilder {
                 for (position, (search_field, categorized)) in document_fields.iter().enumerate() {
                     if let Some(datum) = result.get_datum_by_ordinal(position + 1)? {
                         let datum = unsafe { unwrap_alias_datum(datum, categorized.pg_type) };
+                        // A datum carries the PostgreSQL type, not the representation the field
+                        // was indexed with. Numeric64 is physically an I64 column, so handing it
+                        // the string form of a NUMERIC makes Tantivy fail to build a weight.
+                        let field_type = search_field.field_type();
+                        let to_indexed_form = |value: PdbOwnedValue| {
+                            convert_value_for_field(value, &field_type, index_created_by_version)
+                                .unwrap_or_else(|e| {
+                                    panic!(
+                                        "more_like_this: could not convert value of field '{}': {e}",
+                                        search_field.field_name()
+                                    )
+                                })
+                        };
                         if categorized.is_array {
                             let values = unsafe {
                                 TantivyValue::try_from_datum_array(datum, categorized.base_oid)
                                 .expect("more_like_this: should be able to convert array to tantivy value")
                                 .into_iter()
-                                .map(|v| v.0)
+                                .map(|v| to_indexed_form(v.0))
                                 .collect::<Vec<_>>()
                             };
                             doc_fields.push((search_field.field(), values));
@@ -275,7 +304,7 @@ impl MoreLikeThisQueryBuilder {
                                 TantivyValue::try_from_datum(datum, categorized.base_oid)
                                 .expect("more_like_this: should be able to convert datum to tantivy value")
                             };
-                            doc_fields.push((search_field.field(), vec![value.0]));
+                            doc_fields.push((search_field.field(), vec![to_indexed_form(value.0)]));
                         }
                     }
                 }

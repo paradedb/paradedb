@@ -121,8 +121,7 @@ jobs:
           for file in $(find . -name "*.mdx" \
             ! -path "./changelog/unreleased/*" \
             ! -path "./project/changelog/*" \
-            ! -path "./snippets/*" \
-            ! -path "./welcome/support.mdx"); do
+            ! -path "./snippets/*"); do
 
             title=$(grep -E "^title:" "$file" || true)
             desc=$(grep -E "^description:" "$file" || true)

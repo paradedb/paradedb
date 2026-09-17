@@ -42,12 +42,14 @@ INSERT INTO hot_orders (id, user_id, note) VALUES
 
 CREATE INDEX hot_users_idx ON hot_users USING paradedb (id, name, age)
 WITH (
+    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields = '{"age": {"fast": true}}'
 );
 
 CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note)
 WITH (
+    key_field = 'id',
     numeric_fields = '{"user_id": {"fast": true}}'
 );
 

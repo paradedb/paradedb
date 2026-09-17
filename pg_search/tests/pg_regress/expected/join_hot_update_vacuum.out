@@ -39,11 +39,13 @@ INSERT INTO hot_orders (id, user_id, note) VALUES
 (16, 6, 'seventh order');
 CREATE INDEX hot_users_idx ON hot_users USING paradedb (id, name, age)
 WITH (
+    key_field = 'id',
     text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields = '{"age": {"fast": true}}'
 );
 CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note)
 WITH (
+    key_field = 'id',
     numeric_fields = '{"user_id": {"fast": true}}'
 );
 CREATE EXTENSION IF NOT EXISTS pageinspect;
@@ -79,25 +81,27 @@ JOIN hot_orders o ON o.user_id = u.id
 WHERE u.name @@@ 'bob'
 ORDER BY u.id, o.id
 LIMIT 10;
-                                                                                      QUERY PLAN                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
    Output: u.id, u.name, u.rating, o.note, o.id
-   Relation Tree: u INNER o
-   Join Cond: o.user_id = u.id
-   Limit: 10
-   Order By: o.user_id asc, o.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@4 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[user_id@3 ASC NULLS LAST, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[u, o]
-     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)]
-     :           CooperativeExec
-     :             PgSearchScan: table=u, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
-(16 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: u.id, u.name, u.rating, o.note, o.id
+         Relation Tree: o INNER u
+         Join Cond: u.id = o.user_id
+         Limit: 10
+         Order By: o.user_id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[user_id@1 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[o, u]
+           :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)], projection=[ctid_0@2, user_id@3, id@4, ctid_1@0, id@1]
+           :           CooperativeExec
+           :             PgSearchScan: table=u, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, dynamic_filters=2, query="all"
+(18 rows)
 
 SELECT u.id, u.name, u.rating, o.note
 FROM hot_users u
@@ -121,24 +125,27 @@ JOIN hot_orders o ON o.user_id = u.id
 WHERE u.name @@@ 'bob OR alice'
 ORDER BY u.name, u.id, o.id
 LIMIT 4;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
    Output: u.id, u.name, u.rating, o.note, o.id
-   Relation Tree: u INNER o
-   Join Cond: o.user_id = u.id
-   Limit: 4
-   Order By: u.name asc, o.user_id asc, o.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, name@2 as col_2, NULL as col_3, NULL as col_4, id@5 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
-     :   TantivyDecodeExec: decode=[name]
-     :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST, user_id@4 ASC NULLS LAST, id@5 ASC NULLS LAST], k=4, visibility_checks=[u, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)]
-     :         CooperativeExec
-     :           PgSearchScan: table=u, segments=1, fetch=[name], query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob OR alice","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: u.id, u.name, u.rating, o.note, o.id
+         Relation Tree: o INNER u
+         Join Cond: u.id = o.user_id
+         Limit: 4
+         Order By: u.name asc, o.user_id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, name@5 as col_2, NULL as col_3, NULL as col_4, id@2 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+           :   TantivyDecodeExec: decode=[name]
+           :     TantivyFetchExec: fetch=[name]
+           :       SegmentedTopKExec: expr=[name@5 ASC NULLS LAST, user_id@1 ASC NULLS LAST, id@2 ASC NULLS LAST], k=4, visibility_checks=[o, u]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)], projection=[ctid_0@3, user_id@4, id@5, ctid_1@0, id@1, name@2]
+           :           CooperativeExec
+           :             PgSearchScan: table=u, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob OR alice","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT u.id, u.name, u.rating, o.note
 FROM hot_users u
@@ -162,25 +169,27 @@ LEFT JOIN hot_users u ON o.user_id = u.id
 WHERE o.note @@@ 'order'
 ORDER BY o.id
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
    Output: o.id, o.note, u.id, u.name, u.rating
-   Relation Tree: o LEFT u
-   Join Cond: o.user_id = u.id
-   Limit: 10
-   Order By: o.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[o]
-     :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@2, id@4, ctid_1@0, id@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=u, segments=1, visibility=eager, query="all"
-     :           CooperativeExec
-     :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"order","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: o.id, o.note, u.id, u.name, u.rating
+         Relation Tree: u RIGHT o
+         Join Cond: o.user_id = u.id
+         Limit: 10
+         Order By: o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, id@1 as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[o]
+           :       TantivyFetchExec: fetch=[ctid_1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, user_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"note","query_string":"order","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 SELECT o.id, o.note, u.id, u.name, u.rating
 FROM hot_orders o

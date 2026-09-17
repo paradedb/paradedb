@@ -1186,6 +1186,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                     .and_range_partition_bounds(&rb.partition_bounds(target_partition)),
                 None => reader,
             };
+            let range_filters_removed = reader.range_filters_removed();
+            if range_filters_removed > 0 {
+                MetricBuilder::new(&plan_metrics)
+                    .counter("range_filters_removed", target_partition)
+                    .add(range_filters_removed);
+            }
 
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
@@ -1205,8 +1211,8 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let search_results = if let Some(range_boundaries) = &range_boundaries {
                 // Range partitioned mode has no shared scan state: each partition searches the
-                // segments its bounds can reach, per their `.stats`. The query above still
-                // filters the rows, so a segment kept in doubt costs time, not correctness.
+                // segments its bounds can reach, per their `.stats`. Unless every candidate
+                // is covered, the attached query still enforces exact row ownership.
                 let segment_ids =
                     segments_for_partition(&reader, range_boundaries, target_partition);
                 reader.search_segments(segment_ids.into_iter())
@@ -1324,12 +1330,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                         break;
                     }
                 }
-            }
-            let range_filters_removed = reader.range_filters_removed();
-            if range_filters_removed > 0 {
-                MetricBuilder::new(&plan_metrics)
-                    .counter("range_filters_removed", target_partition)
-                    .add(range_filters_removed);
             }
             baseline_metrics.done();
         };

@@ -6,62 +6,181 @@
 // it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::{self, Display};
-use std::io;
-use std::ops::Bound;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use crate::api::HashMap;
-use crate::index::stats::{EmpiricalStats, LogicalBounds, SegmentStats};
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::index::stats::{EmpiricalStats, SegmentStats};
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
-use tantivy::index::{SegmentId, SegmentReader};
-use tantivy::schema::Field;
+use tantivy::index::SegmentId;
 use tantivy::{Searcher, SegmentOrdinal};
 
-/// Absence describes missing statistics, never missing field values. Unknown means a read or
-/// conversion failed; it must not be used as evidence for pruning.
-pub(super) enum StatsRead<T> {
-    Absent,
-    Known(T),
-    Unknown,
-}
-
-impl<T> StatsRead<T> {
-    pub(super) fn known(&self) -> Option<&T> {
-        match self {
-            Self::Known(value) => Some(value),
-            Self::Absent | Self::Unknown => None,
-        }
-    }
-}
-
+/// One segment in the snapshot, at the same ordinal as its reader in the searcher.
+///
+/// Statistics are opened on first use. A cached `None` means the segment has no `.stats`
+/// component, as with mutable segments; failures to open an existing component abort the query.
 struct CapturedSegment {
     id: SegmentId,
-    /// Opened on first use, since most readers never consult statistics. A failed open is
-    /// cached as `Unknown`.
-    stats: OnceLock<StatsRead<SegmentStats>>,
+    stats: OnceLock<Option<SegmentStats>>,
 }
 
 /// Lazily opened statistics tied to one frozen searcher.
+///
+/// The retained searcher fixes segment membership and order for this snapshot's lifetime.
+/// Readers created from the same manifest share the snapshot, so a segment's `.stats` component
+/// is opened at most once. Individual field entries are decoded when requested.
+///
+/// Missing statistics cannot exclude a segment. Errors opening or decoding existing statistics
+/// abort the query rather than concealing an unreadable index component.
 pub(crate) struct SegmentStatsSnapshot {
-    /// The segment readers stay with the searcher; each captured segment holds only its id and
-    /// its statistics cache, so capture never clones a reader.
     searcher: Searcher,
-    ordinal_by_id: HashMap<SegmentId, usize>,
     segments: Box<[CapturedSegment]>,
-    /// Only requested fields are decoded. Entries, including failed reads, live as long as
-    /// this frozen view and are shared by readers and their range-partition derivatives.
-    empirical_by_field: Mutex<HashMap<Field, Arc<[StatsRead<EmpiricalStats>]>>>,
+    ordinal_by_id: HashMap<SegmentId, usize>,
 }
 
-impl fmt::Debug for SegmentStatsSnapshot {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.segments.iter().map(|segment| segment.id))
-            .finish()
+impl SegmentStatsSnapshot {
+    /// Capture the segments `searcher` was built on: one `Arc` clone of the searcher, no I/O.
+    pub(crate) fn capture(searcher: &Searcher) -> Arc<Self> {
+        let segments = searcher
+            .segment_readers()
+            .iter()
+            .map(|reader| CapturedSegment {
+                id: reader.segment_id(),
+                stats: OnceLock::new(),
+            })
+            .collect::<Box<[_]>>();
+        let ordinal_by_id = segments
+            .iter()
+            .enumerate()
+            .map(|(ord, segment)| (segment.id, ord))
+            .collect();
+        Arc::new(Self {
+            searcher: searcher.clone(),
+            segments,
+            ordinal_by_id,
+        })
+    }
+
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    /// The searcher ordinal of `id`, or `None` when the segment is not in this snapshot.
+    pub(crate) fn segment_index(&self, id: SegmentId) -> Option<usize> {
+        self.ordinal_by_id.get(&id).copied()
+    }
+
+    /// Decode one field for one execution segment. Missing components or entries return None;
+    /// read and conversion errors abort the query. Decoded entries are not cached.
+    pub(crate) fn empirical(&self, ord: usize, field: &SearchField) -> Option<EmpiricalStats> {
+        let stats = self.stats(ord)?;
+        let segment_id = self.segments[ord].id;
+        #[cfg(any(test, feature = "pg_test"))]
+        test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let empirical = stats.empirical_for(field);
+        #[cfg(any(test, feature = "pg_test"))]
+        let empirical = test_support::maybe_fail(
+            segment_id,
+            test_support::InjectedStatsFailure::Empirical,
+            empirical,
+        );
+        empirical.unwrap_or_else(|error| {
+            pgrx::error!("could not read empirical statistics for field {:?} in segment {segment_id:?}: {error}", field.field())
+        })
+    }
+
+    fn stats(&self, ord: usize) -> Option<&SegmentStats> {
+        self.segments[ord]
+            .stats
+            .get_or_init(|| {
+                let reader = self.searcher.segment_reader(ord as SegmentOrdinal);
+                #[cfg(any(test, feature = "pg_test"))]
+                test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let opened = SegmentStats::of_reader(reader);
+                #[cfg(any(test, feature = "pg_test"))]
+                let opened = test_support::maybe_fail(
+                    reader.segment_id(),
+                    test_support::InjectedStatsFailure::Open,
+                    opened,
+                );
+                opened.unwrap_or_else(|error| {
+                    pgrx::error!(
+                        "could not open segment statistics for {:?}: {error}",
+                        reader.segment_id()
+                    )
+                })
+            })
+            .as_ref()
+    }
+
+    /// Logical bounds describe where the build routed rows; empirical bounds describe what
+    /// the segment contains. Both must overlap when available. An absent entry still permits
+    /// the other kind of bounds to prune; an unreadable entry aborts the query.
+    fn may_intersect_partition(
+        &self,
+        ord: usize,
+        field: &SearchField,
+        range: &PartitionRange,
+    ) -> bool {
+        let Some((lower, upper)) = range.values() else {
+            return range.includes_nulls();
+        };
+        let segment_id = self.segments[ord].id;
+        let Some(stats) = self.stats(ord) else {
+            return true;
+        };
+        let empirical = self.empirical(ord, field);
+        let logical = stats.logical(field.field());
+        #[cfg(any(test, feature = "pg_test"))]
+        let logical = test_support::maybe_fail(
+            segment_id,
+            test_support::InjectedStatsFailure::Logical,
+            logical,
+        );
+        let logical = logical.unwrap_or_else(|error| {
+            pgrx::error!(
+                "could not read logical statistics for field {:?} in segment {segment_id:?}: {error}",
+                field.field()
+            )
+        });
+        match (logical, empirical) {
+            (None, None) => true,
+            (Some(bounds), None) => {
+                (range.includes_nulls() && bounds.may_hold_nulls())
+                    || bounds.intersects(lower, upper)
+            }
+            (None, Some(empirical)) => {
+                (range.includes_nulls() && empirical.nullable) || empirical.intersects(lower, upper)
+            }
+            (Some(bounds), Some(empirical)) => {
+                (range.includes_nulls() && empirical.nullable)
+                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+            }
+        }
+    }
+
+    /// Yield execution segment IDs whose available bounds overlap this partition, in searcher
+    /// order. Missing statistics retain the segment; a read or decode error aborts the query.
+    pub(crate) fn segments_intersecting_partition<'a>(
+        &'a self,
+        field: &'a SearchField,
+        range: &'a PartitionRange,
+    ) -> impl Iterator<Item = SegmentId> + 'a {
+        self.segments
+            .iter()
+            .enumerate()
+            .filter(move |(ord, _)| self.may_intersect_partition(*ord, field, range))
+            .map(|(_, segment)| segment.id)
     }
 }
 
@@ -76,7 +195,6 @@ pub(crate) mod test_support {
     /// Number of `.stats` open attempts, including ones that fail.
     pub(crate) static STATS_OPENS: AtomicUsize = AtomicUsize::new(0);
     pub(crate) static EMPIRICAL_READS: AtomicUsize = AtomicUsize::new(0);
-    pub(crate) static FIELD_PROOF_PASSES: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum InjectedStatsFailure {
@@ -153,208 +271,5 @@ pub(crate) mod test_support {
             )));
         }
         result
-    }
-}
-
-fn classify<T>(value: io::Result<Option<T>>, what: impl Display) -> StatsRead<T> {
-    match value {
-        Ok(Some(value)) => StatsRead::Known(value),
-        Ok(None) => StatsRead::Absent,
-        Err(error) => {
-            pgrx::debug1!("segment pruning could not read {what}: {error}");
-            StatsRead::Unknown
-        }
-    }
-}
-
-fn capture_stats(reader: &SegmentReader) -> StatsRead<SegmentStats> {
-    #[cfg(any(test, feature = "pg_test"))]
-    test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let opened = SegmentStats::of_reader(reader);
-    #[cfg(any(test, feature = "pg_test"))]
-    let opened = test_support::maybe_fail(
-        reader.segment_id(),
-        test_support::InjectedStatsFailure::Open,
-        opened,
-    );
-    classify(opened, format_args!(".stats for {:?}", reader.segment_id()))
-}
-
-fn read_empirical(
-    stats: &SegmentStats,
-    segment_id: SegmentId,
-    field: &SearchField,
-) -> StatsRead<EmpiricalStats> {
-    #[cfg(any(test, feature = "pg_test"))]
-    test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let value = stats.empirical_for(field);
-    #[cfg(any(test, feature = "pg_test"))]
-    let value = test_support::maybe_fail(
-        segment_id,
-        test_support::InjectedStatsFailure::Empirical,
-        value,
-    );
-    classify(
-        value,
-        format_args!("empirical field {:?} for {segment_id:?}", field.field()),
-    )
-}
-
-fn read_logical(
-    stats: &SegmentStats,
-    segment_id: SegmentId,
-    field: &SearchField,
-) -> StatsRead<LogicalBounds> {
-    let value = stats.logical(field.field());
-    #[cfg(any(test, feature = "pg_test"))]
-    let value = test_support::maybe_fail(
-        segment_id,
-        test_support::InjectedStatsFailure::Logical,
-        value,
-    );
-    classify(
-        value,
-        format_args!("logical field {:?} for {segment_id:?}", field.field()),
-    )
-}
-
-impl SegmentStatsSnapshot {
-    /// Capture the segments `searcher` was built on: one `Arc` clone of the searcher, no I/O.
-    pub(crate) fn capture(searcher: &Searcher) -> Arc<Self> {
-        let segments = searcher
-            .segment_readers()
-            .iter()
-            .map(|reader| CapturedSegment {
-                id: reader.segment_id(),
-                stats: OnceLock::new(),
-            })
-            .collect::<Box<[_]>>();
-        let ordinal_by_id = segments
-            .iter()
-            .enumerate()
-            .map(|(idx, segment)| (segment.id, idx))
-            .collect::<HashMap<_, _>>();
-        assert_eq!(
-            ordinal_by_id.len(),
-            segments.len(),
-            "segment IDs in one snapshot must be unique"
-        );
-        Arc::new(Self {
-            searcher: searcher.clone(),
-            ordinal_by_id,
-            segments,
-            empirical_by_field: Mutex::new(HashMap::default()),
-        })
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.segments.len()
-    }
-
-    pub(crate) fn segment_index(&self, segment_id: SegmentId) -> Option<usize> {
-        self.ordinal_by_id.get(&segment_id).copied()
-    }
-
-    pub(super) fn empirical_for_field(
-        &self,
-        field: &SearchField,
-    ) -> Arc<[StatsRead<EmpiricalStats>]> {
-        // A panic while decoding poisons the lock; the cached entries stay valid regardless.
-        let mut fields = self
-            .empirical_by_field
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Arc::clone(fields.entry(field.field()).or_insert_with(|| {
-            (0..self.len())
-                .map(|idx| match self.stats(idx) {
-                    StatsRead::Known(stats) => read_empirical(stats, self.segments[idx].id, field),
-                    StatsRead::Absent => StatsRead::Absent,
-                    StatsRead::Unknown => StatsRead::Unknown,
-                })
-                .collect()
-        }))
-    }
-
-    #[cfg(any(test, feature = "pg_test"))]
-    pub(crate) fn empirical(
-        &self,
-        segment_idx: usize,
-        field: &SearchField,
-    ) -> Option<EmpiricalStats> {
-        self.empirical_for_field(field)[segment_idx]
-            .known()
-            .cloned()
-    }
-
-    fn stats(&self, ord: usize) -> &StatsRead<SegmentStats> {
-        self.segments[ord]
-            .stats
-            .get_or_init(|| capture_stats(self.searcher.segment_reader(ord as SegmentOrdinal)))
-    }
-
-    /// Logical bounds describe where the build routed rows; empirical bounds describe what
-    /// the segment contains. Both must overlap when available. An unreadable entry keeps the
-    /// segment, whereas an absent entry still permits the other kind of bounds to prune it.
-    fn may_intersect_partition(
-        &self,
-        ord: usize,
-        field: &SearchField,
-        includes_nulls: bool,
-        (lower, upper): (&Bound<PdbOwnedValue>, &Bound<PdbOwnedValue>),
-        empirical: &StatsRead<EmpiricalStats>,
-    ) -> bool {
-        let segment_id = self.segments[ord].id;
-        let stats = match self.stats(ord) {
-            StatsRead::Known(stats) => stats,
-            StatsRead::Absent | StatsRead::Unknown => return true,
-        };
-        let empirical = match empirical {
-            StatsRead::Known(value) => Some(value),
-            StatsRead::Absent => None,
-            StatsRead::Unknown => return true,
-        };
-        let logical = match read_logical(stats, segment_id, field) {
-            StatsRead::Known(value) => Some(value),
-            StatsRead::Absent => None,
-            StatsRead::Unknown => return true,
-        };
-        match (logical, empirical) {
-            (None, None) => true,
-            (Some(bounds), None) => {
-                (includes_nulls && bounds.may_hold_nulls()) || bounds.intersects(lower, upper)
-            }
-            (None, Some(empirical)) => {
-                (includes_nulls && empirical.nullable) || empirical.intersects(lower, upper)
-            }
-            (Some(bounds), Some(empirical)) => {
-                (includes_nulls && empirical.nullable)
-                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
-            }
-        }
-    }
-
-    pub(crate) fn segments_intersecting_partition<'a>(
-        &'a self,
-        field: &'a SearchField,
-        range: &'a PartitionRange,
-    ) -> impl Iterator<Item = SegmentId> + 'a {
-        // Empty and NULL-only partitions need no statistics.
-        let proof = range
-            .values()
-            .map(|bounds| (bounds, self.empirical_for_field(field)));
-        self.segments
-            .iter()
-            .enumerate()
-            .filter(move |(ord, _)| match &proof {
-                Some((bounds, stats)) => self.may_intersect_partition(
-                    *ord,
-                    field,
-                    range.includes_nulls(),
-                    *bounds,
-                    &stats[*ord],
-                ),
-                None => range.includes_nulls(),
-            })
-            .map(|(_, segment)| segment.id)
     }
 }

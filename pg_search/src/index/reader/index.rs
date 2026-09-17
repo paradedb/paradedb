@@ -21,7 +21,7 @@ use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
@@ -372,16 +372,10 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
-    /// Kept so the candidate decision can be made on first search rather than at open: a
-    /// planning reader that only estimates never reads statistics.
+    /// Decides whether a segment is worth searching, one segment at a time, when that segment is
+    /// about to be searched. Nothing is decided at open, so a planning reader that only estimates
+    /// never reads statistics.
     search_query_input: SearchQueryInput,
-    /// One search decision per searcher ordinal, decided on first use. A clone made after the
-    /// decision shares it; one made before decides independently. Narrowing to a range partition
-    /// recomputes the flags; `and_query` cannot inspect its compiled query and keeps them, which
-    /// stays correct because a further AND never makes a rejected segment match.
-    candidate_segments: OnceLock<Arc<[bool]>>,
-    /// Number of internal partition predicates omitted before query compilation, not scorers.
-    range_filters_removed: usize,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -429,8 +423,6 @@ impl Clone for SearchIndexReader {
             query: self.query.box_clone(),
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             search_query_input: self.search_query_input.clone(),
-            candidate_segments: self.candidate_segments.clone(),
-            range_filters_removed: self.range_filters_removed,
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
@@ -692,8 +684,6 @@ impl SearchIndexReader {
             query,
             segment_stats_snapshot,
             search_query_input: candidate_query,
-            candidate_segments: OnceLock::new(),
-            range_filters_removed: 0,
             need_scores,
             total_segment_count,
             total_docs,
@@ -727,14 +717,15 @@ impl SearchIndexReader {
         self.need_scores
     }
 
-    /// The compiled query, without this reader's candidate restrictions. Execute through the
-    /// reader's search or collection methods: omitted partition predicates rely on those flags.
+    /// The compiled query. Segment pruning happens in the reader's search and collection
+    /// methods, not in the query.
     pub fn query(&self) -> &dyn Query {
         &self.query
     }
 
-    /// Add an opaque conjunct, preserving segment rejections already established for this query.
-    /// Keep the compiled query: it may contain Params resolved with an execution ExprContext.
+    /// Pruning keeps deciding from the original query input, which stays correct because a
+    /// further AND never makes a rejected segment match. The compiled query is kept as is: it may
+    /// contain Params resolved with an execution ExprContext.
     pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
         let mut clone = self.clone();
         let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
@@ -745,55 +736,45 @@ impl SearchIndexReader {
         clone
     }
 
-    /// Restrict this reader to a range partition. Omit its query only when every remaining
-    /// candidate is covered and scores are not needed. With mixed coverage the exact filter is
-    /// still required; with scoring its constant contribution must be preserved.
-    pub(crate) fn and_range_partition_bounds(&self, query: &SearchQueryInput) -> Self {
-        let pruner = SegmentPruner::new(
+    /// Compiled without an expression context: only the reader's own query carries resolved
+    /// Params, and it is kept as is.
+    pub(crate) fn and_query_input(&self, query: &SearchQueryInput) -> Self {
+        self.and_query(self.make_query(query, None))
+    }
+
+    /// Whether a scan restricted to `segment_ids` can omit `query`: every segment in the list
+    /// that this reader would search is fully covered by it, and scores are not needed, since
+    /// omitting a query drops its constant score contribution.
+    pub(crate) fn partition_filter_is_redundant(
+        &self,
+        query: &SearchQueryInput,
+        segment_ids: &[SegmentId],
+    ) -> bool {
+        let pruner = self.pruner();
+        let mut searched = segment_ids
+            .iter()
+            .map(|id| {
+                self.segment_ordinal_by_id(id)
+                    .unwrap_or_else(|| panic!("segment {id} should exist"))
+            })
+            .filter(|ord| self.is_candidate(*ord))
+            .peekable();
+        !self.need_scores
+            && searched.peek().is_some()
+            && searched.all(|ord| pruner.matches_all(ord, query))
+    }
+
+    fn pruner(&self) -> SegmentPruner<'_> {
+        SegmentPruner::new(
             &self.segment_stats_snapshot,
             &self.schema,
             self.index_created_by_version,
-        );
-        let candidates: Arc<[bool]> = self
-            .candidate_segments()
-            .iter()
-            .enumerate()
-            .map(|(ord, candidate)| *candidate && pruner.can_match(ord as SegmentOrdinal, query))
-            .collect();
-        let redundant = !self.need_scores
-            && candidates.iter().any(|candidate| *candidate)
-            && candidates.iter().enumerate().all(|(ord, candidate)| {
-                !*candidate || pruner.matches_all(ord as SegmentOrdinal, query)
-            });
-        let mut reader = if redundant {
-            let mut reader = self.clone();
-            reader.range_filters_removed += 1;
-            reader
-        } else {
-            self.and_query(self.make_query(query, None))
-        };
-        reader.candidate_segments = OnceLock::from(candidates);
-        reader
+        )
     }
 
-    /// The segments a search of this reader opens, decided on first use.
-    fn candidate_segments(&self) -> &Arc<[bool]> {
-        self.candidate_segments.get_or_init(|| {
-            let pruner = SegmentPruner::new(
-                &self.segment_stats_snapshot,
-                &self.schema,
-                self.index_created_by_version,
-            );
-            self.searcher
-                .segment_readers()
-                .iter()
-                .enumerate()
-                .map(|(ord, reader)| {
-                    reader.num_docs() > 0
-                        && pruner.can_match(ord as SegmentOrdinal, &self.search_query_input)
-                })
-                .collect()
-        })
+    fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
+        self.searcher.segment_reader(ord).num_docs() > 0
+            && self.pruner().can_match(ord, &self.search_query_input)
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -963,10 +944,6 @@ impl SearchIndexReader {
         &self.segment_stats_snapshot
     }
 
-    pub(crate) fn range_filters_removed(&self) -> usize {
-        self.range_filters_removed
-    }
-
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
     ///
     /// This reads from the Tantivy index settings stored in the index metadata.
@@ -1079,68 +1056,73 @@ impl SearchIndexReader {
         source_idx: Option<usize>,
         estimated_rows: u64,
     ) -> MultiSegmentSearchResults {
-        struct ParallelSegmentIterator {
+        /// Claims segments from the shared scan state and yields the ordinal of each one this
+        /// reader would search, deciding per claimed segment so a worker never evaluates
+        /// segments it does not own.
+        struct ParallelCandidateIterator {
             parallel_state: *mut crate::postgres::ParallelScanState,
             source_idx: Option<usize>,
+            reader: SearchIndexReader,
         }
         // SAFETY: the pointer addresses DSM shared memory; the state's mutex serializes
-        // every access, including the cross-process claims this iterator drives.
-        // `Send`/`Sync` are required so DataFusion can wrap the iterator in
-        // `Box<dyn Iterator<...> + Send + Sync>` even though the runtime is
-        // current-thread.
-        unsafe impl Send for ParallelSegmentIterator {}
-        unsafe impl Sync for ParallelSegmentIterator {}
-        impl Iterator for ParallelSegmentIterator {
-            type Item = SegmentId;
+        // every access, including the cross-process claims this iterator drives. The reader
+        // holds `Rc` schema state that is only ever touched from this iterator. `Send`/`Sync`
+        // are required so DataFusion can wrap the iterator in
+        // `Box<dyn Iterator<...> + Send + Sync>` even though the runtime is current-thread.
+        unsafe impl Send for ParallelCandidateIterator {}
+        unsafe impl Sync for ParallelCandidateIterator {}
+        impl Iterator for ParallelCandidateIterator {
+            type Item = SegmentOrdinal;
             fn next(&mut self) -> Option<Self::Item> {
-                pgrx::check_for_interrupts!();
-                unsafe {
-                    match self.source_idx {
-                        Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
-                        None => crate::postgres::customscan::parallel::checkout_segment_for_source(
-                            self.parallel_state,
-                            0,
-                        ),
+                loop {
+                    pgrx::check_for_interrupts!();
+                    let segment_id = unsafe {
+                        match self.source_idx {
+                            Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
+                            None => {
+                                crate::postgres::customscan::parallel::checkout_segment_for_source(
+                                    self.parallel_state,
+                                    0,
+                                )
+                            }
+                        }
+                    }?;
+                    let ord = self
+                        .reader
+                        .segment_ordinal_by_id(&segment_id)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "segment {segment_id} should exist in this {} reader's {} segments",
+                                self.reader.directory.mvcc_style_name(),
+                                self.reader.searcher.segment_readers().len()
+                            )
+                        });
+                    if self.reader.is_candidate(ord) {
+                        return Some(ord);
                     }
                 }
             }
         }
 
-        let segment_ids = ParallelSegmentIterator {
+        let candidates = ParallelCandidateIterator {
             parallel_state,
             source_idx,
+            reader: self.clone(),
         };
         let searcher = self.searcher.clone();
-        let directory = self.directory.clone();
         let weight = Arc::new(LazyWeight::new(
             self.query.box_clone(),
             self.need_scores,
             searcher.clone(),
         ));
 
-        let snapshot = Arc::clone(&self.segment_stats_snapshot);
-        let candidates = Arc::clone(self.candidate_segments());
-        let lazy_iterators = segment_ids.filter_map(move |segment_id| {
-            let ord = snapshot
-                .segment_index(segment_id)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "segment {segment_id} should exist in this {} reader's {} segments",
-                        directory.mvcc_style_name(),
-                        searcher.segment_readers().len()
-                    )
-                });
-            let segment_ord = ord as SegmentOrdinal;
+        let lazy_iterators = candidates.map(move |segment_ord| {
             let segment_reader = searcher.segment_reader(segment_ord);
-            if !candidates[ord] {
-                return None;
-            }
-
-            Some(ScorerIter::new(
+            ScorerIter::new(
                 DeferredScorer::new(Arc::clone(&weight), segment_reader.clone()),
                 segment_ord,
                 segment_reader.clone(),
-            ))
+            )
         });
 
         MultiSegmentSearchResults {
@@ -2049,11 +2031,9 @@ impl SearchIndexReader {
         &self,
         ordinals: impl Iterator<Item = SegmentOrdinal>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
-        let candidates = self.candidate_segments();
-        ordinals.filter_map(move |ord| {
-            let reader = self.searcher.segment_reader(ord);
-            candidates[ord as usize].then_some((ord, reader))
-        })
+        ordinals
+            .filter(move |ord| self.is_candidate(*ord))
+            .map(move |ord| (ord, self.searcher.segment_reader(ord)))
     }
 
     fn candidate_segment_readers(&self) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
@@ -2618,67 +2598,63 @@ mod tests {
 
     #[pg_test]
     fn partition_filter_is_omitted_only_when_redundant() {
-        use tantivy::collector::{Count, TopDocs};
+        use crate::index::stats::segments_for_partition;
+
+        // Fixture ids 1..=20 over two NOT NULL segments holding 1..=10 and 11..=20.
         let (index_rel, _heap) = segmented_index_fixture("contained_range_filter_test", 2, false);
         for scoring in [false, true] {
             let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, scoring);
-            for (lower, upper, expected, covered) in [
-                (1, 20, 20, true),
-                (11, 20, 10, true),
-                (1, 15, 15, false),
-                (100, 200, 0, false),
+            for (split_points, partition, expected, covered) in [
+                (vec![11], 0, 10, true),
+                (vec![11], 1, 10, true),
+                (vec![15], 0, 14, false),
+                (vec![15], 1, 6, false),
+                (vec![100], 1, 0, false),
             ] {
-                let bounds = range_query("id", lower, upper);
-                // The independent oracle keeps the exact range and searches every segment.
-                let exact = reader.and_query(reader.make_query(&bounds, None));
-                let derived = reader.and_range_partition_bounds(&bounds);
+                let case =
+                    format!("split {split_points:?} partition {partition} scoring {scoring}");
+                let partitioning = RangePartitioning {
+                    partition_by: FieldName::from("id"),
+                    split_points: split_points.into_iter().map(PdbOwnedValue::I64).collect(),
+                };
+                let segment_ids = segments_for_partition(&reader, &partitioning, partition);
+                let bounds = partitioning.partition_bounds(partition);
+                let redundant = reader.partition_filter_is_redundant(&bounds, &segment_ids);
+                assert_eq!(redundant, covered && !scoring, "{case}");
+                let scan = if redundant {
+                    reader.clone()
+                } else {
+                    reader.and_query_input(&bounds)
+                };
                 assert_eq!(
-                    exact.searcher().search(exact.query(), &Count).unwrap(),
-                    expected
-                );
-                assert_eq!(derived.search().count(), expected);
-                assert_eq!(derived.collect(Count), expected);
-                assert_eq!(derived.count_matched_docs().unwrap(), expected as u64);
-                let omitted = covered && !scoring;
-                assert_eq!(derived.range_filters_removed(), usize::from(omitted));
-                assert_eq!(
-                    format!("{:?}", derived.query()) == format!("{:?}", reader.query()),
-                    omitted,
+                    format!("{:?}", scan.query()) == format!("{:?}", reader.query()),
+                    redundant,
                     "omission must leave the original query intact; other cases must attach the range"
                 );
+                assert_eq!(
+                    scan.search_segments(segment_ids.iter().copied()).count(),
+                    expected,
+                    "{case}"
+                );
+                // The exact query over every segment is the oracle.
+                let exact = reader.and_query_input(&bounds);
+                assert_eq!(exact.search().count(), expected, "{case}");
                 if scoring {
-                    let reference = exact
-                        .searcher()
-                        .search(exact.query(), &TopDocs::with_limit(20).order_by_score())
-                        .unwrap()
-                        .into_iter()
-                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score))
-                        .collect::<BTreeMap<_, _>>();
-                    for direction in [SortDirection::AscNullsLast, SortDirection::DescNullsFirst] {
+                    let top_docs = |reader: &SearchIndexReader, ids: Vec<SegmentId>| {
                         let order = [OrderByInfo {
                             feature: OrderByFeature::Score { rti: 0 },
-                            direction,
+                            direction: SortDirection::DescNullsFirst,
                         }];
-                        let top = derived.search_top_k_in_segments(
-                            reader.segment_ids().into_iter(),
-                            &order,
-                            20,
-                            0,
-                            None,
-                            None,
-                        );
-                        let actual = top
+                        reader
+                            .search_top_k_in_segments(ids.into_iter(), &order, 20, 0, None, None)
                             .results
                             .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                            .collect::<BTreeMap<_, _>>();
-                        assert_eq!(actual, reference);
-                    }
+                            .collect::<BTreeMap<_, _>>()
+                    };
                     assert_eq!(
-                        derived.collect(TopDocs::with_limit(20).order_by_score()),
-                        exact
-                            .searcher()
-                            .search(exact.query(), &TopDocs::with_limit(20).order_by_score())
-                            .unwrap()
+                        top_docs(&scan, segment_ids.clone()),
+                        top_docs(&exact, reader.segment_ids()),
+                        "{case}"
                     );
                 }
             }
@@ -2714,9 +2690,9 @@ mod tests {
                 .unwrap()
                 .nullable
         );
-        let derived = reader.and_range_partition_bounds(&range_query("value", 10, 20));
-        assert_eq!(derived.range_filters_removed(), 0);
-        assert_pruning_matches_tantivy(&derived, 2);
+        let bounds = range_query("value", 10, 20);
+        assert!(!reader.partition_filter_is_redundant(&bounds, &reader.segment_ids()));
+        assert_pruning_matches_tantivy(&reader.and_query_input(&bounds), 2);
 
         // The immutable segments fit, but the extra mutable segment has no statistics.
         let (index_rel, _heap) = segmented_index_fixture("unknown_partition_filter", 2, true);
@@ -2729,9 +2705,9 @@ mod tests {
                 .is_none()
         }));
         assert_eq!(reader.search().count(), 25);
-        let derived = reader.and_range_partition_bounds(&range_query("id", 1, 20));
-        assert_eq!(derived.range_filters_removed(), 0);
-        assert_pruning_matches_tantivy(&derived, 20);
+        let bounds = range_query("id", 1, 20);
+        assert!(!reader.partition_filter_is_redundant(&bounds, &reader.segment_ids()));
+        assert_pruning_matches_tantivy(&reader.and_query_input(&bounds), 20);
     }
 
     #[pg_test]
@@ -2769,7 +2745,7 @@ mod tests {
             "three segments need both conjuncts; the fourth stops after the impossible first conjunct"
         );
         assert_pruning_matches_tantivy(&reader, 21);
-        let derived = reader.and_range_partition_bounds(&range_query("id", 11, 20));
+        let derived = reader.and_query_input(&range_query("id", 11, 20));
         assert_pruning_matches_tantivy(&derived, 10);
         let sibling = SearchIndexReader::from_manifest(
             &manifest,
@@ -2960,7 +2936,7 @@ mod tests {
             "requesting one segment must not consume the remaining work"
         );
         drop(readers);
-        let narrowed = reader.and_range_partition_bounds(&range_query("id", 11, 20));
+        let narrowed = open_snapshot_reader(&index_rel, range_query("id", 11, 20), false);
         let candidates = narrowed
             .candidate_segment_readers()
             .map(|(ord, r)| (ord, r.segment_id()))
@@ -2980,175 +2956,7 @@ mod tests {
         );
         let weakened = narrowed.and_query(Box::new(tantivy::query::AllQuery));
         assert_eq!(weakened.segment_pruning_estimate().candidate_segments, 1);
-        assert!(Arc::ptr_eq(
-            narrowed.candidate_segments(),
-            weakened.candidate_segments()
-        ));
         assert_eq!(weakened.search().count(), 10);
-    }
-
-    #[pg_test]
-    fn omitted_filters_keep_candidates_across_reader_operations() {
-        use tantivy::collector::{Count, TopDocs};
-
-        fn addresses(docs: impl Iterator<Item = DocAddress>) -> Vec<(SegmentOrdinal, DocId)> {
-            let mut docs = docs
-                .map(|doc| (doc.segment_ord, doc.doc_id))
-                .collect::<Vec<_>>();
-            docs.sort_unstable();
-            docs
-        }
-
-        let (index_rel, heap_oid) = segmented_index_fixture("candidate_lifecycle", 4, false);
-        let base = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let first = base.and_range_partition_bounds(&range_query("id", 11, 30));
-        assert_eq!(first.range_filters_removed(), 1);
-        assert_eq!(
-            format!("{:?}", first.query()),
-            format!("{:?}", base.query())
-        );
-        assert_eq!(
-            base.searcher().search(first.query(), &Count).unwrap(),
-            40,
-            "the original query alone must not enforce the omitted restriction"
-        );
-
-        let opaque = first.and_query(base.make_query(&range_query("id", 15, 25), None));
-        let cases = [
-            (first.clone(), 11, 30, 20, 2),
-            (
-                first.and_range_partition_bounds(&range_query("id", 1, 40)),
-                11,
-                30,
-                20,
-                2,
-            ),
-            (
-                first.and_range_partition_bounds(&range_query("id", 21, 30)),
-                21,
-                30,
-                10,
-                1,
-            ),
-            (
-                first.and_range_partition_bounds(&range_query("id", 31, 40)),
-                31,
-                30,
-                0,
-                0,
-            ),
-            (opaque, 15, 25, 11, 2),
-            (
-                base.and_range_partition_bounds(&range_query("id", 1, 10)),
-                1,
-                10,
-                10,
-                1,
-            ),
-        ];
-        let heap = PgSearchRelation::open(heap_oid);
-        for (reader, lo, hi, count, candidates) in cases {
-            let exact = if count == 0 {
-                SearchQueryInput::Empty
-            } else {
-                range_query("id", lo, hi)
-            };
-            let query = base.make_query(&exact, None);
-            let expected = addresses(
-                base.searcher()
-                    .search(query.as_ref(), &TopDocs::with_limit(50).order_by_score())
-                    .unwrap()
-                    .into_iter()
-                    .map(|(_, doc)| doc),
-            );
-            assert_eq!(expected.len(), count);
-            assert_eq!(
-                reader.segment_pruning_estimate().candidate_segments,
-                candidates
-            );
-            assert_eq!(addresses(reader.search().map(|(_, doc)| doc)), expected);
-            assert_eq!(reader.collect(Count), count);
-            assert_eq!(reader.count_matched_docs().unwrap(), count as u64);
-            for reverse in [false, true] {
-                let mut ids = base.segment_ids();
-                if reverse {
-                    ids.reverse();
-                }
-                assert_eq!(
-                    addresses(
-                        reader
-                            .search_segments(ids.clone().into_iter())
-                            .map(|(_, doc)| doc)
-                    ),
-                    expected
-                );
-                assert_eq!(
-                    addresses(
-                        reader
-                            .search_top_k_unordered_in_segments(ids.clone().into_iter(), 50, 0,)
-                            .map(|(_, doc)| doc)
-                    ),
-                    expected
-                );
-                for direction in [SortDirection::AscNullsLast, SortDirection::DescNullsFirst] {
-                    let order = [OrderByInfo {
-                        feature: OrderByFeature::Field {
-                            name: FieldName::from("id"),
-                            rti: 0,
-                        },
-                        direction,
-                    }];
-                    use crate::aggregate::exec::AggregationExec;
-                    let aggs: tantivy::aggregation::agg_req::Aggregations = serde_json::from_value(
-                        serde_json::json!({"total": {"value_count": {"field": "id"}}}),
-                    )
-                    .unwrap();
-                    let limits = tantivy::aggregation::AggregationLimitsGuard::new(None, None);
-                    let (aggregation_collector, vischeck) =
-                        aggs.plan(&reader, &heap, false, limits.clone());
-                    let mut top = reader.search_top_k_in_segments(
-                        ids.clone().into_iter(),
-                        &order,
-                        50,
-                        0,
-                        Some(TopKAuxiliaryCollector {
-                            aggregation_collector,
-                            vischeck,
-                        }),
-                        None,
-                    );
-                    let aggregate = top
-                        .results
-                        .take_aggregation_results()
-                        .unwrap()
-                        .into_final_result(aggs, limits)
-                        .unwrap();
-                    assert_eq!(
-                        serde_json::to_value(aggregate).unwrap()["total"]["value"].as_f64(),
-                        Some(count as f64)
-                    );
-                    assert_eq!(addresses(top.results.map(|(_, doc)| doc)), expected);
-                }
-            }
-        }
-        assert_eq!(
-            base.search().count(),
-            40,
-            "derived masks must not mutate the base"
-        );
-        assert_eq!(
-            first.search().count(),
-            20,
-            "sibling masks must not mutate their parent"
-        );
-        let retained = first.clone();
-        drop(first);
-        drop(base);
-        assert_eq!(
-            retained.search().count(),
-            20,
-            "a clone owns its mask and frozen view"
-        );
     }
 
     #[pg_test]
@@ -3179,10 +2987,7 @@ mod tests {
             (99, 100, 0, 0),
         ] {
             let query = range_query("id", lo, hi);
-            for reader in [
-                open_snapshot_reader(&index_rel, query.clone(), false),
-                base.and_range_partition_bounds(&query),
-            ] {
+            for reader in [open_snapshot_reader(&index_rel, query.clone(), false)] {
                 for reverse in [false, true] {
                     let mut ids = reader.segment_ids();
                     if reverse {

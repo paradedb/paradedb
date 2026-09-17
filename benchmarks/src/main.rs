@@ -839,6 +839,7 @@ async fn score_recall(
 
 /// Recall targets a sweep reports, lowest first.
 const RECALL_TARGETS: [(&str, f64); 3] = [("r90", 0.90), ("r95", 0.95), ("r99", 0.99)];
+const RECALL_PLATEAU_PATIENCE: usize = 3;
 
 /// One measured point of a sweep.
 struct SweepPoint {
@@ -856,12 +857,11 @@ struct SelectedPoint {
     value: String,
     recall: f64,
     query: String,
-    /// False when no swept value reached the target. The closest (highest-recall) point is
-    /// reported instead, so too narrow a sweep range is visible rather than passing as a hit.
+    /// False when no measured point reached the target.
     reached: bool,
 }
 
-/// For each target, the cheapest point that reaches it.
+/// For each target, the cheapest point that reaches it, or the cheapest tied for best recall.
 ///
 /// Recall rises monotonically with these knobs, so the cheapest qualifying point is the
 /// lowest-recall one at or above the target -- which avoids having to order the swept values
@@ -873,27 +873,36 @@ fn select_points(points: &[SweepPoint]) -> Vec<SelectedPoint> {
     RECALL_TARGETS
         .iter()
         .filter_map(|(label, target)| {
-            let (point, reached) = match by_recall.iter().find(|p| p.recall >= *target) {
-                Some(point) => (*point, true),
-                None => (*by_recall.last()?, false),
-            };
+            let best_recall = by_recall.last()?.recall;
+            let point = by_recall
+                .iter()
+                .find(|p| p.recall >= *target || p.recall == best_recall)?;
             Some(SelectedPoint {
                 label,
                 target: *target,
                 value: point.value.clone(),
                 recall: point.recall,
                 query: point.query.clone(),
-                reached,
+                reached: point.recall >= *target,
             })
         })
         .collect()
 }
 
+fn recall_plateau(points: &[SweepPoint]) -> Option<f64> {
+    let split = points.len().checked_sub(RECALL_PLATEAU_PATIENCE)?;
+    let (previous, recent) = points.split_at(split);
+    let best_recall = previous.iter().map(|p| p.recall).reduce(f64::max)?;
+    recent
+        .iter()
+        .all(|p| p.recall <= best_recall)
+        .then_some(best_recall)
+}
+
 /// Measure recall at each value of `sweep` for one query, reusing a single set of fixtures.
 ///
-/// Values are ordered cheapest first, so the sweep stops after the first value that reaches the
-/// highest recall target: every target already has its cheapest qualifying point, and larger
-/// values only cost more.
+/// Values are ordered cheapest first. Stop at the highest recall target or after three
+/// consecutive larger values fail to improve the best recall measured so far.
 async fn sweep_query(
     conn: &mut PgConnection,
     args: &BenchmarkArgs,
@@ -970,6 +979,13 @@ async fn sweep_query(
             println!("  reached {top_target:.2} recall; skipping larger values");
             break;
         }
+        if let Some(best_recall) = recall_plateau(&points) {
+            println!(
+                "  no recall improvement across {RECALL_PLATEAU_PATIENCE} larger values \
+                 (best {best_recall:.4}); skipping remaining values"
+            );
+            break;
+        }
     }
     Ok(points)
 }
@@ -1023,8 +1039,8 @@ async fn expand_sweeps(
         for selected in select_points(&points) {
             if !selected.reached {
                 println!(
-                    "  WARNING: no value reached {:.0}% recall for {query_type}; \
-                     reporting the best point ({:.4}). Widen the sweep range.",
+                    "  WARNING: no measured value reached {:.0}% recall for {query_type}; \
+                     reporting the cheapest point with best measured recall ({:.4}).",
                     selected.target * 100.0,
                     selected.recall
                 );
@@ -2134,6 +2150,7 @@ mod tests {
             point("0.1", 0.88),
             point("0.2", 0.93),
             point("0.3", 0.96),
+            point("0.4", 0.96),
             point("0.5", 0.97),
             point("0.8", 0.995),
         ];
@@ -2166,6 +2183,36 @@ mod tests {
     }
 
     #[test]
+    fn unreached_target_uses_cheapest_point_on_recall_plateau() {
+        let points = vec![
+            point("0.003", 0.919),
+            point("0.0075", 0.953),
+            point("0.05", 0.975),
+            point("0.08", 0.975),
+            point("0.12", 0.975),
+            point("0.2", 0.975),
+            point("0.35", 0.975),
+            point("0.5", 0.975),
+            point("0.75", 0.975),
+            point("1.0", 0.975),
+        ];
+        let stop = (1..=points.len())
+            .find(|&len| recall_plateau(&points[..len]).is_some())
+            .unwrap();
+        assert_eq!(points[stop - 1].value, "0.2");
+
+        let selected = select_points(&points[..stop]);
+        let by_label: HashMap<_, _> = selected.iter().map(|s| (s.label, s)).collect();
+
+        assert_eq!(by_label["r90"].value, "0.003");
+        assert_eq!(by_label["r95"].value, "0.0075");
+        assert_eq!(by_label["r99"].value, "0.05");
+        assert_eq!(by_label["r99"].recall, 0.975);
+        assert_eq!(by_label["r99"].query, "SET eps=0.05; SELECT 1");
+        assert!(!by_label["r99"].reached);
+    }
+
+    #[test]
     fn selection_ignores_the_order_values_were_measured_in() {
         let ascending = vec![point("0.1", 0.88), point("0.3", 0.96)];
         let descending = vec![point("0.3", 0.96), point("0.1", 0.88)];
@@ -2181,6 +2228,25 @@ mod tests {
     #[test]
     fn empty_sweep_selects_nothing() {
         assert!(select_points(&[]).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case::empty(&[], None)]
+    #[case::single_point(&[0.97], None)]
+    #[case::two_larger_values(&[0.97, 0.97, 0.97], None)]
+    #[case::three_larger_values(&[0.97, 0.97, 0.97, 0.97], Some(0.97))]
+    #[case::declining_recall(&[0.97, 0.96, 0.95, 0.94], Some(0.97))]
+    #[case::recovery_below_best(&[0.97, 0.94, 0.95, 0.96], Some(0.97))]
+    #[case::improvement_resets_patience(&[0.95, 0.95, 0.97, 0.97, 0.97], None)]
+    #[case::later_plateau(&[0.95, 0.95, 0.97, 0.97, 0.97, 0.97], Some(0.97))]
+    #[case::zero_recall(&[0.0, 0.0, 0.0, 0.0], Some(0.0))]
+    fn detects_recall_plateau(#[case] recalls: &[f64], #[case] expected: Option<f64>) {
+        let points: Vec<_> = recalls
+            .iter()
+            .enumerate()
+            .map(|(i, recall)| point(&i.to_string(), *recall))
+            .collect();
+        assert_eq!(recall_plateau(&points), expected);
     }
 
     fn query_result(per_vector: bool, samples: Vec<f64>) -> QueryResult {

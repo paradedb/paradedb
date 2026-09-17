@@ -923,7 +923,9 @@ unsafe fn lower_pdb_agg(
 /// Extract the separator string from a STRING_AGG's second argument.
 ///
 /// STRING_AGG(col, separator) stores the separator as the second TargetEntry.
-/// Returns `None` if the separator cannot be extracted (non-const, missing).
+/// A NULL constant is normalized to an empty string, matching PostgreSQL's
+/// no-separator semantics. Returns `None` if the separator cannot be extracted
+/// (non-const, missing).
 unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     if args.len() < 2 {
@@ -936,7 +938,7 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<St
     }
     let konst = expr as *mut pg_sys::Const;
     if (*konst).constisnull {
-        return None;
+        return Some(String::new());
     }
     let datum = (*konst).constvalue;
     let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();

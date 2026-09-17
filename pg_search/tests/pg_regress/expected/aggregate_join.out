@@ -1409,6 +1409,53 @@ ORDER BY p.category;
  Toys        | tech, kids
 (3 rows)
 
+-- NULL delimiter regression. Identical inputs make the result independent of
+-- aggregation order.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Aggregates: STRING_AGG(tag_name)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[string_agg(t_1.tag_name, ) as agg_0]
+     :   TantivyDecodeExec: decode=[tag_name]
+     :     TantivyFetchExec: fetch=[tag_name]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@1)], projection=[tag_name@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=2, dynamic_filters=1, visibility=eager, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tag_name = 'tech'::text)"}]}}
+(13 rows)
+
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+ null_delimiter 
+----------------
+ techtechtech
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+ null_delimiter 
+----------------
+ techtechtech
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
 -- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)

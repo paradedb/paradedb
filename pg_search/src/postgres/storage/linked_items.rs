@@ -959,6 +959,69 @@ mod tests {
         }
     }
 
+    /// A pin on a dead entry's pintest block must defer that entry to a later
+    /// `garbage_collect` pass: never drop it, and never hold up the entries around it.
+    ///
+    /// The pin is what makes this deterministic. In the wild the pin comes from the bgwriter or
+    /// the checkpointer, which is why #6334 only ever reproduced as an intermittent failure.
+    #[pg_test]
+    unsafe fn test_linked_items_garbage_collect_defers_pinned_entry() {
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let deleted_xid = pg_sys::FrozenTransactionId;
+        let when_recyclable = pg_sys::FullTransactionId {
+            value: deleted_xid.into_inner() as u64,
+        };
+
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
+        let entries = (0..3)
+            .map(|_| {
+                SegmentMetaEntry::new_immutable(
+                    random_segment_id(),
+                    0,
+                    deleted_xid,
+                    SegmentMetaEntryImmutable {
+                        postings: Some(make_fake_postings(&indexrel)),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        list.add_items(&entries, None);
+
+        // Hold the first entry's pintest block pinned but unlocked, which is the state another
+        // backend leaves it in while writing the page out. `recyclable()` takes a *conditional*
+        // cleanup lock, and that fails on any pin other than its own.
+        let pin = list
+            .bman()
+            .get_buffer(entries[0].pintest_blockno())
+            .into_immutable_page();
+
+        assert!(!list.garbage_collect(when_recyclable).is_empty());
+
+        // The pinned entry is still there, deferred rather than collected.
+        assert!(
+            list.lookup(|el| el.segment_id() == entries[0].segment_id())
+                .is_ok()
+        );
+        // The entries that were not pinned went in the same pass.
+        for entry in &entries[1..] {
+            assert!(
+                list.lookup(|el| el.segment_id() == entry.segment_id())
+                    .is_err()
+            );
+        }
+
+        // Dropping the pin releases it, and the next pass collects the entry.
+        drop(pin);
+        garbage_collect_fully(&mut list, when_recyclable);
+        assert!(
+            list.lookup(|el| el.segment_id() == entries[0].segment_id())
+                .is_err()
+        );
+    }
+
     #[pg_test]
     unsafe fn test_linked_items_duplicate_then_replace() {
         let relation_oid = init_bm25_index();

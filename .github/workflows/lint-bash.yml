@@ -30,4 +30,4 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Bash
-        uses: paradedb/actions/lint-bash@v12
+        uses: paradedb/actions/lint-bash@v13

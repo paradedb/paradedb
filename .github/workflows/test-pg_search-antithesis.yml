@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v13
         with:
           packages: sudo git ca-certificates curl gnupg lsb-release binutils
 
@@ -152,7 +152,7 @@ jobs:
       # See https://antithesis.com/docs/reference/sdk/rust/instrumentation
       - name: Build pg_search from source
         id: build
-        uses: paradedb/actions/build-pg_search-source@8b5f4797426e4bcd76eea4f41fae7c788b8a07bc
+        uses: paradedb/actions/build-pg_search-source@v13
         with:
           pg-version: ${{ env.PG_VERSION }}
           profile: dst
@@ -401,7 +401,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v12
+        uses: paradedb/actions/slack-alert@v13
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

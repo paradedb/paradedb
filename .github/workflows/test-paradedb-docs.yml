@@ -71,7 +71,7 @@ jobs:
           save-if: false
 
       - name: Install System Dependencies
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v13
         with:
           packages: libsecret-1-dev libopenblas-dev lld
 

@@ -692,6 +692,18 @@ impl SearchIndexReader {
         SegmentView::capture(self.searcher.segment_readers(), &self.directory)
     }
 
+    /// A handle that keeps this reader's pins on its segments alive after the reader itself is
+    /// gone.
+    ///
+    /// A merge marks the segments it consumed as deleted without freeing their blocks, and those
+    /// blocks stay claimable only while nothing pins them. So replaying a
+    /// [`MvccSatisfies::ParallelWorker`] view over a segment a merge has retired works only while
+    /// this handle, or another reader of the same segment, is alive: a scan replacing its reader
+    /// holds it across the swap.
+    pub fn pinned_segments(&self) -> MVCCDirectory {
+        self.directory.clone()
+    }
+
     pub fn need_scores(&self) -> bool {
         self.need_scores
     }

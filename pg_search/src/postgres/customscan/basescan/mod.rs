@@ -106,22 +106,18 @@ pub struct BaseScan;
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
     ///
-    /// This function handles three distinct execution scenarios:
+    /// This function handles two distinct execution scenarios:
     ///
-    /// 1. **Leader Execution** (`ParallelWorkerNumber == -1`):
-    ///    The scan is running in the main backend process. It uses `MvccSatisfies::Snapshot`
-    ///    to see all segments visible to the current transaction's snapshot.
+    /// 1. **Parallel-Aware Participant** (leader or worker with `parallel_state`):
+    ///    The scan is part of a `parallel_aware` path (Partial Scan). Participants divide the
+    ///    segments the leader published in shared memory, so every one of them replays that
+    ///    segment view with `MvccSatisfies::ParallelWorker`.
     ///
-    /// 2. **Parallel-Aware Worker** (Worker with `parallel_state`):
-    ///    The scan is part of a `parallel_aware` path (Partial Scan). Workers coordinate
-    ///    via shared memory (DSM) to divide segments. It uses `MvccSatisfies::ParallelWorker`
-    ///    to ensure it only queries segments explicitly identified and pinned by the leader.
-    ///
-    /// 3. **Replicated Worker** (Worker with NO `parallel_state`):
-    ///    The scan is `parallel_safe` but NOT `parallel_aware`. This happens when a serial
-    ///    scan runs inside a worker context (e.g., on the inner side of a Parallel Hash Join).
-    ///    In this case, every worker executes the full scan independently using its own
-    ///    transaction snapshot (`MvccSatisfies::Snapshot`).
+    /// 2. **Serial or Replicated Scan** (no `parallel_state`):
+    ///    Either the main backend running a serial path, or a `parallel_safe` but not
+    ///    `parallel_aware` scan inside a worker (e.g. the inner side of a Parallel Hash Join).
+    ///    Each such scan reads the full data set on its own, so it opens with
+    ///    `MvccSatisfies::Snapshot`.
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
@@ -146,19 +142,18 @@ impl BaseScan {
             search_query_input.clone(),
             need_scores,
             unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // the leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else if let Some(parallel_state) = state.custom_state().parallel_state() {
-                    // the workers have their own rules, which is literally every segment
-                    // this is because the workers pick a specific segment to query that
-                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                    // visibility test due to concurrent merges/garbage collects
+                if let Some(parallel_state) = state.custom_state().parallel_state() {
+                    // Every participant, the leader included, claims segments out of the view the
+                    // leader published in shared memory, so all of them have to resolve that exact
+                    // set. A `::Snapshot` open cannot: it lists whatever is undeleted at the
+                    // moment it runs, and a concurrent merge can retire a published segment while
+                    // the claim for it is still outstanding. The leader is exposed to that too,
+                    // because a `Gather`/`Gather Merge` re-scans its child on the first
+                    // `ExecProcNode`, which re-opens the leader's reader after it published.
                     MvccSatisfies::ParallelWorker(segment_view(parallel_state))
                 } else {
-                    // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
-                    // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).
-                    // In this case, we behave like a normal snapshot scan.
+                    // Not a parallel-aware scan: this process reads the whole data set on its own,
+                    // against its own snapshot.
                     MvccSatisfies::Snapshot
                 }
             },
@@ -1659,6 +1654,15 @@ impl CustomScan for BaseScan {
         if state.custom_state().search_reader.is_some() {
             state.custom_state_mut().reset_exec_results();
         }
+        // A merge can retire a segment the shared work queue still hands out, and a retired
+        // segment stays readable only while something pins it. So hold the outgoing reader's
+        // pins in a binding that lives until this function returns, which is after the
+        // replacement reader has taken its own.
+        let _pins = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .map(SearchIndexReader::pinned_segments);
         drop(state.custom_state_mut().search_reader.take());
         state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {

@@ -584,9 +584,21 @@ impl WhichFastField {
             } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Junk(_) => DataType::Null,
             WhichFastField::Named {
+                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_data_type(),
+            // The deferred encoding carries one value per row, so nothing can decode a
+            // deferred list yet. Fail here rather than in the scanner's downcast.
+            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+            WhichFastField::Named {
+                name,
+                cardinality: FieldCardinality::List,
+                delivery: FieldDelivery::Deferred,
+                ..
+            } => panic!(
+                "list column `{name}` cannot be deferred: the deferred encoding is scalar only"
+            ),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }

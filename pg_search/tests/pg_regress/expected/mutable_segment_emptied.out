@@ -19,6 +19,7 @@ CREATE TABLE emptied (
 SET paradedb.global_mutable_segment_rows TO 0;
 CREATE INDEX emptied_idx ON emptied USING paradedb (id, name, color)
 WITH (
+    key_field = 'id',
     text_fields = '{
         "name": {"tokenizer": {"type": "keyword"}, "fast": true},
         "color": {"tokenizer": {"type": "keyword"}, "fast": true}
@@ -51,7 +52,7 @@ SELECT id FROM emptied WHERE NOT (name @@@ 'carol') ORDER BY id;
          Index: emptied_idx
          Worker Selection: Cost model
          Exec Method: ColumnarExecState
-         Columnar: id
+         Fast Fields: id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"carol","lenient":null,"conjunction_mode":null}}]}}}}
 (12 rows)

@@ -19,6 +19,7 @@ SET paradedb.global_mutable_segment_rows TO 0;
 
 CREATE INDEX emptied_idx ON emptied USING paradedb (id, name, color)
 WITH (
+    key_field = 'id',
     text_fields = '{
         "name": {"tokenizer": {"type": "keyword"}, "fast": true},
         "color": {"tokenizer": {"type": "keyword"}, "fast": true}

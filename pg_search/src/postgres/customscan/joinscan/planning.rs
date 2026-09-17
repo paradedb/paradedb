@@ -40,14 +40,14 @@ use crate::postgres::node::NodeExt;
 use crate::api::operator::expr_contains_search_predicate;
 use crate::api::version::VersionInfo;
 use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
-    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::customscan::range_table::{bms_iter, get_rte};
@@ -1782,18 +1782,8 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
         return;
     }
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    if let Ok(schema) = crate::schema::SearchIndexSchema::open(&indexrel)
-        && let Some(search_field) = schema.search_field(field_name)
-    {
-        side.scan_info.add_field(
-            attno,
-            WhichFastField::named(
-                field_name,
-                search_field.field_type(),
-                FieldCardinality::List,
-                FieldDelivery::Eager,
-            ),
-        );
+    if let Some(field) = resolve_fast_field_by_name(field_name, &indexrel) {
+        side.scan_info.add_field(attno, field);
     }
 }
 

@@ -1187,6 +1187,8 @@ impl SegmentedTopKState {
                 FFType::Bytes(bytes_col) => {
                     bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
                 }
+                // No column in this segment: every row stays NULL.
+                FFType::Junk => {}
                 _ => {
                     panic!(
                         "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \

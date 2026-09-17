@@ -132,7 +132,24 @@ impl FFHelper {
                 WhichFastField::Named(name, _)
                 | WhichFastField::Array(name, _)
                 | WhichFastField::Deferred(name, _) => {
-                    FFType::new(self.fast_fields(segment_ord), name)
+                    let ffr = self.fast_fields(segment_ord);
+                    FFType::try_new(ffr, name).unwrap_or_else(|| {
+                        // A segment only writes the columns its documents have values for, so a
+                        // JSON path none of them carry has no column there. That reads as NULL,
+                        // like the missing key does in Postgres. Any other absence is a bug.
+                        let schema = self.searcher().schema();
+                        let is_fast_field = schema
+                            .find_field(name)
+                            .is_some_and(|(field, _)| schema.get_field_entry(field).is_fast());
+                        let has_no_column = ffr
+                            .dynamic_column_handles(name)
+                            .is_ok_and(|handles| handles.is_empty());
+                        if is_fast_field && has_no_column {
+                            FFType::Junk
+                        } else {
+                            panic!("`{name}` is missing or is not configured as columnar")
+                        }
+                    })
                 }
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
@@ -232,22 +249,28 @@ impl FFType {
     /// should be a known field name in the Tantivy index
     #[track_caller]
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
+        Self::try_new(ffr, field_name)
+            .unwrap_or_else(|| panic!("`{field_name}` is missing or is not configured as columnar"))
+    }
+
+    /// Like [`FFType::new`], but `None` when the segment has no typed column for `field_name`.
+    pub fn try_new(ffr: &FastFieldReaders, field_name: &str) -> Option<Self> {
         if let Ok(ff) = ffr.i64(field_name) {
-            Self::I64(ff)
+            Some(Self::I64(ff))
         } else if let Ok(Some(ff)) = ffr.str(field_name) {
-            Self::Text(ff)
+            Some(Self::Text(ff))
         } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
-            Self::Bytes(ff)
+            Some(Self::Bytes(ff))
         } else if let Ok(ff) = ffr.u64(field_name) {
-            Self::U64(ff)
+            Some(Self::U64(ff))
         } else if let Ok(ff) = ffr.f64(field_name) {
-            Self::F64(ff)
+            Some(Self::F64(ff))
         } else if let Ok(ff) = ffr.bool(field_name) {
-            Self::Bool(ff)
+            Some(Self::Bool(ff))
         } else if let Ok(ff) = ffr.date(field_name) {
-            Self::Date(ff)
+            Some(Self::Date(ff))
         } else {
-            panic!("`{field_name}` is missing or is not configured as columnar")
+            None
         }
     }
 

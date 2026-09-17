@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Added segment pruning from persisted per-segment statistics. Execution rebuilds conservative proofs against its current segment set, skips segments that a query or an execution-time dynamic filter cannot match, and omits a range-partition filter wherever a segment's bounds prove it redundant. Missing or unreadable statistics retain the segment. `EXPLAIN (ANALYZE)` reports `range_filters_removed` and `segments_pruned_dynamic_range`.
+Added segment pruning from persisted per-segment statistics. Execution checks the current segment against the query and execution-time dynamic filters, skips segments that cannot match, and omits an unscored range-partition filter when every surviving candidate is covered. Missing statistics retain the segment; errors reading existing statistics abort the query. `EXPLAIN (ANALYZE)` reports `range_filters_removed` and `segments_pruned_dynamic_range`.

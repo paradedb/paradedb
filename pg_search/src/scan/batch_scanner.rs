@@ -19,7 +19,6 @@ use crate::index::fast_fields_helper::{
     FFHelper, FFType, WhichFastField, ords_to_bytes_array, ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
-use crate::index::segment_pruning::predicate::SegmentTruthTable;
 use crate::postgres::heap::VisibilityChecker;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
@@ -387,20 +386,20 @@ impl Scanner {
         self.score_threshold = threshold;
     }
 
-    pub(crate) fn set_runtime_truth(&mut self, truth: Arc<SegmentTruthTable>) {
-        self.search_results.replace_runtime_truth(truth)
-    }
-
-    /// Segments skipped because of runtime rejection since the last call.
     pub(crate) fn take_runtime_skipped_segments(&mut self) -> usize {
         self.search_results.take_runtime_skipped()
     }
 
-    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+    fn try_get_batch_ids(
+        &mut self,
+        mut can_match: impl FnMut(SegmentOrdinal) -> bool,
+    ) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         let can_pushdown = self.can_pushdown_score_threshold();
         // Collect a batch of ids for a single segment.
         loop {
-            let scorer_iter = self.search_results.current_segment()?;
+            let scorer_iter = self
+                .search_results
+                .current_segment_matching(&mut can_match)?;
             let segment_ord = scorer_iter.segment_ord();
             if can_pushdown && let Some(threshold) = self.score_threshold {
                 scorer_iter.set_threshold(threshold);
@@ -479,9 +478,10 @@ impl Scanner {
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        can_match: impl FnMut(SegmentOrdinal) -> bool,
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();
-        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
+        let (segment_ord, scores, mut ids) = self.try_get_batch_ids(can_match)?;
         self.ensure_segment_tag_scorers(segment_ord);
 
         // Memoize fetched columns to avoid redundant fetches.

@@ -33,11 +33,10 @@
 //!    search query. This filters documents *while* executing the search, leveraging
 //!    the inverted index for maximum performance.
 //!
-//! 2. **Segment-Statistics Pushdown:** At batch boundaries, each dynamic filter that published a
-//!    new generation is proven against the execution reader's `.stats` snapshot, and the proofs
-//!    accumulate for the execution. A newly impossible active segment is abandoned and impossible
-//!    deferred scorers never open. Unsupported expressions and missing statistics retain the
-//!    segment.
+//! 2. **Segment-Statistics Pushdown:** Before a segment supplies a batch, its statistics are
+//!    checked against the current dynamic filters. An impossible active segment is abandoned;
+//!    an impossible deferred scorer never opens. Checks are per segment with no cached decisions.
+//!    Unsupported expressions and missing statistics retain the segment.
 //!
 //! 3. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
 //!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
@@ -62,18 +61,18 @@
 //!                                      into a Tantivy Query and modifies the SearchIndexReader.
 //!                                      Rewrites the DataFusion expr to lit(true).
 //!        │
-//!        │  at poll_next after a generation changes
+//!        │  before each batch
 //!        ▼
-//! DynamicSegmentPruner::refresh()   ← derives and accumulates proofs from segment `.stats`;
-//!        │                              Scanner drops active/deferred impossible segments
-//!        ▼
-//! build_filters()                   ← calls DynamicFilterPhysicalExpr::current()
-//!   → collect_filters()               to get the latest threshold for remaining filters,
-//!   → Vec<PreFilter>                  decomposes them into PreFilter(s).
+//! build_filters()                   ← gets the current row filters and score threshold
 //!        │
 //!        ▼
-//! Scanner::next()                    ← applies PreFilters via apply_arrow()
-//!   prunes doc IDs in-place            before materializing Arrow columns.
+//! Scanner::next()
+//!   → current_segment_matching()    ← selects or claims a segment
+//!   → DynamicSegmentPruner::can_match()
+//!        │                              checks that segment against the original sources;
+//!        │                              drops it if impossible, otherwise reads a batch
+//!        ▼
+//! PreFilter::apply_arrow()          ← filters doc IDs before column materialization
 //! ```
 //!
 //! # Native DataFusion Evaluation
@@ -116,14 +115,11 @@ use tantivy::{Score, SegmentOrdinal};
 use crate::api::{FieldName, HashSet};
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::segment_pruning::SegmentStatsSnapshot;
-use crate::index::segment_pruning::predicate::{
-    SegmentTruth, SegmentTruthTable, table_for_exists, table_for_range, table_for_terms,
-};
+use crate::index::segment_pruning::predicate::{range_can_match, term_can_match, term_matches_all};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
-use crate::schema::{SearchField, SearchFieldType};
+use crate::schema::SearchField;
 use tantivy::Term;
 use tantivy::query::{ConstScoreQuery, Query, TermSetQuery, TermSetStrategyConfig};
 
@@ -324,40 +320,14 @@ pub fn collect_filters(
     }
 }
 
-/// One DataFusion filter source whose updates are assumed to only tighten during a single
-/// execution. A skipped segment is never reopened, so a producer that loosens its predicate after
-/// a skip would lose rows silently.
+/// Original dynamic-filter sources, retained before IN-list pushdown rewrites the row filters.
 ///
-/// DataFusion's `DynamicFilterPhysicalExpr` API does not encode this property and nothing here
-/// can check it, so every source is admitted through this one downcast. Audited against
-/// DataFusion 55: Top-K thresholds only rise, min/max aggregate bounds move through
-/// `scalar_max`/`scalar_min`, and a hash join publishes its build-side filter once after the
-/// partition barrier. Re-audit the producers on every DataFusion upgrade.
-struct MonotonicDynamicFilterSource {
-    expr: Arc<DynamicFilterPhysicalExpr>,
-    /// The `snapshot_generation` whose proof is folded into the pruner's table.
-    evaluated: Option<u64>,
-}
-
-impl MonotonicDynamicFilterSource {
-    fn from_physical_expr(source: &Arc<dyn PhysicalExpr>) -> Option<Self> {
-        let source = Arc::clone(source) as Arc<dyn Any + Send + Sync>;
-        Arc::downcast::<DynamicFilterPhysicalExpr>(source)
-            .ok()
-            .map(|expr| Self {
-                expr,
-                evaluated: None,
-            })
-    }
-}
-
-/// Segment proofs accumulated across the generations of monotonic DataFusion dynamic filters.
-/// Proofs only accumulate: a later, tighter predicate can be harder to prove from statistics (for
-/// example, a floating-point bound that becomes NaN), but every proof established for an earlier
-/// generation remains valid.
+/// Producers must only tighten their filters during an execution: once the scanner drops a
+/// segment it cannot revisit it, so a filter that loosened afterwards would lose rows silently.
+/// DataFusion's API neither encodes nor enforces that contract, so every source is admitted
+/// through this one downcast.
 pub(crate) struct DynamicSegmentPruner {
-    sources: Box<[MonotonicDynamicFilterSource]>,
-    proven: Option<Arc<SegmentTruthTable>>,
+    sources: Box<[Arc<DynamicFilterPhysicalExpr>]>,
 }
 
 impl DynamicSegmentPruner {
@@ -365,102 +335,76 @@ impl DynamicSegmentPruner {
         Self {
             sources: filters
                 .iter()
-                .filter_map(MonotonicDynamicFilterSource::from_physical_expr)
+                .filter_map(|source| {
+                    let source = Arc::clone(source) as Arc<dyn Any + Send + Sync>;
+                    Arc::downcast::<DynamicFilterPhysicalExpr>(source).ok()
+                })
                 .collect(),
-            proven: None,
         }
     }
 
-    /// `Some` is the cumulative proof and must replace the caller's installed one; `None` means
-    /// the installed proof, if any, remains authoritative.
-    pub(crate) fn refresh(
-        &mut self,
+    /// Check only the segment about to supply a batch. An unavailable dynamic predicate gives
+    /// no exclusion; the existing row filter or parent operator remains authoritative.
+    pub(crate) fn can_match(
+        &self,
         reader: &SearchIndexReader,
+        segment: SegmentOrdinal,
         schema: &SchemaRef,
-    ) -> Option<Arc<SegmentTruthTable>> {
-        let snapshot = reader.segment_stats_snapshot();
-        let mut evaluated = false;
-        for source in self.sources.iter_mut() {
-            // Read the generation before `current()`. If a producer updates between the two
-            // reads, the older generation is recorded and the next refresh evaluates again; a
-            // stale proof is never labeled with a newer generation.
-            let generation = source.expr.snapshot_generation();
-            if source.evaluated == Some(generation) {
-                continue;
-            }
-            let Ok(expr) = source.expr.current() else {
-                continue;
-            };
-            if let Some(truth) = dynamic_truth(reader, &expr, schema, snapshot) {
-                self.proven = Some(match self.proven.take() {
-                    Some(proven) => proven.conjunction(&truth),
-                    None => truth,
-                });
-            }
-            source.evaluated = Some(generation);
-            evaluated = true;
-        }
-        if evaluated { self.proven.clone() } else { None }
+    ) -> bool {
+        self.sources.iter().all(|source| {
+            source.current().map_or(true, |expr| {
+                dynamic_can_match(reader, segment, &expr, schema)
+            })
+        })
     }
 }
 
-/// Prove which segments cannot satisfy one dynamic filter's current predicate. This is a
-/// proof-only lowering: unsupported shapes return `None` and retain segments, and DataFusion still
-/// evaluates the complete predicate above the scan.
-fn dynamic_truth(
+/// False proves that a segment cannot satisfy the current physical predicate. Unsupported
+/// shapes retain the segment; DataFusion still evaluates the complete predicate above the scan.
+fn dynamic_can_match(
     reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
-    snapshot: &Arc<SegmentStatsSnapshot>,
-) -> Option<Arc<SegmentTruthTable>> {
+) -> bool {
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
         return match binary.op() {
-            Operator::And => match (
-                dynamic_truth(reader, binary.left(), schema, snapshot),
-                dynamic_truth(reader, binary.right(), schema, snapshot),
-            ) {
-                (Some(left), Some(right)) => Some(left.conjunction(&right)),
-                (Some(known), None) | (None, Some(known)) => Some(known.weakened()),
-                (None, None) => None,
-            },
+            Operator::And => {
+                dynamic_can_match(reader, segment, binary.left(), schema)
+                    && dynamic_can_match(reader, segment, binary.right(), schema)
+            }
             Operator::Or => {
-                let left = dynamic_truth(reader, binary.left(), schema, snapshot)?;
-                let right = dynamic_truth(reader, binary.right(), schema, snapshot)?;
-                Some(left.disjunction(&right))
+                dynamic_can_match(reader, segment, binary.left(), schema)
+                    || dynamic_can_match(reader, segment, binary.right(), schema)
             }
             Operator::Eq
             | Operator::NotEq
             | Operator::Lt
             | Operator::LtEq
             | Operator::Gt
-            | Operator::GtEq => comparison_truth(reader, binary, schema, snapshot),
-            _ => None,
+            | Operator::GtEq => {
+                comparison_can_match(reader, segment, binary, schema).unwrap_or(true)
+            }
+            _ => true,
         };
     }
-
-    // `IS NOT NULL` and general `NOT` are not lowered: statistics record whether a column has
-    // nulls, never whether it has only nulls, so no segment can be rejected from them.
     if let Some(is_null) = expr.downcast_ref::<IsNullExpr>() {
-        let column = physical_column(is_null.arg())?;
-        let search_field = search_field_for_column(reader, schema, column)?;
-        return Some(table_for_exists(Arc::clone(snapshot), &search_field).negated());
+        return physical_column(is_null.arg())
+            .and_then(|column| search_field_for_column(reader, schema, column))
+            .and_then(|field| {
+                reader
+                    .segment_stats_snapshot()
+                    .empirical(segment as usize, &field)
+            })
+            .is_none_or(|stats| stats.nullable);
     }
     if let Some(in_list) = expr.downcast_ref::<InListExpr>() {
-        return in_list_truth(reader, in_list, schema, snapshot);
+        return in_list_can_match(reader, segment, in_list, schema).unwrap_or(true);
     }
     if let Some(literal) = expr.downcast_ref::<Literal>() {
-        return match literal.value() {
-            // The placeholder a producer publishes before its first update proves nothing.
-            ScalarValue::Boolean(Some(true)) => None,
-            // In SQL filter position FALSE and NULL both reject every row.
-            ScalarValue::Boolean(Some(false) | None) => Some(SegmentTruthTable::uniform(
-                Arc::clone(snapshot),
-                SegmentTruth::Never,
-            )),
-            _ => None,
-        };
+        return !matches!(literal.value(), ScalarValue::Boolean(Some(false) | None));
     }
-    None
+    true
 }
 
 /// The column an expression reads. A cast is looked through only when it cannot manufacture a
@@ -503,36 +447,32 @@ fn search_field_for_column(
         .filter(SearchField::stats_order_matches_fast_values)
 }
 
-/// The members of `column IN (...)` in the column's storage representation. Join-derived members
-/// are Arrow execution values, so a `Numeric64` arrives already scaled (see #6158).
-fn in_list_storage_values(
-    in_list: &InListExpr,
-    field_type: &SearchFieldType,
-) -> Option<Vec<PdbOwnedValue>> {
-    in_list
-        .list()
-        .iter()
-        .map(|member| {
-            let scalar = extract_physical_scalar_value(member)?;
-            PdbOwnedValue::from_execution_scalar(&scalar, field_type)
-        })
-        .collect()
-}
-
-fn in_list_truth(
+fn in_list_can_match(
     reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
     in_list: &InListExpr,
     schema: &SchemaRef,
-    snapshot: &Arc<SegmentStatsSnapshot>,
-) -> Option<Arc<SegmentTruthTable>> {
+) -> Option<bool> {
     let column = in_list.expr().downcast_ref::<Column>()?;
-    let search_field = search_field_for_column(reader, schema, column)?;
-    let members = in_list_storage_values(in_list, &search_field.field_type())?;
-    let table = table_for_terms(Arc::clone(snapshot), &search_field, members);
+    let field = search_field_for_column(reader, schema, column)?;
+    let field_type = field.field_type();
+    let stats = reader
+        .segment_stats_snapshot()
+        .empirical(segment as usize, &field);
+    // Converted one at a time: the answer usually comes from the first member that could match,
+    // and a hash join can publish tens of thousands of them for every batch of every segment.
+    let mut members = in_list.list().iter().map(|member| {
+        extract_physical_scalar_value(member)
+            .and_then(|scalar| PdbOwnedValue::from_execution_scalar(&scalar, &field_type))
+    });
     Some(if in_list.negated() {
-        table.negated()
+        // NOT IN excludes every row only when a member matches them all. A member that cannot be
+        // converted proves nothing, so it cannot establish that.
+        !members.any(|value| value.is_some_and(|value| term_matches_all(stats.as_ref(), &value)))
     } else {
-        table
+        // IN can match when any member falls inside the bounds, including one that cannot be
+        // converted and therefore cannot be excluded.
+        members.any(|value| value.is_none_or(|value| term_can_match(stats.as_ref(), &value)))
     })
 }
 
@@ -547,22 +487,24 @@ fn operator_bounds<T: Clone>(op: Operator, value: T) -> Option<(Bound<T>, Bound<
     })
 }
 
-fn comparison_truth(
+fn comparison_can_match(
     reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
     binary: &BinaryExpr,
     schema: &SchemaRef,
-    snapshot: &Arc<SegmentStatsSnapshot>,
-) -> Option<Arc<SegmentTruthTable>> {
+) -> Option<bool> {
     let (column, op, literal) = column_op_literal(binary)?;
-    let search_field = search_field_for_column(reader, schema, column)?;
-    let value = PdbOwnedValue::from_execution_scalar(literal.value(), &search_field.field_type())?;
-    let snapshot = Arc::clone(snapshot);
+    let field = search_field_for_column(reader, schema, column)?;
+    let value = PdbOwnedValue::from_execution_scalar(literal.value(), &field.field_type())?;
+    let stats = reader
+        .segment_stats_snapshot()
+        .empirical(segment as usize, &field);
     Some(match op {
-        Operator::Eq => table_for_terms(snapshot, &search_field, vec![value]),
-        Operator::NotEq => table_for_terms(snapshot, &search_field, vec![value]).negated(),
+        Operator::Eq => term_can_match(stats.as_ref(), &value),
+        Operator::NotEq => !term_matches_all(stats.as_ref(), &value),
         _ => {
             let (lower, upper) = operator_bounds(op, value)?;
-            table_for_range(snapshot, &search_field, &lower, &upper)
+            range_can_match(stats.as_ref(), &lower, &upper)
         }
     })
 }
@@ -1026,11 +968,8 @@ fn extract_in_list_exprs<'a>(
 
 /// Outcome of trying to convert one join-derived `InList` predicate.
 enum InListPushdown {
-    /// AND the converted term-set query into the tantivy search, with its segment proof.
-    Query {
-        query: Box<dyn Query>,
-        truth: Arc<SegmentTruthTable>,
-    },
+    /// AND the converted term-set query into the Tantivy search.
+    Query { query: Box<dyn Query> },
     /// Drop the predicate: evaluating it in the scan costs more per row than the hash
     /// join above, which re-checks the same keys against its build table anyway.
     Skip,
@@ -1041,7 +980,6 @@ enum InListPushdown {
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
-    snapshot: &Arc<SegmentStatsSnapshot>,
     index_created_by_version: Option<crate::api::version::Version>,
     strategy_sink: Option<Arc<AtomicU8>>,
     max_segment_docs: u32,
@@ -1115,18 +1053,19 @@ fn try_convert_in_list_to_query(
     };
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
 
-    let Some(storage_values) = in_list_storage_values(in_list, &field_type) else {
-        return InListPushdown::Keep;
-    };
-    if storage_values.is_empty() {
+    if in_list.list().is_empty() {
         return InListPushdown::Keep;
     }
-    let terms = storage_values
+    let terms = in_list
+        .list()
         .iter()
-        .map(|owned_value| {
+        .map(|member| {
+            let scalar = extract_physical_scalar_value(member)?;
+            // Join keys are execution values: Numeric64 is already scaled (see #6158).
+            let owned_value = PdbOwnedValue::from_execution_scalar(&scalar, &field_type)?;
             value_to_term(
                 tantivy_field,
-                owned_value,
+                &owned_value,
                 tantivy_field_type,
                 None,
                 index_created_by_version,
@@ -1137,15 +1076,6 @@ fn try_convert_in_list_to_query(
     let Some(terms) = terms else {
         return InListPushdown::Keep;
     };
-    // The proof is built from the same storage values as the query, never reinterpreted.
-    let truth = match schema
-        .stats_field(&FieldName::from(col.name()))
-        .filter(SearchField::stats_describe_terms)
-    {
-        Some(field) => table_for_terms(Arc::clone(snapshot), &field, storage_values),
-        None => SegmentTruthTable::uniform(Arc::clone(snapshot), SegmentTruth::Maybe),
-    };
-
     // Build a strategy config from the paradedb.term_set_* GUCs so the
     // dispatch thresholds (kill switch, gallop density gate, and the
     // first-column bitset density gate) can be tuned in production
@@ -1166,7 +1096,6 @@ fn try_convert_in_list_to_query(
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     InListPushdown::Query {
         query: Box::new(ConstScoreQuery::new(Box::new(term_set_query), 0.0)),
-        truth,
     }
 }
 
@@ -1190,10 +1119,8 @@ pub fn try_dynamic_filter_pushdown(
     strategy_sink: Option<Arc<AtomicU8>>,
 ) -> bool {
     let mut queries = Vec::new();
-    let mut proofs = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
     let schema = reader.schema();
-    let snapshot = reader.segment_stats_snapshot();
     let index_created_by_version = reader.index_created_by_version();
     let max_segment_docs = reader
         .segment_readers()
@@ -1220,15 +1147,13 @@ pub fn try_dynamic_filter_pushdown(
             match try_convert_in_list_to_query(
                 in_list,
                 schema,
-                snapshot,
                 index_created_by_version,
                 strategy_sink.clone(),
                 max_segment_docs,
                 sorted_by_field.as_deref(),
             ) {
-                InListPushdown::Query { query, truth } => {
+                InListPushdown::Query { query } => {
                     queries.push(query);
-                    proofs.push(truth);
                     pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
                 }
                 InListPushdown::Skip => {
@@ -1260,19 +1185,16 @@ pub fn try_dynamic_filter_pushdown(
         }
     }
 
-    let Some(truth) = proofs
-        .into_iter()
-        .reduce(|left, right| left.conjunction(&right))
-    else {
+    if queries.is_empty() {
         return false;
-    };
+    }
     let additional_query = tantivy::query::BooleanQuery::new(
         queries
             .into_iter()
             .map(|query| (tantivy::query::Occur::Must, query))
             .collect(),
     );
-    *reader = reader.and_query_proven(Box::new(additional_query), truth);
+    *reader = reader.and_query(Box::new(additional_query));
     true
 }
 

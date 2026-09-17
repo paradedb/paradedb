@@ -527,7 +527,7 @@ impl SearchIndexSchema {
         }
     }
 
-    /// The field whose `.stats` a proof about `name` may consult. A JSON path has no statistics
+    /// The field whose `.stats` a check on `name` may consult. A JSON path has no statistics
     /// of its own.
     pub fn stats_field(&self, name: &FieldName) -> Option<SearchField> {
         if name.path().is_some() {

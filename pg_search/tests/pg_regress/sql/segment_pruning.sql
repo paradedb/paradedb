@@ -136,9 +136,8 @@ RESET paradedb.global_mutable_segment_rows;
 
 EXECUTE segment_pruning_range(401, 404);
 
--- The hash-join InList appears only after planning. Its membership evidence must be incorporated
--- into the execution snapshot, where it can reject unrelated segments whether query pushdown
--- chooses Query, Keep, or Skip.
+-- The hash-join InList appears only after planning. Check it against each segment's statistics
+-- to reject unrelated segments whether query pushdown chooses Query, Keep, or Skip.
 CREATE TABLE segment_pruning_keys (id bigint PRIMARY KEY, price bigint NOT NULL, body text NOT NULL);
 INSERT INTO segment_pruning_keys VALUES
     (104, 104, 'wanted'), (105, 105, 'wanted'), (106, 106, 'wanted');
@@ -223,7 +222,7 @@ FROM segment_pruning_keys k
 JOIN segment_pruning_items i ON k.id = i.id
 WHERE k.body @@@ 'wanted';
 
--- DataFusion 55 publishes both equijoin keys. Their proofs must share one multi-field snapshot.
+-- DataFusion 55 publishes both equijoin keys. Check both fields against the segment's statistics.
 SELECT array_agg(i.id ORDER BY i.id) AS multi_key_dynamically_selected
 FROM segment_pruning_keys k
 JOIN segment_pruning_items i ON k.id = i.id AND k.price = i.price

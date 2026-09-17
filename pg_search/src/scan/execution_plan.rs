@@ -1196,8 +1196,8 @@ impl ExecutionPlan for PgSearchScanPlan {
             let mut dynamic_filters = dynamic_filters.clone();
             // Capture the original dynamic-filter sources first: the pushdown below replaces
             // a rewritten entry with a static expression, but the join keeps publishing its
-            // predicate through the original source, which is what the segment proof reads.
-            let mut dynamic_segment_pruner = DynamicSegmentPruner::new(&dynamic_filters);
+            // predicate through the original source, which is what the segment check reads.
+            let dynamic_segment_pruner = DynamicSegmentPruner::new(&dynamic_filters);
             let strategy_sink = Arc::new(AtomicU8::new(0));
             let pushed = if !dynamic_filters.is_empty() {
                 try_dynamic_filter_pushdown(
@@ -1272,12 +1272,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             let mut pushdown_metric_recorded = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                // A bound that tightened since the last batch can abandon the active segment
-                // here and keep the remaining deferred scorers from opening. The pre-filter below
-                // stays the row-level authority.
-                if let Some(truth) = dynamic_segment_pruner.refresh(&reader, &schema) {
-                    scanner.set_runtime_truth(truth);
-                }
                 let (pre_filters, score_threshold) =
                     build_filters(&dynamic_filters, &schema, score_column_schema_idx);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
@@ -1296,10 +1290,10 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
+                    |segment| dynamic_segment_pruner.can_match(&reader, segment, &schema),
                 );
                 timer.done();
-                // Published per batch: a parent that stops polling early never reaches the
-                // end-of-stream flush below.
+                // Publish before yielding so a parent LIMIT cannot hide skips.
                 let skipped = scanner.take_runtime_skipped_segments();
                 if skipped > 0
                     && let Some(counter) = &segments_pruned_dynamic
@@ -1384,7 +1378,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Multiple sources may push dynamic filters (Top K from SortExec, min/max aggregate
         // bounds, and join-key bounds from HashJoinExec). Segment rejection assumes every
         // producer only tightens during one execution; that assumption is not checked at runtime
-        // and is admitted in one place, `MonotonicDynamicFilterSource`.
+        // and is documented on `DynamicSegmentPruner`.
         //
         // The pushdown pass can potentially run more than once. Producers assume
         // pushed-down filters remain installed between passes and may not re-push

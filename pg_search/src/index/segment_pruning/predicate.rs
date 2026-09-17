@@ -162,40 +162,6 @@ pub(crate) fn boolean_matches_all(
             == required
 }
 
-fn table_for_field(
-    snapshot: Arc<SegmentStatsSnapshot>,
-    field: &SearchField,
-    truth: impl Fn(Option<&EmpiricalStats>) -> SegmentTruth,
-) -> Arc<SegmentTruthTable> {
-    let values = truths_for_field(&snapshot, field, truth);
-    SegmentTruthTable::new(snapshot, values)
-}
-
-pub(crate) fn table_for_range(
-    snapshot: Arc<SegmentStatsSnapshot>,
-    field: &SearchField,
-    lower: &Bound<PdbOwnedValue>,
-    upper: &Bound<PdbOwnedValue>,
-) -> Arc<SegmentTruthTable> {
-    table_for_field(snapshot, field, |stats| range_truth(stats, lower, upper))
-}
-
-pub(crate) fn table_for_terms(
-    snapshot: Arc<SegmentStatsSnapshot>,
-    field: &SearchField,
-    terms: Vec<PdbOwnedValue>,
-) -> Arc<SegmentTruthTable> {
-    let terms = ProvableTerms::new(terms);
-    table_for_field(snapshot, field, |stats| terms_truth(stats, &terms))
-}
-
-pub(crate) fn table_for_exists(
-    snapshot: Arc<SegmentStatsSnapshot>,
-    field: &SearchField,
-) -> Arc<SegmentTruthTable> {
-    table_for_field(snapshot, field, exists_truth)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -42,6 +42,41 @@ WHERE ju.name IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
 
+-- The same query with the ordinals and the strings resolved in the scan, which reads the
+-- column through the named arm instead of the deferred one.
+SET paradedb.defer_column_fetch TO off;
+SET paradedb.defer_string_decode TO off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+RESET paradedb.defer_string_decode;
+RESET paradedb.defer_column_fetch;
+
+-- The same query with the ordinals resolved above the join, in `TantivyFetchExec`.
+SET paradedb.defer_column_fetch TO on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+RESET paradedb.defer_column_fetch;
+
 -- The same, grouped by the jsonb value.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT ju.metadata->'brand', count(*)
@@ -70,7 +105,7 @@ WHERE (ju.name @@@ 'bob') OR ((ju.name IS NULL) AND (ju.name @@@ 'bob'))
 GROUP BY ju.metadata->'brand'
 ORDER BY 2;
 
--- The same three queries without the custom scans, as the reference.
+-- The same queries without the custom scans, as the reference.
 SET paradedb.enable_custom_scan TO false;
 SET paradedb.enable_join_custom_scan TO false;
 SET paradedb.enable_aggregate_custom_scan TO false;

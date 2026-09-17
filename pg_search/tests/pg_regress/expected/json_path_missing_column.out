@@ -65,6 +65,92 @@ ORDER BY 1;
           |     2
 (2 rows)
 
+-- The same query with the ordinals and the strings resolved in the scan, which reads the
+-- column through the named arm instead of the deferred one.
+SET paradedb.defer_column_fetch TO off;
+SET paradedb.defer_string_decode TO off;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+   Sort Key: ((ju.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+         Backend: DataFusion
+         Indexes: ju_idx (ju), jp_idx (jp)
+         Group By: metadata.brand
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)], projection=[metadata.brand@0]
+           :     CooperativeExec
+           :       PgSearchScan: table=ju, segments=3, visibility=eager, query={"exists":{"field":"name"}}
+           :     CooperativeExec
+           :       PgSearchScan: table=jp, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+ ?column? | count 
+----------+-------
+ apple    |    20
+          |     2
+(2 rows)
+
+RESET paradedb.defer_string_decode;
+RESET paradedb.defer_column_fetch;
+-- The same query with the ordinals resolved above the join, in `TantivyFetchExec`.
+SET paradedb.defer_column_fetch TO on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+   Sort Key: ((ju.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((ju.metadata ->> 'brand'::text)), (count(*))
+         Backend: DataFusion
+         Indexes: ju_idx (ju), jp_idx (jp)
+         Group By: metadata.brand
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Final, gby=[metadata.brand@0 as metadata.brand], aggr=[count(1) as agg_0]
+           :   TantivyDecodeExec: decode=[metadata.brand]
+           :     AggregateExec: mode=Partial, gby=[metadata.brand@0 as metadata.brand], aggr=[count(1) as agg_0]
+           :       TantivyFetchExec: fetch=[metadata.brand]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)], projection=[metadata.brand@0]
+           :           CooperativeExec
+           :             PgSearchScan: table=ju, segments=3, visibility=eager, query={"exists":{"field":"name"}}
+           :           CooperativeExec
+           :             PgSearchScan: table=jp, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(19 rows)
+
+SELECT ju.metadata->>'brand', count(*)
+FROM ju JOIN jp ON ju.id = jp.id
+WHERE ju.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+ ?column? | count 
+----------+-------
+ apple    |    20
+          |     2
+(2 rows)
+
+RESET paradedb.defer_column_fetch;
 -- The same, grouped by the jsonb value.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT ju.metadata->'brand', count(*)
@@ -134,7 +220,7 @@ ORDER BY 2;
      2 | 
 (2 rows)
 
--- The same three queries without the custom scans, as the reference.
+-- The same queries without the custom scans, as the reference.
 SET paradedb.enable_custom_scan TO false;
 SET paradedb.enable_join_custom_scan TO false;
 SET paradedb.enable_aggregate_custom_scan TO false;

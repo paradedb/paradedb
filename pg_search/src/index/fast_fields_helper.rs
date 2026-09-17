@@ -80,6 +80,12 @@ struct FFInner {
     segment_caches: Vec<SegmentCache>,
 }
 
+/// One wording for every scan that asks a segment for a column it cannot give.
+#[track_caller]
+fn missing_columnar_field(field_name: &str) -> ! {
+    panic!("`{field_name}` is missing or is not configured as columnar")
+}
+
 impl FFHelper {
     pub fn empty() -> Self {
         Self::default()
@@ -147,7 +153,7 @@ impl FFHelper {
                         if is_fast_field && has_no_column {
                             FFType::Junk
                         } else {
-                            panic!("`{name}` is missing or is not configured as columnar")
+                            missing_columnar_field(name)
                         }
                     })
                 }
@@ -225,6 +231,9 @@ macro_rules! fetch_term_ords {
 /// Tantivy column readers.
 #[derive(Debug)]
 pub enum FFType {
+    /// Nothing to read: a synthetic column (`ctid`, `tableoid`, a score, a match tag), or a
+    /// real field the segment wrote no column for. Both read as NULL, so a consumer that
+    /// wants only the second meaning has to check the [`WhichFastField`] first.
     Junk,
     Text(StrColumn),
     Bytes(BytesColumn),
@@ -249,8 +258,10 @@ impl FFType {
     /// should be a known field name in the Tantivy index
     #[track_caller]
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
-        Self::try_new(ffr, field_name)
-            .unwrap_or_else(|| panic!("`{field_name}` is missing or is not configured as columnar"))
+        match Self::try_new(ffr, field_name) {
+            Some(ff) => ff,
+            None => missing_columnar_field(field_name),
+        }
     }
 
     /// Like [`FFType::new`], but `None` when the segment has no typed column for `field_name`.

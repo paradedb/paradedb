@@ -228,21 +228,25 @@ impl SearchFieldType {
     /// term ordinal resolves against the bytes dictionary rather than the string one.
     pub fn is_bytes_storage(&self) -> bool {
         matches!(
-            self.arrow_data_type(),
-            arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+            self,
+            SearchFieldType::NumericBytes(..) | SearchFieldType::Vector(..)
         )
     }
 
     /// Whether values of this type are stored in a dictionary-backed column.
     /// Only these carry term ordinals, so only these can have their decoding deferred.
     pub fn is_dictionary_storage(&self) -> bool {
-        matches!(
-            self.arrow_data_type(),
-            arrow_schema::DataType::Utf8View
-                | arrow_schema::DataType::BinaryView
-                | arrow_schema::DataType::LargeUtf8
-                | arrow_schema::DataType::LargeBinary
-        )
+        self.is_bytes_storage()
+            || matches!(
+                self,
+                SearchFieldType::Text(_)
+                    | SearchFieldType::Tokenized(..)
+                    | SearchFieldType::Uuid(_)
+                    | SearchFieldType::Inet(_)
+                    | SearchFieldType::Ltree(_)
+                    | SearchFieldType::Json(_)
+                    | SearchFieldType::Range(_)
+            )
     }
 }
 

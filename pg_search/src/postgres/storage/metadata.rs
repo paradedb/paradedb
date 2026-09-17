@@ -87,12 +87,8 @@ pub struct MetaPageData {
 
     created_at: pg_sys::TimestampTz,
 
-    /// Header block of the index-level vector centroid index registry (a
-    /// `LinkedBytesList` of JSON; see `directory::utils::save_centroid_index`).
-    /// Appended after `created_at`: zero on indexes created before the
-    /// index-level centroid format existed — those cannot hold vector
-    /// fields under the current format and must be reindexed.
-    centroid_index_start: pg_sys::BlockNumber,
+    /// Header block of the index-level file registry. Zero on indexes predating it.
+    index_files_start: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -130,7 +126,7 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
-            metadata.centroid_index_start = LinkedBytesList::create_without_fsm(indexrel);
+            metadata.index_files_start = LinkedBytesList::create_without_fsm(indexrel);
 
             metadata.created_by_version_major =
                 const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
@@ -375,15 +371,10 @@ impl MetaPage {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    /// The index-level vector centroid index registry. `None` on indexes
-    /// created before the field existed — those predate the index-level
-    /// centroid format entirely (their vector segments require reindex).
-    pub fn centroid_index_bytes(&self) -> Option<LinkedBytesList> {
-        (self.data.centroid_index_start != 0).then(|| {
-            LinkedBytesList::open(
-                self.bman.buffer_access().rel(),
-                self.data.centroid_index_start,
-            )
+    /// The index-level file registry, absent on indexes predating it.
+    pub fn index_files_bytes(&self) -> Option<LinkedBytesList> {
+        (self.data.index_files_start != 0).then(|| {
+            LinkedBytesList::open(self.bman.buffer_access().rel(), self.data.index_files_start)
         })
     }
 

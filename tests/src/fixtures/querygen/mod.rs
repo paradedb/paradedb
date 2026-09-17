@@ -403,6 +403,9 @@ fn generated_queries_setup_inner(
 CREATE TABLE {tname} (
     {column_definitions}
 );
+-- Churn picks rows in heap order, so a background vacuum between a run and its replay would
+-- hand the replay other rows.
+ALTER TABLE {tname} SET (autovacuum_enabled = off);
 {index_before_data}
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});

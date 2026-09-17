@@ -2556,9 +2556,18 @@ impl JoinScan {
                     ctid_array.value(row_idx)
                 };
                 let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
+                // The ctid arrives in one of two shapes. On a page that is not all-visible the
+                // visibility check resolves it to the chain member, and a member is heap-only,
+                // which the index fetch rejects at chain start. On an all-visible page it stays
+                // the root the index holds, and a pruned root is a redirect the direct fetch
+                // cannot follow.
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
+                    && rel_state
+                        .visibility_checker
+                        .exec_if_visible(ctid, rel_state.fetch_slot, |_| ())
+                        .is_none()
                 {
                     return None;
                 }

@@ -1615,10 +1615,11 @@ impl SegmentedTopKState {
     ///
     /// Returns `(visible_mask, corrected_ctids_per_entry)`:
     /// - `visible_mask[i]` is `false` when the i-th row is invisible to any relation.
-    /// - `corrected_ctids_per_entry[e][i]` is the HOT-corrected real ctid for the i-th
-    ///   row as seen by entry `e`. `None` means invisible (or unresolvable) for that
-    ///   entry. These HOT-corrected values must be used in the final output so that
-    ///   `fetch_tuple_direct` (which does NOT follow HOT chains) receives the right ctid.
+    /// - `corrected_ctids_per_entry[e][i]` is the ctid `check_batch` resolved for the i-th
+    ///   row as seen by entry `e`, or `None` when the row is invisible or unresolvable.
+    ///   The final output carries these, since a HOT chain moves the row off the root the
+    ///   index holds. On an all-visible page `check_batch` returns that root untouched, so
+    ///   the consumer still has to follow the chain itself.
     ///
     /// Returns all-true / empty-corrected immediately when `visibility_entries` is empty.
     #[allow(clippy::type_complexity)]
@@ -1760,10 +1761,8 @@ impl SegmentedTopKState {
         // 2a. Visibility filter: remove invisible rows from candidates.
         //     pass_through_rows are checked here (they bypass the prune cycle).
         //
-        // corrected_lookup[entry_idx][(batch_idx, row_idx)] = HOT-corrected real ctid.
-        // Populated here and consumed in the final output column write below so that
-        // fetch_tuple_direct (which does NOT follow HOT chains) gets the right address.
-        // Declared outside the if block so it remains in scope for the output step.
+        // Declared outside the if block so it stays in scope for the output step below,
+        // which writes these resolved ctids in place of the raw index ones.
         let corrected_lookup: Vec<HashMap<(usize, usize), u64>>;
 
         if !self.visibility_entries.is_empty() && !candidates.is_empty() {
@@ -2004,12 +2003,8 @@ impl SegmentedTopKState {
         // DocAddresses in the ctid_N columns.  We must resolve them before emitting
         // so downstream JoinScanState can pass a real ctid to fetch_tuple_direct.
         //
-        // We use the HOT-corrected values from corrected_lookup (populated by
-        // check_rows_visible above via heap_hot_search_buffer) rather than calling
-        // materialize_deferred_ctid again.  materialize_deferred_ctid would return
-        // the raw index ctid, which is wrong for rows whose heap tuple has been
-        // moved by a HOT update: fetch_tuple_direct does NOT follow HOT chains, so
-        // it would silently return no data or stale data for those rows.
+        // corrected_lookup rather than materialize_deferred_ctid, which hands back the raw
+        // index ctid after a HOT update has already moved the row off that root.
         if !corrected_lookup.is_empty() {
             let mut columns: Vec<ArrayRef> = result.columns().to_vec();
             for (entry_idx, entry) in self.visibility_entries.iter().enumerate() {

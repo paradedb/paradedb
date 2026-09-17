@@ -97,6 +97,22 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
+-- A range that reaches one of the four user segments: every task's scan of `u` reports one
+-- candidate segment. Split points size this scan's partitions; the candidate count only sizes
+-- them for scans without split points.
+SELECT count(*) > 0 AND count(*) = count(*) FILTER (WHERE line ~ 'segments=1[,\]]')
+       AS every_user_scan_reports_one_candidate_segment
+FROM sp_explain_analyze_lines(
+    $$SELECT count(*)
+      FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+      WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error'$$
+) AS line
+WHERE line ~ 'PgSearchScan: table=u,';
+
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
+
 -- Result parity alone would pass if PgSearchScan always added the partition filter. This
 -- metric counts predicates omitted at attachment because every selected segment is covered
 -- and scores are not needed; it does not count per-segment scorer substitutions.

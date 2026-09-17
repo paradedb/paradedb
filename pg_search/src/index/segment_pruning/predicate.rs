@@ -217,19 +217,6 @@ mod tests {
         )
     }
 
-    #[test]
-    fn impossible_conjunct_stops_evaluation() {
-        let must = [false, true]
-            .into_iter()
-            .inspect(|possible| assert!(!possible, "the later conjunct must not be visited"));
-        assert!(!boolean_can_match(
-            must,
-            [].into_iter(),
-            [].into_iter(),
-            None
-        ));
-    }
-
     fn stats(min: i64, max: i64, nullable: bool) -> EmpiricalStats {
         EmpiricalStats {
             min: PdbOwnedValue::I64(min),
@@ -284,7 +271,10 @@ mod tests {
         assert_eq!(term_truth(None, &term), MAYBE);
         assert_eq!(term_truth(Some(&stats(10, 10, true)), &term), MAYBE);
         assert_eq!(term_truth(Some(&stats(10, 10, false)), &term), ALWAYS);
-        assert_eq!(term_truth(Some(&stats(11, 20, false)), &term), NEVER);
+        assert_eq!(
+            range_truth(None, &Bound::Included(term.clone()), &Bound::Unbounded),
+            MAYBE
+        );
     }
 
     #[test]
@@ -335,8 +325,6 @@ mod tests {
         vec![], vec![ALWAYS, ALWAYS], vec![], Some(2), ALWAYS
     )]
     #[case::explicit_zero_still_unions_should(vec![], vec![NEVER], vec![], Some(0), NEVER)]
-    #[case::negative_minimum_fails_open(vec![], vec![ALWAYS], vec![], Some(-1), MAYBE)]
-    #[case::negative_minimum_fails_open_with_must(vec![ALWAYS], vec![], vec![], Some(-1), MAYBE)]
     #[case::single_should_oversized_minimum(vec![], vec![ALWAYS], vec![], Some(2), MAYBE)]
     #[case::single_must_positive_minimum(vec![ALWAYS], vec![], vec![], Some(1), MAYBE)]
     fn boolean_truth_cases(

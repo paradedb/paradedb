@@ -1,6 +1,6 @@
 # ParadeDB Documentation
 
-ParadeDB [documentation](https://www.paradedb.com/docs) is built using [Mintlify](https://www.mintlify.com/docs/quickstart).
+ParadeDB [documentation](https://www.paradedb.com/docs/start/introduction) is built using [Mintlify](https://www.mintlify.com/docs/quickstart).
 
 ## 👩‍💻 Development
 

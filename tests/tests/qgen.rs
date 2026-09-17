@@ -43,9 +43,9 @@ use sqlx::{PgConnection, Row};
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
 /// draws its randomness from the Antithesis SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
-fn qgen_proptest_config() -> proptest::test_runner::Config {
+fn qgen_proptest_config(churn_on: bool) -> proptest::test_runner::Config {
     let mut config = proptest::test_runner::Config::default();
-    if churn_enabled() {
+    if churn_on && churn_enabled() {
         // Committed churn accumulates across cases, so a shrunk case runs against a different
         // heap than the one that failed and its script would not be the failing one. The first
         // failure's script is the faithful repro, and a persisted seed replays only in a full run.
@@ -273,8 +273,10 @@ impl GeneratedSubquery {
 /// against PostgreSQL.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_joins_small(database: Db) {
+async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -289,7 +291,7 @@ async fn generated_joins_small(database: Db) {
 
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         ((join, where_expr, cross_rel), distinct_mode, mut order_parts, window_targets) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
@@ -310,7 +312,7 @@ async fn generated_joins_small(database: Db) {
         limit in proptest::option::of(1..=50usize),
         offset in proptest::option::of(0..=10usize),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join.to_sql();
@@ -478,8 +480,10 @@ async fn generated_joins_small(database: Db) {
 }
 
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_single_relation(database: Db) {
+async fn generated_single_relation(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -489,14 +493,14 @@ async fn generated_single_relation(database: Db) {
     let tables_and_sizes = [(table_name, 10)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         where_expr in arb_wheres(
             vec![table_name],
             COLUMNS,
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_single_relation - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -519,8 +523,10 @@ async fn generated_single_relation(database: Db) {
 /// - ensures equivalence between PostgreSQL and bm25 behavior
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_group_by_aggregates(database: Db) {
+async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -539,7 +545,7 @@ async fn generated_group_by_aggregates(database: Db) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -568,7 +574,7 @@ async fn generated_group_by_aggregates(database: Db) {
         limit in prop::option::of(5..21_usize),
         offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
@@ -660,8 +666,10 @@ async fn generated_group_by_aggregates(database: Db) {
 }
 
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_paging_small(database: Db) {
+async fn generated_paging_small(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -671,11 +679,11 @@ async fn generated_paging_small(database: Db) {
     let tables_and_sizes = [(table_name, 1000)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -695,8 +703,10 @@ async fn generated_paging_small(database: Db) {
 /// TODO: Explore whether this could use https://github.com/paradedb/paradedb/pull/2681
 /// to use a large segment count rather than a large table size.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_paging_large(database: Db) {
+async fn generated_paging_large(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -706,10 +716,10 @@ async fn generated_paging_large(database: Db) {
     let tables_and_sizes = [(table_name, 100000)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
@@ -724,8 +734,10 @@ async fn generated_paging_large(database: Db) {
 }
 
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_subquery(database: Db) {
+async fn generated_subquery(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -736,7 +748,7 @@ async fn generated_subquery(database: Db) {
     let tables_and_sizes = [(outer_table_name, 10), (inner_table_name, 10)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
             COLUMNS,
@@ -753,7 +765,7 @@ async fn generated_subquery(database: Db) {
         ],
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let subquery = GeneratedSubquery {
@@ -800,8 +812,10 @@ async fn generated_subquery(database: Db) {
 /// Verifies that the DataFusion aggregate path produces the same results as
 /// PostgreSQL's native hash/sort aggregate on top of nested loop joins.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_aggregate_join(database: Db) {
+async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -830,7 +844,7 @@ async fn generated_aggregate_join(database: Db) {
         format!("{}.metadata->'brand'", all_tables[0]),
     ]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         num_tables in 2..=3usize,
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
@@ -846,7 +860,7 @@ async fn generated_aggregate_join(database: Db) {
             ],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Build join with selected number of tables
@@ -862,7 +876,7 @@ async fn generated_aggregate_join(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config());
+            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -933,8 +947,10 @@ async fn generated_aggregate_join(database: Db) {
 /// SUM(DISTINCT), COUNT(DISTINCT), AVG(DISTINCT) produce the same results
 /// via DataFusion aggregate pushdown as native PostgreSQL.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_aggregate_join_distinct(database: Db) {
+async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -952,7 +968,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         .map(|col| col.name)
         .collect();
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         num_tables in 2..=3usize,
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         group_by_expr in arb_group_by(
@@ -964,7 +980,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
             ],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
@@ -978,7 +994,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config());
+            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -1048,8 +1064,10 @@ async fn generated_aggregate_join_distinct(database: Db) {
 /// Results are rounded to 6 decimal places before comparison.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_group_by_stddev(database: Db) {
+async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1068,7 +1086,7 @@ async fn generated_group_by_stddev(database: Db) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -1079,7 +1097,7 @@ async fn generated_group_by_stddev(database: Db) {
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["STDDEV(price)", "VARIANCE(price)", "STDDEV(age)", "VARIANCE(age)"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
@@ -1159,8 +1177,10 @@ async fn generated_group_by_stddev(database: Db) {
 /// Uses only 2 tables and INNER JOIN to keep the test focused and fast.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_join_aggregates(database: Db) {
+async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1182,7 +1202,7 @@ async fn generated_join_aggregates(database: Db) {
         .map(|col| format!("{}.{}", all_tables[0], col.name))
         .collect();
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // GROUP BY + aggregates
@@ -1191,7 +1211,7 @@ async fn generated_join_aggregates(database: Db) {
             vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Generate join expression (INNER JOIN only)
@@ -1204,7 +1224,7 @@ async fn generated_join_aggregates(database: Db) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config());
+            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -1278,8 +1298,10 @@ async fn generated_join_aggregates(database: Db) {
 /// Tests both Numeric64 (precision <= 18) and NumericBytes (unlimited precision) storage types.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_numeric_pushdown(database: Db) {
+async fn generated_numeric_pushdown(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1300,10 +1322,10 @@ async fn generated_numeric_pushdown(database: Db) {
         "age",           // INTEGER - for comparison
     ]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         numeric_expr in arb_numeric_expr(vec![table_name], &numeric_columns),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Both queries use the same SQL since numeric comparison operators
@@ -1356,8 +1378,10 @@ async fn generated_numeric_pushdown(database: Db) {
 /// - `paradedb.enable_join_custom_scan = false`: no ParadeDB Join Scan is used
 /// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_join_semi_like(database: Db) {
+async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1380,7 +1404,7 @@ async fn generated_join_semi_like(database: Db) {
         "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
     ];
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
         inner_term in proptest::sample::select(search_terms.clone()),
         is_anti_join in proptest::bool::ANY,
@@ -1389,7 +1413,7 @@ async fn generated_join_semi_like(database: Db) {
         nested_term in proptest::sample::select(search_terms.clone()),
         nested_is_anti in proptest::bool::ANY,
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let outer = semi_join.outer_table();
@@ -1498,8 +1522,10 @@ async fn generated_join_semi_like(database: Db) {
 /// but would be indistinguishable if converted to f64.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_numeric_precision(database: Db) {
+async fn generated_numeric_precision(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1537,10 +1563,10 @@ async fn generated_numeric_precision(database: Db) {
         "999999999999999999",
     ];
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         test_value in proptest::sample::select(precision_test_values),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, precision_columns),
+        churn in arb_churn(&tables_and_sizes, precision_columns, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - should find exact matches only
@@ -1572,8 +1598,10 @@ async fn generated_numeric_precision(database: Db) {
 /// produce correct results without precision loss.
 ///
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_numeric_range_precision(database: Db) {
+async fn generated_numeric_range_precision(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1605,10 +1633,10 @@ async fn generated_numeric_range_precision(database: Db) {
         ("123456789012345690", "123456789012345700"),
     ];
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         (low, high) in proptest::sample::select(range_bounds),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, precision_columns),
+        churn in arb_churn(&tables_and_sizes, precision_columns, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - range filter
@@ -1641,8 +1669,10 @@ async fn generated_numeric_range_precision(database: Db) {
 /// TODO: Consider merging this property test with other "aggregate over join" tests
 /// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_pdb_agg_join(database: Db) {
+async fn generated_pdb_agg_join(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1658,10 +1688,10 @@ async fn generated_pdb_agg_join(database: Db) {
     let where_columns = columns_named(vec!["name", "color"]);
     let join_key_columns = columns_named(vec!["id", "age"]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join_expr.to_sql();
@@ -1715,8 +1745,10 @@ async fn generated_pdb_agg_join(database: Db) {
 /// alike. A grouped query sorted by an aggregate under a `LIMIT` is routed to DataFusion whatever
 /// the planner's group estimate, and the limit sits above any group count, so it cuts nothing.
 #[rstest]
+#[case::clean(false)]
+#[case::churn(true)]
 #[tokio::test]
-async fn generated_pdb_agg_single_table(database: Db) {
+async fn generated_pdb_agg_single_table(database: Db, #[case] churn_on: bool) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || block_on(async { database.connection().await }),
         |_| {},
@@ -1726,11 +1758,11 @@ async fn generated_pdb_agg_single_table(database: Db) {
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
     let text_columns = columns_named(vec!["name"]);
 
-    proptest!(qgen_proptest_config(), |(
+    proptest!(qgen_proptest_config(churn_on), |(
         outer_bm25 in arb_wheres(vec!["users".to_string()], &text_columns),
         agg in arb_pdb_agg_single_table(),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS),
+        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
         let setup_sql = churn.apply(&pool, &setup_sql)?;
         let group = agg.outer_group.as_deref().expect("a single-table spec sits beside a GROUP BY");

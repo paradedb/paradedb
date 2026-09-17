@@ -461,25 +461,17 @@ fn arb_session() -> impl Strategy<Value = Session> + Clone {
 }
 
 /// Churn for one case over `tables` (name and row count, as given to
-/// [`super::generated_queries_setup`]) with the schema in `columns`. Empty parts are as likely
-/// as not, so pristine tables stay in the mix.
+/// [`super::generated_queries_setup`]) with the schema in `columns`. With `enabled` false, or
+/// under `PARADEDB_QGEN_CHURN=off`, every case gets an empty churn: that is the clean run each
+/// test keeps beside the churned one, as the control that tells a churn-dependent failure apart.
 pub fn arb_churn(
     tables: &[(&str, usize)],
     columns: &[Column],
+    enabled: bool,
 ) -> impl Strategy<Value = Churn> + use<> {
     let shape = InsertShape::new(columns);
-    if !churn_enabled() {
-        return Just(Churn {
-            committed: Vec::new(),
-            own: Vec::new(),
-            concurrent: None,
-            sessions: [Session {
-                seed: 0.0,
-                mutable_segment_rows: None,
-            }; 3],
-            shape,
-        })
-        .boxed();
+    if !enabled || !churn_enabled() {
+        return Just(Churn::none(shape)).boxed();
     }
     (
         arb_committed(tables, columns),
@@ -498,6 +490,19 @@ pub fn arb_churn(
 }
 
 impl Churn {
+    pub fn none(shape: InsertShape) -> Self {
+        Self {
+            committed: Vec::new(),
+            own: Vec::new(),
+            concurrent: None,
+            sessions: [Session {
+                seed: 0.0,
+                mutable_segment_rows: None,
+            }; 3],
+            shape,
+        }
+    }
+
     /// Runs the committed part on a pooled session, appends it to the shared churn log, and
     /// returns the per-case [`SetupScript`]: the base script plus the log so far as its SQL, and
     /// the uncommitted parts for the comparison helpers to frame the case with.

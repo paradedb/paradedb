@@ -1,8 +1,8 @@
 \i common/common_setup.sql
 
 -- A HOT update leaves the index pointing at the old line pointer, and VACUUM then turns
--- that line pointer into a redirect. The join scan fetches its final rows by ctid, so it
--- has to hand the fetch the ctid of the live tuple, not the redirect.
+-- that line pointer into a redirect on an all-visible page. The join scan fetches its final
+-- rows by that ctid, so the fetch has to follow the redirect.
 
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;
@@ -88,7 +88,23 @@ WHERE u.name @@@ 'bob OR alice'
 ORDER BY u.name, u.id, o.id
 LIMIT 4;
 
--- The same two queries without the join scan, as the reference.
+-- The nullable side of an outer join is checked for visibility inside its own scan.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.id, o.note, u.id, u.name, u.rating
+FROM hot_orders o
+LEFT JOIN hot_users u ON o.user_id = u.id
+WHERE o.note @@@ 'order'
+ORDER BY o.id
+LIMIT 10;
+
+SELECT o.id, o.note, u.id, u.name, u.rating
+FROM hot_orders o
+LEFT JOIN hot_users u ON o.user_id = u.id
+WHERE o.note @@@ 'order'
+ORDER BY o.id
+LIMIT 10;
+
+-- The same three queries without the join scan, as the reference.
 SET paradedb.enable_join_custom_scan TO off;
 
 SELECT u.id, u.name, u.rating, o.note
@@ -104,6 +120,13 @@ JOIN hot_orders o ON o.user_id = u.id
 WHERE u.name @@@ 'bob OR alice'
 ORDER BY u.name, u.id, o.id
 LIMIT 4;
+
+SELECT o.id, o.note, u.id, u.name, u.rating
+FROM hot_orders o
+LEFT JOIN hot_users u ON o.user_id = u.id
+WHERE o.note @@@ 'order'
+ORDER BY o.id
+LIMIT 10;
 
 DROP TABLE hot_orders;
 DROP TABLE hot_users;

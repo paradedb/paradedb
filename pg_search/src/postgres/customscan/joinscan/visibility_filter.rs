@@ -1228,13 +1228,9 @@ fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Arra
         .extend(ctid_array.values().iter().copied().map(Some));
     entry.visibility_results.clear();
     entry.visibility_results.resize(ctid_array.len(), None);
-    // The ctids the index holds are HOT roots. The final heap fetch does not follow HOT
-    // chains, and a root that VACUUM turned into a redirect has no tuple of its own, so
-    // every row has to leave here as the ctid of the member the snapshot can see, all-visible
-    // pages included.
     entry
         .checker
-        .resolve_batch(&entry.ctid_input, &mut entry.visibility_results);
+        .check_batch(&entry.ctid_input, &mut entry.visibility_results);
     uint64_array_from_options(&entry.visibility_results)
 }
 

@@ -1621,16 +1621,14 @@ impl SegmentedTopKState {
             }
 
             // Per-entry HOT-corrected ctids: None for invisible rows, Some(ctid) for
-            // visible rows. Populated from resolve_batch results below.
+            // visible rows. Populated from check_batch results below.
             let mut entry_corrected: Vec<Option<u64>> = vec![None; n];
 
             if !valid.is_empty() {
                 let ctids_for_check: Vec<Option<u64>> =
                     valid.iter().map(|(_, c)| Some(*c)).collect();
                 let mut results: Vec<Option<u64>> = vec![None; valid.len()];
-                // Resolved even on all-visible pages: a root that VACUUM turned into a
-                // redirect has no tuple for fetch_tuple_direct to find.
-                entry.checker.resolve_batch(&ctids_for_check, &mut results);
+                entry.checker.check_batch(&ctids_for_check, &mut results);
 
                 for ((orig_idx, _), result) in valid.iter().zip(results.iter()) {
                     match result {

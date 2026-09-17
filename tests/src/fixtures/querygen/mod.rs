@@ -872,34 +872,26 @@ where
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
-    compare_outcome_on(
-        &sides, pg_query, bm25_query, gucs, conn, None, setup, run_query,
-    )
+    compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
 }
 
-/// The transactions a case's uncommitted churn holds open around both sides (see
-/// [`mutationgen`]): the comparison session's own, and the second session's on `peer`. Opened
-/// before the sides run, closed after them whatever happened in between, so no pooled
-/// connection goes back with a transaction still open.
+/// The transaction a case's uncommitted churn holds open around both sides (see
+/// [`mutationgen`]). Opened before the sides run, closed after them whatever happened in
+/// between, so no pooled connection goes back with a transaction still open.
 struct CaseFrame<'a> {
     churn: Option<&'a CaseChurn>,
-    peer: Option<&'a mut PgConnection>,
     own_open: bool,
-    peer_open: bool,
 }
 
 impl<'a> CaseFrame<'a> {
     fn open(
         churn: Option<&'a CaseChurn>,
         conn: &mut PgConnection,
-        peer: Option<&'a mut PgConnection>,
         setup: &SetupScript,
     ) -> Result<Self, sqlx::Error> {
         let mut frame = Self {
             churn,
-            peer,
             own_open: false,
-            peer_open: false,
         };
         if let Some(churn) = churn
             && let Err(e) = frame.open_inner(churn, conn)
@@ -915,19 +907,6 @@ impl<'a> CaseFrame<'a> {
         churn: &CaseChurn,
         conn: &mut PgConnection,
     ) -> Result<(), sqlx::Error> {
-        if !churn.concurrent.is_empty() {
-            let peer = self.peer.as_deref_mut().ok_or_else(|| {
-                sqlx::Error::Configuration(
-                    "concurrent churn needs a second pooled connection; use the retrying comparison"
-                        .into(),
-                )
-            })?;
-            "BEGIN;".execute_result(peer)?;
-            self.peer_open = true;
-            for statement in &churn.concurrent {
-                statement.execute_result(peer)?;
-            }
-        }
         churn.begin.as_str().execute_result(conn)?;
         self.own_open = true;
         for statement in &churn.own {
@@ -936,73 +915,29 @@ impl<'a> CaseFrame<'a> {
         Ok(())
     }
 
-    /// Between the sides: the second session commits, runs what follows its commit, and the
-    /// whole thing joins the churn log, since every later case queries the result.
-    fn between(&mut self, setup: &SetupScript) -> Result<(), sqlx::Error> {
-        let Some(churn) = self.churn else {
-            return Ok(());
-        };
-        if !churn.commits_between() || !self.peer_open {
-            return Ok(());
-        }
-        let peer = self
-            .peer
-            .as_deref_mut()
-            .expect("a second session was opened for the concurrent churn");
-        "COMMIT;".execute_result(peer)?;
-        self.peer_open = false;
-        for statement in &churn.between {
-            statement.execute_result(peer)?;
-        }
-        let mut log = setup
-            .churn_log
-            .lock()
-            .expect("churn log lock should not be poisoned");
-        log.push_str("-- churn: committed by a second session between the two sides of a case\n");
-        log.push_str("BEGIN;\n");
-        for statement in &churn.concurrent {
-            log.push_str(statement.trim_end());
-            log.push('\n');
-        }
-        log.push_str("COMMIT;\n");
-        for statement in &churn.between {
-            log.push_str(statement.trim_end());
-            log.push('\n');
-        }
-        Ok(())
-    }
-
     /// Best effort: a session that is already gone rolls back on its own. The rolled-back
-    /// transactions then join the churn log, since the aborted tuples and index entries they
-    /// leave behind are part of the heap every later case queries.
+    /// transaction then joins the churn log, since the aborted tuples and index entries it
+    /// leaves behind are part of the heap every later case queries.
     fn close(&mut self, conn: &mut PgConnection, setup: &SetupScript) {
         let own_ran = self.own_open;
-        let peer_ran = self.peer_open;
         if self.own_open {
             let _ = "ROLLBACK;".execute_result(conn);
             self.own_open = false;
         }
-        if self.peer_open {
-            if let Some(peer) = self.peer.as_deref_mut() {
-                let _ = "ROLLBACK;".execute_result(peer);
-            }
-            self.peer_open = false;
-        }
         if let Some(churn) = self.churn
-            && (own_ran || peer_ran)
+            && own_ran
         {
             let mut log = setup
                 .churn_log
                 .lock()
                 .expect("churn log lock should not be poisoned");
-            churn.log_rolled_back(&mut log, peer_ran);
+            churn.log_rolled_back(&mut log);
         }
     }
 }
 
 /// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
-/// Postgres, such as one backend of pg_search against another. `peer` is the second session the
-/// case's concurrent churn runs on, if the setup carries any.
+/// Postgres, such as one backend of pg_search against another.
 #[allow(clippy::too_many_arguments)]
 pub fn compare_outcome_on<R, F>(
     sides: &Sides,
@@ -1010,7 +945,6 @@ pub fn compare_outcome_on<R, F>(
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    peer: Option<&mut PgConnection>,
     setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
@@ -1018,7 +952,7 @@ where
     R: Eq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
-    let mut frame = match CaseFrame::open(setup.case_churn.as_ref(), conn, peer, setup) {
+    let mut frame = match CaseFrame::open(setup.case_churn.as_ref(), conn, setup) {
         Ok(frame) => frame,
         Err(e) => {
             return match classify_transient(&e) {
@@ -1036,9 +970,7 @@ where
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compare_outcome_inner(
-            sides, pg_query, bm25_query, gucs, conn, &mut frame, setup, run_query,
-        )
+        compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
     }));
     frame.close(conn, setup);
     match outcome {
@@ -1105,31 +1037,9 @@ where
             setup,
         ))
     };
-    let needs_peer = setup
-        .case_churn
-        .as_ref()
-        .is_some_and(|churn| !churn.concurrent.is_empty());
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
-        let mut peer = needs_peer.then(|| pool.pull());
-        match compare_outcome_on(
-            sides,
-            pg_query,
-            bm25_query,
-            gucs,
-            conn,
-            peer.as_deref_mut(),
-            setup,
-            &run_query,
-        ) {
-            CaseOutcome::Transient(kind, e) => {
-                // Either session may be the dead one; like `retry_transient` does with `conn`,
-                // keep the peer out of the pool rather than hand a dead connection to a later
-                // case.
-                if kind == TransientKind::ConnectionLost {
-                    std::mem::forget(peer);
-                }
-                Attempt::Transient(kind, e)
-            }
+        match compare_outcome_on(sides, pg_query, bm25_query, gucs, conn, setup, &run_query) {
+            CaseOutcome::Transient(kind, e) => Attempt::Transient(kind, e),
             verdict => Attempt::Done(verdict),
         }
     });
@@ -1214,7 +1124,6 @@ fn compare_outcome_inner<R, F>(
     bm25_query: &str,
     gucs: &PgGucs,
     conn: &mut PgConnection,
-    frame: &mut CaseFrame<'_>,
     setup: &SetupScript,
     run_query: F,
 ) -> CaseOutcome
@@ -1229,8 +1138,6 @@ where
             .execute_result(conn)
             .and_then(|()| conn.deallocate_all())?;
         let pg_result = run_query(pg_query, QuerySide::Baseline, conn)?;
-
-        frame.between(setup)?;
 
         sides
             .candidate

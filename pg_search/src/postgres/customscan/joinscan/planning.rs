@@ -1275,16 +1275,8 @@ fn numeric_bytes_layouts_differ(
     inner_ff: &WhichFastField,
     inner_ir: &PgSearchRelation,
 ) -> bool {
-    let is_numeric_bytes = |ff: &WhichFastField| {
-        matches!(
-            ff,
-            WhichFastField::Named {
-                field_type: SearchFieldType::NumericBytes(..),
-                delivery: FieldDelivery::Eager,
-                ..
-            }
-        )
-    };
+    let is_numeric_bytes =
+        |ff: &WhichFastField| matches!(ff.field_type(), Some(SearchFieldType::NumericBytes(..)));
     is_numeric_bytes(outer_ff)
         && is_numeric_bytes(inner_ff)
         && outer_ir

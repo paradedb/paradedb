@@ -208,11 +208,16 @@ pub struct Session {
 
 impl Session {
     /// The churn is a fixture, not a subject: its DML runs on plain Postgres paths, whatever the
-    /// previous case left the custom-scan GUCs at. The mutable-segment setting is `SET LOCAL`
-    /// so the enclosing transaction's end restores it.
+    /// previous case left the custom-scan GUCs at. Row picks hand out `random()` in scan order,
+    /// so they also stay off index-only scans, which read the bm25 index in segment order, and
+    /// off parallel plans, whose row order varies from run to run; either would pick other rows
+    /// on replay. These and the mutable-segment setting are `SET LOCAL` so the enclosing
+    /// transaction's end restores them.
     fn statements(&self) -> Vec<String> {
         let mut statements = vec![
             PgGucs::pg_search_disabled().set(),
+            "SET LOCAL enable_indexonlyscan TO off;".to_string(),
+            "SET LOCAL max_parallel_workers_per_gather TO 0;".to_string(),
             format!("SELECT setseed({});", self.seed),
         ];
         match self.mutable_segment_rows {
@@ -222,6 +227,15 @@ impl Session {
             None => statements.push("RESET paradedb.global_mutable_segment_rows;".to_string()),
         }
         statements
+    }
+
+    /// For a phase whose transaction goes on to run the case: the queries must plan with the
+    /// settings the case chose, not the churn's.
+    fn closing_statements() -> Vec<String> {
+        vec![
+            "RESET enable_indexonlyscan;".to_string(),
+            "RESET max_parallel_workers_per_gather;".to_string(),
+        ]
     }
 }
 
@@ -576,6 +590,7 @@ impl Churn {
             for mutation in &self.own {
                 own.extend(mutation.statements(IdScope::Odd, &self.shape));
             }
+            own.extend(Session::closing_statements());
         }
         let mut concurrent = Vec::new();
         let mut between = Vec::new();

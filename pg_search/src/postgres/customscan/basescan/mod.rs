@@ -1631,6 +1631,7 @@ impl CustomScan for BaseScan {
             {
                 let plan = state.csstate.ss.ps.plan;
                 if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.subPlan = std::ptr::null_mut();
                     state.csstate.ss.ps.qual =
                         pg_sys::ExecInitQual((*plan).qual, state.planstate());
                 }
@@ -1799,7 +1800,7 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel
+        if let Some(parallel) = scan_state.parallel.take()
             && parallel.is_leader()
         {
             parallel.finalize_explain(&mut scan_state.telemetry);
@@ -1811,7 +1812,7 @@ impl CustomScan for BaseScan {
         // Leader: do not touch DSM — Shutdown already ran (or serial path).
         {
             let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel
+            if let Some(parallel) = scan_state.parallel.take()
                 && !parallel.is_leader()
             {
                 parallel.publish_telemetry(&scan_state.telemetry);

@@ -26,13 +26,13 @@
 //! field, and the [`CentroidProducer`] handed to
 //! `IndexBuilder::centroid_producer`.
 
-use crate::api::HashMap;
+use crate::api::{FieldName, HashMap};
 use crate::postgres::options::BM25IndexOptions;
 use crate::vector::PgVector;
 use anyhow::{Result, bail};
 use pgrx::{FromDatum, pg_sys};
 use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig};
-use tantivy::schema::Field;
+use tantivy::schema::{Field, FieldType, Schema};
 use tantivy::vector::{
     CentroidProducer, IvfCentroids, IvfMatrix, Metric, RouterKind, VectorOptions,
 };
@@ -76,16 +76,13 @@ impl CentroidProducer for TrainedCentroidProducer {
     }
 }
 
-/// One vector field of the index being built, as `create_index`'s schema
-/// loop discovered it: the tantivy [`Field`] it was assigned, and its
-/// position within the index's column order (the build callback's
-/// `values` array).
-pub struct SampledFieldSpec {
-    pub ordinal: usize,
-    pub field: Field,
-    pub field_name: String,
-    pub dim: usize,
-    pub metric: Metric,
+struct SampledFieldSpec {
+    /// Position in the build callback's index-attribute arrays, not the Tantivy schema.
+    ordinal: usize,
+    field: Field,
+    field_name: String,
+    dim: usize,
+    metric: Metric,
 }
 
 /// One vector field's reservoir during the sampling heap scan.
@@ -111,19 +108,32 @@ pub struct VectorSampler {
 }
 
 impl VectorSampler {
-    /// Allocate reservoirs for the vector fields discovered during schema planning.
-    pub fn from_specs(specs: Vec<SampledFieldSpec>, options: &BM25IndexOptions) -> Self {
-        assert!(!specs.is_empty(), "sampling requires vector fields");
+    pub fn new(schema: &Schema, options: &BM25IndexOptions) -> Self {
         let sample_fraction = (f64::from(options.centroid_ratio())
             * options.training_samples_per_centroid() as f64)
             .min(1.0);
-        let fields = specs
-            .into_iter()
-            .map(|spec| SampledField {
-                spec,
-                cap: MIN_RESERVOIR_ROWS,
-                seen: 0,
-                rows: Vec::new(),
+        let attributes = options.attributes();
+        let fields = schema
+            .fields()
+            .filter_map(|(field, entry)| {
+                let FieldType::Vector(vector_options) = entry.field_type() else {
+                    return None;
+                };
+                let attribute = attributes
+                    .get(&FieldName::from(entry.name()))
+                    .expect("vector field must have an index attribute");
+                Some(SampledField {
+                    spec: SampledFieldSpec {
+                        ordinal: attribute.attno,
+                        field,
+                        field_name: entry.name().to_owned(),
+                        dim: vector_options.dim(),
+                        metric: vector_options.metric(),
+                    },
+                    cap: MIN_RESERVOIR_ROWS,
+                    seen: 0,
+                    rows: Vec::new(),
+                })
             })
             .collect();
         VectorSampler {
@@ -131,6 +141,10 @@ impl VectorSampler {
             sample_fraction,
             rng: 0x9E37_79B9_7F4A_7C15,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty()
     }
 
     fn next_rng(&mut self) -> u64 {

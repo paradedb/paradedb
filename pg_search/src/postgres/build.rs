@@ -144,10 +144,8 @@ unsafe fn train_vector_centroids(
     heap_relation: &PgSearchRelation,
     index_relation: &PgSearchRelation,
     index_info: *mut pg_sys::IndexInfo,
-    specs: Vec<crate::vector::clusterer::SampledFieldSpec>,
+    mut sampler: VectorSampler,
 ) -> Result<Arc<dyn CentroidProducer>> {
-    let mut sampler = VectorSampler::from_specs(specs, index_relation.options());
-
     unsafe extern "C-unwind" fn sample_callback(
         _indexrel: pg_sys::Relation,
         _ctid: pg_sys::ItemPointer,
@@ -277,7 +275,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         check_single_valued(&partition_field, "partition_by");
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
-    let schema = planned_schema(index_relation);
+    let schema = build_index_schema(index_relation);
     let partition_by = options.partition_by();
     for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
         if let Err(e) = check_fast_dims(&schema, dims, reloption) {
@@ -339,12 +337,13 @@ fn create_index(
     index_relation: &PgSearchRelation,
     heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
 ) -> Result<()> {
-    let (schema, vector_fields) = plan_index_schema(index_relation);
+    let schema = build_index_schema(index_relation);
     let options = index_relation.options();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
     let settings = index_settings(options, &schema);
-    let centroid_producer: Option<Arc<dyn CentroidProducer>> = if vector_fields.is_empty() {
+    let sampler = VectorSampler::new(&schema, options);
+    let centroid_producer: Option<Arc<dyn CentroidProducer>> = if sampler.is_empty() {
         None
     } else {
         let Some((heap_relation, index_info)) = heap_scan else {
@@ -353,9 +352,7 @@ fn create_index(
                  empty init forks (unlogged tables) are not supported for vector fields"
             );
         };
-        Some(unsafe {
-            train_vector_centroids(heap_relation, index_relation, index_info, vector_fields)?
-        })
+        Some(unsafe { train_vector_centroids(heap_relation, index_relation, index_info, sampler)? })
     };
     let mut index_builder = Index::builder().schema(schema).settings(settings);
     if let Some(centroid_producer) = centroid_producer {
@@ -367,22 +364,13 @@ fn create_index(
     Ok(())
 }
 
-/// Plan the schema before index creation so validation can inspect it.
-fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
-    plan_index_schema(index_relation).0
-}
-
-fn plan_index_schema(
-    index_relation: &PgSearchRelation,
-) -> (Schema, Vec<crate::vector::clusterer::SampledFieldSpec>) {
+fn build_index_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
-    let mut vector_fields: Vec<crate::vector::clusterer::SampledFieldSpec> = Vec::new();
 
     for (
         name,
         ExtractedFieldAttribute {
-            attno,
             tantivy_type,
             normalizer,
             ..
@@ -420,18 +408,7 @@ fn plan_index_schema(
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
             SearchFieldType::Vector(_, dims, metric) => {
-                let field = builder
-                    .add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()));
-                vector_fields.push(crate::vector::clusterer::SampledFieldSpec {
-                    // The build callback's `values` array is in index
-                    // attribute order.
-                    ordinal: attno,
-                    field,
-                    field_name: name.as_ref().to_string(),
-                    dim: dims,
-                    metric: metric.into(),
-                });
-                field
+                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
             }
         };
     }
@@ -450,7 +427,7 @@ fn plan_index_schema(
         options.field_config_or_default(&FieldName::from(CTID_FIELD_NAME)),
     );
 
-    (builder.build(), vector_fields)
+    builder.build()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

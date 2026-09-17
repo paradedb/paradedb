@@ -34,7 +34,7 @@ export DATABASE_URL="postgresql://$(whoami)@localhost:28818/pg_search"
 export PG_CONFIG="$HOME/.pgrx/18.6/pgrx-install/bin/pg_config"
 export RUST_BACKTRACE=1
 cargo pgrx stop --package pg_search
-./scripts/dev-install.sh --package pg_search --pg-config "$PG_CONFIG"
+cargo pgrx install --package pg_search --pg-config "$PG_CONFIG"
 cargo pgrx start --package pg_search
 createdb -h localhost -p 28818 pg_search || true
 
@@ -56,7 +56,7 @@ export PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config
 export RUST_BACKTRACE=1
 
 createdb pg_search || true
-./scripts/dev-install.sh --package pg_search --pg-config "$PG_CONFIG"
+cargo pgrx install --package pg_search --pg-config "$PG_CONFIG"
 
 cargo test --package tests
 ```

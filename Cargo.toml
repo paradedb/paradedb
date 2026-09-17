@@ -64,8 +64,8 @@ debug-assertions = true
 overflow-checks = true
 
 [workspace.dependencies]
-pgrx = "=0.19.2"
-pgrx-tests = "=0.19.2"
+pgrx = "=0.19.3-paradedb.1"
+pgrx-tests = "=0.19.3-paradedb.1"
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "de9405aaadcd9378bdeeea7a4247c7f72e25bbd5", features = [
   "columnar-zstd-compression",
   "lz4-compression",
@@ -79,6 +79,10 @@ tantivy-jieba = "0.20.0"
 
 [patch.crates-io]
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "de9405aaadcd9378bdeeea7a4247c7f72e25bbd5" }
+# Tracking upstream pgrx issue: https://github.com/pgcentralfoundation/pgrx/issues/2379
+pgrx = { git = "https://github.com/paradedb/pgrx.git", branch = "stuhood.migration-fragments" }
+pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", branch = "stuhood.migration-fragments" }
+pgrx-pg-config = { git = "https://github.com/paradedb/pgrx.git", branch = "stuhood.migration-fragments" }
 
 [workspace.lints.clippy]
 large_futures = "warn"

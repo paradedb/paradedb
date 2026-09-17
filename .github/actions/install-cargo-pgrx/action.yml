@@ -1,0 +1,48 @@
+name: Install cargo-pgrx
+description: Install cargo-pgrx matching Cargo.lock (from Git or crates.io)
+
+inputs:
+  version:
+    description: "cargo-pgrx version to install (defaults to pgrx resolved by Cargo)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-pgrx
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Query Cargo's metadata API for the resolved pgrx dependency.
+        metadata=$(cargo metadata --offline --format-version 1 2>/dev/null || cargo metadata --format-version 1)
+        pkg_version=$(echo "${metadata}" | jq -r '[.packages[] | select(.name == "pgrx")][0].version // empty')
+        pkg_source=$(echo "${metadata}" | jq -r '[.packages[] | select(.name == "pgrx")][0].source // empty')
+
+        # Use the explicitly provided version or fall back to the metadata version.
+        version="${{ inputs.version }}"
+        if [ -z "${version}" ]; then
+          version="${pkg_version}"
+        fi
+
+        # Skip installation if the expected cargo-pgrx version is already installed (e.g. from rust-cache).
+        installed="$(cargo pgrx --version 2>/dev/null || true)"
+        if [ "${installed}" = "cargo-pgrx ${version}" ]; then
+          echo "cargo-pgrx ${version} restored from rust-cache"
+          exit 0
+        fi
+
+        # Check whether pgrx is resolved from a Git fork (e.g. via [patch.crates-io])
+        # or published to the crates.io registry.
+        # When from Git, .source format is:
+        #   git+https://github.com/paradedb/pgrx.git?branch=...#<SHA>
+        if [[ "${pkg_source}" =~ git\+([^?#]+)(\?[^#]+)?#([0-9a-fA-F]+) ]]; then
+          git_url="${BASH_REMATCH[1]}"
+          git_rev="${BASH_REMATCH[3]}"
+          echo "Installing cargo-pgrx from git ${git_url} (rev: ${git_rev})..."
+          cargo install -j "$(nproc)" --locked cargo-pgrx --git "${git_url}" --rev "${git_rev}" --debug --force
+        else
+          echo "Installing cargo-pgrx version ${version} from crates.io..."
+          cargo install -j "$(nproc)" --locked cargo-pgrx --version "${version}" --debug --force
+        fi

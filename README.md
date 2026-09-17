@@ -10,16 +10,16 @@
 </h1>
 
 <p align="center">
-  <b>Search without a second system.</b><br/>
+  <b>Just use Postgres.</b><br/>
   One Postgres for your application data, full-text search, vector retrieval, and aggregations.
 </p>
 
 <h3 align="center">
   <a href="https://paradedb.com">Website</a> &bull;
-  <a href="https://www.paradedb.com/docs">Docs</a> &bull;
+  <a href="https://www.paradedb.com/docs/start/introduction">Docs</a> &bull;
   <a href="https://paradedb.com/slack">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
-  <a href="https://www.paradedb.com/docs/project/changelog/">Changelog</a>
+  <a href="https://www.paradedb.com/docs/project/changelog">Changelog</a>
 </h3>
 
 <p align="center">
@@ -43,7 +43,9 @@ When you're ready to deploy, check out our [hosting options](https://www.paraded
 
 ## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) upgrades Postgres with a custom index for fast full-text and vector search, BM25 scoring, filtering, and aggregations. Your application data and search engine live in one database, with no second system to deploy and nothing to sync.
+When queries get too slow, developers usually reach for systems like Elasticsearch. [ParadeDB](https://paradedb.com) makes text and vector search, filters, facets, and joins fast in Postgres.
+
+Built as a Postgres extension, ParadeDB pairs Postgres' transactional storage with a unified index combining inverted, vector, and columnar data structures. Keep your application data in one place and query it with standard SQL, with ACID transactions and the Postgres tools you already use. No Elasticsearch. Zero ETL.
 
 - [x] [Full-Text Search](https://www.paradedb.com/docs/concepts/full-text/overview)
   - [x] [BM25 Scoring](https://www.paradedb.com/docs/reference/full-text/score)

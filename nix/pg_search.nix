@@ -102,7 +102,7 @@ buildPgrxExtension (finalAttrs: {
   passthru.updateScript = nix-update-script { };
 
   meta = {
-    description = "Search without a second system. One Postgres for your application data, full-text search, vector retrieval, and aggregations.";
+    description = "Just use Postgres. One Postgres for your application data, full-text search, vector retrieval, and aggregations.";
     homepage = "https://paradedb.com";
     changelog = "https://github.com/paradedb/paradedb/releases/tag/${finalAttrs.version}";
     license = lib.licenses.agpl3Only;

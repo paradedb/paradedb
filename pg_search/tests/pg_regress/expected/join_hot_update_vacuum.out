@@ -7,8 +7,6 @@ SET paradedb.enable_columnar_exec = true;
 -- A HOT update leaves the index pointing at the old line pointer, and VACUUM then turns
 -- that line pointer into a redirect on an all-visible page. The join scan fetches its final
 -- rows by that ctid, so the fetch has to follow the redirect.
-SET max_parallel_workers_per_gather = 0;
-SET enable_indexscan TO OFF;
 SET paradedb.enable_join_custom_scan TO on;
 DROP TABLE IF EXISTS hot_users CASCADE;
 DROP TABLE IF EXISTS hot_orders CASCADE;
@@ -48,8 +46,31 @@ CREATE INDEX hot_orders_idx ON hot_orders USING paradedb (id, user_id, note)
 WITH (
     numeric_fields = '{"user_id": {"fast": true}}'
 );
+CREATE EXTENSION IF NOT EXISTS pageinspect;
+CREATE EXTENSION IF NOT EXISTS pg_visibility;
+CREATE TEMP TABLE hot_users_roots AS
+SELECT ctid AS root_ctid FROM hot_users WHERE id IN (2, 4);
 UPDATE hot_users SET rating = rating + 1 WHERE id IN (2, 4);
-VACUUM (TRUNCATE false) hot_users;
+VACUUM (FREEZE, TRUNCATE false) hot_users;
+-- The scan only keeps a root ctid while the page is all-visible, and the root only loses its
+-- tuple once it is a redirect. If either is false here, the queries below prove nothing.
+SELECT bool_and(all_visible) AS page_all_visible
+FROM pg_visibility_map('hot_users')
+WHERE blkno IN (SELECT (root_ctid::text::point)[0]::bigint FROM hot_users_roots);
+ page_all_visible 
+------------------
+ t
+(1 row)
+
+SELECT bool_and(p.lp_flags = 2) AS roots_are_redirects
+FROM hot_users_roots r
+JOIN heap_page_items(get_raw_page('hot_users', (r.root_ctid::text::point)[0]::integer)) p
+  ON p.lp = (r.root_ctid::text::point)[1]::smallint;
+ roots_are_redirects 
+---------------------
+ t
+(1 row)
+
 -- Both bobs with a HOT-updated row must still come back.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT u.id, u.name, u.rating, o.note
@@ -227,6 +248,6 @@ LIMIT 10;
 
 DROP TABLE hot_orders;
 DROP TABLE hot_users;
+DROP EXTENSION IF EXISTS pg_visibility;
+DROP EXTENSION IF EXISTS pageinspect;
 RESET paradedb.enable_join_custom_scan;
-RESET enable_indexscan;
-RESET max_parallel_workers_per_gather;

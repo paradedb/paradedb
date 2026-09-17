@@ -2430,10 +2430,11 @@ impl JoinScan {
                     ctid_array.value(row_idx)
                 };
                 let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
-                // The visibility checks skip the heap on all-visible pages, so the ctid can
-                // still be the HOT root the index holds. VACUUM turns that root into a redirect
-                // with no tuple of its own, and only a fetch that follows the chain finds the
-                // member the snapshot can see.
+                // The ctid arrives in one of two shapes. On a page that is not all-visible the
+                // visibility check resolves it to the chain member, and a member is heap-only,
+                // which the index fetch rejects at chain start. On an all-visible page it stays
+                // the root the index holds, and a pruned root is a redirect the direct fetch
+                // cannot follow.
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)

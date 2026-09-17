@@ -991,6 +991,51 @@ mod tests {
     use crate::index::mvcc::MvccSatisfies;
     use pgrx::prelude::*;
 
+    fn text_field(cardinality: FieldCardinality, delivery: FieldDelivery) -> WhichFastField {
+        WhichFastField::named(
+            "f",
+            SearchFieldType::Text(pg_sys::TEXTOID),
+            cardinality,
+            delivery,
+        )
+    }
+
+    /// The Arrow type each `(cardinality, delivery)` pair reports, and `to_eager` changing
+    /// only the delivery axis. The fourth pair has its own test below.
+    #[test]
+    fn named_axes_arrow_data_type() {
+        use FieldCardinality::{List, Scalar};
+        use FieldDelivery::{Deferred, Eager};
+        use arrow_schema::DataType;
+
+        assert_eq!(
+            text_field(Scalar, Eager).arrow_data_type(),
+            DataType::Utf8View
+        );
+        assert_eq!(
+            text_field(List, Eager).arrow_data_type(),
+            DataType::List(list_item_field(DataType::Utf8View))
+        );
+        assert_eq!(
+            text_field(Scalar, Deferred).arrow_data_type(),
+            crate::scan::deferred_encode::deferred_data_type()
+        );
+
+        for cardinality in [Scalar, List] {
+            assert_eq!(
+                text_field(cardinality, Deferred).to_eager(),
+                text_field(cardinality, Eager)
+            );
+        }
+        assert_eq!(WhichFastField::Ctid.to_eager(), WhichFastField::Ctid);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot be deferred")]
+    fn deferred_list_is_rejected() {
+        text_field(FieldCardinality::List, FieldDelivery::Deferred).arrow_data_type();
+    }
+
     /// The helper opens a segment's fast fields only when a value is actually read from that
     /// segment, and stays valid after its source reader is dropped. The fixture includes a
     /// mutable segment, where an open also materializes the segment from the heap; it must

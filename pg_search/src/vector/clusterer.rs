@@ -268,21 +268,19 @@ impl VectorSampler {
 
             let mut config = HierarchicalSuperKMeansConfig::default();
             config.base.suppress_warnings = true;
+            config.base.sampling_fraction = 1.0;
             config.base.angular = angular;
-            config.max_leaf_size = (sampled_rows as f64 / num_centroids as f64)
-                .round()
-                .max(1.0) as usize;
-            let mut clusterer = HierarchicalSuperKMeans::with_config(spec.dim, config);
+            let mut clusterer =
+                HierarchicalSuperKMeans::with_config(num_centroids, spec.dim, config);
             let centroids = clusterer.train_owned(values, sampled_rows);
-            if centroids.is_empty() || !centroids.len().is_multiple_of(spec.dim) {
+            if centroids.len() != num_centroids * spec.dim {
                 bail!(
-                    "SuperKMeans returned {} centroid floats for field '{}' with dimension {}",
+                    "SuperKMeans returned {} centroid floats for field '{}', expected {}",
                     centroids.len(),
                     spec.field_name,
-                    spec.dim
+                    num_centroids * spec.dim
                 );
             }
-            let num_centroids = centroids.len() / spec.dim;
             pgrx::debug1!(
                 "trained {num_centroids} centroids for vector field '{}' over {sampled_rows} \
                  sampled rows ({} seen)",

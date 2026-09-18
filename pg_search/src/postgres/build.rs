@@ -443,6 +443,32 @@ mod tests {
     use tantivy::schema::{FAST, NumericOptions, Schema};
 
     #[pg_test]
+    fn vector_centroid_count_matches_ratio() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET LOCAL paradedb.vector_min_training_rows = 1;
+            CREATE TABLE centroid_count (id int, vec vector(3));
+            INSERT INTO centroid_count
+            SELECT i, ARRAY[sin(i * 0.01), cos(i * 0.01), sin(i * 0.17)]::vector
+            FROM generate_series(1, 4096) i;
+            CREATE INDEX centroid_count_idx ON centroid_count
+                USING paradedb (id, vec vector_cosine_ops)
+                WITH (centroid_ratio = 0.015625, target_segment_count = 4);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) > 0 AND bool_and(vector_num_centroids = 64) \
+                 FROM paradedb.vector_info('centroid_count_idx', 'vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+    }
+
+    #[pg_test]
     fn test_build_sort_by_field_empty() {
         let schema = Schema::builder().build();
         let result = SearchIndexSchema::build_sort_by_field(&[], &schema);

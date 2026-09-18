@@ -18,7 +18,7 @@
 use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
 use tests::fixtures::querygen::groupbygen::arb_group_by;
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
-use tests::fixtures::querygen::mutationgen::{arb_churn, churn_enabled};
+use tests::fixtures::querygen::mutationgen::churn_setup;
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
 use tests::fixtures::querygen::orderbygen::arb_joinscan_order_parts;
 use tests::fixtures::querygen::pagegen::arb_paging_exprs;
@@ -43,15 +43,9 @@ use sqlx::{PgConnection, Row};
 /// Proptest configuration shared by every generator test in this file. Under `dst`, proptest
 /// draws its randomness from the Antithesis SDK, so the platform controls and branches the
 /// entropy stream; otherwise this is just `Config::default()`.
-fn qgen_proptest_config(churn_on: bool) -> proptest::test_runner::Config {
+fn qgen_proptest_config() -> proptest::test_runner::Config {
+    #[cfg_attr(not(feature = "dst"), allow(unused_mut))]
     let mut config = proptest::test_runner::Config::default();
-    if churn_on && churn_enabled() {
-        // Committed churn accumulates across cases, so a shrunk case runs against a different
-        // heap than the one that failed and its script would not be the failing one. The first
-        // failure's script is the faithful repro, and a persisted seed replays only in a full run.
-        config.max_shrink_iters = 0;
-        config.failure_persistence = None;
-    }
     #[cfg(feature = "dst")]
     {
         config.rng_algorithm = proptest::test_runner::RngAlgorithm::Antithesis;
@@ -288,10 +282,11 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     let where_and_join_columns = columns_named(vec!["id", "name", "color", "age", "uuid", "tags"]);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         ((join, where_expr, cross_rel), distinct_mode, mut order_parts, window_targets) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
@@ -312,9 +307,7 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
         limit in proptest::option::of(1..=50usize),
         offset in proptest::option::of(0..=10usize),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
 
@@ -492,17 +485,16 @@ async fn generated_single_relation(database: Db, #[case] churn_on: bool) {
     let table_name = "users";
     let tables_and_sizes = [(table_name, 10)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(
             vec![table_name],
             COLUMNS,
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_single_relation - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
             &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
@@ -535,6 +527,7 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
     let table_name = "users";
     let tables_and_sizes = [(table_name, 50)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
@@ -545,7 +538,7 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -574,9 +567,7 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
         limit in prop::option::of(5..21_usize),
         offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
@@ -677,14 +668,13 @@ async fn generated_paging_small(database: Db, #[case] churn_on: bool) {
     let table_name = "users";
     let tables_and_sizes = [(table_name, 1000)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_small - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
             &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
@@ -713,13 +703,12 @@ async fn generated_paging_large(database: Db, #[case] churn_on: bool) {
     let table_name = "users";
     let tables_and_sizes = [(table_name, 100000)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         qgen_oracle!("qgen: generated_paging_large - ParadeDB result matches PostgreSQL", compare_outcome_retrying(
             &format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
             &format!("SELECT uuid::text FROM {table_name} WHERE name === 'bob' {paging_exprs}"),
@@ -745,8 +734,9 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
     let inner_table_name = "orders";
     let tables_and_sizes = [(outer_table_name, 10), (inner_table_name, 10)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
             COLUMNS,
@@ -763,9 +753,7 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
         ],
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let subquery = GeneratedSubquery {
             kind: subquery_kind,
             polarity: subquery_polarity,
@@ -823,6 +811,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -842,7 +831,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         format!("{}.metadata->'brand'", all_tables[0]),
     ]);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         num_tables in 2..=3usize,
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
@@ -858,9 +847,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
             ],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -874,7 +861,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -956,6 +943,7 @@ async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool)
     let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     let text_columns = columns_named(vec!["name"]);
     let join_key_columns = columns_named(vec!["id", "age"]);
@@ -965,7 +953,7 @@ async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool)
         .map(|col| col.name)
         .collect();
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         num_tables in 2..=3usize,
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         group_by_expr in arb_group_by(
@@ -977,9 +965,7 @@ async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool)
             ],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
         let join = arb_joins(
@@ -991,7 +977,7 @@ async fn generated_aggregate_join_distinct(database: Db, #[case] churn_on: bool)
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -1072,6 +1058,7 @@ async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
     let table_name = "users";
     let tables_and_sizes = [(table_name, 50)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Columns that can be used for grouping (must be columnar indexed)
     let columns: Vec<_> = COLUMNS
@@ -1082,7 +1069,7 @@ async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
 
     let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         text_where_expr in arb_wheres(
             vec![table_name],
             &columns,
@@ -1093,9 +1080,7 @@ async fn generated_group_by_stddev(database: Db, #[case] churn_on: bool) {
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["STDDEV(price)", "VARIANCE(price)", "STDDEV(age)", "VARIANCE(age)"]),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
@@ -1185,6 +1170,7 @@ async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
     let tables_and_sizes = [("users", 30), ("products", 30)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
@@ -1197,7 +1183,7 @@ async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
         .map(|col| format!("{}.{}", all_tables[0], col.name))
         .collect();
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         // Outer table BM25 predicate
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // GROUP BY + aggregates
@@ -1206,9 +1192,7 @@ async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
             vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
         ),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Generate join expression (INNER JOIN only)
         let join = arb_joins(
             Just(JoinType::Inner),
@@ -1219,7 +1203,7 @@ async fn generated_join_aggregates(database: Db, #[case] churn_on: bool) {
         let join_expr = {
             use proptest::strategy::ValueTree;
             use proptest::test_runner::TestRunner;
-            let mut runner = TestRunner::new(qgen_proptest_config(churn_on));
+            let mut runner = TestRunner::new(qgen_proptest_config());
             join.new_tree(&mut runner).unwrap().current()
         };
 
@@ -1305,6 +1289,7 @@ async fn generated_numeric_pushdown(database: Db, #[case] churn_on: bool) {
     // Use more rows to get better coverage of value ranges
     let tables_and_sizes = [(table_name, 100)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Numeric columns for testing - includes both Numeric64 and NumericBytes storage types
     let numeric_columns = columns_named(vec![
@@ -1316,12 +1301,10 @@ async fn generated_numeric_pushdown(database: Db, #[case] churn_on: bool) {
         "age",           // INTEGER - for comparison
     ]);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         numeric_expr in arb_numeric_expr(vec![table_name], &numeric_columns),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // Both queries use the same SQL since numeric comparison operators
         // are handled identically - the pushdown happens internally in BM25
         let where_clause = numeric_expr.to_sql();
@@ -1390,6 +1373,7 @@ async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
         ("logs", 1000),
     ];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     let all_tables = vec!["users", "products", "orders", "logs"];
     let join_key_columns = vec!["id", "age", "uuid"];
@@ -1397,7 +1381,7 @@ async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
         "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
     ];
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
         inner_term in proptest::sample::select(search_terms.clone()),
         is_anti_join in proptest::bool::ANY,
@@ -1406,9 +1390,7 @@ async fn generated_join_semi_like(database: Db, #[case] churn_on: bool) {
         nested_term in proptest::sample::select(search_terms.clone()),
         nested_is_anti in proptest::bool::ANY,
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
@@ -1545,6 +1527,13 @@ async fn generated_numeric_precision(database: Db, #[case] churn_on: bool) {
 
     let tables_and_sizes = [(table_name, 50)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, precision_columns);
+    let setup_sql = churn_setup(
+        &pool,
+        setup_sql,
+        &tables_and_sizes,
+        precision_columns,
+        churn_on,
+    );
 
     // High-precision test values that would be indistinguishable in f64
     let precision_test_values = vec![
@@ -1555,12 +1544,10 @@ async fn generated_numeric_precision(database: Db, #[case] churn_on: bool) {
         "999999999999999999",
     ];
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         test_value in proptest::sample::select(precision_test_values),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, precision_columns, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - should find exact matches only
         let pg_query = format!(
             "SELECT COUNT(*) FROM {table_name} WHERE big_int = {test_value}"
@@ -1616,6 +1603,13 @@ async fn generated_numeric_range_precision(database: Db, #[case] churn_on: bool)
 
     let tables_and_sizes = [(table_name, 100)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, precision_columns);
+    let setup_sql = churn_setup(
+        &pool,
+        setup_sql,
+        &tables_and_sizes,
+        precision_columns,
+        churn_on,
+    );
 
     // Range boundaries that would collide in f64
     let range_bounds = vec![
@@ -1624,12 +1618,10 @@ async fn generated_numeric_range_precision(database: Db, #[case] churn_on: bool)
         ("123456789012345690", "123456789012345700"),
     ];
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         (low, high) in proptest::sample::select(range_bounds),
         gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, precision_columns, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         // PostgreSQL query - range filter
         let pg_query = format!(
             "SELECT COUNT(*) FROM {table_name} WHERE big_int >= {low} AND big_int < {high}"
@@ -1674,16 +1666,15 @@ async fn generated_pdb_agg_join(database: Db, #[case] churn_on: bool) {
         .map(|(table, _)| table.to_string())
         .collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     let where_columns = columns_named(vec!["name", "color"]);
     let join_key_columns = columns_named(vec!["id", "age"]);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let join_clause = join_expr.to_sql();
         let pg_query = agg.pg_query(&join_clause, &wheres.pg_where());
         let bm25_query = agg.pdb_query(&join_clause, &wheres.bm25_where());
@@ -1745,15 +1736,14 @@ async fn generated_pdb_agg_single_table(database: Db, #[case] churn_on: bool) {
 
     let tables_and_sizes = [("users", 50)];
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+    let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
     let text_columns = columns_named(vec!["name"]);
 
-    proptest!(qgen_proptest_config(churn_on), |(
+    proptest!(qgen_proptest_config(), |(
         outer_bm25 in arb_wheres(vec!["users".to_string()], &text_columns),
         agg in arb_pdb_agg_single_table(),
         mut gucs in any::<PgGucs>(),
-        churn in arb_churn(&tables_and_sizes, COLUMNS, churn_on),
     )| {
-        let setup_sql = churn.apply(&pool, &setup_sql)?;
         let group = agg.outer_group.as_deref().expect("a single-table spec sits beside a GROUP BY");
         let tantivy_query = format!(
             "SELECT {group}, COUNT(*), {} FROM users WHERE {} GROUP BY {group}",

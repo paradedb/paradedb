@@ -45,7 +45,6 @@ use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{TransientKind, classify_transient};
 use crossrelgen::CrossRelExpr;
 use joingen::{JoinExpr, JoinType};
-use mutationgen::CaseChurn;
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
 
@@ -168,15 +167,11 @@ impl Column {
 
 #[derive(Debug, Clone)]
 pub struct SetupScript {
+    /// The schema, its rows, and the churn the run applied on top of them. Every case queries
+    /// this one heap, so the script replays a failure whole.
     pub sql: String,
     pub tables: Vec<String>,
     pub qgen_seed: Option<u64>,
-    /// Churn committed so far, shared by every per-case copy of this script, so a repro rebuilds
-    /// the heap the failing case queried rather than the one the setup built.
-    pub churn_log: Arc<Mutex<String>>,
-    /// The uncommitted churn of the case this copy belongs to; `compare_outcome_on` frames the
-    /// case with it. `None` on the script `generated_queries_setup` returns.
-    pub case_churn: Option<CaseChurn>,
 }
 
 impl SetupScript {
@@ -185,32 +180,7 @@ impl SetupScript {
             sql,
             tables,
             qgen_seed: None,
-            churn_log: Arc::new(Mutex::new(String::new())),
-            case_churn: None,
         }
-    }
-
-    /// A copy for a failure that did not run inside the case's transaction, or that ran after it
-    /// closed. Its churn is in the log by then, so the script must not frame the queries in a
-    /// transaction they never ran in, nor replay the same rows twice.
-    pub fn without_case_churn(&self) -> Self {
-        Self {
-            case_churn: None,
-            ..self.clone()
-        }
-    }
-
-    /// The setup section of a reproduction script: the schema, then every mutation committed
-    /// since.
-    pub fn repro_setup_sql(&self) -> String {
-        let log = self
-            .churn_log
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if log.is_empty() {
-            return self.sql.clone();
-        }
-        format!("{}\n{log}", self.sql)
     }
 
     pub fn drop_tables_sql(&self) -> String {
@@ -460,8 +430,6 @@ ANALYZE {tname};
         sql: setup_sql,
         tables: table_names,
         qgen_seed: Some(qgen_seed),
-        churn_log: Arc::new(Mutex::new(String::new())),
-        case_churn: None,
     })
 }
 
@@ -909,67 +877,6 @@ where
     compare_outcome_on(&sides, pg_query, bm25_query, gucs, conn, setup, run_query)
 }
 
-/// The transaction a case's uncommitted churn holds open around both sides (see
-/// [`mutationgen`]). Opened before the sides run, closed after them whatever happened in
-/// between, so no pooled connection goes back with a transaction still open.
-struct CaseFrame<'a> {
-    churn: Option<&'a CaseChurn>,
-    own_open: bool,
-}
-
-impl<'a> CaseFrame<'a> {
-    fn open(
-        churn: Option<&'a CaseChurn>,
-        conn: &mut PgConnection,
-        setup: &SetupScript,
-    ) -> Result<Self, sqlx::Error> {
-        let mut frame = Self {
-            churn,
-            own_open: false,
-        };
-        if let Some(churn) = churn
-            && let Err(e) = frame.open_inner(churn, conn)
-        {
-            frame.close(conn, setup);
-            return Err(e);
-        }
-        Ok(frame)
-    }
-
-    fn open_inner(
-        &mut self,
-        churn: &CaseChurn,
-        conn: &mut PgConnection,
-    ) -> Result<(), sqlx::Error> {
-        "BEGIN;".execute_result(conn)?;
-        self.own_open = true;
-        for statement in &churn.own {
-            statement.execute_result(conn)?;
-        }
-        Ok(())
-    }
-
-    /// Best effort: a session that is already gone rolls back on its own. The rolled-back
-    /// transaction then joins the churn log, since the aborted tuples and index entries it
-    /// leaves behind are part of the heap every later case queries.
-    fn close(&mut self, conn: &mut PgConnection, setup: &SetupScript) {
-        let own_ran = self.own_open;
-        if self.own_open {
-            let _ = "ROLLBACK;".execute_result(conn);
-            self.own_open = false;
-        }
-        if let Some(churn) = self.churn
-            && own_ran
-        {
-            let mut log = setup
-                .churn_log
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            churn.log_rolled_back(&mut log);
-        }
-    }
-}
-
 /// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
 /// Postgres, such as one backend of pg_search against another.
 pub fn compare_outcome_on<R, F>(
@@ -985,21 +892,6 @@ where
     R: Eq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
-    let mut frame = match CaseFrame::open(setup.case_churn.as_ref(), conn, setup) {
-        Ok(frame) => frame,
-        Err(e) => {
-            return match classify_transient(&e) {
-                Some(kind) => CaseOutcome::Transient(kind, e),
-                None => CaseOutcome::Failure(handle_compare_error(
-                    TestCaseError::fail(format!("{e}: error applying the case's churn")),
-                    pg_query,
-                    bm25_query,
-                    gucs,
-                    &setup.without_case_churn(),
-                )),
-            };
-        }
-    };
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
     // carries a repro script instead of aborting the driver.
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1007,7 +899,7 @@ where
     }));
     // Rendered before the frame closes, since closing appends the case's churn to the log and
     // the script carries it inline.
-    let outcome = match outcome {
+    match outcome {
         Ok(o) => o,
         Err(panic) => {
             let msg = if let Some(s) = panic.downcast_ref::<&str>() {
@@ -1025,9 +917,7 @@ where
                 setup,
             ))
         }
-    };
-    frame.close(conn, setup);
-    outcome
+    }
 }
 
 /// Runs one case, retrying transient faults until it completes, so every case in the proptest
@@ -1070,7 +960,7 @@ where
             pg_query,
             bm25_query,
             gucs,
-            &setup.without_case_churn(),
+            setup,
         ))
     };
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
@@ -1109,7 +999,7 @@ pub fn compare_plan_retrying(
             pg_query,
             bm25_query,
             gucs,
-            &setup.without_case_churn(),
+            setup,
         ))
     };
 
@@ -1327,7 +1217,7 @@ Replay this proptest case end-to-end:
   PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
     cargo test --package tests --test qgen <test_fn_name>
 "#,
-        setup_sql = setup.repro_setup_sql(),
+        setup_sql = setup.sql,
         drop_tables_sql = setup.drop_tables_sql(),
     ))
 }
@@ -1359,13 +1249,6 @@ pub fn handle_compare_error(
     let (qgen_seed, proptest_seed) = repro_seeds(setup);
 
     let drop_tables_sql = setup.drop_tables_sql();
-    let (case_sql, rollback_sql) = match &setup.case_churn {
-        Some(churn) => (
-            format!("--\n-- Case churn\n{}", churn.repro_sql()),
-            "ROLLBACK;\n",
-        ),
-        None => (String::new(), ""),
-    };
 
     let repro_script = format!(
         r#"
@@ -1378,7 +1261,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 --
 -- Table and index setup
 {setup_sql}
-{case_sql}--
+--
 -- Default GUCs:
 {default_gucs}
 --
@@ -1396,7 +1279,7 @@ EXPLAIN
 {bm25_query};
 --
 -- Cleanup:
-{rollback_sql}{drop_tables_sql}
+{drop_tables_sql}
 --
 -- ==== END REPRODUCTION SCRIPT ====
 
@@ -1410,7 +1293,7 @@ Original error:
         failure_type = failure_type,
         qgen_seed = qgen_seed,
         proptest_seed = proptest_seed,
-        setup_sql = setup.repro_setup_sql(),
+        setup_sql = setup.sql,
         default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,
@@ -1433,35 +1316,28 @@ Original error:
 mod tests {
     use super::*;
 
-    /// The plan check and the post-close failure paths run outside the case's transaction, so
-    /// their scripts must not open one: replaying the churn there changes the rows the queries
-    /// read.
+    /// The churn lands in the fixture's own SQL, so every failure script rebuilds the heap the
+    /// run queried without a second source of truth to keep in step.
     #[test]
-    fn a_script_frames_the_case_only_when_the_case_ran_framed() {
+    fn a_failure_script_carries_the_churn_and_the_seed() {
         let mut setup = SetupScript::new(
-            "CREATE TABLE t (id int);".to_string(),
+            "CREATE TABLE t (id int);\n-- churn\nBEGIN;\nDELETE FROM t WHERE id = 1;\nCOMMIT;"
+                .to_string(),
             vec!["t".to_string()],
         );
-        setup.case_churn = Some(mutationgen::CaseChurn {
-            own: vec!["UPDATE t SET id = id + 1;".to_string()],
-        });
-        let render = |setup: &SetupScript| {
-            handle_compare_error(
-                TestCaseError::fail("Query should use a ParadeDB scan"),
-                "SELECT 1",
-                "SELECT 1",
-                &PgGucs::pg_search_disabled(),
-                setup,
-            )
-            .to_string()
-        };
+        setup.qgen_seed = Some(42);
 
-        let framed = render(&setup);
-        assert!(framed.contains("-- Case churn"), "{framed}");
-        assert!(framed.contains("UPDATE t SET id = id + 1;"), "{framed}");
+        let script = handle_compare_error(
+            TestCaseError::fail("Results differ"),
+            "SELECT 1",
+            "SELECT 1",
+            &PgGucs::pg_search_disabled(),
+            &setup,
+        )
+        .to_string();
 
-        let unframed = render(&setup.without_case_churn());
-        assert!(!unframed.contains("-- Case churn"), "{unframed}");
-        assert!(!unframed.contains("ROLLBACK;"), "{unframed}");
+        assert!(script.contains("DELETE FROM t WHERE id = 1;"), "{script}");
+        assert!(script.contains("PARADEDB_QGEN_SEED=42"), "{script}");
+        assert!(script.contains("DROP TABLE t;"), "{script}");
     }
 }

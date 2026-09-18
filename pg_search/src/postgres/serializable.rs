@@ -17,8 +17,9 @@
 
 //! Predicate locking for reads that go straight to a bm25 index.
 //!
-//! A plain index scan gets its SIREAD lock from `index_beginscan`, and a sequential scan from
-//! `heap_beginscan`. Our custom scans call neither, so they have to take the lock themselves.
+//! The bm25 access method sets no `ampredlocks`, so a plain index scan over it gets a
+//! relation-level SIREAD lock from `index_beginscan`, and a sequential scan gets one from
+//! `heap_beginscan`. Our custom scans call neither, so they take the lock themselves.
 
 use pgrx::pg_sys;
 
@@ -30,15 +31,25 @@ use crate::postgres::rel::PgSearchRelation;
 /// `SERIALIZABLE` transactions can each count the rows that match a search, then each insert a
 /// row the other would have counted, and both commit.
 ///
-/// The lock goes on the heap rather than on the index because every write to the table checks
-/// the heap's target, while an index-level lock would miss `DELETE`: index entries are dropped
-/// lazily by `ambulkdelete`, which never conflict-checks.
+/// The lock goes on the heap, not on the index. An index-level lock catches an `INSERT` and a
+/// non-HOT `UPDATE`, because `index_insert` conflict-checks the index for an access method
+/// without `ampredlocks`. It misses a `DELETE`, whose index entries `ambulkdelete` drops lazily
+/// without any conflict check, and it misses a HOT `UPDATE`, which writes no index entry at all.
+/// Every one of those writes conflict-checks the heap.
 ///
-/// Relation granularity, for the reason `heap_beginscan` gives for a sequential scan: there is
-/// nothing finer to lock. A search predicate covers no key range, and a scan answered from the
-/// index alone (a `count(*)` reads no heap page at all) has no tuple or page to lock either.
+/// Relation granularity, which is coarser than what the scan would otherwise leave behind. A
+/// search predicate covers no key range, and the columnar and aggregate paths answer from the
+/// index without reading the rows they matched, so they have no tuple or page to lock. The
+/// heap-visiting paths do leave per-tuple locks (`heap_hot_search_buffer` calls
+/// `PredicateLockTID`), and this lock replaces them, so a write to a row the search never
+/// matched now conflicts as well. Trading that for one lock per scan is the coarse-first step;
+/// the finer shape is an index-relation lock plus a heap page lock wherever the all-visible
+/// check skips the heap, the way `nodeIndexonlyscan.c` does it.
+///
+/// `snapshot` is the one the read itself runs under, and must stay valid for the call.
 pub fn predicate_lock_read(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) {
-    if snapshot.is_null() {
+    debug_assert!(!snapshot.is_null(), "a read needs a snapshot to lock under");
+    if !serializable() || snapshot.is_null() {
         return;
     }
     unsafe { pg_sys::PredicateLockRelation(heaprel.as_ptr(), snapshot) }
@@ -46,8 +57,14 @@ pub fn predicate_lock_read(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapsho
 
 /// [`predicate_lock_read`] for a caller that has the heap's oid but no open relation.
 pub fn predicate_lock_read_oid(heaprelid: pg_sys::Oid, snapshot: pg_sys::Snapshot) {
-    if snapshot.is_null() || heaprelid == pg_sys::Oid::INVALID {
+    // Opening the relation costs a relcache round trip, which every non-serializable query
+    // would otherwise pay for a lock that `PredicateLockRelation` goes on to skip.
+    if !serializable() {
         return;
     }
     predicate_lock_read(&PgSearchRelation::open(heaprelid), snapshot)
+}
+
+fn serializable() -> bool {
+    unsafe { pg_sys::XactIsoLevel as u32 == pg_sys::XACT_SERIALIZABLE }
 }

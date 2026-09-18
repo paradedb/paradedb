@@ -8,7 +8,7 @@ canonical: https://www.paradedb.com/docs/concepts/guarantees
 
 All reads and writes go through Postgres’ transaction engine. This means that inserts, updates, and deletes to indexed columns are atomic, consistent, and respect Postgres' [isolation levels](https://www.postgresql.org/docs/current/transaction-iso.html).
 
-Under `SERIALIZABLE`, a search read takes a predicate lock on the whole table it reads, the way a sequential scan does. A search predicate covers no key range, and the scan can answer a query from the index without reading the rows it matched, so there is nothing finer to lock. Any concurrent write to the table conflicts with the read, including a write to a row the search did not match.
+Under `SERIALIZABLE`, a search read takes a predicate lock on the whole table it reads, the way a sequential scan does. A search predicate covers no key range, and a scan can answer from the index without reading the rows it matched. Any concurrent write to the table conflicts with the read, including a write to a row the search did not match.
 
 ### Concurrency
 

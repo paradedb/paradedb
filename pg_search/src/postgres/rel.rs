@@ -412,15 +412,6 @@ impl PgSearchRelation {
         }
     }
 
-    /// The oid of the heap this index is on, or [`pg_sys::Oid::INVALID`] if this is not an index.
-    pub fn heap_relation_oid(&self) -> pg_sys::Oid {
-        if self.rd_index.is_null() {
-            pg_sys::Oid::INVALID
-        } else {
-            unsafe { (*self.rd_index).indrelid }
-        }
-    }
-
     pub fn indices(
         &self,
         lockmode: pg_sys::LOCKMODE,

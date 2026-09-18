@@ -78,11 +78,7 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::VarContext;
-<<<<<<< HEAD
-use crate::postgres::PgSearchRelation;
-=======
-use crate::postgres::{PgSearchRelation, rel_get_bm25_index};
->>>>>>> 0b4785596 (fix: decline aggregate COALESCE defaults that the column type would change (#6383))
+use crate::postgres::{rel_get_bm25_index, PgSearchRelation};
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};

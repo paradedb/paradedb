@@ -22,25 +22,15 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-<<<<<<< HEAD
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-=======
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
->>>>>>> 0b4785596 (fix: decline aggregate COALESCE defaults that the column type would change (#6383))
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{fieldname_from_var, find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-<<<<<<< HEAD
-use crate::schema::SearchIndexSchema;
-use anyhow::{bail, Context};
-=======
 use crate::schema::{SearchFieldType, SearchIndexSchema};
-use anyhow::{Context, bail};
-use pgrx::PgList;
->>>>>>> 0b4785596 (fix: decline aggregate COALESCE defaults that the column type would change (#6383))
+use anyhow::{bail, Context};
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -970,7 +960,7 @@ impl AggregateFieldExpression {
 
 #[cfg(test)]
 mod tests {
-    use super::{F64Lossless, missing_fits_every_column};
+    use super::{missing_fits_every_column, F64Lossless};
     use crate::api::FieldName;
     use crate::schema::SearchFieldType;
     use pgrx::pg_sys;

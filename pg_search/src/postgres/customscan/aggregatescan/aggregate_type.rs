@@ -875,8 +875,12 @@ impl ParsedAggregateField {
 /// drops a fraction, and a `u64` column also turns a negative into zero. A declared field has the
 /// same column type in every segment. A JSON path can get an `i64`, `u64` or `f64` column from its
 /// values, and an empty `u64` column where no document has the path, so only a non-negative
-/// integer that fits in `i64` is exact there.
+/// integer that fits in `i64` is exact there. The plan's JSON has no encoding for a non-finite
+/// default, so it would arrive as no default at all.
 fn missing_fits_every_column(field_type: Option<SearchFieldType>, missing: f64) -> bool {
+    if !missing.is_finite() {
+        return false;
+    }
     let is_integer = missing.fract() == 0.0;
     match field_type {
         Some(SearchFieldType::F64(_)) => true,

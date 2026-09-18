@@ -1264,7 +1264,7 @@ pub fn try_dynamic_filter_pushdown(
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::try_extract_score_threshold;
     use datafusion::logical_expr::Operator;
     use datafusion::physical_expr::PhysicalExpr;
@@ -1614,7 +1614,7 @@ mod tests {
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
-mod dynamic_pruning_tests {
+mod tests {
     use super::*;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::MultiSegmentSearchResults;

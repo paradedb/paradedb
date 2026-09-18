@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789692839313,
+  "lastUpdate": 1789743563178,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4545,6 +4545,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.053,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c125181adc9770798aee1ab7fc913b17e4c214f",
+          "message": "feat: Capture per-segment statistics in one execution-visible snapshot (#6345)\n\n## What\n\nProvide lazily opened statistics tied to one frozen execution\n`Searcher`, and route range partitions through that shared snapshot.\n\n## Why\n\nFirst of three PRs for #6078: statistics snapshot → static proofs\n(#6346) → dynamic pruning (#6347).\n\nInserts and merges can change the visible segment set between planning\nand execution. This PR preserves the separation between planner\nsplit-point values and execution segment membership, while giving\nstatistics consumers one shared view.\n\n`SegmentStatsSnapshot` binds statistics to the existing searcher's\nsegment view. Readers created from the same manifest share its identity\nand lazy caches, giving later proof consumers one consistent view to\nreason about. In this PR, its only consumer is range-partition routing.\n\n## Execution flow\n\n```text\nOpen execution Searcher\n  → capture shared statistics snapshot\n  → range partition requests candidate segments\n  → lazily open statistics and check bounds\n  → execute the existing query on retained segments\n```\n\n## Design\n\n- Retain one shared `Searcher`, with segment IDs and lazily cached\n`.stats` opens. Capture performs no statistics I/O. Opened components\nare cached; individual field entries are decoded on request. An error\nopening or decoding an existing component aborts the query.\n- Keep partition iteration and segment ordinals inside the snapshot.\n- Reject mutable-segment `.stats` probes in `MVCCDirectory` before\nmaterialization.\n- Normalize datetime statistics through `SegmentStats::empirical_for`.\n- Absent statistics keep the segment eligible; unreadable statistics\nabort the query. Missing bounds still allow other available bounds to\nprune. The exact query remains responsible for matching rows.\n\n## Validation\n\nLocal build and formatting checks passed, along with eight focused PG18\ntests covering:\n\n- Shared snapshot identity and lazy statistics opens.\n- Open, empirical, and logical failures raising the query error, and\nabsent statistics keeping the segment eligible.\n- Statistics probes avoiding mutable-segment materialization, with a\nterms read as the positive control.\n- Mutable inserts, timestamp bounds, and partitioned-build pruning.",
+          "timestamp": "2026-09-18T20:08:48+05:30",
+          "tree_id": "df6f7a5a472e2e6663bce36cd4a709b962b07b35",
+          "url": "https://github.com/paradedb/paradedb/commit/5c125181adc9770798aee1ab7fc913b17e4c214f"
+        },
+        "date": 1789743559023,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.665076445240345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.193,
             "unit": "ms"
           }
         ]

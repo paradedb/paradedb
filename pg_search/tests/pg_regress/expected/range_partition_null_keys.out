@@ -71,7 +71,6 @@ mpp_left_join total=6673 orphans=7
 DROP FUNCTION rpn_explain_analyze_lines(text);
 DROP TABLE rpn_posts;
 DROP TABLE rpn_users;
-
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_range_partitioned_join;
 RESET paradedb.mpp_min_rows;

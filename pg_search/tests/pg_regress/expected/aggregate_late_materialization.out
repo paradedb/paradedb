@@ -1,4 +1,3 @@
--- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 -- An aggregate over a join keeps its string group key deferred through the join
 -- and checks visibility in the scan. A deleted row must not reach the groups,
 -- serial or MPP.
@@ -25,11 +24,9 @@ FROM generate_series(1, 60) AS i;
 INSERT INTO alm_tags (product_id, tag_name)
 SELECT id, (ARRAY['tech', 'fitness', 'outdoor'])[1 + id % 3] FROM alm_products;
 CREATE INDEX alm_products_idx ON alm_products
-USING paradedb (id, description, category, price)
-WITH (text_fields='{"description": {}, "category": {"fast": true}}');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price);
 CREATE INDEX alm_tags_idx ON alm_tags
-USING paradedb (id, product_id, tag_name)
-WITH ( text_fields='{"tag_name": {"fast": true}}');
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 -- Delete a matched row so visibility actually filters. The deleted product must
 -- not appear in the aggregate.
 DELETE FROM alm_products WHERE id = 2;
@@ -112,8 +109,7 @@ SELECT 'post ' || i,
 FROM generate_series(1, 60) AS i;
 INSERT INTO alm_views (post_id) SELECT id FROM alm_posts;
 CREATE INDEX alm_posts_idx ON alm_posts
-USING paradedb (id, title, author, labels)
-WITH (text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
+USING paradedb (id, title, (author::pdb.unicode_words('columnar=true')), (labels::pdb.unicode_words('columnar=true')));
 CREATE INDEX alm_views_idx ON alm_views
 USING paradedb (id, post_id);
 SET max_parallel_workers_per_gather TO 0;

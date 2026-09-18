@@ -1,4 +1,3 @@
--- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -25,17 +24,10 @@ INSERT INTO organisations VALUES
     (20, '2023-01-01 00:00:00'::timestamp, NULL);
 
 CREATE INDEX researchers_idx ON researchers
-USING paradedb (super_researcher_id, super_organisation_id, country)
-WITH (
-
-    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (super_researcher_id, super_organisation_id, (country::pdb.literal));
 
 CREATE INDEX organisations_idx ON organisations
-USING paradedb (super_organisation_id, super_organisation_name)
-WITH (
-    text_fields = '{"super_organisation_name": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (super_organisation_id, (super_organisation_name::pdb.literal));
 
 -- TEST 1: Non-null-rejecting IS NULL on a fast field over LEFT JOIN succeeds:
 EXPLAIN (COSTS OFF)

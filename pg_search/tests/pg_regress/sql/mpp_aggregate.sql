@@ -1,4 +1,3 @@
--- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 -- =====================================================================
 -- End-to-end MPP exercise on AggregateScan.
 -- =====================================================================
@@ -36,17 +35,10 @@ CREATE TABLE mpp_pages (
 );
 
 CREATE INDEX mpp_files_idx ON mpp_files
-USING paradedb (id, title, content)
-WITH (
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX mpp_pages_idx ON mpp_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 

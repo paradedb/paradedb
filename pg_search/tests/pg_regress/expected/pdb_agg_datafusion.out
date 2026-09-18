@@ -1,4 +1,3 @@
--- Legacy schema options preserve pdb.agg() field readback until tokenizer expressions support it.
 -- =====================================================================
 -- pdb.agg() on the DataFusion aggregate backend
 -- =====================================================================
@@ -33,16 +32,21 @@ CREATE TABLE pa_tags (
     weight INTEGER
 );
 CREATE INDEX pa_products_idx ON pa_products
-USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata, price_num)
-WITH (
-    text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
-    json_fields = '{"metadata": {"fast": true}}'
+USING paradedb (
+    id,
+    description,
+    (category::pdb.unicode_words('columnar=true')),
+    (brand::pdb.unicode_words('columnar=true')),
+    (category::pdb.literal('alias=cat_kw')),
+    price,
+    rating,
+    created_at,
+    in_stock,
+    (metadata::pdb.simple('columnar=true')),
+    price_num
 );
 CREATE INDEX pa_tags_idx ON pa_tags
-USING paradedb (id, product_id, tag_name, weight)
-WITH (
-    text_fields = '{"tag_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')), weight);
 -- Two batches per table so each index has several segments, which the MPP
 -- section needs to spread work across producers.
 SET paradedb.global_mutable_segment_rows = 0;
@@ -973,21 +977,9 @@ CREATE TABLE pa_posts (
     views INTEGER
 );
 CREATE INDEX pa_authors_idx ON pa_authors
-USING paradedb (id, name, reputation, tags)
-WITH (
-    text_fields = '{
-        "name": {"fast": true},
-        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }');
+USING paradedb (id, (name::pdb.unicode_words('columnar=true')), reputation, (tags::pdb.literal));
 CREATE INDEX pa_posts_idx ON pa_posts
-USING paradedb (id, author_id, title, category, tags, views)
-WITH (
-    text_fields = '{
-        "title": {},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }'
-);
+USING paradedb (id, author_id, title, (category::pdb.literal), (tags::pdb.literal), views);
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO pa_authors (name, reputation, tags) VALUES
     ('Alice', 100, ARRAY['admin', 'moderator']),

@@ -71,7 +71,7 @@ impl RangePartitioning {
     /// rule reads it from here.
     pub const NULL_PARTITION: usize = 0;
 
-    /// Returns the logical bounds for the given partition as a single RangeQuery.
+    /// Returns the logical bounds as a range query, including the NULL clause where needed.
     ///
     /// **Consumer Caveats**:
     /// - A row whose partition field is NULL will be deterministically routed to
@@ -85,20 +85,33 @@ impl RangePartitioning {
             .values()
             .map(|(lower, upper)| SearchQueryInput::FieldedQuery {
                 field: self.partition_by.clone(),
-                query: Query::Range {
-                    lower_bound: lower.clone(),
-                    upper_bound: upper.clone(),
+                query: if matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded)) {
+                    // After a NULL split, this partition contains every non-NULL value.
+                    // The range compiler requires at least one finite bound.
+                    Query::Exists
+                } else {
+                    Query::Range {
+                        lower_bound: lower.clone(),
+                        upper_bound: upper.clone(),
+                    }
                 },
             });
-        let null_query = range.includes_nulls().then(|| SearchQueryInput::Boolean {
-            must: vec![],
-            should: vec![],
-            must_not: vec![SearchQueryInput::FieldedQuery {
-                field: self.partition_by.clone(),
-                query: Query::Exists,
-            }],
-            minimum_should_match: None,
-        });
+        let null_query = range
+            .includes_nulls()
+            .then(|| SearchQueryInput::ConstScore {
+                // A pure-negative Boolean matches nothing. All supplies the positive clause;
+                // the constant score keeps NULL rows scored like rows matching the range.
+                query: Box::new(SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![SearchQueryInput::FieldedQuery {
+                        field: self.partition_by.clone(),
+                        query: Query::Exists,
+                    }],
+                    minimum_should_match: None,
+                }),
+                score: 1.0,
+            });
         match (range_query, null_query) {
             (Some(range_query), Some(null_query)) => SearchQueryInput::Boolean {
                 must: vec![],

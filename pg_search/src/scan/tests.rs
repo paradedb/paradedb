@@ -519,6 +519,102 @@ mod tests {
         assert_eq!(build_1.split_points.len(), 0);
     }
 
+    /// Execute the generated bounds: a pure-negative NULL clause has the right shape but
+    /// returns no rows in Tantivy unless it also has a positive All clause.
+    #[pg_test]
+    fn test_range_partition_queries_cover_nulls_once() {
+        use crate::api::FieldName;
+        use crate::index::stats::segments_for_partition;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue::{I64, Null};
+        use crate::scan::range_partitioning::RangePartitioning;
+
+        Spi::run(
+            "CREATE TABLE null_partition_rows (id bigint PRIMARY KEY, value bigint);
+             CREATE INDEX null_partition_rows_idx ON null_partition_rows
+             USING paradedb (id, value)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO null_partition_rows VALUES (1, NULL), (2, -10), (3, 10), (4, 20), (5, NULL);
+             RESET paradedb.global_mutable_segment_rows;",
+        ).unwrap();
+        unsafe { pg_sys::CommandCounterIncrement() };
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'null_partition_rows_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index_rel = PgSearchRelation::open(oid);
+        for scoring in [false, true] {
+            let reader = SearchIndexReader::open(
+                &index_rel,
+                SearchQueryInput::All,
+                scoring,
+                MvccSatisfies::Snapshot,
+            )
+            .unwrap();
+            for (split_points, expected) in [
+                (vec![], vec![vec![1, 2, 3, 4, 5]]),
+                (vec![I64(10)], vec![vec![1, 2, 5], vec![3, 4]]),
+                (vec![Null], vec![vec![1, 5], vec![2, 3, 4]]),
+                (vec![Null, Null], vec![vec![1, 5], vec![], vec![2, 3, 4]]),
+                (
+                    vec![Null, Null, I64(10)],
+                    vec![vec![1, 5], vec![], vec![2], vec![3, 4]],
+                ),
+                (
+                    vec![I64(10), I64(10)],
+                    vec![vec![1, 2, 5], vec![], vec![3, 4]],
+                ),
+            ] {
+                let partitioning = RangePartitioning {
+                    partition_by: FieldName::from("value"),
+                    split_points,
+                };
+                for (partition, expected_ids) in expected.into_iter().enumerate() {
+                    let query = partitioning.partition_bounds(partition);
+                    let exact = reader.and_query_input(&query);
+                    // pg_search's All query scores zero; an actual partition predicate
+                    // contributes one for both NULL and non-NULL rows.
+                    let expected_score = if matches!(query, SearchQueryInput::All) {
+                        0.0
+                    } else {
+                        1.0
+                    };
+                    let ids = segments_for_partition(&reader, &partitioning, partition);
+                    let collect_ids =
+                        |results: crate::index::reader::index::MultiSegmentSearchResults| {
+                            let mut ids = results
+                                .map(|(score, doc)| {
+                                    if scoring {
+                                        assert_eq!(score.bm25, expected_score,
+                                            "the partition predicate must score NULL and non-NULL rows alike: {query:?}");
+                                    }
+                                    reader
+                                        .searcher()
+                                        .segment_reader(doc.segment_ord)
+                                        .fast_fields()
+                                        .i64("id")
+                                        .unwrap()
+                                        .first(doc.doc_id)
+                                        .unwrap()
+                                })
+                                .collect::<Vec<_>>();
+                            ids.sort_unstable();
+                            ids
+                        };
+                    assert_eq!(
+                        collect_ids(exact.search()),
+                        expected_ids,
+                        "compiled bounds {query:?}, scoring={scoring}"
+                    );
+                    assert_eq!(
+                        collect_ids(exact.search_segments(ids.into_iter())),
+                        expected_ids,
+                        "routed bounds {query:?}, scoring={scoring}"
+                    );
+                }
+            }
+        }
+    }
+
     #[pg_test]
     fn test_range_partitioning_points_nulls() {
         use crate::api::FieldName;
@@ -542,9 +638,14 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows, with the range query's constant score.
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::ConstScore { ref query, score: 1.0 }
+                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
+                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
@@ -576,15 +677,20 @@ mod tests {
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
 
-        // partition 0: upper is Null -> is_empty_range -> returns Boolean(NOT Exists)
+        // partition 0: upper is NULL -> only NULL rows, with the range query's constant score.
         let p0 = build.partition_bounds(0);
-        assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
+        assert!(matches!(
+            p0,
+            SearchQueryInput::ConstScore { ref query, score: 1.0 }
+                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
+                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+        ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
         let p1 = build.partition_bounds(1);
         assert!(matches!(p1, SearchQueryInput::Empty));
 
-        // partition 2: lower is Null (Unbounded), upper is Unbounded -> Range
+        // partition 2: both bounds are Unbounded -> Exists (all non-NULL values)
         let p2 = build.partition_bounds(2);
         assert!(matches!(p2, SearchQueryInput::FieldedQuery { .. }));
     }
@@ -611,7 +717,7 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::I64(10));
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is 10 -> Range OR Boolean(NOT Exists)
+        // partition 0: upper is 10 -> Range OR Boolean(All AND NOT Exists)
         let p0 = build.partition_bounds(0);
         assert!(matches!(p0, SearchQueryInput::Boolean { .. }));
 

@@ -77,6 +77,7 @@ static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
 /// The scale factor for the chunk size in a Top K query.
 static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+static EXPERIMENT_COUNT_ALL_VISIBLE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
@@ -483,6 +484,15 @@ pub fn init() {
         &TOPK_RETRY_SCALE_FACTOR,
         1,
         100,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_count_all_visible",
+        c"Count matching documents directly after proving heap visibility.",
+        c"Experimental exact bare COUNT fast path for immutable all-visible segment ranges.",
+        &EXPERIMENT_COUNT_ALL_VISIBLE,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1204,4 +1214,8 @@ mod tests {
             Some(NonZeroUsize::new(1000).unwrap())
         );
     }
+}
+
+pub fn experiment_count_all_visible() -> bool {
+    EXPERIMENT_COUNT_ALL_VISIBLE.get()
 }

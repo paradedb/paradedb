@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod exec;
+mod visible_count;
 
 use std::error::Error;
 use std::ptr::NonNull;
@@ -482,13 +483,24 @@ pub fn execute_aggregate(
             query.needs_tokenizer(),
         )?;
 
-        // Fast path: a bare doc count without MVCC filtering is answerable by
-        // `Weight::count` — a stored-doc_freq metadata read for term queries
-        // on delete-free segments, a scoreless docset drain otherwise —
-        // skipping the aggregation framework's per-doc column iteration.
-        if !solve_mvcc
-            && matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count())
+        let bare_doc_count =
+            matches!(&agg_req, AggregateRequest::Sql(clause) if clause.is_bare_doc_count());
+        let all_visible_count = if bare_doc_count
+            && solve_mvcc
+            && crate::gucs::experiment_count_all_visible()
+            && !reader.need_scores()
+            && !query.has_heap_filters()
+            && !query.has_postgres_expressions()
         {
+            let heaprel = index
+                .heap_relation()
+                .expect("index must have a heap relation");
+            visible_count::reader_is_all_visible(&reader, &heaprel)?
+        } else {
+            false
+        };
+
+        if bare_doc_count && (!solve_mvcc || all_visible_count) {
             // Serial execution: the scorers claim private cursors.
             if let Some(bitmap_exec) = bitmap_exec.as_deref_mut()
                 && let Some(cell) = query.bitmap_cell()

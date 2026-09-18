@@ -97,8 +97,8 @@ fn test_coalesce_default_precision(
         "SELECT COUNT({argument}), MIN({argument}), MAX({argument})
          FROM coalesce_defaults WHERE id @@@ pdb.all()"
     );
-    // A segment where no document has the JSON path reads it through an unsigned column, which
-    // turns a negative default into zero.
+    // The planner can't know a JSON path's column type in each segment, and a segment without the
+    // path reads it as unsigned, so a negative default doesn't push down.
     let pushdown = pushdown && (field == "value" || default >= 0);
     assert_uses_custom_scan(&mut conn, pushdown, &query);
     assert_eq!(

@@ -1954,10 +1954,15 @@ impl AggregateScan {
         // First call: build and execute the DataFusion plan
         if first_call {
             let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-            if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
-                for source in df_state.plan.sources() {
-                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
-                }
+            for source in state
+                .custom_state()
+                .datafusion_state
+                .as_ref()
+                .expect("DataFusion state must be initialized")
+                .plan
+                .sources()
+            {
+                predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
             }
 
             let runtime = tokio::runtime::Builder::new_current_thread()

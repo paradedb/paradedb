@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
+use tantivy::schema::Type;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, Searcher};
 
@@ -142,15 +143,19 @@ impl FFHelper {
                     FFType::try_new(ffr, name).unwrap_or_else(|| {
                         // A segment only writes the columns its documents have values for, so a
                         // JSON path none of them carry has no column there. That reads as NULL,
-                        // like the missing key does in Postgres. Any other absence is a bug.
+                        // like the missing key does in Postgres. Any other absence is a bug, so
+                        // a declared field keeps the error: it gets its column in every segment.
                         let schema = self.searcher().schema();
-                        let is_fast_field = schema
-                            .find_field(name)
-                            .is_some_and(|(field, _)| schema.get_field_entry(field).is_fast());
+                        let is_json_path = schema.find_field(name).is_some_and(|(field, path)| {
+                            let entry = schema.get_field_entry(field);
+                            entry.is_fast()
+                                && entry.field_type().value_type() == Type::Json
+                                && !path.is_empty()
+                        });
                         let has_no_column = ffr
                             .dynamic_column_handles(name)
                             .is_ok_and(|handles| handles.is_empty());
-                        if is_fast_field && has_no_column {
+                        if is_json_path && has_no_column {
                             FFType::Junk
                         } else {
                             missing_columnar_field(name)

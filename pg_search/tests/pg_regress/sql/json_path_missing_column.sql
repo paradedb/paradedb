@@ -4,7 +4,6 @@
 -- Rows inserted after the build land in segments of their own, without that column, and
 -- the scans have to read them as NULL, as Postgres does for a missing key.
 
-SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_custom_scan TO true;
 SET paradedb.enable_custom_scan_without_operator TO true;
 SET paradedb.enable_join_custom_scan TO true;
@@ -105,6 +104,21 @@ WHERE (ju.name @@@ 'bob') OR ((ju.name IS NULL) AND (ju.name @@@ 'bob'))
 GROUP BY ju.metadata->'brand'
 ORDER BY 2;
 
+-- A right join null-extends a `jp` row with no `ju` match, so the NULL group mixes a
+-- null-extended row with the two rows whose segment has no column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT ju.metadata->>'brand', count(jp.id)
+FROM ju RIGHT JOIN jp ON ju.id = jp.id
+WHERE jp.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
+SELECT ju.metadata->>'brand', count(jp.id)
+FROM ju RIGHT JOIN jp ON ju.id = jp.id
+WHERE jp.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
 -- The same queries without the custom scans, as the reference.
 SET paradedb.enable_custom_scan TO false;
 SET paradedb.enable_join_custom_scan TO false;
@@ -128,6 +142,12 @@ WHERE (ju.name = 'bob') OR ((ju.name IS NULL) AND (ju.name = 'bob'))
 GROUP BY ju.metadata->'brand'
 ORDER BY 2;
 
+SELECT ju.metadata->>'brand', count(jp.id)
+FROM ju RIGHT JOIN jp ON ju.id = jp.id
+WHERE jp.name IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
 DROP TABLE jp;
 DROP TABLE ju;
 
@@ -135,4 +155,3 @@ RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;
 RESET paradedb.enable_custom_scan;
-RESET max_parallel_workers_per_gather;

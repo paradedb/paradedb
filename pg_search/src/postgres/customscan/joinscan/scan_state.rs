@@ -479,7 +479,15 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
 /// Late materialization is not on the session; [`optimize_logical_plan`] runs it after the
 /// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
 /// columns are still present in the logical plan.
-pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
+pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
+    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
+    // worker process. Partitioning is used exclusively for MPP task distribution, never for
+    // intra-task CPU parallelization.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
+
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;

@@ -185,6 +185,25 @@ async fn aggregate_scan_concurrent_delete(database: Db) {
     assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
 }
 
+/// Relation granularity is the cost of the design: a delete of a row the search never
+/// matched still conflicts, where Postgres' own plan would let both commit. Pinned here so a
+/// finer-grained lock has something to flip.
+#[rstest]
+#[async_std::test]
+async fn non_matching_delete_conflicts(database: Db) {
+    let mut conn = database.connection().await;
+    run(&mut conn, SETUP).await.expect("setup should succeed");
+
+    let failure = write_skew(
+        &database,
+        "SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall'",
+        "DELETE FROM ssi_doctors WHERE id = 5",
+        "DELETE FROM ssi_doctors WHERE id = 6",
+    )
+    .await;
+    assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
+}
+
 /// The lock covers one table, so a write to another one still commits.
 #[rstest]
 #[async_std::test]

@@ -28,10 +28,11 @@
 //!    the case is over. Both sides see the session's own writes; the rollback then leaves aborted
 //!    tuples behind for the cases after it.
 //!
-//! Both sides of a case run in one transaction, so they share a snapshot and the comparison
-//! stays sound. The index, on the other hand, sees every one of these rows and has to filter
-//! them. Rows another backend holds in flight are a stressgres subject: they need a second live
-//! session, which no reproduction script can replay.
+//! Both sides of a case run back to back on one session, and a case with uncommitted churn runs
+//! them inside its transaction, so they read the same rows. Nothing else writes to the test's
+//! database while a case runs. The index, on the other hand, sees every one of these rows and
+//! has to filter them. Rows another backend holds in flight are a stressgres subject: they need
+//! a second live session, which no reproduction script can replay.
 //!
 //! Row picks and written values come from Postgres `random()`, re-seeded per phase from proptest,
 //! so a case replays under the same `PROPTEST_RNG_SEED`. `PARADEDB_QGEN_CHURN=off` disables the
@@ -44,15 +45,22 @@ use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use sqlx::PgConnection;
 
-use super::{Column, PgGucs, SetupScript};
+use super::{Column, PgGucs, SetupScript, handle_setup_error};
 use crate::fixtures::db::Query;
 use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
 /// The `INSERT` column list and the matching random value list, derived once from the schema.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct InsertShape {
     pub columns: String,
     pub generators: String,
+}
+
+/// Every case carries the same shape, so proptest's failing-input dump keeps it out of the way.
+impl std::fmt::Debug for InsertShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("InsertShape { .. }")
+    }
 }
 
 impl InsertShape {
@@ -97,8 +105,8 @@ pub enum Mutation {
         rows: usize,
     },
     /// Reclaims dead tuples, marks their docs deleted in the index, and sets visibility-map bits
-    /// again. Truncation takes a conditional exclusive lock, so it stays off while another
-    /// transaction of the case holds the table.
+    /// again. Truncation is drawn per mutation, since it takes an exclusive lock and returns the
+    /// space to the filesystem rather than to the free space map.
     Vacuum {
         table: String,
         truncate: bool,
@@ -106,16 +114,6 @@ pub enum Mutation {
 }
 
 impl Mutation {
-    fn table(&self) -> &str {
-        match self {
-            Mutation::Insert { table, .. }
-            | Mutation::Delete { table, .. }
-            | Mutation::Replace { table, .. }
-            | Mutation::Update { table, .. }
-            | Mutation::Vacuum { table, .. } => table,
-        }
-    }
-
     pub fn is_vacuum(&self) -> bool {
         matches!(self, Mutation::Vacuum { .. })
     }
@@ -167,23 +165,31 @@ pub struct Session {
 
 impl Session {
     /// The churn is a fixture, not a subject: its DML runs on plain Postgres paths, whatever the
-    /// previous case left the custom-scan GUCs at. Row picks hand out `random()` in scan order,
-    /// so they also stay off index-only scans, which read the bm25 index in segment order, and
-    /// off parallel plans, whose row order varies from run to run; either would pick other rows
-    /// on replay. These and the mutable-segment setting are `SET LOCAL` so the enclosing
-    /// transaction's end restores them.
-    fn statements(&self) -> Vec<String> {
-        let mut statements = vec![
+    /// previous case left the custom-scan GUCs at. Seeded once per phase, so batches split at a
+    /// `VACUUM` go on drawing from the same stream.
+    fn session_statements(&self) -> Vec<String> {
+        vec![
             PgGucs::pg_search_disabled().set(),
+            format!("SELECT setseed({});", self.seed),
+        ]
+    }
+
+    /// Re-applied for each transaction of a phase, since `SET LOCAL` ends with it. Row picks hand
+    /// out `random()` in scan order, so they stay off index-only scans, which read the bm25 index
+    /// in segment order, and off parallel plans, whose row order varies from run to run. Either
+    /// would pick other rows on replay.
+    fn local_statements(&self) -> Vec<String> {
+        let mut statements = vec![
             "SET LOCAL enable_indexonlyscan TO off;".to_string(),
             "SET LOCAL max_parallel_workers_per_gather TO 0;".to_string(),
-            format!("SELECT setseed({});", self.seed),
         ];
         match self.mutable_segment_rows {
             Some(rows) => statements.push(format!(
                 "SET LOCAL paradedb.global_mutable_segment_rows TO {rows};"
             )),
-            None => statements.push("RESET paradedb.global_mutable_segment_rows;".to_string()),
+            None => {
+                statements.push("SET LOCAL paradedb.global_mutable_segment_rows TO -1;".to_string())
+            }
         }
         statements
     }
@@ -194,6 +200,7 @@ impl Session {
         vec![
             "RESET enable_indexonlyscan;".to_string(),
             "RESET max_parallel_workers_per_gather;".to_string(),
+            "RESET paradedb.global_mutable_segment_rows;".to_string(),
         ]
     }
 }
@@ -211,8 +218,6 @@ pub struct Churn {
 /// what `compare_outcome_on` does with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseChurn {
-    /// Opens the case's own transaction on the comparison session.
-    pub begin: String,
     /// Run on the comparison session after `begin`, before either side.
     pub own: Vec<String>,
 }
@@ -227,7 +232,7 @@ impl CaseChurn {
             "-- Case transaction; both queries below run inside it and it is rolled back after:"
         )
         .unwrap();
-        writeln!(sql, "{}", self.begin).unwrap();
+        writeln!(sql, "BEGIN;").unwrap();
         for statement in &self.own {
             writeln!(sql, "{statement}").unwrap();
         }
@@ -406,21 +411,15 @@ impl Churn {
         }
     }
 
-    /// Runs the committed part on a pooled session, appends it to the shared churn log, and
-    /// returns the per-case [`SetupScript`]: the base script plus the log so far as its SQL, and
-    /// the uncommitted parts for the comparison helpers to frame the case with.
+    /// Runs the committed part on a pooled session and returns the per-case [`SetupScript`]:
+    /// the base script plus the log so far as its SQL, and the uncommitted part for the
+    /// comparison helpers to frame the case with.
     pub fn apply(
         &self,
         pool: &MutexObjectPool<PgConnection>,
         base: &SetupScript,
     ) -> Result<SetupScript, TestCaseError> {
-        let committed_sql = self.commit(pool)?;
-        if !committed_sql.is_empty() {
-            base.churn_log
-                .lock()
-                .expect("churn log lock should not be poisoned")
-                .push_str(&committed_sql);
-        }
+        self.commit(pool, base)?;
         // The log stays out of `sql`: `repro_setup_sql` appends it at render time.
         let mut setup = SetupScript {
             sql: base.sql.clone(),
@@ -436,54 +435,78 @@ impl Churn {
         Ok(setup)
     }
 
-    /// The committed phase: one transaction for the DML (a fault mid-way rolls back cleanly and
-    /// the retry starts over), then any `VACUUM`s on their own, since they refuse a transaction
-    /// block. Returns the SQL that ran, for the log.
-    fn commit(&self, pool: &MutexObjectPool<PgConnection>) -> Result<String, TestCaseError> {
+    /// The committed phase. `VACUUM` refuses a transaction block, so the phase runs as batches
+    /// split at each vacuum, in the order drawn: a vacuum drawn first reclaims what earlier cases
+    /// left, and the inserts after it reuse the space. Each group joins the churn log as soon as
+    /// it lands, so a failure halfway through still leaves a script that rebuilds the heap.
+    fn commit(
+        &self,
+        pool: &MutexObjectPool<PgConnection>,
+        base: &SetupScript,
+    ) -> Result<(), TestCaseError> {
         if self.committed.is_empty() {
-            return Ok(String::new());
+            return Ok(());
         }
         let session = self.sessions[0];
-        let mut dml: Vec<String> = session.statements();
-        let mut vacuums = Vec::new();
+        let mut preamble = session.session_statements();
+        let mut dml: Vec<String> = Vec::new();
+
         for mutation in &self.committed {
             let statements = mutation.statements(&self.shape);
-            if mutation.is_vacuum() {
-                vacuums.extend(statements);
-            } else {
+            if !mutation.is_vacuum() {
                 dml.extend(statements);
+                continue;
+            }
+            if !dml.is_empty() {
+                self.run_batch(pool, base, &mut preamble, &session, &mut dml)?;
+            }
+            for vacuum in statements {
+                run_retrying(pool, base, "qgen churn vacuum", &vacuum)?;
+                append_to_log(base, &vacuum);
             }
         }
-
-        let mut log = String::from("-- churn: committed before the case\n");
-        let batch = format!("BEGIN;\n{}\nCOMMIT;", dml.join("\n"));
-        run_retrying(pool, "qgen churn", &batch)?;
-        writeln!(log, "{batch}").unwrap();
-        for vacuum in vacuums {
-            run_retrying(pool, "qgen churn vacuum", &vacuum)?;
-            writeln!(log, "{vacuum}").unwrap();
+        if !dml.is_empty() {
+            self.run_batch(pool, base, &mut preamble, &session, &mut dml)?;
         }
-        Ok(log)
+        Ok(())
+    }
+
+    /// One transaction of the committed phase. The session-level settings and the seed go in the
+    /// first batch only: re-seeding would hand the batches after a vacuum the same rows.
+    fn run_batch(
+        &self,
+        pool: &MutexObjectPool<PgConnection>,
+        base: &SetupScript,
+        preamble: &mut Vec<String>,
+        session: &Session,
+        dml: &mut Vec<String>,
+    ) -> Result<(), TestCaseError> {
+        let mut statements = std::mem::take(preamble);
+        statements.extend(session.local_statements());
+        statements.append(dml);
+        let batch = format!("BEGIN;\n{}\nCOMMIT;", statements.join("\n"));
+        run_retrying(pool, base, "qgen churn", &batch)?;
+        append_to_log(base, &batch);
+        Ok(())
     }
 
     fn case_churn(&self) -> CaseChurn {
         let mut own = Vec::new();
         if !self.own.is_empty() {
-            own.extend(self.sessions[1].statements());
+            own.extend(self.sessions[1].session_statements());
+            own.extend(self.sessions[1].local_statements());
             for mutation in &self.own {
                 own.extend(mutation.statements(&self.shape));
             }
             own.extend(Session::closing_statements());
         }
-        CaseChurn {
-            begin: "BEGIN;".to_string(),
-            own,
-        }
+        CaseChurn { own }
     }
 }
 
 fn run_retrying(
     pool: &MutexObjectPool<PgConnection>,
+    base: &SetupScript,
     what: &str,
     sql: &str,
 ) -> Result<(), TestCaseError> {
@@ -498,10 +521,25 @@ fn run_retrying(
     });
     match outcome {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(TestCaseError::fail(format!("{what} failed: {e}\n{sql}"))),
-        Err(RetryError::TimedOutUnderPause(e)) => Err(TestCaseError::fail(format!(
-            "{what} timed out while faults were paused: {e}\n{sql}"
-        ))),
-        Err(RetryError::GraceExpired(reason)) => Err(TestCaseError::fail(reason)),
+        Ok(Err(e)) => Err(handle_setup_error(base, what, &e.to_string(), sql)),
+        Err(RetryError::TimedOutUnderPause(e)) => Err(handle_setup_error(
+            base,
+            what,
+            &format!("timed out while faults were paused: {e}"),
+            sql,
+        )),
+        Err(RetryError::GraceExpired(reason)) => Err(handle_setup_error(base, what, &reason, sql)),
     }
+}
+
+/// Every statement the churn commits joins the shared log, since later cases query the heap it
+/// leaves and a failure script has to rebuild it.
+fn append_to_log(base: &SetupScript, sql: &str) {
+    let mut log = base
+        .churn_log
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    log.push_str("-- churn: committed before the case\n");
+    log.push_str(sql.trim_end());
+    log.push('\n');
 }

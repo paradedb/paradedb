@@ -190,13 +190,23 @@ impl SetupScript {
         }
     }
 
+    /// A copy for a failure that did not run inside the case's transaction, or that ran after it
+    /// closed. Its churn is in the log by then, so the script must not frame the queries in a
+    /// transaction they never ran in, nor replay the same rows twice.
+    pub fn without_case_churn(&self) -> Self {
+        Self {
+            case_churn: None,
+            ..self.clone()
+        }
+    }
+
     /// The setup section of a reproduction script: the schema, then every mutation committed
     /// since.
     pub fn repro_setup_sql(&self) -> String {
         let log = self
             .churn_log
             .lock()
-            .expect("churn log lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if log.is_empty() {
             return self.sql.clone();
         }
@@ -910,7 +920,7 @@ impl<'a> CaseFrame<'a> {
         churn: &CaseChurn,
         conn: &mut PgConnection,
     ) -> Result<(), sqlx::Error> {
-        churn.begin.as_str().execute_result(conn)?;
+        "BEGIN;".execute_result(conn)?;
         self.own_open = true;
         for statement in &churn.own {
             statement.execute_result(conn)?;
@@ -933,7 +943,7 @@ impl<'a> CaseFrame<'a> {
             let mut log = setup
                 .churn_log
                 .lock()
-                .expect("churn log lock should not be poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             churn.log_rolled_back(&mut log);
         }
     }
@@ -941,7 +951,6 @@ impl<'a> CaseFrame<'a> {
 
 /// [`compare_outcome`] with the two sessions spelled out, for a baseline other than plain
 /// Postgres, such as one backend of pg_search against another.
-#[allow(clippy::too_many_arguments)]
 pub fn compare_outcome_on<R, F>(
     sides: &Sides,
     pg_query: &str,
@@ -965,7 +974,7 @@ where
                     pg_query,
                     bm25_query,
                     gucs,
-                    setup,
+                    &setup.without_case_churn(),
                 )),
             };
         }
@@ -975,8 +984,9 @@ where
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
     }));
-    frame.close(conn, setup);
-    match outcome {
+    // Rendered before the frame closes, since closing appends the case's churn to the log and
+    // the script carries it inline.
+    let outcome = match outcome {
         Ok(o) => o,
         Err(panic) => {
             let msg = if let Some(s) = panic.downcast_ref::<&str>() {
@@ -994,7 +1004,9 @@ where
                 setup,
             ))
         }
-    }
+    };
+    frame.close(conn, setup);
+    outcome
 }
 
 /// Runs one case, retrying transient faults until it completes, so every case in the proptest
@@ -1037,7 +1049,7 @@ where
             pg_query,
             bm25_query,
             gucs,
-            setup,
+            &setup.without_case_churn(),
         ))
     };
     let outcome = crate::fixtures::fault_grace::retry_transient(pool, "qgen case", |conn| {
@@ -1070,12 +1082,13 @@ pub fn compare_plan_retrying(
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
     let fail = |msg: String| {
+        // The plan check runs on its own pooled session, outside the case's transaction.
         CaseOutcome::Failure(handle_compare_error(
             TestCaseError::fail(msg),
             pg_query,
             bm25_query,
             gucs,
-            setup,
+            &setup.without_case_churn(),
         ))
     };
 
@@ -1120,7 +1133,6 @@ pub fn compare_plan_retrying(
     CaseOutcome::Match
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compare_outcome_inner<R, F>(
     sides: &Sides,
     pg_query: &str,
@@ -1240,6 +1252,65 @@ where
     }
 }
 
+/// The seeds a reproduction script replays under.
+fn repro_seeds(setup: &SetupScript) -> (String, String) {
+    let qgen_seed = setup
+        .qgen_seed
+        .map(|s| s.to_string())
+        .or_else(|| {
+            setup
+                .sql
+                .lines()
+                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "<unknown>".to_string());
+    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
+        .ok()
+        .unwrap_or_else(|| "<from proptest output above>".to_string());
+    (qgen_seed, proptest_seed)
+}
+
+/// A reproduction script for a failure in the fixture rather than in a query under test: the
+/// schema, the churn that landed before it, and the statement that failed. No oracle ran, so
+/// there is no pair of queries to print.
+pub fn handle_setup_error(
+    setup: &SetupScript,
+    what: &str,
+    detail: &str,
+    sql: &str,
+) -> TestCaseError {
+    let (qgen_seed, proptest_seed) = repro_seeds(setup);
+    TestCaseError::fail(format!(
+        r#"{what} failed: {detail}
+
+-- ==== FIXTURE FAILURE REPRODUCTION SCRIPT ====
+-- Copy and paste this entire block to reproduce the issue
+--
+-- Prerequisites: Ensure pg_search extension is available
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+--
+-- Table and index setup
+{setup_sql}
+--
+-- The statement that failed:
+{sql}
+--
+-- Cleanup:
+{drop_tables_sql}
+--
+-- ==== END REPRODUCTION SCRIPT ====
+
+Replay this proptest case end-to-end:
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+    cargo test --package tests --test qgen <test_fn_name>
+"#,
+        setup_sql = setup.repro_setup_sql(),
+        drop_tables_sql = setup.drop_tables_sql(),
+    ))
+}
+
 /// Helper function to handle comparison errors and generate reproduction scripts
 pub fn handle_compare_error(
     error: TestCaseError,
@@ -1264,20 +1335,7 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
-    let qgen_seed = setup
-        .qgen_seed
-        .map(|s| s.to_string())
-        .or_else(|| {
-            setup
-                .sql
-                .lines()
-                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "<unknown>".to_string());
-    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
-        .ok()
-        .unwrap_or_else(|| "<from proptest output above>".to_string());
+    let (qgen_seed, proptest_seed) = repro_seeds(setup);
 
     let drop_tables_sql = setup.drop_tables_sql();
     let (case_sql, rollback_sql) = match &setup.case_churn {
@@ -1348,4 +1406,41 @@ Original error:
             _ => "Results differ between PostgreSQL and ParadeDB",
         }
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The plan check and the post-close failure paths run outside the case's transaction, so
+    /// their scripts must not open one: replaying the churn there changes the rows the queries
+    /// read.
+    #[test]
+    fn a_script_frames_the_case_only_when_the_case_ran_framed() {
+        let mut setup = SetupScript::new(
+            "CREATE TABLE t (id int);".to_string(),
+            vec!["t".to_string()],
+        );
+        setup.case_churn = Some(mutationgen::CaseChurn {
+            own: vec!["UPDATE t SET id = id + 1;".to_string()],
+        });
+        let render = |setup: &SetupScript| {
+            handle_compare_error(
+                TestCaseError::fail("Query should use a ParadeDB scan"),
+                "SELECT 1",
+                "SELECT 1",
+                &PgGucs::pg_search_disabled(),
+                setup,
+            )
+            .to_string()
+        };
+
+        let framed = render(&setup);
+        assert!(framed.contains("-- Case churn"), "{framed}");
+        assert!(framed.contains("UPDATE t SET id = id + 1;"), "{framed}");
+
+        let unframed = render(&setup.without_case_churn());
+        assert!(!unframed.contains("-- Case churn"), "{unframed}");
+        assert!(!unframed.contains("ROLLBACK;"), "{unframed}");
+    }
 }

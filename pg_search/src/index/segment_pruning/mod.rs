@@ -25,7 +25,6 @@
 //! leave segments eligible for execution; errors opening or decoding existing statistics abort
 //! the query.
 
-pub(crate) mod predicate;
 mod snapshot;
 
 pub(crate) use snapshot::SegmentStatsSnapshot;

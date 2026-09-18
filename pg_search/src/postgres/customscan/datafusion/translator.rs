@@ -813,7 +813,8 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                     false,
                     Some((source_rti.0, field_name.clone())),
                 ),
-                OutputColumnInfo::WindowAgg { .. }
+                OutputColumnInfo::PdbWindowAgg { .. } => todo!(),
+                OutputColumnInfo::SqlWindowAgg { .. }
                 | OutputColumnInfo::Expression
                 | OutputColumnInfo::Pruned => return None,
             }

@@ -44,7 +44,7 @@ use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
 use super::window_func::{
-    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
+    SqlWindowAggDef, SqlWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggIndex,
 };
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -102,7 +102,9 @@ fn resolve_var_to_df_col(
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;
         if window_agg
-            .arg_field_type()
+            .agg_def
+            .sql()
+            .and_then(|s| s.arg_field_type())
             .is_some_and(|ft| ft.is_numeric())
         {
             return None;
@@ -208,11 +210,17 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
             let index = WindowAggIndex::from_sentinel_attno(varattno)?;
             let window_agg = self.join_clause.window_aggs.get(index)?;
             let canonical = self.join_clause.window_aggs.canonical_index(index);
+            let is_avg = window_agg
+                .agg_def
+                .sql()
+                .filter(|v| matches!(v.agg_type(), SqlWindowAggType::Avg))
+                .is_some();
+            let field_type = window_agg.agg_def.sql().and_then(|s| s.arg_field_type());
             return Some((
                 col(canonical.as_col_name()),
                 InputDecode::StorageEncoded {
-                    is_avg: matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
-                    field_type: window_agg.arg_field_type().cloned(),
+                    is_avg,
+                    field_type: field_type.cloned(),
                 },
             ));
         }
@@ -900,7 +908,8 @@ fn apply_distinct_group_by(
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }
-            build::ChildProjection::WindowAgg { .. } => {
+            build::ChildProjection::SqlWindowAgg { .. }
+            | build::ChildProjection::PdbWindowAgg { .. } => {
                 let e = build_projection_expr(proj, join_clause);
                 (e, None)
             }
@@ -1117,12 +1126,20 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
     // Materialize only canonical entries: duplicates share the canonical
     // column, and identical window expressions in one Window node trip
     // DataFusion's CSE (see WindowAggList::canonical_index).
-    for (index, info) in join_clause
+    for (index, agg_def) in join_clause
         .window_aggs
         .iter_indexed()
-        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
+        .filter_map(|(index, agg)| {
+            if join_clause.window_aggs.canonical_index(index) == index
+                && let Some(sql) = agg.agg_def.sql()
+            {
+                Some((index, sql))
+            } else {
+                None
+            }
+        })
     {
-        let expr = window_expr(info, join_clause)?;
+        let expr = window_expr(agg_def, join_clause)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1139,11 +1156,11 @@ fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Resu
     df.window(window_exprs)
 }
 
-fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
+fn window_expr(agg_def: &SqlWindowAggDef, join_clause: &JoinCSClause) -> Result<Expr> {
     use crate::customscan::datafusion::numeric_agg;
     use datafusion::functions_aggregate::{average, count, min_max, sum};
 
-    let col_expr = match &info.col_info {
+    let col_expr = match agg_def.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
             None => {
@@ -1155,8 +1172,8 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
                 // of the `null_if_source_exists` fallback every other
                 // pruned-column consumer applies.
                 if null_if_source_exists(join_clause, ci.rti).is_some() {
-                    return Ok(match info.agg_type {
-                        SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
+                    return Ok(match agg_def.agg_type() {
+                        SqlWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
                         _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
                     });
                 }
@@ -1169,7 +1186,7 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
         },
         None => None,
     };
-    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
+    let numeric_field = numeric_window_field(agg_def.agg_type(), agg_def.arg_field_type())?;
 
     // Match only basic aggregate functions. Missing and filters are not supported in global window
     // functions
@@ -1177,8 +1194,8 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
     // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
     // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
     // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    match info.agg_type {
-        SupportedWindowAggType::Sum => {
+    match agg_def.agg_type() {
+        SqlWindowAggType::Sum => {
             let ce = col_expr.expect("should always have a column expression for SUM");
             match numeric_field {
                 None => Ok(Expr::from(WindowFunction::new(
@@ -1195,7 +1212,7 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
                 ))),
             }
         }
-        SupportedWindowAggType::Avg => {
+        SqlWindowAggType::Avg => {
             let ce = col_expr.expect("should always have a column expression for AVG");
             match numeric_field {
                 None => Ok(Expr::from(WindowFunction::new(
@@ -1212,19 +1229,19 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
                 ))),
             }
         }
-        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
+        SqlWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
             vec![col_expr.expect("should always have a column expression for MIN")],
         ))),
-        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
+        SqlWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
             vec![col_expr.expect("should always have a column expression for MAX")],
         ))),
-        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
+        SqlWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
             WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
             vec![col_expr.expect("should always have a column expression for COUNT")],
         ))),
-        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
+        SqlWindowAggType::CountStar => Ok(count::count_all_window()),
     }
 }
 
@@ -1236,11 +1253,11 @@ fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
 /// - `Ok(Some(_))` if the field is a supported numeric field
 /// - `Err(_)` if the field is an unsupported numeric
 pub fn numeric_window_field(
-    agg_type: SupportedWindowAggType,
+    agg_type: SqlWindowAggType,
     field_type: Option<&SearchFieldType>,
 ) -> Result<Option<&SearchFieldType>> {
     match (agg_type, field_type) {
-        (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
+        (SqlWindowAggType::Count | SqlWindowAggType::CountStar, _) => Ok(None),
         (_, Some(ft)) => {
             let field_type = if ft.is_numeric() {
                 ft
@@ -1321,7 +1338,8 @@ fn apply_output_projection(
             let expr = if !distinct_col_map.is_empty() {
                 match proj {
                     build::ChildProjection::Expression { .. }
-                    | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
+                    | build::ChildProjection::SqlWindowAgg { .. }
+                    | build::ChildProjection::PdbWindowAgg { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
@@ -1388,7 +1406,8 @@ fn build_projection_expr(
                 }
             }
         }
-        ChildProjection::WindowAgg { agg_index } => {
+        ChildProjection::SqlWindowAgg { agg_index }
+        | ChildProjection::PdbWindowAgg { agg_index } => {
             let canonical = join_clause.window_aggs.canonical_index(*agg_index);
             return col(canonical.as_col_name());
         }

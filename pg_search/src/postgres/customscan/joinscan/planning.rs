@@ -32,8 +32,9 @@ use super::predicate::{
     all_vars_are_fast_fields_recursive, find_base_info_recursive, resolve_join_conditions,
 };
 use super::privdat::{OutputColumnInfo, PrivateData};
-use super::window_func::{WindowAgg, WindowAggId, extract_window_agg};
+use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::joinscan::window_func::SqlWindowAggDef;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
 
@@ -1621,8 +1622,17 @@ pub(super) unsafe fn collect_required_fields(
     // (ChildProjection::WindowAgg) or embedded in an expression, where its
     // sentinel input never appears in the projection's `input_vars`.
     for window_agg in join_clause.window_aggs.iter() {
-        if let Some(ci) = &window_agg.col_info {
-            ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+        match &window_agg.agg_def {
+            WindowAggDef::Sql(SqlWindowAggDef(_, col_info)) => {
+                if let Some(ci) = col_info {
+                    ensure_column_in_all_sources(&mut plan_sources, ci.rti, ci.attno);
+                }
+            }
+            WindowAggDef::PdbAgg(agg_req) => {
+                for field in agg_req.fields() {
+                    ensure_column_in_all_sources(&mut plan_sources, field.rti, field.attno);
+                }
+            }
         }
     }
 }

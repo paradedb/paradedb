@@ -358,7 +358,9 @@ pub enum ChildProjection {
         field_name: String,
     },
     /// A window function output column
-    WindowAgg { agg_index: WindowAggIndex },
+    SqlWindowAgg { agg_index: WindowAggIndex },
+    /// A pdb-agg-based window function output column
+    PdbWindowAgg { agg_index: WindowAggIndex },
 }
 
 use crate::index::mvcc::MvccSatisfies;

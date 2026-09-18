@@ -1,4 +1,6 @@
 // Copyright (c) 2023-2026 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,12 +17,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::pdb_agg_spec;
+use crate::postgres::customscan::aggregatescan::datafusion_build::{
+    ResolutionSource, resolve_source_field,
+};
+use crate::postgres::customscan::aggregatescan::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use crate::schema::SearchFieldType;
 use pgrx::pg_sys::{FRAMEOPTION_NONDEFAULT, Query, WindowFunc};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::api::aggregate::is_agg_funcoid;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, classify_aggregate_oid, unwrap_to_var,
@@ -29,8 +37,102 @@ use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_joi
 
 use super::build::JoinSource;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SupportedWindowAggType {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SqlWindowAggDef(pub SqlWindowAggType, pub Option<ColumnInfo>);
+impl SqlWindowAggDef {
+    pub fn agg_type(&self) -> SqlWindowAggType {
+        self.0
+    }
+
+    pub fn col_info(&self) -> Option<&ColumnInfo> {
+        self.1.as_ref()
+    }
+
+    pub fn arg_field_type(&self) -> Option<&SearchFieldType> {
+        self.1.as_ref().and_then(|ci| ci.field_type.as_ref())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum WindowAggDef {
+    Sql(SqlWindowAggDef),
+    /// Contains (agg spec, visibility)
+    ///
+    /// NOTE: PartialEq involves comparing the entire json blob right now. We should probably find a
+    /// better way of doing that
+    PdbAgg(Box<PdbAggRequest>),
+}
+impl WindowAggDef {
+    pub fn new_sql(wa_type: SqlWindowAggType, ci: Option<ColumnInfo>) -> Self {
+        if ci.is_none() {
+            assert!(
+                matches!(wa_type, SqlWindowAggType::CountStar),
+                "A ColumnInfo is required for all sql window function types except CountStar"
+            );
+        }
+        Self::Sql(SqlWindowAggDef(wa_type, ci))
+    }
+
+    pub fn try_pdb_agg_from_window_func(
+        wf: &WindowFunc,
+        sources: &[&JoinSource],
+    ) -> Result<Self, String> {
+        assert!(
+            is_agg_funcoid(wf.winfnoid.into()),
+            "try_pdb_agg_from_window_func should only be called on pdb.agg window functions",
+        );
+
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
+        let spec_arg = args.get_ptr(0).ok_or("pdb.agg() spec must exist")?;
+        if spec_arg.is_null() {
+            return Err("spec arg was null".to_string());
+        }
+        let visibility_arg = args.get_ptr(1);
+        if let Some(v) = visibility_arg
+            && v.is_null()
+        {
+            return Err("invalid visibility argument".to_string());
+        }
+        let Some((spec, visibility)) =
+            (unsafe { pdb_agg_spec(wf.winfnoid.into(), spec_arg, visibility_arg) })
+        else {
+            return Err("failed to build pdb agg spec".to_string());
+        };
+        let resolution_sources = sources.iter().map(|s| ResolutionSource::from(*s));
+        let agg_req = PdbAggRequest::lower(spec, visibility, &|field| {
+            let resolved = resolve_source_field(resolution_sources.clone(), field)?;
+            Ok(PdbAggFieldRef {
+                rti: resolved.source_rti,
+                attno: resolved.attno,
+                field_name: resolved.field_name,
+                field_type: resolved.field_type,
+                plan_position: 0,
+                is_array: resolved.is_array,
+            })
+        })?;
+
+        Ok(Self::PdbAgg(Box::new(agg_req)))
+    }
+
+    /// Returns the contents of the this if this is a Sql variant
+    pub fn sql(&self) -> Option<&SqlWindowAggDef> {
+        match self {
+            Self::Sql(sql) => Some(sql),
+            _ => None,
+        }
+    }
+
+    /// Returns the contents of the this if this is a PdbAgg variant
+    pub fn pdb(&self) -> Option<&PdbAggRequest> {
+        match self {
+            Self::PdbAgg(pdb) => Some(pdb),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SqlWindowAggType {
     Count,
     CountStar,
     Sum,
@@ -38,15 +140,15 @@ pub enum SupportedWindowAggType {
     Min,
     Max,
 }
-impl SupportedWindowAggType {
+impl SqlWindowAggType {
     pub fn from_funcoid(oid: pg_sys::Oid, aggstar: bool) -> Option<Self> {
         match classify_aggregate_oid(oid.to_u32(), aggstar, false) {
-            Some(AggKind::Count) => Some(SupportedWindowAggType::Count),
-            Some(AggKind::CountStar) => Some(SupportedWindowAggType::CountStar),
-            Some(AggKind::Sum) => Some(SupportedWindowAggType::Sum),
-            Some(AggKind::Avg) => Some(SupportedWindowAggType::Avg),
-            Some(AggKind::Min) => Some(SupportedWindowAggType::Min),
-            Some(AggKind::Max) => Some(SupportedWindowAggType::Max),
+            Some(AggKind::Count) => Some(SqlWindowAggType::Count),
+            Some(AggKind::CountStar) => Some(SqlWindowAggType::CountStar),
+            Some(AggKind::Sum) => Some(SqlWindowAggType::Sum),
+            Some(AggKind::Avg) => Some(SqlWindowAggType::Avg),
+            Some(AggKind::Min) => Some(SqlWindowAggType::Min),
+            Some(AggKind::Max) => Some(SqlWindowAggType::Max),
             _ => None,
         }
     }
@@ -69,6 +171,11 @@ impl ColumnInfo {
             attno,
             field_type,
         }
+    }
+}
+impl PartialEq for ColumnInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.rti == other.rti && self.attno == other.attno
     }
 }
 
@@ -101,27 +208,16 @@ impl WindowAggId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowAgg {
-    pub agg_type: SupportedWindowAggType,
-    pub col_info: Option<ColumnInfo>,
+    pub agg_def: WindowAggDef,
     pub result_type: ResultType,
     pub id: WindowAggId,
 }
 impl WindowAgg {
-    pub fn arg_field_type(&self) -> Option<&SearchFieldType> {
-        self.col_info.as_ref().and_then(|ci| ci.field_type.as_ref())
-    }
-
     /// True when `other` computes the same aggregate over the same input
     /// column — identity (`id`) excluded. Comparing `(rti, attno)` suffices
     /// for the column: `field_type` is derived from them at extraction.
     pub fn same_spec(&self, other: &Self) -> bool {
-        self.agg_type == other.agg_type
-            && self.result_type.0 == other.result_type.0
-            && match (&self.col_info, &other.col_info) {
-                (None, None) => true,
-                (Some(a), Some(b)) => a.rti == b.rti && a.attno == b.attno,
-                _ => false,
-            }
+        self.agg_def == other.agg_def && self.result_type.0 == other.result_type.0
     }
 }
 
@@ -269,67 +365,80 @@ pub fn extract_window_agg(
         );
     }
 
-    let Some(agg_type) = SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar) else {
-        return Err("unsupported window function was provided".to_string());
-    };
-
-    let col_info = {
-        let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
-        match args.len() {
-            0 => {
-                assert!(wf.winstar); // count(*)
-                None
-            }
-            1 => {
-                let arg = args.get_ptr(0).unwrap();
-
-                let var = unwrap_to_var(arg).ok_or_else(|| {
-                    "window aggregate argument must be a direct column reference".to_string()
-                })?;
-
-                assert!(!var.is_null());
-                let var = unsafe { *var };
-
-                let Some(ff) = resolve_fast_field_from_join_sources(sources, &var) else {
-                    return Err("arguments to window aggregate must be fast fields".to_string());
-                };
-
-                // Unbounded NUMERIC has no declared scale to decode the
-                // storage encoding with; reject at planning rather than
-                // letting the DataFusion plan bake fail. COUNT never reads
-                // the value, so it stays absorbable.
-                if !matches!(
-                    agg_type,
-                    SupportedWindowAggType::Count | SupportedWindowAggType::CountStar
-                ) && ff
-                    .field_type()
-                    .is_some_and(|ft| ft.is_numeric() && ft.numeric_scale().is_none())
-                {
-                    return Err(
-                        "window aggregates on an unbounded NUMERIC column are not supported; \
-                         declare a precision and scale"
-                            .to_string(),
-                    );
-                }
-
-                Some(ColumnInfo::new(
-                    var.varno as pg_sys::Index,
-                    var.varattno,
-                    ff.field_type().cloned(),
-                ))
-            }
-            _ => {
-                return Err("multi-argument window aggregates are not supported".to_string());
+    let agg_def = match SqlWindowAggType::from_funcoid(wf.winfnoid, wf.winstar) {
+        Some(agg_type) => {
+            let ci = extract_single_arg_column_info(wf, sources, agg_type)?;
+            WindowAggDef::new_sql(agg_type, ci)
+        }
+        None => {
+            if is_agg_funcoid(wf.winfnoid.into()) {
+                WindowAggDef::try_pdb_agg_from_window_func(wf, sources)?
+            } else {
+                return Err("unsupported window function was provided".to_string());
             }
         }
     };
 
     Ok(WindowAgg {
-        agg_type,
-        col_info,
+        agg_def,
         result_type: ResultType(wf.wintype),
         id,
     })
+}
+
+fn extract_single_arg_column_info(
+    wf: &pg_sys::WindowFunc,
+    sources: &[&JoinSource],
+    agg_type: SqlWindowAggType,
+) -> Result<Option<ColumnInfo>, String> {
+    let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
+    match args.len() {
+        0 => {
+            // count(*)
+            assert!(wf.winstar);
+            assert!(matches!(agg_type, SqlWindowAggType::CountStar));
+            Ok(None)
+        }
+        1 => {
+            let arg = args.get_ptr(0).unwrap();
+
+            let var = unwrap_to_var(arg).ok_or_else(|| {
+                "window aggregate argument must be a direct column reference".to_string()
+            })?;
+
+            assert!(!var.is_null());
+            let var = unsafe { *var };
+
+            let Some(ff) = resolve_fast_field_from_join_sources(sources, &var) else {
+                return Err("arguments to window aggregate must be fast fields".to_string());
+            };
+
+            // Unbounded NUMERIC has no declared scale to decode the
+            // storage encoding with; reject at planning rather than
+            // letting the DataFusion plan bake fail. COUNT never reads
+            // the value, so it stays absorbable.
+            if !matches!(
+                agg_type,
+                SqlWindowAggType::Count | SqlWindowAggType::CountStar
+            ) && ff
+                .field_type()
+                .is_some_and(|ft| ft.is_numeric() && ft.numeric_scale().is_none())
+            {
+                return Err(
+                    "window aggregates on an unbounded NUMERIC column are not supported; \
+                         declare a precision and scale"
+                        .to_string(),
+                );
+            }
+
+            Ok(Some(ColumnInfo::new(
+                var.varno as pg_sys::Index,
+                var.varattno,
+                ff.field_type().cloned(),
+            )))
+        }
+        _ => Err("multi-argument window aggregates are not supported".to_string()),
+    }
 }
 
 pub fn is_supported_window_agg_node(node: *mut pg_sys::Node) -> bool {
@@ -338,7 +447,8 @@ pub fn is_supported_window_agg_node(node: *mut pg_sys::Node) -> bool {
     }
     if let Some(wf) = unsafe { nodecast!(WindowFunc, T_WindowFunc, node) } {
         let wf = unsafe { &*wf };
-        return SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar).is_some();
+        return SqlWindowAggType::from_funcoid(wf.winfnoid, wf.winstar).is_some()
+            || is_agg_funcoid(wf.winfnoid.into());
     }
     false
 }

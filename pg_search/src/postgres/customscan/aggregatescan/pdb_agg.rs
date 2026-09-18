@@ -207,6 +207,12 @@ pub struct PdbAggRequest {
     /// result rewrites look their fields up by path in it.
     pub agg_json: serde_json::Value,
 }
+impl PartialEq for PdbAggRequest {
+    /// Explicilty skipping agg_json
+    fn eq(&self, other: &Self) -> bool {
+        self.agg == other.agg && self.fields == other.fields && self.visibility == other.visibility
+    }
+}
 
 impl PdbAggRequest {
     pub fn lower(

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789743563178,
+  "lastUpdate": 1789755762748,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4594,6 +4594,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.193,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b4785596d67587e33bc115e873882c4478ffb5a",
+          "message": "fix: decline aggregate COALESCE defaults that the column type would change (#6383)\n\n## Ticket(s) Closed\n\n- Closes #6353\n\n## What\n\nThis PR stops the Tantivy aggregate path from using a `COALESCE` default\nthat the field's column type would change. PostgreSQL runs those\naggregates instead, window aggregates in top K queries included.\n\n## Why\n\nTantivy casts `missing` to the type of each segment's column before it\naggregates. An integer column drops the fraction, so `AVG(COALESCE(n,\n1.5))` returns `2.5` where PostgreSQL returns `2.75`. An unsigned column\nturns a negative into zero.\n\nA JSON path is the hard case. Its column type comes from the values in\neach segment, and a segment where no document has the path reads it\nthrough an empty `u64` column. So\n`SUM(COALESCE((metadata->>'rating')::bigint, -1))` adds `0` instead of\n`-1` for every row in such a segment.\n\nTwo more cases lost the default. `NaN` and `Infinity` don't survive the\nplan's JSON. A string column drops a numeric default, so\n`COUNT(COALESCE(t, '0'))` counted only the rows with a value.\n\n## How\n\nThe planner checks each `COALESCE` default against every column type the\nfield can have, and declines the pushdown when Tantivy can't apply it\nexactly. The aggregate scan and the top K window aggregates share this\ncheck. `COUNT` with a non-null default counts every row, so it runs as\n`COUNT(*)`.\n\n## Tests\n\n- `aggregate_coalesce_default_cast`\n- The churned qgen run in #6377 hit both\n`AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))`\nand `SUM(COALESCE((metadata->>'rating')::bigint, -1))` over segments\nwithout the key. qgen also gets a JSON path default that still pushes\ndown.",
+          "timestamp": "2026-09-18T11:02:07-07:00",
+          "tree_id": "a6ce6a3ae4b3c7ae61277a0443b500e8725840bd",
+          "url": "https://github.com/paradedb/paradedb/commit/0b4785596d67587e33bc115e873882c4478ffb5a"
+        },
+        "date": 1789755753224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.661470046340228,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.581,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.952,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.029,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.15,
             "unit": "ms"
           }
         ]

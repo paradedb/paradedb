@@ -42,6 +42,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
+use crate::query::pdb_query::pdb;
 use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
@@ -372,10 +373,10 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
-    /// Decides whether a segment is worth searching, one segment at a time, when that segment is
-    /// about to be searched. Nothing is decided at open, so a planning reader that only estimates
-    /// never reads statistics.
-    search_query_input: SearchQueryInput,
+    /// The original query, retained for pruning only when a predicate references a partition
+    /// column. This eligibility check needs no segment statistics. Keep the whole query so mixed
+    /// Boolean branches retain their original meaning; segment decisions still happen on demand.
+    pruning_query: Option<SearchQueryInput>,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -422,7 +423,7 @@ impl Clone for SearchIndexReader {
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
-            search_query_input: self.search_query_input.clone(),
+            pruning_query: self.pruning_query.clone(),
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
@@ -455,7 +456,7 @@ pub(crate) mod test_support {
             "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
              CREATE INDEX {name}_idx ON {name}
              USING paradedb (id, (title::pdb.unicode_words('columnar=true')))
-             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
         for batch in 0..immutable_batches {
@@ -661,7 +662,29 @@ impl SearchIndexReader {
                 schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
             )
         };
-        let candidate_query = search_query_input.clone();
+        let partition_by = index_relation.options().partition_by();
+        let mut uses_partition_field = false;
+        if !partition_by.is_empty() {
+            search_query_input.visit_ref(&mut |query| {
+                uses_partition_field |= match query {
+                    SearchQueryInput::FieldedQuery { field, query }
+                        if partition_by.contains(field) =>
+                    {
+                        let mut query = query;
+                        while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                            query = inner;
+                        }
+                        // A fielded match-all does not constrain the partition column.
+                        !matches!(query, pdb::Query::All)
+                    }
+                    SearchQueryInput::TermSet { terms } => {
+                        terms.iter().any(|term| partition_by.contains(&term.field))
+                    }
+                    _ => false,
+                };
+            });
+        }
+        let pruning_query = uses_partition_field.then(|| search_query_input.clone());
         let query = search_query_input
             .into_tantivy_query(
                 &schema,
@@ -683,7 +706,7 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             segment_stats_snapshot,
-            search_query_input: candidate_query,
+            pruning_query,
             need_scores,
             total_segment_count,
             total_docs,
@@ -774,7 +797,10 @@ impl SearchIndexReader {
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
         self.searcher.segment_reader(ord).num_docs() > 0
-            && self.pruner().can_match(ord, &self.search_query_input)
+            && self
+                .pruning_query
+                .as_ref()
+                .is_none_or(|query| self.pruner().can_match(ord, query))
     }
 
     /// Compiles a tantivy `Weight` for a tagged search query.
@@ -2167,7 +2193,6 @@ mod tests {
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
-    use crate::query::pdb_query::pdb;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
     use std::ops::Bound;
@@ -2241,7 +2266,7 @@ mod tests {
             minimum_should_match: Some(-1),
         };
         let query = SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
+            must: vec![range_query("id", 1, 10)],
             should: vec![],
             must_not: vec![inner],
             minimum_should_match: None,
@@ -2259,7 +2284,7 @@ mod tests {
         Spi::run(
             "CREATE TABLE pruning_signed_terms (id bigint PRIMARY KEY, x bigint NOT NULL);
              CREATE INDEX pruning_signed_terms_idx ON pruning_signed_terms USING paradedb (id, x)
-             WITH (background_layer_sizes = '0');
+             WITH (partition_by = 'x', background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO pruning_signed_terms VALUES (1, -1), (2, -2), (3, '-9223372036854775808');
              RESET paradedb.global_mutable_segment_rows;",
@@ -2426,7 +2451,7 @@ mod tests {
             "CREATE TABLE analyzed_pruning (id bigint PRIMARY KEY, title text NOT NULL, u uuid NOT NULL);
              CREATE INDEX analyzed_pruning_idx ON analyzed_pruning
              USING paradedb (id, (title::pdb.unicode_words('columnar=true')), u)
-             WITH (target_segment_count = 8, background_layer_sizes = '0',
+             WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0',
                    text_fields = '{\"u\": {\"tokenizer\": {\"type\": \"default\"}, \"fast\": true}}');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO analyzed_pruning
@@ -2444,6 +2469,12 @@ mod tests {
         let index_rel = PgSearchRelation::open(oid);
         let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(probe.total_segment_count(), 2);
+        let with_partition_predicate = |query| SearchQueryInput::Boolean {
+            must: vec![range_query("id", 1, 20), query],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
         // UUID keeps its search field type even though its Tantivy field is analyzed text.
         // Both tokens lie outside the whole-value bounds in at least one segment.
         for (name, token, expected) in [("title", "silver", 10), ("u", "e29b", 20)] {
@@ -2468,10 +2499,10 @@ mod tests {
             ] {
                 let reader = open_snapshot_reader(
                     &index_rel,
-                    SearchQueryInput::FieldedQuery {
+                    with_partition_predicate(SearchQueryInput::FieldedQuery {
                         field: FieldName::from(name),
                         query,
-                    },
+                    }),
                     false,
                 );
                 assert_eq!(
@@ -2480,7 +2511,11 @@ mod tests {
                     "whole-value statistics cannot reject analyzed tokens: {name}"
                 );
             }
-            let reader = open_snapshot_reader(&index_rel, term_query(name, token), false);
+            let reader = open_snapshot_reader(
+                &index_rel,
+                with_partition_predicate(term_query(name, token)),
+                false,
+            );
             assert_pruning_matches_tantivy(&reader, expected);
         }
     }
@@ -2495,7 +2530,7 @@ mod tests {
              CREATE INDEX literal_text_pruning_test_idx
              ON literal_text_pruning_test
              USING paradedb (id, (title::pdb.literal))
-             WITH (target_segment_count = 8,
+             WITH (partition_by = 'title', target_segment_count = 8,
                    background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO literal_text_pruning_test
@@ -2723,7 +2758,7 @@ mod tests {
         Spi::run("CREATE TABLE grouped_term_proofs (id bigint PRIMARY KEY, x bigint NOT NULL, title text NOT NULL);
             CREATE INDEX grouped_term_proofs_idx ON grouped_term_proofs USING paradedb
             (id, x, (title::pdb.unicode_words('columnar=true')))
-            WITH (background_layer_sizes = '0');
+            WITH (partition_by = 'id,x', background_layer_sizes = '0');
             SET paradedb.global_mutable_segment_rows = 0;
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(1, 10) g;
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
@@ -2754,7 +2789,7 @@ mod tests {
             value: PdbOwnedValue::Str("alpha".into()),
         });
         for (terms, expected, candidates, passes) in [
-            (vec![], 0, 0, 0),
+            (vec![], 0, 2, 0),
             (same_field, 1, 1, 1),
             (mixed_fields, 2, 2, 2),
             (unsupported, 20, 2, 2),
@@ -2823,7 +2858,7 @@ mod tests {
             "CREATE TABLE candidate_vectors (id bigint PRIMARY KEY, embedding vector(3));
              CREATE INDEX candidate_vectors_idx ON candidate_vectors
              USING paradedb (id, embedding vector_l2_ops)
-             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
              INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
              INSERT INTO candidate_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
@@ -2904,6 +2939,174 @@ mod tests {
                             returned_segments,
                             "statistics must name the actual returned segments, regardless of input order"
                         );
+                    }
+                }
+            }
+        }
+    }
+
+    #[pg_test]
+    fn pruning_requires_a_query_predicate_on_a_partition_column() {
+        use crate::index::segment_pruning::EMPIRICAL_READS;
+        use crate::query::TermInput;
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let boolean = |must, should, must_not| SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+            minimum_should_match: None,
+        };
+        let id = range_query("id", 1, 10);
+        let bucket = range_query("bucket", 2, 2);
+        let mut queries = vec![
+            (bucket.clone(), 10, false),
+            (boolean(vec![], vec![bucket.clone()], vec![]), 10, false),
+            (
+                boolean(vec![SearchQueryInput::All], vec![], vec![bucket.clone()]),
+                10,
+                false,
+            ),
+            (id.clone(), 10, true),
+            (
+                boolean(vec![id.clone(), bucket.clone()], vec![], vec![]),
+                0,
+                true,
+            ),
+            // The unrelated OR branch must remain in the proof: it matches the second segment.
+            (
+                boolean(vec![], vec![id.clone(), bucket.clone()], vec![]),
+                20,
+                true,
+            ),
+            (
+                boolean(vec![SearchQueryInput::All], vec![], vec![id.clone()]),
+                10,
+                true,
+            ),
+            (
+                SearchQueryInput::Boost {
+                    query: Box::new(id),
+                    factor: 2.0,
+                },
+                10,
+                true,
+            ),
+            (
+                SearchQueryInput::TermSet {
+                    terms: vec![TermInput {
+                        field: FieldName::from("id"),
+                        value: PdbOwnedValue::I64(1),
+                    }],
+                },
+                1,
+                true,
+            ),
+        ];
+        // Naming a partition field in a match-all clause cannot make its statistics useful.
+        // Exercise both score adjustments, including nesting, without changing query scores.
+        for query in [
+            pdb::Query::All,
+            pdb::Query::Term {
+                value: 11_i64.into(),
+            },
+        ] {
+            let relevant = !matches!(query, pdb::Query::All);
+            let boosted = pdb::Query::ScoreAdjusted {
+                query: Box::new(query.clone()),
+                score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
+            };
+            let constant = pdb::Query::ScoreAdjusted {
+                query: Box::new(query.clone()),
+                score: Some(pdb::ScoreAdjustStyle::Const(3.0)),
+            };
+            let nested = pdb::Query::ScoreAdjusted {
+                query: Box::new(boosted.clone()),
+                score: Some(pdb::ScoreAdjustStyle::Const(4.0)),
+            };
+            for query in [query, boosted, constant, nested] {
+                queries.push((
+                    boolean(
+                        vec![
+                            bucket.clone(),
+                            SearchQueryInput::FieldedQuery {
+                                field: FieldName::from("id"),
+                                query,
+                            },
+                        ],
+                        vec![],
+                        vec![],
+                    ),
+                    if relevant { 1 } else { 10 },
+                    relevant,
+                ));
+            }
+        }
+        for partitioned in [false, true] {
+            let name = if partitioned {
+                "pruning_relevance_partitioned"
+            } else {
+                "pruning_relevance_unpartitioned"
+            };
+            let options = if partitioned {
+                "partition_by = 'id', background_layer_sizes = '0'"
+            } else {
+                "background_layer_sizes = '0'"
+            };
+            Spi::run(&format!(
+                "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL);
+                 CREATE INDEX {name}_idx ON {name} USING paradedb (id, bucket) WITH ({options});
+                 SET paradedb.global_mutable_segment_rows = 0;
+                 INSERT INTO {name} SELECT g, 1 FROM generate_series(1, 10) g;
+                 INSERT INTO {name} SELECT g, 2 FROM generate_series(11, 20) g;
+                 RESET paradedb.global_mutable_segment_rows;"
+            ))
+            .unwrap();
+            unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+            let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}_idx'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+            let index_rel = PgSearchRelation::open(oid);
+            // Both indexes contain usable statistics. Skipping them must be the relevance gate,
+            // not a fixture without persisted components or empirical entries.
+            let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+            assert_eq!(probe.segment_ids().len(), 2);
+            for name in ["id", "bucket"] {
+                let field = probe.schema().search_field(name).unwrap();
+                for ordinal in 0..2 {
+                    assert!(
+                        probe
+                            .segment_stats_snapshot()
+                            .empirical(ordinal, &field)
+                            .is_some()
+                    );
+                }
+            }
+            for (query, expected, relevant) in &queries {
+                for scoring in [false, true] {
+                    STATS_OPENS.store(0, Relaxed);
+                    EMPIRICAL_READS.store(0, Relaxed);
+                    let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
+                    assert_eq!(
+                        STATS_OPENS.load(Relaxed),
+                        0,
+                        "eligibility must not read statistics"
+                    );
+                    let estimate = reader.segment_pruning_estimate();
+                    assert_pruning_matches_tantivy(&reader, *expected);
+                    let top = reader.search_top_k_unordered_in_segments(
+                        reader.segment_ids().into_iter(),
+                        30,
+                        0,
+                    );
+                    assert_eq!(top.count(), *expected);
+                    if partitioned && *relevant {
+                        assert_eq!(STATS_OPENS.load(Relaxed), 2);
+                        assert!(EMPIRICAL_READS.load(Relaxed) > 0);
+                    } else {
+                        assert_eq!(estimate.candidate_segments, 2);
+                        assert_eq!(STATS_OPENS.load(Relaxed), 0, "{query:?}");
+                        assert_eq!(EMPIRICAL_READS.load(Relaxed), 0, "{query:?}");
                     }
                 }
             }

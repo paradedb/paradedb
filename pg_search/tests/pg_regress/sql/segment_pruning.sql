@@ -12,7 +12,7 @@ CREATE TABLE segment_pruning_items (
 
 CREATE INDEX segment_pruning_items_idx ON segment_pruning_items
 USING paradedb (id, body, price, nullable_price)
-WITH (target_segment_count = 8, background_layer_sizes = '0');
+WITH (partition_by = 'price,nullable_price', target_segment_count = 8, background_layer_sizes = '0');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO segment_pruning_items

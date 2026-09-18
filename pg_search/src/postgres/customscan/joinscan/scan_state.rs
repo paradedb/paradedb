@@ -46,8 +46,11 @@ use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SqlWindowAggDef, SqlWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggIndex,
 };
+use crate::api::HashMap;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::apply_pdb_aggregate;
+use crate::postgres::customscan::aggregatescan::pdb_agg::{PdbAggPlan, PdbAggRequest};
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
@@ -1117,11 +1120,17 @@ fn resolve_orderby_feature(
     }
 }
 
+fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    df = apply_pdb_agg_window_functions(df, join_clause)?;
+    df = apply_sql_window_functions(df, join_clause)?;
+    Ok(df)
+}
+
 /// Compute every extracted window aggregate as a `window_agg_N` column.
 /// Driven by `join_clause.window_aggs` rather than the output projection:
 /// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
 /// entry — only a sentinel Var referencing the column by name.
-fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
     let mut window_exprs: Vec<Expr> = Vec::new();
     // Materialize only canonical entries: duplicates share the canonical
     // column, and identical window expressions in one Window node trip
@@ -1276,6 +1285,77 @@ pub fn numeric_window_field(
         }
         _ => Ok(None),
     }
+}
+
+/// Compute every `pdb.agg()` window aggregate as a `window_agg_N` column.
+///
+/// A `pdb.agg()` document nests buckets, which a window expression cannot
+/// produce, so the aggregate scan's grouping-set plan runs over a second copy
+/// of the join, its bucket rows fold into one document per entry, and that one
+/// row is cross-joined back onto the joined rows. The one row is the build side
+/// of the cross join, so each output batch broadcasts it once.
+fn apply_pdb_agg_window_functions(df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    use crate::postgres::customscan::datafusion::pdb_agg_fold::{pdb_agg_fold, requests_literal};
+    use datafusion::common::JoinType;
+
+    // Materialize only canonical entries: duplicates share the canonical
+    // column and we'd rather not compute the same aggregate twice.
+    let pdb_agg_entries_enumerated: Vec<(WindowAggIndex, &PdbAggRequest)> = join_clause
+        .window_aggs
+        .iter_indexed()
+        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
+        .filter_map(|(index, agg)| agg.agg_def.pdb().map(|request| (index, request)))
+        .collect();
+    if pdb_agg_entries_enumerated.is_empty() {
+        return Ok(df);
+    }
+
+    let agg_entries: Vec<_> = pdb_agg_entries_enumerated
+        .iter()
+        .map(|(_, req)| *req)
+        .collect();
+
+    // PdbAggPlan::build takes (target-list index, request, has FILTER). The
+    // index only identifies a FILTER, and the window path has none. The fold
+    // rebuilds this same layout from the requests. Without filters, the index
+    // is meaningless, so we use negative offsets from usize::MAX to make sure it showing up later
+    // looks odd.
+    let plan_entries: Vec<(usize, &PdbAggRequest, bool)> = agg_entries
+        .iter()
+        .enumerate()
+        .map(|(i, request)| (usize::MAX - i, *request, false))
+        .collect();
+    // no sql group keys, no standard aggs
+    let agg_plan = PdbAggPlan::build(&plan_entries, 0, 0)?;
+    let agg_df = apply_pdb_aggregate(
+        df.clone(),
+        &agg_plan,
+        vec![],
+        vec![],
+        &HashMap::default(),
+        None,
+        &join_clause.plan,
+    )?;
+
+    // Fold the bucket rows into one row with one document column per entry.
+    let requests = requests_literal(&agg_entries)?;
+    let bucket_columns: Vec<Expr> = agg_df
+        .schema()
+        .columns()
+        .into_iter()
+        .map(Expr::Column)
+        .collect();
+    let folds: Vec<Expr> = pdb_agg_entries_enumerated
+        .iter()
+        .enumerate()
+        .map(|(i, (index, _))| {
+            pdb_agg_fold(requests.clone(), i, bucket_columns.iter().cloned())
+                .alias(index.as_col_name())
+        })
+        .collect();
+    let documents = agg_df.aggregate(vec![], folds)?;
+
+    documents.join_on(df, JoinType::Inner, std::iter::empty::<Expr>())
 }
 
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column

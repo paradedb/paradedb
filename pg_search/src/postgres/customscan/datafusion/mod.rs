@@ -38,6 +38,7 @@ pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
+pub mod pdb_agg_fold;
 pub mod spill;
 pub mod timestamp_to_date;
 pub mod translator;
@@ -46,7 +47,9 @@ pub mod translator;
 /// functions are not in any session registry, so serialized plans (parallel
 /// and MPP dispatch) decode them through here.
 pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    numeric_agg::udaf_by_name(name).or_else(|| cardinality_agg::udaf_by_name(name))
+    numeric_agg::udaf_by_name(name)
+        .or_else(|| cardinality_agg::udaf_by_name(name))
+        .or_else(|| pdb_agg_fold::udaf_by_name(name))
 }
 
 /// The literal argument at `index` of a UDAF call. A per-call setting travels

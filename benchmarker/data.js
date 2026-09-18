@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789755881173,
+  "lastUpdate": 1789771036629,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4692,6 +4692,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.014,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c37dfc5cea1fbc4a3536ca72b2fd70044601775b",
+          "message": "fix: assert the join scan's heap fetch finds its tuple (#6395)\n\n## Ticket(s) Closed\n\n- Closes #6394\n\n## What\n\nThis PR makes the join scan fail loudly when its heap fetch finds no\ntuple, instead of skipping the row.\n\n#6394 asked for the opposite: null-extend an outer join's nullable side\non a miss. That's the wrong repair, so it's gone.\n\n## Why\n\nA miss is not hypothetical. The HOT redirect of #6375 was one. Put the\nHOT-updated table on the nullable side of a `LEFT JOIN`, and before\n#6378 the preserved side silently loses rows, from a table that has\nnothing wrong with it:\n\n```sql\n-- on 3e1513a4e, main right before #6378, with join_hot_update_vacuum's data\nSELECT o.id, o.note, u.id, u.name, u.rating\nFROM hot_orders o\nLEFT JOIN hot_users u ON o.user_id = u.id\nWHERE o.note @@@ 'order'\nORDER BY o.id\nLIMIT 20;\n```\n\n4 rows instead of 7. Orders 11, 12 and 14 disappear, which are the\nHOT-updated ones.\n\nNull-extending wouldn't have helped. The right answer for those rows is\nthe real user with `rating = 2`, not NULL, so blanking the nullable side\ntrades missing rows for silently wrong ones. Either way the damage lands\nfar from its cause, and it took someone noticing to find it. A miss\nmeans the two fetches don't cover some ctid shape, and that's where it\ngets fixed.\n\n## How\n\n`debug_assert!` on the fetch result, so the next uncovered shape is a\nfailure the tests and DST see. Release builds keep the old skip.\n\nThe condition moved to `fetch_tuple_direct(..) ||\nexec_if_visible(..).is_some()`, same result and same short-circuit, so\nthe direct-then-index order #6378 relies on is unchanged.\n\n## Tests\n\nRecreating #6375 (short-circuiting the `exec_if_visible` fallback) turns\nthat `LEFT JOIN` from 4 quiet rows into `ERROR: JoinScan: no heap tuple\nfor source 1 at ctid (0, 2)`. Full `pg_regress` on PG18 never fires it,\nand the failure set is a strict subset of `origin/main`'s, with the\nshared diffs byte-identical.",
+          "timestamp": "2026-09-18T15:17:17-07:00",
+          "tree_id": "3e12ce29f182f63033622944fd44c8f6b2d7278d",
+          "url": "https://github.com/paradedb/paradedb/commit/c37dfc5cea1fbc4a3536ca72b2fd70044601775b"
+        },
+        "date": 1789771032439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6964079119877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.104,
             "unit": "ms"
           }
         ]

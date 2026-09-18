@@ -733,7 +733,19 @@ impl PgGucs {
         }
     }
 
+    /// Session-level, for the two sides of a case: each one sets every GUC it cares about, so
+    /// neither inherits the other's.
     pub fn set(&self) -> String {
+        self.set_with("SET")
+    }
+
+    /// Transaction-local, for the churn: a fixture must leave nothing behind on the pooled
+    /// session for the next case to inherit.
+    pub fn set_local(&self) -> String {
+        self.set_with("SET LOCAL")
+    }
+
+    fn set_with(&self, verb: &str) -> String {
         let PgGucs {
             aggregate_custom_scan,
             custom_scan,
@@ -754,58 +766,67 @@ impl PgGucs {
         let mut gucs = String::with_capacity(512);
         writeln!(
             gucs,
-            "SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
+            "{verb} paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
         )
         .unwrap();
-        writeln!(gucs, "SET paradedb.enable_custom_scan TO {custom_scan};").unwrap();
+        writeln!(gucs, "{verb} paradedb.enable_custom_scan TO {custom_scan};").unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};"
-        )
-        .unwrap();
-        writeln!(
-            gucs,
-            "SET paradedb.enable_filter_pushdown TO {filter_pushdown};"
+            "{verb} paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_join_custom_scan TO {join_custom_scan};"
-        )
-        .unwrap();
-        writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
-        writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
-        writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
-        writeln!(
-            gucs,
-            "SET max_parallel_workers_per_gather TO {max_parallel_workers_per_gather};"
+            "{verb} paradedb.enable_filter_pushdown TO {filter_pushdown};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET parallel_leader_participation TO {parallel_leader_participation};"
+            "{verb} paradedb.enable_join_custom_scan TO {join_custom_scan};"
         )
         .unwrap();
-        writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(gucs, "{verb} enable_seqscan TO {seqscan};").unwrap();
+        writeln!(gucs, "{verb} enable_indexscan TO {indexscan};").unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_columnar_exec TO {columnar_exec};"
+            "{verb} max_parallel_workers TO {max_parallel_workers};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
+            "{verb} max_parallel_workers_per_gather TO {max_parallel_workers_per_gather};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "{verb} parallel_leader_participation TO {parallel_leader_participation};"
+        )
+        .unwrap();
+        writeln!(gucs, "{verb} paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(
+            gucs,
+            "{verb} paradedb.enable_columnar_exec TO {columnar_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
         // Pin `min_rows_per_worker` low when we want parallel workers to be used.
         if *parallel_workers {
-            writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
         } else {
-            writeln!(gucs, "RESET paradedb.min_rows_per_worker;").unwrap();
+            writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
         }
-        writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
+        writeln!(
+            gucs,
+            "{verb} statement_timeout TO {};",
+            statement_timeout_ms()
+        )
+        .unwrap();
         if force_parallel() {
-            writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
+            writeln!(gucs, "{verb} debug_parallel_query TO on;").unwrap();
         }
         gucs
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789771965290,
+  "lastUpdate": 1789772444190,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4790,6 +4790,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.155,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc4548aebc3acfbcfe15273e5c52dc6f3eae1de9",
+          "message": "test: migrate fixtures to current ParadeDB syntax (#6336)\n\nStacked on #6412, which lets `pdb.agg()` over joins read tokenizer-cast\nfields, so those tests use casts too.\n\nMigrates regression SQL, Rust integration/unit fixtures, and\nproperty-test generators to `USING paradedb`, tokenizer casts, and the\nterm/phrase/match operators. Non-text scalar filters use SQL comparisons\nand sets; scalar-only queries add `@@@ pdb.all()` to keep a ParadeDB\noperator. Parser-specific coverage uses explicit query builders.\nRegenerates regression outputs and consolidates redundant tests of\nignored non-text field options.\n\nKeeps unsupported cases isolated in explicitly named compatibility\ntests, with the limitations documented in `tests/README.md`:\n- JSON tokenizer casts change numeric JSON filter and term matching.\n- Custom stopword lists have no working tokenizer cast equivalent.\n\nPhrases with stopwords retain explicit parser functions because `###`\ncurrently loses their position gaps. Literal schema dumps now reflect\nthe current `basic`/no-fieldnorms defaults, and invalid-configuration\ntests check current cast diagnostics. Matching rows and scores are\npreserved; native aggregate tie ordering is made deterministic. Scalar\nequality removes a redundant sort in `join_semi_anti`, and cross-table\nOR scalar comparisons in `nested_loop` are evaluated at the join.\nExplicit alias/array/facet and executor-path query-builder tests retain\ntheir specialized coverage.\n\nUUID scalar-filter cases are fully enabled with the fix from #6338 on\nmain; the temporary #6337 error-based skip has been removed.\n\nLatest verification on PostgreSQL 18: all 16 query-generator tests, the\noriginal #6337 reproduction, and the seven affected regression suites\npassed. Earlier migration validation covered the full integration suite\nplus 98 targeted reruns, 24 fixture unit tests, 395 extension unit\ntests, and 367 regression cases with refreshed outputs verified.\nPre-commit formatting, clippy, workspace check, and documentation checks\npassed.\n\n---------\n\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-18T15:40:46-07:00",
+          "tree_id": "b797d45f07c9e65e50ae04ed0b89bcdb6f506f02",
+          "url": "https://github.com/paradedb/paradedb/commit/fc4548aebc3acfbcfe15273e5c52dc6f3eae1de9"
+        },
+        "date": 1789772439846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6785675523213035,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.05,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.203,
             "unit": "ms"
           }
         ]

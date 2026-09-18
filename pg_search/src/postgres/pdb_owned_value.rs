@@ -341,9 +341,8 @@ impl PdbOwnedValue {
     ///
     /// Unlike [`Self::from_scalar`], which treats `Int64` as a logical SQL value and
     /// may apply `Numeric64` scale, this path assumes values already match the field's
-    /// Arrow encoding. Dynamic filters carry such values: hash-join `InList` members are
-    /// built from join-key arrays and Top-K or aggregate bounds from scanned columns, so
-    /// `Numeric64` arrives as an already-scaled `Int64`.
+    /// Arrow encoding. Hash-join dynamic `InList` members are built from join-key
+    /// arrays, so `Numeric64` arrives as an already-scaled `Int64`.
     pub fn from_execution_scalar(
         scalar: &ScalarValue,
         field_type: &SearchFieldType,

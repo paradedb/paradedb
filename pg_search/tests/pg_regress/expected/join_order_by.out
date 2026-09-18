@@ -589,9 +589,9 @@ LIMIT 10;
      :     SegmentedTopKExec: expr=[val@1 ASC NULLS LAST], k=10, visibility_checks=[t1, t2], metrics=[rows_filtered_invisible=0, rows_input=20.00 K, rows_output=10, segments_seen=2]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, val@2, ctid_1@3], metrics=[output_rows=20.00 K, output_bytes=576.0 KB, output_batches=3, build_mem_used=546.9 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K, segments_pruned_dynamic_range=0]
+     :           PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=20.00 K, output_bytes=468.8 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K, segments_pruned_dynamic_range=0]
+     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
 (14 rows)
 
 -- Verify results
@@ -685,8 +685,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
    Relation Tree: t1 INNER t2
    Join Cond: t1.id = t2.t1_id
@@ -698,9 +698,9 @@ LIMIT 25;
      :     SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25, visibility_checks=[t1, t2], metrics=[rows_filtered_invisible=0, rows_input=20.00 K, rows_output=25, segments_seen=2]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@1)], projection=[ctid_0@0, id@1, val@2, ctid_1@3], metrics=[output_rows=20.00 K, output_bytes=769.0 KB, output_batches=3, build_mem_used=547.1 KB, array_map_created_count=1, build_input_batches=4, build_input_rows=20.00 K, input_batches=4, input_rows=20.00 K, avg_fanout=100% (20.00 K/20.00 K), probe_hit_rate=100% (20.00 K/20.00 K)]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K, segments_pruned_dynamic_range=0]
+     :           PgSearchScan: table=t1, segments=2, fetch=[val], dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[output_rows=20.00 K, output_bytes=469.0 KB, output_batches=4, rows_pruned=0, rows_scanned=20.00 K]
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K, segments_pruned_dynamic_range=0]
+     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all", metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, rows_pruned=0, rows_scanned=20.00 K]
 (14 rows)
 
 SELECT t1.id, t1.val

@@ -1167,9 +1167,13 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
-        let segments_pruned_dynamic = has_dynamic_filters.then(|| {
-            MetricBuilder::new(&self.metrics)
-                .counter("segments_pruned_dynamic_range", target_partition)
+        let segments_pruned_dynamic = (has_dynamic_filters
+            && !PgSearchRelation::open(self.indexrelid.into())
+                .options()
+                .partition_by()
+                .is_empty())
+        .then(|| {
+            MetricBuilder::new(&self.metrics).counter("segments_pruned_dynamic", target_partition)
         });
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();

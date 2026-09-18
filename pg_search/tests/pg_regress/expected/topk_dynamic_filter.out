@@ -164,7 +164,7 @@ LIMIT 3;
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1, rows_pruned=24, rows_scanned=30, segments_pruned_dynamic_range=0]
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1, rows_pruned=24, rows_scanned=30]
 (15 rows)
 
 -- =============================================================================
@@ -480,7 +480,7 @@ LIMIT 3;
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=7, output_bytes=176.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70, segments_pruned_dynamic_range=0]
+     :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70]
 (15 rows)
 
 SELECT f.id, f.title
@@ -526,7 +526,7 @@ LIMIT 3;
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10, segments_pruned_dynamic_range=0]
+     :             PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
 (15 rows)
 
 SELECT f.id, f.title

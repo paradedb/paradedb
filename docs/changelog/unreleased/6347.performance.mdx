@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Added segment pruning from persisted per-segment statistics. Execution checks the current segment against the query and execution-time dynamic filters, skips segments that cannot match, and omits an unscored range-partition filter when every surviving candidate is covered. Missing statistics retain the segment; errors reading existing statistics abort the query. `EXPLAIN (ANALYZE)` reports `range_filters_removed` and `segments_pruned_dynamic_range`.
+Queries on indexes configured with `partition_by` can use filters produced by joins and Top-K sorting to skip segments that cannot match. `EXPLAIN (ANALYZE)` reports these skips as `segments_pruned_dynamic`.

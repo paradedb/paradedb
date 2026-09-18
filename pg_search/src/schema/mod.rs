@@ -918,14 +918,6 @@ impl SearchField {
             && (!matches!(self.field_entry.field_type(), FieldType::Str(_)) || self.is_keyword())
     }
 
-    /// Whether `.stats` order the way this field's fast-field values compare. Statistics are the
-    /// min/max of the fast column itself, so every fast field qualifies, normalizer included;
-    /// values that bypass the fast column, such as query literals, need
-    /// `stats_order_matches_values` instead.
-    pub fn stats_order_matches_fast_values(&self) -> bool {
-        self.is_fast()
-    }
-
     #[allow(deprecated)]
     pub fn uses_raw_tokenizer(&self) -> bool {
         self.field_config

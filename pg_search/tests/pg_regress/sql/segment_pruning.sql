@@ -12,7 +12,7 @@ CREATE TABLE segment_pruning_items (
 
 CREATE INDEX segment_pruning_items_idx ON segment_pruning_items
 USING paradedb (id, body, price, nullable_price)
-WITH (target_segment_count = 8, background_layer_sizes = '0');
+WITH (target_segment_count = 8, background_layer_sizes = '0', partition_by = 'id');
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO segment_pruning_items
@@ -136,8 +136,8 @@ RESET paradedb.global_mutable_segment_rows;
 
 EXECUTE segment_pruning_range(401, 404);
 
--- The hash-join InList appears only after planning. Check it against each segment's statistics
--- to reject unrelated segments whether query pushdown chooses Query, Keep, or Skip.
+-- The hash-join InList appears only after planning. Check segment rejection with both
+-- the Skip and Query pushdown outcomes below.
 CREATE TABLE segment_pruning_keys (id bigint PRIMARY KEY, price bigint NOT NULL, body text NOT NULL);
 INSERT INTO segment_pruning_keys VALUES
     (104, 104, 'wanted'), (105, 105, 'wanted'), (106, 106, 'wanted');
@@ -167,7 +167,7 @@ SELECT count(*) = 0 AS skip_avoids_query_pushdown
 FROM segment_pruning_skip_plan
 WHERE line LIKE '%dynamic_filter_pushdown_%';
 
--- The skipped membership predicate still reaches the segment proof through its original
+-- The skipped membership predicate still reaches the segment check through its original
 -- dynamic source, and the join publishes it before the first probe batch. `price < 250`
 -- already proves segment 301..316 impossible statically, so the metric must report the two
 -- segments the scan really skipped, not the three-segment rejection set.
@@ -187,7 +187,7 @@ COPY (
         EXISTS (
             SELECT 1 FROM segment_pruning_skip_metric_plan
             WHERE line LIKE '%PgSearchScan: table=i, segments=3,%'
-              AND line ~ 'segments_pruned_dynamic_range=(\{0:)?2[,}\]]'
+              AND line ~ 'segments_pruned_dynamic=(\{0:)?2[,}\]]'
         )
     )
 ) TO STDOUT;
@@ -299,6 +299,12 @@ FROM segment_pruning_explain_analyze_lines(
       ORDER BY i.rank
       LIMIT 10$$
 ) AS line;
+
+-- The Top-K scan has a dynamic filter, but this index does not declare partition_by.
+COPY (
+    SELECT EXISTS (SELECT 1 FROM segment_pruning_topk_plan WHERE line LIKE '%PgSearchScan: table=i,%dynamic_filters=%')
+       AND NOT EXISTS (SELECT 1 FROM segment_pruning_topk_plan WHERE line LIKE '%segments_pruned_dynamic=%')
+) TO STDOUT;
 
 COPY (
     SELECT count(*) = 1

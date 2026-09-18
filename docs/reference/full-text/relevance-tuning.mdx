@@ -1,10 +1,12 @@
 ---
 title: Relevance Tuning
 description: Tune BM25 scoring parameters per field and adjust the weights of individual queries
-canonical: https://www.paradedb.com/docs/reference/full-text/boost
+canonical: https://www.paradedb.com/docs/reference/full-text/relevance-tuning
 ---
 
 ## BM25 Parameters
+
+<Note>Tuning BM25 parameters is not necessary for most use cases.</Note>
 
 BM25 scoring has two tunable parameters: `k1` controls how much repeated matches contribute to a score, and `b` controls how field length affects that score. Configure them per field when creating an index by passing quoted `key=value` options to the field's tokenizer type. These type modifiers are also called **typmods**.
 

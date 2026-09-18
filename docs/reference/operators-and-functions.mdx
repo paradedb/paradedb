@@ -65,12 +65,12 @@ See [Querying Vectors](/reference/vector/querying) for examples and [Tuning Reca
 
 Some operator inputs are modifier types rather than standalone predicates:
 
-| Modifier      | Used with                     | Reference                                                       |
-| ------------- | ----------------------------- | --------------------------------------------------------------- |
-| `::pdb.fuzzy` | match, term                   | [Fuzzy](/reference/full-text/fuzzy)                             |
-| `::pdb.boost` | match, term, phrase, builders | [Relevance Tuning](/reference/full-text/boost)                  |
-| `::pdb.const` | `@@@` and query builders      | [Relevance Tuning](/reference/full-text/boost#constant-scoring) |
-| `::pdb.slop`  | `###`                         | [Phrase](/reference/full-text/phrase#adding-slop)               |
+| Modifier      | Used with                     | Reference                                                                  |
+| ------------- | ----------------------------- | -------------------------------------------------------------------------- |
+| `::pdb.fuzzy` | match, term                   | [Fuzzy](/reference/full-text/fuzzy)                                        |
+| `::pdb.boost` | match, term, phrase, builders | [Relevance Tuning](/reference/full-text/relevance-tuning)                  |
+| `::pdb.const` | `@@@` and query builders      | [Relevance Tuning](/reference/full-text/relevance-tuning#constant-scoring) |
+| `::pdb.slop`  | `###`                         | [Phrase](/reference/full-text/phrase#adding-slop)                          |
 
 ## Choosing Operators or Functions
 

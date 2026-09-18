@@ -28,10 +28,13 @@ use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::vector::clusterer::VectorSampler;
 use anyhow::Result;
 use pgrx::*;
+use std::sync::Arc;
 use tantivy::Index;
 use tantivy::schema::Schema;
+use tantivy::vector::CentroidProducer;
 use tantivy::vector::VectorOptions;
 
 #[pg_guard]
@@ -55,7 +58,10 @@ pub extern "C-unwind" fn ambuild(
     }
 
     unsafe {
-        build_empty(&index_relation);
+        // Vector fields require centroids at index CREATION (tantivy's V3
+        // format trains once, index-wide), so `create_index` gets the heap
+        // to sample and train from.
+        build_empty(&index_relation, Some((&heap_relation, index_info)));
     }
 
     // ensure we only allow one ParadeDB index on this relation, accounting for a REINDEX
@@ -115,17 +121,67 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
     relation.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
     // INIT fork always needs WAL, even if the relation is unlogged
     relation.set_need_wal(true);
-    build_empty(&relation);
+    build_empty(&relation, None);
 }
 
-unsafe fn build_empty(index_relation: &PgSearchRelation) {
+unsafe fn build_empty(
+    index_relation: &PgSearchRelation,
+    heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
+) {
     unsafe {
         MetaPage::init(index_relation);
     }
 
     validate_index_config(index_relation);
 
-    create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
+    create_index(index_relation, heap_scan).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Sample the heap (one `table_index_build_scan` pass feeding a reservoir
+/// per vector field), enforce the training floor, and train the
+/// index-level centroids.
+unsafe fn train_vector_centroids(
+    heap_relation: &PgSearchRelation,
+    index_relation: &PgSearchRelation,
+    index_info: *mut pg_sys::IndexInfo,
+    mut sampler: VectorSampler,
+) -> Result<Arc<dyn CentroidProducer>> {
+    unsafe extern "C-unwind" fn sample_callback(
+        _indexrel: pg_sys::Relation,
+        _ctid: pg_sys::ItemPointer,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        _tuple_is_alive: bool,
+        state: *mut std::os::raw::c_void,
+    ) {
+        check_for_interrupts!();
+        let sampler = &mut *state.cast::<VectorSampler>();
+        sampler.offer(values, isnull);
+    }
+
+    pg_sys::table_index_build_scan(
+        heap_relation.as_ptr(),
+        index_relation.as_ptr(),
+        index_info,
+        true,
+        true,
+        Some(sample_callback),
+        std::ptr::addr_of_mut!(sampler).cast(),
+        std::ptr::null_mut(),
+    );
+
+    let floor = crate::gucs::vector_min_training_rows();
+    for (field_name, seen) in sampler.rows_seen() {
+        if seen < floor {
+            pgrx::error!(
+                "vector field '{field_name}' has {seen} vectors, but at least {floor} are \
+                required to train a vector index (see paradedb.vector_min_training_rows); create \
+                the index after loading data"
+            );
+        }
+    }
+
+    Ok(Arc::new(sampler.train(index_relation.options())?))
 }
 
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
@@ -219,7 +275,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         check_single_valued(&partition_field, "partition_by");
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
-    let schema = planned_schema(index_relation);
+    let schema = build_index_schema(index_relation);
     let partition_by = options.partition_by();
     for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
         if let Err(e) = check_fast_dims(&schema, dims, reloption) {
@@ -277,18 +333,38 @@ fn validate_field_config(
     }
 }
 
-fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
-    let schema = planned_schema(index_relation);
+fn create_index(
+    index_relation: &PgSearchRelation,
+    heap_scan: Option<(&PgSearchRelation, *mut pg_sys::IndexInfo)>,
+) -> Result<()> {
+    let schema = build_index_schema(index_relation);
+    let options = index_relation.options();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
-    let settings = index_settings(index_relation.options(), &schema);
-    let _ = Index::create(directory, schema, settings)?;
+    let settings = index_settings(options, &schema);
+    let sampler = VectorSampler::new(&schema, options);
+    let centroid_producer: Option<Arc<dyn CentroidProducer>> = if sampler.is_empty() {
+        None
+    } else {
+        let Some((heap_relation, index_info)) = heap_scan else {
+            anyhow::bail!(
+                "a vector index requires data to train its centroids at CREATE INDEX time; \
+                 empty init forks (unlogged tables) are not supported for vector fields"
+            );
+        };
+        Some(unsafe { train_vector_centroids(heap_relation, index_relation, index_info, sampler)? })
+    };
+    let mut index_builder = Index::builder().schema(schema).settings(settings);
+    if let Some(centroid_producer) = centroid_producer {
+        index_builder = index_builder
+            .centroid_producer(centroid_producer)
+            .ivf_router(crate::vector::clusterer::IVF_ROUTER)?;
+    }
+    let _ = index_builder.create(directory)?;
     Ok(())
 }
 
-/// The tantivy schema this index will carry, from its reloptions and heap attributes. The
-/// stored copy exists only after [`create_index`], so validation reads the schema from here.
-fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
+fn build_index_schema(index_relation: &PgSearchRelation) -> Schema {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
@@ -365,6 +441,32 @@ mod tests {
     use tantivy::IndexSettings;
     use tantivy::index::Order;
     use tantivy::schema::{FAST, NumericOptions, Schema};
+
+    #[pg_test]
+    fn vector_centroid_count_matches_ratio() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET LOCAL paradedb.vector_min_training_rows = 1;
+            CREATE TABLE centroid_count (id int, vec vector(3));
+            INSERT INTO centroid_count
+            SELECT i, ARRAY[sin(i * 0.01), cos(i * 0.01), sin(i * 0.17)]::vector
+            FROM generate_series(1, 4096) i;
+            CREATE INDEX centroid_count_idx ON centroid_count
+                USING paradedb (id, vec vector_cosine_ops)
+                WITH (centroid_ratio = 0.015625, target_segment_count = 4);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT count(*) > 0 AND bool_and(vector_num_centroids = 64) \
+                 FROM paradedb.vector_info('centroid_count_idx', 'vec')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+    }
 
     #[pg_test]
     fn test_build_sort_by_field_empty() {

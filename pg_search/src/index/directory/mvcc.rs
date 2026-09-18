@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use super::utils::{load_metas, save_index_files, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
@@ -23,8 +23,8 @@ use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::postgres::storage::block::{
-    FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryImmutable,
-    SegmentMetaEntryMutable, bm25_max_free_space,
+    FileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable, bm25_max_free_space,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -375,15 +375,23 @@ impl MVCCDirectory {
     }
 
     fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
+        let Some(segment_id) = path.segment_id() else {
+            let Some(entry) = self.indexrel.index_file(path)? else {
+                return Err(TantivyError::OpenDirectoryError(
+                    OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+                ));
+            };
+            return Ok(Arc::new(unsafe {
+                SegmentComponentReader::new(&self.indexrel, entry.file_entry, None)
+            }));
+        };
+
         let file_name = path
             .file_name()
             .expect("path should have a filename")
             .to_str()
             .expect("path should be valid UTF8");
         let uuid_string = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
-        let segment_id = SegmentId::from_uuid_string(uuid_string)
-            .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
-
         let Some(meta_entry) = self.all_entries.lock().get(&segment_id).cloned() else {
             return Err(TantivyError::OpenDirectoryError(
                 OpenDirectoryError::DoesNotExist(path.to_path_buf()),
@@ -621,8 +629,7 @@ impl Directory for MVCCDirectory {
         unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
     }
 
-    /// Returns a list of all segment components to Tantivy,
-    /// identified by `<uuid>.<ext>` PathBufs
+    /// Returns index-level files and segment components to Tantivy.
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
             Ok(MetaPage::open(&self.indexrel)
@@ -630,6 +637,12 @@ impl Directory for MVCCDirectory {
                 .list(None)
                 .iter()
                 .flat_map(|entry| entry.get_component_paths())
+                .chain(
+                    self.indexrel
+                        .index_files()?
+                        .into_iter()
+                        .map(|entry| PathBuf::from(entry.filename)),
+                )
                 .collect())
         }
     }
@@ -676,6 +689,17 @@ impl Directory for MVCCDirectory {
 
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+
+        if let Some(filename) = &meta.centroid_index
+            && !payload.contains_key(Path::new(filename))
+            && self.indexrel.index_file(Path::new(filename))?.is_none()
+        {
+            return Err(TantivyError::InternalError(format!(
+                "centroid index file {filename} was not written through this directory"
+            )));
+        }
+        save_index_files(&self.indexrel, payload)
+            .map_err(|err| TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {
@@ -1006,6 +1030,63 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_index_level_files_survive_reopen() {
+        use std::io::Write;
+        use tantivy::directory::TerminatingWrite;
+
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let relation_oid: pg_sys::Oid = Spi::get_one("SELECT 't_idx'::regclass::oid;")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let directory = MvccSatisfies::Snapshot.directory(&indexrel);
+        let meta = tantivy::Index::open(directory.clone())
+            .unwrap()
+            .load_metas()
+            .unwrap();
+        let files = [
+            (Path::new("dictionary.store"), b"dictionary".as_slice()),
+            (Path::new("routing.bin"), b"routing data".as_slice()),
+        ];
+
+        for (path, bytes) in files {
+            let mut writer = directory.open_write(path).unwrap();
+            writer.write_all(bytes).unwrap();
+            writer.terminate().unwrap();
+            assert_eq!(
+                directory.open_read(path).unwrap().read_bytes().unwrap(),
+                bytes
+            );
+        }
+
+        directory.save_metas(&meta, &meta, &mut ()).unwrap();
+        directory.save_metas(&meta, &meta, &mut ()).unwrap();
+
+        let reopened = MvccSatisfies::Snapshot.directory(&indexrel);
+        let managed = reopened.list_managed_files().unwrap();
+        for (path, bytes) in files {
+            assert!(managed.contains(path));
+            assert_eq!(
+                reopened.open_read(path).unwrap().read_bytes().unwrap(),
+                bytes
+            );
+        }
+        assert!(matches!(
+            reopened.open_read(Path::new("missing.bin")),
+            Err(OpenReadError::FileDoesNotExist(_))
+        ));
+        assert!(
+            tantivy::Index::open(reopened)
+                .unwrap()
+                .load_metas()
+                .unwrap()
+                .centroid_index
+                .is_none()
+        );
+    }
 
     #[pg_test]
     unsafe fn test_list_meta_entries() {

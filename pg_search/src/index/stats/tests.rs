@@ -403,7 +403,7 @@ mod tests {
                 "its own segment and the unboxed one: {chosen:?}"
             );
             everywhere = Some(match everywhere {
-                None => chosen,
+                None => chosen.into(),
                 Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
             });
         }

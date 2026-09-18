@@ -64,18 +64,71 @@ pub(crate) fn persisted_split_points(
     Ok((!points.is_empty()).then_some(points))
 }
 
-/// The current execution segments of `reader` that can hold a row of `partition`. A segment
-/// without statistics it can be ranked against is kept, as is every segment when the field's
-/// statistics do not order like the split points. The caller retains the exact range query
-/// unless separate checks guarantee every candidate belongs to the partition.
+/// How a segment's bounds relate to a partition's range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SegmentInclusion {
+    /// The segment is fully contained within the partition; no range filter needed.
+    FullyIncluded,
+    /// The segment overlaps the partition boundary; range filter must be applied.
+    PartiallyIncluded,
+    /// The segment does not intersect the partition; excluded from execution.
+    Excluded,
+}
+
+/// The classified segments for a given partition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PartitionSegments {
+    pub(crate) included: Vec<SegmentId>,
+    pub(crate) partially_included: Vec<SegmentId>,
+    pub(crate) pruned_count: usize,
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+impl PartitionSegments {
+    pub(crate) fn len(&self) -> usize {
+        self.included.len() + self.partially_included.len()
+    }
+
+    pub(crate) fn contains(&self, id: &SegmentId) -> bool {
+        self.included.contains(id) || self.partially_included.contains(id)
+    }
+}
+
+impl IntoIterator for PartitionSegments {
+    type Item = SegmentId;
+    type IntoIter = std::vec::IntoIter<SegmentId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut all = self.included;
+        all.extend(self.partially_included);
+        all.into_iter()
+    }
+}
+
+impl From<PartitionSegments> for Vec<SegmentId> {
+    fn from(segments: PartitionSegments) -> Self {
+        segments.into_iter().collect()
+    }
+}
+
+/// The segments of `reader` that can hold a row of `partition`, classified by whether they
+/// require a partition `RangeQuery` or are fully contained within the partition range.
 pub(crate) fn segments_for_partition(
     reader: &SearchIndexReader,
     boundaries: &RangePartitioning,
     partition: usize,
-) -> Vec<SegmentId> {
-    let all = || reader.segment_ids();
+) -> PartitionSegments {
+    let all = || PartitionSegments {
+        included: Vec::new(),
+        partially_included: reader.segment_ids(),
+        pruned_count: 0,
+    };
     let Some(range) = boundaries.partition_range(partition) else {
-        return all();
+        return PartitionSegments {
+            included: reader.segment_ids(),
+            partially_included: Vec::new(),
+            pruned_count: 0,
+        };
     };
     let Some(field) = reader
         .schema()
@@ -88,6 +141,5 @@ pub(crate) fn segments_for_partition(
     }
     reader
         .segment_stats_snapshot()
-        .segments_intersecting_partition(&field, &range)
-        .collect()
+        .classify_partition_segments(&field, &range)
 }

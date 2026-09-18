@@ -18,7 +18,7 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::api::HashMap;
-use crate::index::stats::{EmpiricalStats, SegmentStats};
+use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentInclusion, SegmentStats};
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
 use tantivy::index::SegmentId;
@@ -123,21 +123,25 @@ impl SegmentStatsSnapshot {
             .as_ref()
     }
 
-    /// Logical bounds describe where the build routed rows; empirical bounds describe what
-    /// the segment contains. Both must overlap when available. An absent entry still permits
-    /// the other kind of bounds to prune; an unreadable entry aborts the query.
-    fn may_intersect_partition(
+    /// Classify a segment's relation to this partition: fully included, partially included,
+    /// or excluded. Missing statistics fall back to partially included; an unreadable entry
+    /// aborts the query.
+    pub(crate) fn classify_partition_segment(
         &self,
         ord: usize,
         field: &SearchField,
         range: &PartitionRange,
-    ) -> bool {
+    ) -> SegmentInclusion {
         let Some((lower, upper)) = range.values() else {
-            return range.includes_nulls();
+            return if range.includes_nulls() {
+                SegmentInclusion::FullyIncluded
+            } else {
+                SegmentInclusion::Excluded
+            };
         };
         let segment_id = self.segments[ord].id;
         let Some(stats) = self.stats(ord) else {
-            return true;
+            return SegmentInclusion::PartiallyIncluded;
         };
         let empirical = self.empirical(ord, field);
         let logical = stats.logical(field.field());
@@ -154,23 +158,80 @@ impl SegmentStatsSnapshot {
             )
         });
         match (logical, empirical) {
-            (None, None) => true,
+            (None, None) => SegmentInclusion::PartiallyIncluded,
             (Some(bounds), None) => {
-                (range.includes_nulls() && bounds.may_hold_nulls())
-                    || bounds.intersects(lower, upper)
+                let intersects = (range.includes_nulls() && bounds.may_hold_nulls())
+                    || bounds.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls() || !bounds.may_hold_nulls())
+                    && bounds.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
+                }
             }
             (None, Some(empirical)) => {
-                (range.includes_nulls() && empirical.nullable) || empirical.intersects(lower, upper)
+                let intersects = (range.includes_nulls() && empirical.nullable)
+                    || empirical.intersects(lower, upper);
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else if (range.includes_nulls() || !empirical.nullable)
+                    && empirical.is_subset_of(lower, upper)
+                {
+                    SegmentInclusion::FullyIncluded
+                } else {
+                    SegmentInclusion::PartiallyIncluded
+                }
             }
             (Some(bounds), Some(empirical)) => {
-                (range.includes_nulls() && empirical.nullable)
-                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper))
+                let intersects = (range.includes_nulls() && empirical.nullable)
+                    || (bounds.intersects(lower, upper) && empirical.intersects(lower, upper));
+                if !intersects {
+                    SegmentInclusion::Excluded
+                } else {
+                    let logical_subset = (range.includes_nulls() || !bounds.may_hold_nulls())
+                        && bounds.is_subset_of(lower, upper);
+                    let empirical_subset = (range.includes_nulls() || !empirical.nullable)
+                        && empirical.is_subset_of(lower, upper);
+                    if logical_subset || empirical_subset {
+                        SegmentInclusion::FullyIncluded
+                    } else {
+                        SegmentInclusion::PartiallyIncluded
+                    }
+                }
             }
+        }
+    }
+
+    /// Classify all execution segments for this partition into included, partially included,
+    /// and pruned lists.
+    pub(crate) fn classify_partition_segments(
+        &self,
+        field: &SearchField,
+        range: &PartitionRange,
+    ) -> PartitionSegments {
+        let mut included = Vec::new();
+        let mut partially_included = Vec::new();
+        let mut pruned_count = 0;
+        for (ord, segment) in self.segments.iter().enumerate() {
+            match self.classify_partition_segment(ord, field, range) {
+                SegmentInclusion::FullyIncluded => included.push(segment.id),
+                SegmentInclusion::PartiallyIncluded => partially_included.push(segment.id),
+                SegmentInclusion::Excluded => pruned_count += 1,
+            }
+        }
+        PartitionSegments {
+            included,
+            partially_included,
+            pruned_count,
         }
     }
 
     /// Yield execution segment IDs whose available bounds overlap this partition, in searcher
     /// order. Missing statistics retain the segment; a read or decode error aborts the query.
+    #[cfg(any(test, feature = "pg_test"))]
     pub(crate) fn segments_intersecting_partition<'a>(
         &'a self,
         field: &'a SearchField,
@@ -179,7 +240,9 @@ impl SegmentStatsSnapshot {
         self.segments
             .iter()
             .enumerate()
-            .filter(move |(ord, _)| self.may_intersect_partition(*ord, field, range))
+            .filter(move |(ord, _)| {
+                self.classify_partition_segment(*ord, field, range) != SegmentInclusion::Excluded
+            })
             .map(|(_, segment)| segment.id)
     }
 }

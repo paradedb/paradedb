@@ -34,7 +34,7 @@ SELECT 1 + ((g * 7919) % 20000), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE
 FROM generate_series(1, 20000) g;
 
 CREATE INDEX sp_users_idx ON sp_users USING paradedb (id, (display_name::pdb.literal)) WITH (partition_by = 'id', target_segment_count = 4);
-CREATE INDEX sp_posts_idx ON sp_posts USING paradedb (id, owner_user_id, title) WITH (partition_by = 'owner_user_id', target_segment_count = 4);
+CREATE INDEX sp_posts_idx ON sp_posts USING paradedb (id, owner_user_id, title) WITH (partition_by = 'owner_user_id', target_segment_count = 6);
 
 SELECT relname, count(*) AS segments
 FROM (SELECT 'sp_users_idx' AS relname FROM paradedb.index_info('sp_users_idx')
@@ -113,9 +113,10 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
 
--- Result parity alone would pass if PgSearchScan always added the partition filter. This
--- metric counts predicates omitted at attachment because every selected segment is covered
--- and scores are not needed; it does not count per-segment scorer substitutions.
+-- In a co-partitioned join where the two sides have different segment counts (4 vs 6),
+-- segments can be fully included (RangeQuery omitted), pruned upfront, or partially
+-- included (RangeQuery retained on boundary-straddling segments).
+-- The active optimizations (pruning and filter omission) are recorded as metrics.
 CREATE TEMP TABLE sp_range_filter_plan AS
 SELECT line
 FROM sp_explain_analyze_lines(
@@ -126,13 +127,18 @@ FROM sp_explain_analyze_lines(
 
 COPY (
     SELECT format(
-        'range_filter_removed_in_execution=%s',
+        'has_segments_included=%s, has_segments_pruned=%s',
         EXISTS (
             SELECT 1 FROM sp_range_filter_plan
-            WHERE line ~ 'range_filters_removed=([{][0-9]+:)?[1-9][0-9]*'
+            WHERE line ~ 'segments_included=([{][0-9]+:)?[1-9][0-9]*'
+        ),
+        EXISTS (
+            SELECT 1 FROM sp_range_filter_plan
+            WHERE line ~ 'segments_pruned=([{][0-9]+:)?[1-9][0-9]*'
         )
     )
 ) TO STDOUT;
+DROP TABLE sp_range_filter_plan;
 
 -- =====================================================================
 -- One side's split points are enough. `sp_votes` is indexed empty and

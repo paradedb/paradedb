@@ -21,7 +21,7 @@ use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
@@ -385,6 +385,8 @@ pub struct SearchIndexReader {
     /// [`SegmentView`].
     directory: MVCCDirectory,
 
+    pruning_estimate: OnceLock<SegmentPruningEstimate>,
+
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
@@ -429,6 +431,7 @@ impl Clone for SearchIndexReader {
             total_docs: self.total_docs,
             index_created_by_version: self.index_created_by_version,
             directory: self.directory.clone(),
+            pruning_estimate: self.pruning_estimate.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -713,6 +716,7 @@ impl SearchIndexReader {
             index_created_by_version,
             directory,
             _cleanup_lock: cleanup_lock,
+            pruning_estimate: OnceLock::new(),
         })
     }
 
@@ -756,6 +760,7 @@ impl SearchIndexReader {
             (tantivy::query::Occur::Must, existing),
             (tantivy::query::Occur::Must, additional_query),
         ]));
+        clone.pruning_estimate = OnceLock::new();
         clone
     }
 
@@ -763,28 +768,6 @@ impl SearchIndexReader {
     /// Params, and it is kept as is.
     pub(crate) fn and_query_input(&self, query: &SearchQueryInput) -> Self {
         self.and_query(self.make_query(query, None))
-    }
-
-    /// Whether a scan restricted to `segment_ids` can omit `query`: every segment in the list
-    /// that this reader would search is fully covered by it, and scores are not needed, since
-    /// omitting a query drops its constant score contribution.
-    pub(crate) fn partition_filter_is_redundant(
-        &self,
-        query: &SearchQueryInput,
-        segment_ids: &[SegmentId],
-    ) -> bool {
-        let pruner = self.pruner();
-        let mut searched = segment_ids
-            .iter()
-            .map(|id| {
-                self.segment_ordinal_by_id(id)
-                    .unwrap_or_else(|| panic!("segment {id} should exist"))
-            })
-            .filter(|ord| self.is_candidate(*ord))
-            .peekable();
-        !self.need_scores
-            && searched.peek().is_some()
-            && searched.all(|ord| pruner.matches_all(ord, query))
     }
 
     fn pruner(&self) -> SegmentPruner<'_> {
@@ -955,15 +938,30 @@ impl SearchIndexReader {
 
     /// Counts exactly the segments a search of this reader would open.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
-        let (candidate_segments, candidate_docs) = self
-            .candidate_segment_readers()
-            .fold((0, 0), |(count, docs), (_, reader)| {
-                (count + 1, docs + u64::from(reader.num_docs()))
-            });
-        SegmentPruningEstimate {
-            candidate_segments,
-            candidate_docs,
-        }
+        *self.pruning_estimate.get_or_init(|| {
+            if self.pruning_query.is_none() {
+                let candidate_segments = self
+                    .searcher
+                    .segment_readers()
+                    .iter()
+                    .filter(|r| r.num_docs() > 0)
+                    .count();
+                SegmentPruningEstimate {
+                    candidate_segments,
+                    candidate_docs: self.total_docs,
+                }
+            } else {
+                let (candidate_segments, candidate_docs) = self
+                    .candidate_segment_readers()
+                    .fold((0, 0), |(count, docs), (_, reader)| {
+                        (count + 1, docs + u64::from(reader.num_docs()))
+                    });
+                SegmentPruningEstimate {
+                    candidate_segments,
+                    candidate_docs,
+                }
+            }
+        })
     }
 
     pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
@@ -1058,6 +1056,49 @@ impl SearchIndexReader {
             })
             .collect();
 
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            iterators,
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
+    /// Search specific index segments with different queries for fully included vs partially included segments.
+    ///
+    /// Fully included segments evaluate against `self` (the unconstrained base query),
+    /// while partially included segments evaluate against `constrained_reader` (which includes the partition RangeQuery).
+    pub fn search_segments_with_range_filter(
+        &self,
+        included: impl Iterator<Item = SegmentId>,
+        constrained_reader: &SearchIndexReader,
+        partially_included: impl Iterator<Item = SegmentId>,
+    ) -> MultiSegmentSearchResults {
+        let unconstrained_weight = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            self.need_scores,
+            self.searcher.clone(),
+        ));
+        let constrained_weight = Arc::new(LazyWeight::new(
+            constrained_reader.query().box_clone(),
+            constrained_reader.need_scores,
+            constrained_reader.searcher.clone(),
+        ));
+        let mut iterators = Vec::new();
+        for (segment_ord, segment_reader) in self.segment_readers_in_segments(included) {
+            iterators.push(ScorerIter::new(
+                DeferredScorer::new(Arc::clone(&unconstrained_weight), segment_reader.clone()),
+                segment_ord,
+                segment_reader.clone(),
+            ));
+        }
+        for (segment_ord, segment_reader) in self.segment_readers_in_segments(partially_included) {
+            iterators.push(ScorerIter::new(
+                DeferredScorer::new(Arc::clone(&constrained_weight), segment_reader.clone()),
+                segment_ord,
+                segment_reader.clone(),
+            ));
+        }
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
             iterators,
@@ -2561,41 +2602,40 @@ mod tests {
 
         let check_filter = |reader: &SearchIndexReader,
                             bounds: &SearchQueryInput,
-                            segment_ids: &[SegmentId],
+                            partitioning: &RangePartitioning,
+                            partition: usize,
                             expected: usize,
                             covered: bool| {
-            let redundant = reader.partition_filter_is_redundant(bounds, segment_ids);
-            assert_eq!(redundant, covered && !reader.need_scores(), "{bounds:?}");
-            let scan = if redundant {
-                reader.clone()
-            } else {
-                reader.and_query_input(bounds)
-            };
+            let partition_segments = segments_for_partition(reader, partitioning, partition);
             assert_eq!(
-                scan.search_segments(segment_ids.iter().copied()).count(),
-                expected,
+                partition_segments.partially_included.is_empty(),
+                covered,
                 "{bounds:?}"
             );
+            let constrained_reader = reader.and_query_input(bounds);
+            let scan = reader.search_segments_with_range_filter(
+                partition_segments.included.iter().copied(),
+                &constrained_reader,
+                partition_segments.partially_included.iter().copied(),
+            );
+            assert_eq!(scan.count(), expected, "{bounds:?}");
             // The exact query over every segment is the oracle.
             let exact = reader.and_query_input(bounds);
             assert_eq!(exact.search().count(), expected, "{bounds:?}");
             if reader.need_scores() {
-                let top_docs = |reader: &SearchIndexReader, ids: Vec<SegmentId>| {
-                    let order = [OrderByInfo {
-                        feature: OrderByFeature::Score { rti: 0 },
-                        direction: SortDirection::DescNullsFirst,
-                    }];
-                    reader
-                        .search_top_k_in_segments(ids.into_iter(), &order, 20, 0, None, None)
-                        .results
-                        .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
-                        .collect::<BTreeMap<_, _>>()
-                };
-                assert_eq!(
-                    top_docs(&scan, segment_ids.to_vec()),
-                    top_docs(&exact, reader.segment_ids()),
-                    "{bounds:?}"
-                );
+                let scan_results = reader
+                    .search_segments_with_range_filter(
+                        partition_segments.included.iter().copied(),
+                        &constrained_reader,
+                        partition_segments.partially_included.iter().copied(),
+                    )
+                    .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
+                    .collect::<BTreeMap<_, _>>();
+                let exact_results = exact
+                    .search()
+                    .map(|(score, doc)| ((doc.segment_ord, doc.doc_id), score.bm25))
+                    .collect::<BTreeMap<_, _>>();
+                assert_eq!(scan_results, exact_results, "{bounds:?}");
             }
         };
 
@@ -2614,9 +2654,15 @@ mod tests {
                     partition_by: FieldName::from("id"),
                     split_points: split_points.into_iter().map(PdbOwnedValue::I64).collect(),
                 };
-                let segment_ids = segments_for_partition(&reader, &partitioning, partition);
                 let bounds = partitioning.partition_bounds(partition);
-                check_filter(&reader, &bounds, &segment_ids, expected, covered);
+                check_filter(
+                    &reader,
+                    &bounds,
+                    &partitioning,
+                    partition,
+                    expected,
+                    covered,
+                );
             }
         }
 
@@ -2648,7 +2694,20 @@ mod tests {
                 .nullable
         );
         let bounds = range_query("value", 10, 20);
-        check_filter(&reader, &bounds, &reader.segment_ids(), 2, false);
+        let partitioning = RangePartitioning {
+            partition_by: FieldName::from("value"),
+            split_points: vec![PdbOwnedValue::I64(21)],
+        };
+        let partition_segments = segments_for_partition(&reader, &partitioning, 0);
+        assert!(!partition_segments.partially_included.is_empty());
+        assert!(partition_segments.included.is_empty());
+        let constrained_reader = reader.and_query_input(&bounds);
+        let scan = reader.search_segments_with_range_filter(
+            partition_segments.included.into_iter(),
+            &constrained_reader,
+            partition_segments.partially_included.into_iter(),
+        );
+        assert_eq!(scan.count(), 2);
     }
 
     #[pg_test]
@@ -3315,8 +3374,21 @@ mod tests {
         assert_eq!(impossible.segment_pruning_estimate().candidate_segments, 1);
         assert_pruning_matches_tantivy(&impossible, 0);
         // The immutable segment fits this range; the mutable one cannot prove coverage.
+        use crate::index::stats::segments_for_partition;
+        let partitioning = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(11)],
+        };
+        let partition_segments = segments_for_partition(&reader, &partitioning, 0);
+        assert!(!partition_segments.partially_included.is_empty());
         let bounds = range_query("id", 1, 10);
-        assert!(!reader.partition_filter_is_redundant(&bounds, &reader.segment_ids()));
+        let constrained_reader = reader.and_query_input(&bounds);
+        let results = reader.search_segments_with_range_filter(
+            partition_segments.included.into_iter(),
+            &constrained_reader,
+            partition_segments.partially_included.into_iter(),
+        );
+        assert_eq!(results.count(), 10);
         assert_pruning_matches_tantivy(&reader.and_query_input(&bounds), 10);
     }
 

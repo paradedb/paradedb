@@ -1200,21 +1200,27 @@ impl ExecutionPlan for PgSearchScanPlan {
             };
 
             let search_results = if let Some(range_boundaries) = &range_boundaries {
-                // Range partitioned mode has no shared scan state: each partition searches the
-                // segments its bounds can reach, per their `.stats`. The partition query is
-                // omitted only when every segment this scan will search is covered by it;
-                // otherwise it still enforces exact row ownership.
-                let segment_ids =
+                // In range-partitioned mode, each partition searches segments classified by
+                // their bounds: fully included segments omit the partition RangeQuery,
+                // while partially included segments retain it.
+                let partition_segments =
                     segments_for_partition(&reader, range_boundaries, target_partition);
-                let bounds = range_boundaries.partition_bounds(target_partition);
-                if reader.partition_filter_is_redundant(&bounds, &segment_ids) {
-                    MetricBuilder::new(&plan_metrics)
-                        .counter("range_filters_removed", target_partition)
-                        .add(1);
-                } else {
-                    reader = reader.and_query_input(&bounds);
-                }
-                reader.search_segments(segment_ids.into_iter())
+
+                MetricBuilder::new(&plan_metrics)
+                    .counter("segments_included", target_partition)
+                    .add(partition_segments.included.len());
+                MetricBuilder::new(&plan_metrics)
+                    .counter("segments_pruned", target_partition)
+                    .add(partition_segments.pruned_count);
+
+                let constrained_reader =
+                    reader.and_query_input(&range_boundaries.partition_bounds(target_partition));
+
+                reader.search_segments_with_range_filter(
+                    partition_segments.included.into_iter(),
+                    &constrained_reader,
+                    partition_segments.partially_included.into_iter(),
+                )
             } else {
                 // Standard mode delegates to the parallel state if present
                 match parallel_state {

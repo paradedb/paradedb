@@ -24,7 +24,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
-use crate::schema::SearchFieldType;
+use crate::schema::{SearchFieldType, is_columnar_json_path};
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -38,7 +38,6 @@ use serde::{Deserialize, Serialize};
 use tantivy::SegmentOrdinal;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
-use tantivy::schema::Type;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, Searcher};
 
@@ -141,21 +140,12 @@ impl FFHelper {
                 | WhichFastField::Deferred(name, _) => {
                     let ffr = self.fast_fields(segment_ord);
                     FFType::try_new(ffr, name).unwrap_or_else(|| {
-                        // A segment only writes the columns its documents have values for, so a
-                        // JSON path none of them carry has no column there. That reads as NULL,
-                        // like the missing key does in Postgres. Any other absence is a bug, so
-                        // a declared field keeps the error: it gets its column in every segment.
-                        let schema = self.searcher().schema();
-                        let is_json_path = schema.find_field(name).is_some_and(|(field, path)| {
-                            let entry = schema.get_field_entry(field);
-                            entry.is_fast()
-                                && entry.field_type().value_type() == Type::Json
-                                && !path.is_empty()
-                        });
+                        // A JSON path that no document in this segment carries reads as NULL,
+                        // like the missing key does in Postgres. Any other absence is a bug.
                         let has_no_column = ffr
                             .dynamic_column_handles(name)
                             .is_ok_and(|handles| handles.is_empty());
-                        if is_json_path && has_no_column {
+                        if has_no_column && is_columnar_json_path(self.searcher().schema(), name) {
                             FFType::Junk
                         } else {
                             missing_columnar_field(name)

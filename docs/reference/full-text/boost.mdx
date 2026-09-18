@@ -1,13 +1,66 @@
 ---
 title: Relevance Tuning
-description: Tune the BM25 score by adjusting the weights of individual queries
+description: Tune BM25 scoring parameters per field and adjust the weights of individual queries
 canonical: https://www.paradedb.com/docs/reference/full-text/boost
 ---
 
+## BM25 Parameters
+
+BM25 scoring has two tunable parameters: `k1` controls how much repeated matches contribute to a score, and `b` controls how field length affects that score. Configure them per field when creating an index by passing quoted `key=value` options to the field's tokenizer type. These type modifiers are also called **typmods**.
+
+| Parameter | Default | Accepted Range          | Effect                                                                                                                                                                                                                                                                            |
+| --------- | ------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation: how quickly additional occurrences of a query term stop adding much to the score. Lower values saturate sooner; higher values give repeated occurrences more weight. At `0`, term frequency and field length no longer affect a term's score. |
+| `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the average length of that field. Higher values penalize longer fields more strongly. At `0`, length normalization is disabled; at `1`, full length normalization is applied.                                                     |
+
+For example, this index uses different scoring parameters for a short title and a longer body:
+
+```sql
+CREATE TABLE articles (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  title TEXT,
+  body TEXT
+);
+
+CREATE INDEX articles_idx ON articles
+USING paradedb (
+  id,
+  (title::pdb.simple('k1=0.9', 'b=0.3')),
+  (body::pdb.simple('k1=1.5', 'b=0.75'))
+)
+WITH (key_field='id');
+```
+
+You can set either parameter independently; an omitted parameter keeps its default. The options work with other [tokenizers](/reference/tokenizers/overview) and can be combined with [token filters](/reference/token-filters/overview), such as `pdb.simple('stemmer=english', 'k1=1.5', 'b=0.75')`.
+
+Queries use the parameters stored in the index without repeating the typmods:
+
+```sql
+SELECT id, title, pdb.score(id)
+FROM articles
+WHERE title ||| 'search' OR body ||| 'search'
+ORDER BY pdb.score(id) DESC, id
+LIMIT 10;
+```
+
+### Choosing Values
+
+Start with the defaults and evaluate changes against representative queries and relevance judgments. As an initial tuning range, try `k1` between `0.5` and `2.0` and `b` between `0.3` and `0.9`. These are starting points for experiments, not limits or guarantees of better relevance.
+
+- **Short titles or labels:** Try a lower `k1` when repeating a word should add little relevance. A lower `b` can also prevent slightly longer titles from being penalized too much.
+- **Long articles or descriptions:** Try a higher `k1` when repeated mentions are a useful relevance signal. Increase `b` when long documents rank highly mainly because they contain more words.
+- **Fields whose length should not matter:** Set `b=0` when additional text should not reduce a match's score.
+- **Term presence should matter, but repetition should not:** Set `k1=0`. For a single-term query on that field, all matching documents receive the same term score, based on inverse document frequency.
+
+<Note>
+  These parameters are part of the index definition. To change them on an
+  existing index, drop and recreate the index with the new typmods. `REINDEX`
+  rebuilds the existing definition and does not change the parameters.
+</Note>
+
 ## Boosting
 
-ParadeDB offers several ways to tune a document's [BM25 score](/reference/full-text/score).
-The first is boosting, which increases or decreases the impact of a specific query by multiplying its contribution to the overall BM25 score.
+Boosting increases or decreases the impact of a specific query by multiplying its contribution to the overall [BM25 score](/reference/full-text/score).
 
 To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
 

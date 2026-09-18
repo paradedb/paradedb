@@ -359,6 +359,10 @@ The `key_field` must:
 2. Be the first column in the column list.
 3. Be untokenized, if it is a text field.
 
+## BM25 Scoring Parameters
+
+Tokenizer types also accept per-field `k1` and `b` options to control BM25 scoring. See [BM25 Parameters](/reference/full-text/boost#bm25-parameters) for defaults, syntax, and tuning guidance.
+
 ## Token Filters
 
 After tokens are created, [token filters](/reference/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.

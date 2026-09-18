@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789771036629,
+  "lastUpdate": 1789771965290,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4741,6 +4741,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.104,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb36025ad32314895030d784a15e1833bf9e9b41",
+          "message": "fix: read tokenizer-cast fields in `pdb.agg()` over joins (#6412)\n\n## Ticket(s) Closed\n\n- Closes #6411\n\n## What\n\nThis PR lets `pdb.agg()` read fields indexed through a bare tokenizer\ncast, like `(name::pdb.literal)`, over joins.\n\nSuch a spec failed with `Field 'name' is an expression index, which\ncannot be read back as a column`, while a SQL `GROUP BY` on the same\nfield ran fine. On a single table, a cast key next to a NUMERIC metric\nfell back to Tantivy and failed on the NUMERIC field instead.\n\n## Why\n\nA bare cast keeps the column's value, so the field can be read back as\nthat column. `resolve_fast_field` and `more_like_this` already treat it\nthat way, but the `pdb.agg()` field resolver turned down every\nexpression field. It also keeps #6336 from moving the `pdb.agg()` join\ntests off the legacy `text_fields` config.\n\n## How\n\n- `FieldSource::heap_attno` gives the heap column a field holds: the\ncolumn itself, or the `Var` under a tokenizer cast.\n`resolve_index_field_by_name` and `more_like_this` both use it.\n- Computed expressions like `upper(name)::pdb.literal` still decline\nover a join, and the limitations page now says so.\n\n## Tests\n\n`pdb_agg_tokenizer_cast`",
+          "timestamp": "2026-09-18T15:32:40-07:00",
+          "tree_id": "e258bf3a936aa62acdfe996841cff5a36d9287a5",
+          "url": "https://github.com/paradedb/paradedb/commit/cb36025ad32314895030d784a15e1833bf9e9b41"
+        },
+        "date": 1789771959161,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.652251596778685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.583,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.155,
             "unit": "ms"
           }
         ]

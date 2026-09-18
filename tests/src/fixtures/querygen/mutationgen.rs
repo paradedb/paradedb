@@ -165,11 +165,12 @@ pub struct Session {
 
 impl Session {
     /// The churn is a fixture, not a subject: its DML runs on plain Postgres paths, whatever the
-    /// previous case left the custom-scan GUCs at. Seeded once per phase, so batches split at a
-    /// `VACUUM` go on drawing from the same stream.
+    /// previous case left the custom-scan GUCs at, and `SET LOCAL` keeps those settings off the
+    /// pooled session. The seed is drawn once per phase, so batches split at a `VACUUM` go on
+    /// drawing from the same stream.
     fn session_statements(&self) -> Vec<String> {
         vec![
-            PgGucs::pg_search_disabled().set(),
+            PgGucs::pg_search_disabled().set_local(),
             format!("SELECT setseed({});", self.seed),
         ]
     }

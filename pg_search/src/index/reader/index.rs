@@ -238,6 +238,8 @@ pub struct MultiSegmentSearchResults {
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
+    /// Segments this iterator actually discarded after a dynamic check, counted once at removal.
+    runtime_skipped: usize,
 }
 
 /// A score which sorts in ascending direction.
@@ -263,13 +265,31 @@ impl Iterator for TopKSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
-        if self.iterators.is_empty()
-            && let Some(ref mut lazy) = self.lazy_iterators
-            && let Some(next_iter) = lazy.next()
-        {
-            self.iterators.push(next_iter);
+        self.current_segment_matching(|_| true)
+    }
+
+    /// Check before opening a deferred scorer or resuming an active segment. Rejected segments
+    /// are removed permanently; callers must provide predicates that only tighten during a scan.
+    pub(crate) fn current_segment_matching(
+        &mut self,
+        mut can_match: impl FnMut(SegmentOrdinal) -> bool,
+    ) -> Option<&mut ScorerIter> {
+        loop {
+            if let Some(current) = self.iterators.last() {
+                if can_match(current.segment_ord()) {
+                    return self.iterators.last_mut();
+                }
+                // A scorer that already returned its last document leaves nothing to skip.
+                let exhausted = current.is_exhausted();
+                self.iterators.pop();
+                if !exhausted {
+                    self.runtime_skipped += 1;
+                }
+            } else {
+                let next = self.lazy_iterators.as_mut()?.next()?;
+                self.iterators.push(next);
+            }
         }
-        self.iterators.last_mut()
     }
 
     pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
@@ -278,6 +298,11 @@ impl MultiSegmentSearchResults {
 
     pub fn segment_ids(&self) -> Vec<SegmentId> {
         self.iterators.iter().map(|it| it.segment_id()).collect()
+    }
+
+    /// Segments skipped because of runtime rejection since the last call.
+    pub(crate) fn take_runtime_skipped(&mut self) -> usize {
+        std::mem::take(&mut self.runtime_skipped)
     }
 
     /// Returns the total estimated number of documents across all segments in these results.
@@ -313,6 +338,7 @@ impl MultiSegmentSearchResults {
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            runtime_skipped: 0,
         }
     }
 
@@ -452,9 +478,9 @@ pub(crate) mod test_support {
         with_mutable: bool,
     ) -> (PgSearchRelation, pgrx::pg_sys::Oid) {
         let mut sql = format!(
-            "CREATE TABLE {name} (id bigint PRIMARY KEY, title text NOT NULL);
+            "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL, title text NOT NULL);
              CREATE INDEX {name}_idx ON {name}
-             USING paradedb (id, (title::pdb.unicode_words('columnar=true')))
+             USING paradedb (id, bucket, (title::pdb.unicode_words('columnar=true')))
              WITH (target_segment_count = 8, background_layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;"
         );
@@ -466,14 +492,14 @@ pub(crate) mod test_support {
                 "quiet river"
             };
             sql.push_str(&format!(
-                "INSERT INTO {name} SELECT g, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
+                "INSERT INTO {name} SELECT g, g * 10, '{words} ' || g FROM generate_series({lo}, {hi}) g;"
             ));
         }
         if with_mutable {
             let lo = immutable_batches * 10 + 1;
             sql.push_str(&format!(
                 "SET paradedb.global_mutable_segment_rows = 10000;
-                 INSERT INTO {name} SELECT g, 'mutable ' || g FROM generate_series({lo}, {}) g;",
+                 INSERT INTO {name} SELECT g, g * 10, 'mutable ' || g FROM generate_series({lo}, {}) g;",
                 lo + 4
             ));
         }
@@ -1031,6 +1057,7 @@ impl SearchIndexReader {
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            runtime_skipped: 0,
         }
     }
 
@@ -1118,6 +1145,7 @@ impl SearchIndexReader {
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
+            runtime_skipped: 0,
         }
     }
 
@@ -3147,5 +3175,39 @@ mod tests {
             "execution after the merge must resolve the new segment generation"
         );
         Spi::run("DEALLOCATE merge_freshness_query; RESET plan_cache_mode;").unwrap();
+    }
+
+    /// A batch ending exactly on the batch-size boundary leaves an exhausted scorer installed.
+    /// Rejecting it later removes it, but there was nothing left to skip.
+    #[pg_test]
+    fn an_exhausted_segment_is_not_counted_as_skipped() {
+        let (index_rel, _heap) = segmented_index_fixture("exhausted_not_skipped", 2, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut results = reader.search();
+
+        // Take exactly the segment's ten documents, as a full batch does: the scorer advances
+        // past its last document and its iterator stays installed.
+        let active = results.current_segment_matching(|_| true).unwrap();
+        let exhausted = active.segment_ord();
+        assert_eq!(active.take(10).count(), 10);
+
+        assert!(
+            results
+                .current_segment_matching(|ord| ord != exhausted)
+                .is_some(),
+            "the other segment still supplies documents"
+        );
+        assert_eq!(
+            results.take_runtime_skipped(),
+            0,
+            "a segment that already returned its last document has nothing left to skip"
+        );
+
+        assert!(results.current_segment_matching(|_| false).is_none());
+        assert_eq!(
+            results.take_runtime_skipped(),
+            1,
+            "a segment with documents remaining is counted once"
+        );
     }
 }

@@ -24,7 +24,7 @@
 //! to push filters down into scan nodes so that rows failing the filter are pruned
 //! before column materialization.
 //!
-//! There are two distinct mechanisms for dynamic filter pushdown:
+//! There are three distinct mechanisms for dynamic filter pushdown:
 //!
 //! 1. **Query-Time Pushdown (Inverted Index):** Filters that are known before the scan
 //!    begins (such as `InList` predicates from a completed HashJoin build-side) are
@@ -33,7 +33,12 @@
 //!    search query. This filters documents *while* executing the search, leveraging
 //!    the inverted index for maximum performance.
 //!
-//! 2. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
+//! 2. **Segment-Statistics Pushdown:** Before a segment supplies a batch, its statistics are
+//!    checked against the current dynamic filters. An impossible active segment is abandoned;
+//!    an impossible deferred scorer never opens. Checks are per segment with no cached decisions.
+//!    Unsupported expressions and missing statistics retain the segment.
+//!
+//! 3. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
 //!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
 //!    index are applied as `PreFilter`s *after* the search but *before* Arrow column
 //!    materialization. These evaluate directly against Tantivy fast fields (using
@@ -56,15 +61,18 @@
 //!                                      into a Tantivy Query and modifies the SearchIndexReader.
 //!                                      Rewrites the DataFusion expr to lit(true).
 //!        │
-//!        │  at every poll_next
+//!        │  before each batch
 //!        ▼
-//! ScanStream::collect_pre_filters    ← calls DynamicFilterPhysicalExpr::current()
-//!   → collect_filters()                to get the latest threshold for remaining filters,
-//!   → Vec<PreFilter>                   decomposes them into PreFilter(s).
+//! build_filters()                   ← gets the current row filters and score threshold
 //!        │
 //!        ▼
-//! Scanner::next()                    ← applies PreFilters via apply_arrow()
-//!   prunes doc IDs in-place            before materializing Arrow columns.
+//! Scanner::next()
+//!   → current_segment_matching()    ← selects or claims a segment
+//!   → DynamicSegmentPruner::can_match()
+//!        │                              checks that segment against the original sources;
+//!        │                              drops it if impossible, otherwise reads a batch
+//!        ▼
+//! PreFilter::apply_arrow()          ← filters doc IDs before column materialization
 //! ```
 //!
 //! # Native DataFusion Evaluation
@@ -78,13 +86,16 @@
 //!
 //! # Observability
 //!
-//! `EXPLAIN (ANALYZE)` on a `PgSearchScan` node shows `rows_pruned` and
-//! `rows_scanned` metrics when dynamic filters are active. `rows_pruned > 0`
-//! confirms that pre-filtering is working. The `dynamic_filters=N` annotation
-//! in the non-ANALYZE plan shows how many filters were pushed down.
+//! For indexes declaring `partition_by`, `segments_pruned_dynamic` in `EXPLAIN (ANALYZE)`
+//! counts segments skipped before opening their scorer or abandoned between batches.
+//! `rows_pruned` and `rows_scanned` report row-level filtering; `dynamic_filters=N` in the
+//! non-ANALYZE plan shows how many filters were pushed down.
 
+use std::any::Any;
+use std::cmp::Ordering;
 use std::ops::Bound;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU8;
 
 use arrow_schema::SchemaRef;
 use datafusion::arrow::array::UInt64Array;
@@ -103,15 +114,15 @@ use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::{Score, SegmentOrdinal};
 
-use crate::api::HashSet;
+use crate::api::{FieldName, HashSet};
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
+use crate::schema::SearchField;
 use tantivy::Term;
-use tantivy::query::{
-    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
-};
+use tantivy::query::{ConstScoreQuery, Query, TermSetQuery, TermSetStrategyConfig};
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -308,6 +319,262 @@ pub fn collect_filters(
             required_columns,
         });
     }
+}
+
+/// Original dynamic-filter sources, retained before IN-list pushdown rewrites the row filters.
+///
+/// Producers must only tighten their filters during an execution: once the scanner drops a
+/// segment it cannot revisit it, so a filter that loosened afterwards would lose rows silently.
+/// This requirement is not checked at runtime.
+pub(crate) struct DynamicSegmentPruner {
+    sources: Box<[Arc<DynamicFilterPhysicalExpr>]>,
+}
+
+impl DynamicSegmentPruner {
+    pub(crate) fn new(filters: &[Arc<dyn PhysicalExpr>]) -> Self {
+        Self {
+            sources: filters
+                .iter()
+                .filter_map(|source| {
+                    let source = Arc::clone(source) as Arc<dyn Any + Send + Sync>;
+                    Arc::downcast::<DynamicFilterPhysicalExpr>(source).ok()
+                })
+                .collect(),
+        }
+    }
+
+    /// Check only the segment about to supply a batch. An unavailable dynamic predicate gives
+    /// no exclusion; the existing row filter or parent operator remains authoritative.
+    pub(crate) fn can_match(
+        &self,
+        reader: &SearchIndexReader,
+        segment: SegmentOrdinal,
+        schema: &SchemaRef,
+    ) -> bool {
+        self.sources.iter().all(|source| {
+            source.current().map_or(true, |expr| {
+                dynamic_can_match(reader, segment, &expr, schema)
+            })
+        })
+    }
+}
+
+/// False proves that a segment cannot satisfy the current physical predicate. Unsupported
+/// shapes retain the segment. Exact filtering remains with the Tantivy query, row filters,
+/// or parent operator.
+fn dynamic_can_match(
+    reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
+    expr: &Arc<dyn PhysicalExpr>,
+    schema: &SchemaRef,
+) -> bool {
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
+        return match binary.op() {
+            Operator::And => {
+                dynamic_can_match(reader, segment, binary.left(), schema)
+                    && dynamic_can_match(reader, segment, binary.right(), schema)
+            }
+            Operator::Or => {
+                dynamic_can_match(reader, segment, binary.left(), schema)
+                    || dynamic_can_match(reader, segment, binary.right(), schema)
+            }
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Lt
+            | Operator::LtEq
+            | Operator::Gt
+            | Operator::GtEq => {
+                comparison_can_match(reader, segment, binary, schema).unwrap_or(true)
+            }
+            _ => true,
+        };
+    }
+    if let Some(is_null) = expr.downcast_ref::<IsNullExpr>() {
+        return physical_column(is_null.arg())
+            .and_then(|column| search_field_for_column(reader, schema, column))
+            .and_then(|field| {
+                reader
+                    .segment_stats_snapshot()
+                    .empirical(segment as usize, &field)
+            })
+            .is_none_or(|stats| stats.nullable);
+    }
+    if let Some(in_list) = expr.downcast_ref::<InListExpr>() {
+        return in_list_can_match(reader, segment, in_list, schema).unwrap_or(true);
+    }
+    if let Some(literal) = expr.downcast_ref::<Literal>() {
+        return !matches!(literal.value(), ScalarValue::Boolean(Some(false) | None));
+    }
+    true
+}
+
+/// The column an expression reads. A cast is looked through only when it cannot manufacture a
+/// NULL: an unsafe cast errors on an invalid value, so nullness passes through unchanged.
+fn physical_column(expr: &Arc<dyn PhysicalExpr>) -> Option<&Column> {
+    if let Some(column) = expr.downcast_ref::<Column>() {
+        Some(column)
+    } else if let Some(cast) = expr.downcast_ref::<CastExpr>()
+        && !cast.cast_options().safe
+    {
+        physical_column(cast.expr())
+    } else {
+        None
+    }
+}
+
+/// Splits `Column op Literal` or `Literal op Column` into the column-first form. Casts are not
+/// looked through: a cast may change values or comparison semantics.
+fn column_op_literal(binary: &BinaryExpr) -> Option<(&Column, Operator, &Literal)> {
+    if let (Some(column), Some(literal)) = (
+        binary.left().downcast_ref::<Column>(),
+        binary.right().downcast_ref::<Literal>(),
+    ) {
+        return Some((column, *binary.op(), literal));
+    }
+    let literal = binary.left().downcast_ref::<Literal>()?;
+    let column = binary.right().downcast_ref::<Column>()?;
+    Some((column, flip_operator(binary.op())?, literal))
+}
+
+fn search_field_for_column(
+    reader: &SearchIndexReader,
+    schema: &SchemaRef,
+    column: &Column,
+) -> Option<SearchField> {
+    let name = FieldName::from(schema.fields().get(column.index())?.name().as_str());
+    reader
+        .schema()
+        .stats_field(&name)
+        .filter(SearchField::stats_order_matches_values)
+}
+
+/// Bounds in the same Arrow representation as the scanned column. Conversion happens once
+/// per predicate/segment check, not once per IN-list member. No decoded values are cached.
+struct ScalarStats {
+    min: ScalarValue,
+    max: ScalarValue,
+    nullable: bool,
+}
+
+impl ScalarStats {
+    fn for_column(
+        reader: &SearchIndexReader,
+        segment: SegmentOrdinal,
+        schema: &SchemaRef,
+        column: &Column,
+    ) -> Option<Self> {
+        let field = search_field_for_column(reader, schema, column)?;
+        let stats = reader
+            .segment_stats_snapshot()
+            .empirical(segment as usize, &field)?;
+        let data_type = schema.field(column.index()).data_type();
+        let convert = |value: &PdbOwnedValue| match (data_type, value) {
+            // The snapshot lifts datetime bounds into Date. Arrow execution uses the same
+            // PostgreSQL-epoch microseconds as FFHelper, including legacy datetime columns.
+            (
+                DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+                PdbOwnedValue::Date(v),
+            ) => Some(ScalarValue::TimestampMicrosecond(
+                Some(v.into_inner()),
+                None,
+            )),
+            _ => value.to_scalar(data_type),
+        };
+        Some(Self {
+            min: convert(&stats.min)?,
+            max: convert(&stats.max)?,
+            nullable: stats.nullable,
+        })
+    }
+
+    /// None means the comparison cannot establish exclusion. NULLs, NaNs and incompatible
+    /// scalar types do not supply an ordered bound; the exact predicate still evaluates them.
+    fn can_match(&self, op: Operator, value: &ScalarValue) -> Option<bool> {
+        if [&self.min, &self.max, value].into_iter().any(|v| {
+            v.is_null()
+                || matches!(v,
+                ScalarValue::Float64(Some(f)) if f.is_nan())
+                || matches!(v, ScalarValue::Float32(Some(f)) if f.is_nan())
+        }) || self.min.data_type() != value.data_type()
+            || self.max.data_type() != value.data_type()
+        {
+            return None;
+        }
+        // DataFusion's binary comparisons normalize signed zero, but its IN-list filters
+        // compare float bits. Retain the segment when a bound and literal are opposite zeros.
+        let compare = |bound: &ScalarValue| match (value, bound) {
+            (ScalarValue::Float64(Some(a)), ScalarValue::Float64(Some(b)))
+                if a == b && a.to_bits() != b.to_bits() =>
+            {
+                None
+            }
+            (ScalarValue::Float32(Some(a)), ScalarValue::Float32(Some(b)))
+                if a == b && a.to_bits() != b.to_bits() =>
+            {
+                None
+            }
+            _ => value.partial_cmp(bound),
+        };
+        let lower = compare(&self.min)?;
+        let upper = compare(&self.max)?;
+        Some(match op {
+            Operator::Eq => lower != Ordering::Less && upper != Ordering::Greater,
+            Operator::NotEq => {
+                self.nullable || lower != Ordering::Equal || upper != Ordering::Equal
+            }
+            Operator::Lt => lower == Ordering::Greater,
+            Operator::LtEq => lower != Ordering::Less,
+            Operator::Gt => upper == Ordering::Less,
+            Operator::GtEq => upper != Ordering::Greater,
+            _ => return None,
+        })
+    }
+}
+
+fn in_list_can_match(
+    reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
+    in_list: &InListExpr,
+    schema: &SchemaRef,
+) -> Option<bool> {
+    let column = in_list.expr().downcast_ref::<Column>()?;
+    let stats = ScalarStats::for_column(reader, segment, schema, column)?;
+    let mut members = in_list.list().iter().map(extract_physical_scalar_value);
+    Some(if in_list.negated() {
+        // This check rejects a segment when its non-nullable bounds equal a list member.
+        members.all(|value| {
+            value
+                .and_then(|v| stats.can_match(Operator::NotEq, v))
+                .unwrap_or(true)
+        })
+    } else {
+        members.any(|value| {
+            value
+                .and_then(|v| stats.can_match(Operator::Eq, v))
+                .unwrap_or(true)
+        })
+    })
+}
+
+fn operator_bounds<T: Clone>(op: Operator, value: T) -> Option<(Bound<T>, Bound<T>)> {
+    Some(match op {
+        Operator::Lt => (Bound::Unbounded, Bound::Excluded(value)),
+        Operator::LtEq => (Bound::Unbounded, Bound::Included(value)),
+        Operator::Gt => (Bound::Excluded(value), Bound::Unbounded),
+        Operator::GtEq => (Bound::Included(value), Bound::Unbounded),
+        Operator::Eq => (Bound::Included(value.clone()), Bound::Included(value)),
+        _ => return None,
+    })
+}
+
+fn comparison_can_match(
+    reader: &SearchIndexReader,
+    segment: SegmentOrdinal,
+    binary: &BinaryExpr,
+    schema: &SchemaRef,
+) -> Option<bool> {
+    let (column, op, literal) = column_op_literal(binary)?;
+    ScalarStats::for_column(reader, segment, schema, column)?.can_match(op, literal.value())
 }
 
 /// Check for expressions that we know always evaluate to false
@@ -521,23 +788,10 @@ fn try_rewrite_binary(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let left_col = binary.left().downcast_ref::<Column>();
-    let right_lit = binary.right().downcast_ref::<Literal>();
-
-    if let (Some(col), Some(lit)) = (left_col, right_lit) {
-        return rewrite_col_op_lit(col, binary.op(), lit, ffhelper, segment_ord, schema);
-    }
-
-    let left_lit = binary.left().downcast_ref::<Literal>();
-    let right_col = binary.right().downcast_ref::<Column>();
-
-    if let (Some(lit), Some(col)) = (left_lit, right_col)
-        && let Some(flipped_op) = flip_operator(binary.op())
-    {
-        return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
-    }
-
-    Ok(None)
+    let Some((col, op, lit)) = column_op_literal(binary) else {
+        return Ok(None);
+    };
+    rewrite_col_op_lit(col, &op, lit, ffhelper, segment_ord, schema)
 }
 
 fn extract_bytes_from_scalar(scalar: &ScalarValue) -> Option<Option<&[u8]>> {
@@ -676,14 +930,8 @@ fn rewrite_col_op_lit(
         ));
     }
 
-    // Convert string bounds to native string bounds.
-    let (lower, upper) = match op {
-        Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
-        Operator::LtEq => (Bound::Unbounded, Bound::Included(bytes)),
-        Operator::Gt => (Bound::Excluded(bytes), Bound::Unbounded),
-        Operator::GtEq => (Bound::Included(bytes), Bound::Unbounded),
-        Operator::Eq => (Bound::Included(bytes), Bound::Included(bytes)),
-        _ => return Ok(None),
+    let Some((lower, upper)) = operator_bounds(*op, bytes) else {
+        return Ok(None);
     };
 
     // Lookup ordinal bounds.
@@ -765,11 +1013,8 @@ fn flip_operator(op: &Operator) -> Option<Operator> {
     }
 }
 
-fn extract_physical_scalar_value(expr: &Arc<dyn PhysicalExpr>) -> Option<ScalarValue> {
-    if let Some(lit) = expr.downcast_ref::<Literal>() {
-        return Some(lit.value().clone());
-    }
-    None
+fn extract_physical_scalar_value(expr: &Arc<dyn PhysicalExpr>) -> Option<&ScalarValue> {
+    expr.downcast_ref::<Literal>().map(Literal::value)
 }
 
 fn extract_in_list_exprs<'a>(
@@ -788,8 +1033,8 @@ fn extract_in_list_exprs<'a>(
 
 /// Outcome of trying to convert one join-derived `InList` predicate.
 enum InListPushdown {
-    /// AND the converted term-set query into the tantivy search.
-    Query(Box<dyn Query>),
+    /// AND the converted term-set query into the Tantivy search.
+    Query { query: Box<dyn Query> },
     /// Drop the predicate: evaluating it in the scan costs more per row than the hash
     /// join above, which re-checks the same keys against its build table anyway.
     Skip,
@@ -801,7 +1046,7 @@ fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
     index_created_by_version: Option<crate::api::version::Version>,
-    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    strategy_sink: Option<Arc<AtomicU8>>,
     max_segment_docs: u32,
     sorted_by_field: Option<&str>,
 ) -> InListPushdown {
@@ -873,15 +1118,16 @@ fn try_convert_in_list_to_query(
     };
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
 
-    let terms: Option<Vec<Term>> = in_list
+    if in_list.list().is_empty() {
+        return InListPushdown::Keep;
+    }
+    let terms = in_list
         .list()
         .iter()
-        .map(|expr| {
-            let scalar = extract_physical_scalar_value(expr)?;
-            // Join-derived InList members are Arrow execution values. For
-            // Numeric64 that means already-scaled Int64 — do not re-apply scale
-            // via from_scalar (see #6158).
-            let owned_value = PdbOwnedValue::from_execution_scalar(&scalar, &field_type)?;
+        .map(|member| {
+            let scalar = extract_physical_scalar_value(member)?;
+            // Join keys are execution values: Numeric64 is already scaled (see #6158).
+            let owned_value = PdbOwnedValue::from_execution_scalar(scalar, &field_type)?;
             value_to_term(
                 tantivy_field,
                 &owned_value,
@@ -891,15 +1137,10 @@ fn try_convert_in_list_to_query(
             )
             .ok()
         })
-        .collect();
-
+        .collect::<Option<Vec<Term>>>();
     let Some(terms) = terms else {
         return InListPushdown::Keep;
     };
-    if terms.is_empty() {
-        return InListPushdown::Keep;
-    }
-
     // Build a strategy config from the paradedb.term_set_* GUCs so the
     // dispatch thresholds (kill switch, gallop density gate, and the
     // first-column bitset density gate) can be tuned in production
@@ -918,8 +1159,9 @@ fn try_convert_in_list_to_query(
     };
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
-    let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
-    InListPushdown::Query(Box::new(const_score_query) as Box<dyn Query>)
+    InListPushdown::Query {
+        query: Box::new(ConstScoreQuery::new(Box::new(term_set_query), 0.0)),
+    }
 }
 
 /// Try to push down `InList` expressions from `dynamic_filters` into the search query.
@@ -937,11 +1179,11 @@ fn try_convert_in_list_to_query(
 ///    expressions to replace the pushed down nodes with `lit(true)` so they are not evaluated again.
 /// 3. Returns `true` to indicate that a pushdown occurred.
 pub fn try_dynamic_filter_pushdown(
-    reader: &mut crate::index::reader::index::SearchIndexReader,
+    reader: &mut SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
-    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    strategy_sink: Option<Arc<AtomicU8>>,
 ) -> bool {
-    let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
+    let mut queries = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
     let schema = reader.schema();
     let index_created_by_version = reader.index_created_by_version();
@@ -975,8 +1217,8 @@ pub fn try_dynamic_filter_pushdown(
                 max_segment_docs,
                 sorted_by_field.as_deref(),
             ) {
-                InListPushdown::Query(query) => {
-                    pushed_down_queries.push(query);
+                InListPushdown::Query { query } => {
+                    queries.push(query);
                     pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
                 }
                 InListPushdown::Skip => {
@@ -1008,27 +1250,238 @@ pub fn try_dynamic_filter_pushdown(
         }
     }
 
-    if pushed_down_queries.is_empty() {
-        false
-    } else {
-        let combined_musts: Vec<(Occur, Box<dyn Query>)> = pushed_down_queries
-            .into_iter()
-            .map(|q| (Occur::Must, q))
-            .collect();
-        let boolean_query = BooleanQuery::new(combined_musts);
-        *reader = reader.and_query(Box::new(boolean_query));
-        true
+    if queries.is_empty() {
+        return false;
     }
+    let additional_query = tantivy::query::BooleanQuery::new(
+        queries
+            .into_iter()
+            .map(|query| (tantivy::query::Occur::Must, query))
+            .collect(),
+    );
+    *reader = reader.and_query(Box::new(additional_query));
+    true
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     use super::try_extract_score_threshold;
     use datafusion::logical_expr::Operator;
     use datafusion::physical_expr::PhysicalExpr;
     use datafusion::physical_expr::expressions::{BinaryExpr, Column, is_not_null, is_null, lit};
     use datafusion::scalar::ScalarValue;
     use std::sync::Arc;
+
+    /// Check exclusion against DataFusion's actual row evaluation, including boundary equality,
+    /// NULLs, signed zero, infinities and values whose ordering differs between representations.
+    #[test]
+    fn scalar_statistics_agree_with_datafusion_comparisons() {
+        use super::ScalarStats;
+        use arrow_array::{Array, BooleanArray, RecordBatch};
+        use arrow_schema::{Field, Schema};
+
+        let cases = vec![
+            (
+                vec![ScalarValue::Int64(Some(-10)), ScalarValue::Int64(Some(20))],
+                vec![
+                    ScalarValue::Int64(Some(-11)),
+                    ScalarValue::Int64(Some(0)),
+                    ScalarValue::Int64(Some(21)),
+                ],
+            ),
+            (
+                vec![
+                    ScalarValue::UInt64(Some(0)),
+                    ScalarValue::UInt64(Some(u64::MAX)),
+                ],
+                vec![ScalarValue::UInt64(Some(10))],
+            ),
+            (
+                vec![
+                    ScalarValue::Float64(Some(-0.0)),
+                    ScalarValue::Float64(Some(0.0)),
+                ],
+                vec![
+                    ScalarValue::Float64(Some(-1.0)),
+                    ScalarValue::Float64(Some(1.0)),
+                ],
+            ),
+            (
+                vec![
+                    ScalarValue::Float64(Some(f64::NEG_INFINITY)),
+                    ScalarValue::Float64(Some(f64::INFINITY)),
+                ],
+                vec![
+                    ScalarValue::Float64(Some(1.5)),
+                    ScalarValue::Float64(Some(f64::NAN)),
+                ],
+            ),
+            (
+                vec![
+                    ScalarValue::Utf8View(Some("Apple".into())),
+                    ScalarValue::Utf8View(Some("zebra".into())),
+                ],
+                vec![
+                    ScalarValue::Utf8View(Some("0".into())),
+                    ScalarValue::Utf8View(Some("middle".into())),
+                    ScalarValue::Utf8View(Some("zz".into())),
+                ],
+            ),
+            (
+                vec![
+                    ScalarValue::Boolean(Some(false)),
+                    ScalarValue::Boolean(Some(true)),
+                ],
+                vec![],
+            ),
+            // Equal extrema exercise exclusions for NOT IN / != as well as ordinary ranges.
+            (
+                vec![
+                    ScalarValue::Int64(Some(1500)),
+                    ScalarValue::Int64(Some(1500)),
+                ],
+                vec![
+                    ScalarValue::Int64(Some(1499)),
+                    ScalarValue::Int64(Some(1501)),
+                ],
+            ),
+            (
+                vec![
+                    ScalarValue::TimestampMicrosecond(Some(-1), None),
+                    ScalarValue::TimestampMicrosecond(Some(1), None),
+                ],
+                vec![ScalarValue::TimestampMicrosecond(Some(0), None)],
+            ),
+        ];
+        let cases = cases.into_iter().chain([-0.0_f64, 0.0].map(|zero| {
+            (
+                vec![ScalarValue::Float64(Some(zero)); 2],
+                vec![ScalarValue::Float64(Some(-zero))],
+            )
+        }));
+        for (values, extra_bounds) in cases {
+            let data_type = values[0].data_type();
+            let null = ScalarValue::try_from(&data_type).unwrap();
+            let schema = Arc::new(Schema::new(vec![Field::new("v", data_type, true)]));
+            let mut bounds = values.clone();
+            bounds.extend(extra_bounds);
+            bounds.push(null.clone());
+            for nullable in [false, true] {
+                let stats = ScalarStats {
+                    min: values[0].clone(),
+                    max: values[1].clone(),
+                    nullable,
+                };
+                let mut rows = values.clone();
+                if nullable {
+                    rows.push(null.clone());
+                }
+                let batch = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![ScalarValue::iter_to_array(rows).unwrap()],
+                )
+                .unwrap();
+                for value in &bounds {
+                    for op in [
+                        Operator::Eq,
+                        Operator::NotEq,
+                        Operator::Lt,
+                        Operator::LtEq,
+                        Operator::Gt,
+                        Operator::GtEq,
+                    ] {
+                        let expr =
+                            BinaryExpr::new(Arc::new(Column::new("v", 0)), op, lit(value.clone()));
+                        let result = expr
+                            .evaluate(&batch)
+                            .unwrap()
+                            .into_array(batch.num_rows())
+                            .unwrap();
+                        let any_matches = result
+                            .as_any()
+                            .downcast_ref::<BooleanArray>()
+                            .unwrap()
+                            .iter()
+                            .any(|v| v == Some(true));
+                        let decision = stats.can_match(op, value);
+                        if matches!(op, Operator::Eq | Operator::NotEq) {
+                            for list_len in [1, 32] {
+                                let membership = datafusion::physical_expr::expressions::in_list(
+                                    Arc::new(Column::new("v", 0)),
+                                    vec![lit(value.clone()); list_len],
+                                    &(op == Operator::NotEq),
+                                    &schema,
+                                )
+                                .unwrap();
+                                let result = membership
+                                    .evaluate(&batch)
+                                    .unwrap()
+                                    .into_array(batch.num_rows())
+                                    .unwrap();
+                                let any_matches = result
+                                    .as_any()
+                                    .downcast_ref::<BooleanArray>()
+                                    .unwrap()
+                                    .iter()
+                                    .any(|v| v == Some(true));
+                                assert!(
+                                    decision != Some(false) || !any_matches,
+                                    "membership {op:?} {value:?}, length {list_len}"
+                                );
+                            }
+                        }
+
+                        assert!(
+                            decision != Some(false) || !any_matches,
+                            "{op:?} {value:?}, bounds {:?}..{:?}",
+                            stats.min,
+                            stats.max
+                        );
+                        // Ordering predicates are exact on the extrema. Equality can also
+                        // match an unobserved interior value, so min/max cannot prove a gap.
+                        let ambiguous_zero = [&stats.min, &stats.max].into_iter().any(|bound| {
+                            matches!((value, bound), (ScalarValue::Float64(Some(a)), ScalarValue::Float64(Some(b))) if a == b && a.to_bits() != b.to_bits())
+                        });
+                        if ambiguous_zero {
+                            assert_eq!(decision, None);
+                        }
+                        if op != Operator::Eq
+                            && !ambiguous_zero
+                            && !nullable
+                            && !value.is_null()
+                            && !matches!(value, ScalarValue::Float64(Some(v)) if v.is_nan())
+                        {
+                            assert_eq!(
+                                decision,
+                                Some(any_matches),
+                                "{op:?} {value:?}, bounds {:?}..{:?}",
+                                stats.min,
+                                stats.max
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let unknown = ScalarStats {
+            min: ScalarValue::Float64(Some(f64::NAN)),
+            max: ScalarValue::Float64(Some(f64::NAN)),
+            nullable: false,
+        };
+        assert_eq!(
+            unknown.can_match(Operator::Eq, &ScalarValue::Float64(Some(0.0))),
+            None
+        );
+        let incompatible = ScalarStats {
+            min: ScalarValue::Int64(Some(1)),
+            max: ScalarValue::Int64(Some(1)),
+            nullable: false,
+        };
+        assert_eq!(
+            incompatible.can_match(Operator::Eq, &ScalarValue::Utf8View(Some("1".into()))),
+            None
+        );
+    }
 
     const SCORE_IDX: usize = 0;
     const ID_IDX: usize = 1;
@@ -1155,6 +1608,774 @@ mod tests {
         assert_eq!(
             try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
             None
+        );
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::MultiSegmentSearchResults;
+    use crate::index::reader::index::test_support::segmented_index_fixture;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::query::SearchQueryInput;
+    use crate::schema::SearchFieldType;
+    use datafusion::arrow::array::{Array, Float64Array};
+    use datafusion::arrow::compute::CastOptions;
+    use datafusion::arrow::datatypes::{DataType, Field as ArrowField, Schema as ArrowSchema};
+    use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::arrow::util::display::FormatOptions;
+    use datafusion::common::ScalarValue;
+    use datafusion::logical_expr::Operator;
+    use datafusion::physical_expr::PhysicalExpr;
+    use datafusion::physical_expr::expressions::{
+        BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, Literal, in_list, is_null, lit,
+    };
+    use pgrx::prelude::*;
+    use tantivy::index::SegmentId;
+
+    fn open_snapshot_reader(
+        index_rel: &PgSearchRelation,
+        query: SearchQueryInput,
+        need_scores: bool,
+    ) -> SearchIndexReader {
+        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
+    }
+
+    fn column(name: &str, index: usize) -> Arc<dyn PhysicalExpr> {
+        Arc::new(Column::new(name, index))
+    }
+
+    fn int_literal(value: i64) -> Arc<dyn PhysicalExpr> {
+        lit(ScalarValue::Int64(Some(value)))
+    }
+
+    fn binary(
+        left: Arc<dyn PhysicalExpr>,
+        op: Operator,
+        right: Arc<dyn PhysicalExpr>,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(BinaryExpr::new(left, op, right))
+    }
+
+    fn dynamic_i64_bound(
+        op: Operator,
+        value: i64,
+    ) -> (Arc<DynamicFilterPhysicalExpr>, Arc<dyn PhysicalExpr>) {
+        let column = column("id", 0);
+        let expression = binary(Arc::clone(&column), op, int_literal(value));
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(vec![column], expression));
+        (Arc::clone(&dynamic), dynamic as Arc<dyn PhysicalExpr>)
+    }
+
+    fn dynamic(
+        column: Arc<dyn PhysicalExpr>,
+        predicate: Arc<dyn PhysicalExpr>,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(DynamicFilterPhysicalExpr::new(vec![column], predicate))
+    }
+
+    fn single_field_schema(name: &str, data_type: DataType) -> Arc<ArrowSchema> {
+        Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            name, data_type, false,
+        )]))
+    }
+
+    fn index_from_sql(index_name: &str, setup: &str) -> PgSearchRelation {
+        Spi::run(setup).unwrap();
+        unsafe { pgrx::pg_sys::CommandCounterIncrement() };
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>(&format!("SELECT '{index_name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+        PgSearchRelation::open(index_oid)
+    }
+
+    fn dynamic_schema() -> Arc<ArrowSchema> {
+        Arc::new(ArrowSchema::new(vec![
+            ArrowField::new("id", DataType::Int64, false),
+            ArrowField::new("bucket", DataType::Int64, false),
+        ]))
+    }
+
+    fn rejected_segments(
+        reader: &SearchIndexReader,
+        filters: &[Arc<dyn PhysicalExpr>],
+        schema: &Arc<ArrowSchema>,
+    ) -> HashSet<SegmentId> {
+        let pruner = DynamicSegmentPruner::new(filters);
+        reader
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .filter(|(ord, _)| !pruner.can_match(reader, *ord as SegmentOrdinal, schema))
+            .map(|(_, segment)| segment.segment_id())
+            .collect()
+    }
+
+    // Drain through the same segment boundary used by Scanner, without applying row filters.
+    fn count_dynamic(
+        results: &mut MultiSegmentSearchResults,
+        reader: &SearchIndexReader,
+        pruner: &DynamicSegmentPruner,
+        schema: &Arc<ArrowSchema>,
+    ) -> usize {
+        let mut count = 0;
+        while let Some(segment) =
+            results.current_segment_matching(|ord| pruner.can_match(reader, ord, schema))
+        {
+            count += segment.count();
+            results.current_segment_pop();
+        }
+        count
+    }
+
+    #[pg_test]
+    fn evolving_dynamic_range_skips_deferred_and_active_scorers() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+
+        let (index_rel, _heap) = segmented_index_fixture("evolving_range_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let (dynamic, dynamic_expr) = dynamic_i64_bound(Operator::Gt, 0);
+
+        assert!(
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema()).is_empty()
+        );
+        dynamic
+            .update(binary(column("id", 0), Operator::Gt, int_literal(25)))
+            .unwrap();
+        let rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema());
+        assert_eq!(rejected.len(), 2, "1..20 cannot satisfy id > 25");
+
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        let mut remaining = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[Arc::clone(&dynamic_expr)]);
+        assert_eq!(
+            count_dynamic(&mut remaining, &reader, &pruner, &dynamic_schema()),
+            20,
+            "only the two possible segments open"
+        );
+        assert_eq!(
+            SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "dynamically rejected deferred scorers must never open"
+        );
+        assert_eq!(
+            remaining.take_runtime_skipped(),
+            2,
+            "each rejected deferred segment is skipped exactly once"
+        );
+        assert_eq!(remaining.take_runtime_skipped(), 0);
+
+        // Activate one scorer, then choose a direction whose tighter bound rejects that segment.
+        // This models a Top-K cutoff becoming selective between scanner batches.
+        let mut active = reader.search();
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        let (_, first_address) = active.next().expect("one segment scorer becomes active");
+        let active_segment = reader
+            .searcher()
+            .segment_reader(first_address.segment_ord)
+            .segment_id();
+        let gt_rejected =
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema());
+        let (op, broad, tight) = if gt_rejected.contains(&active_segment) {
+            (Operator::Gt, 0, 25)
+        } else {
+            (Operator::Lt, 100, 15)
+        };
+        dynamic
+            .update(binary(column("id", 0), op, int_literal(broad)))
+            .unwrap();
+        assert!(
+            rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema()).is_empty()
+        );
+        dynamic
+            .update(binary(column("id", 0), op, int_literal(tight)))
+            .unwrap();
+        let rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &dynamic_schema());
+        assert_eq!(rejected.len(), 2);
+        assert!(
+            rejected.contains(&active_segment),
+            "the tightened bound must make the active segment impossible"
+        );
+        assert_eq!(
+            count_dynamic(&mut active, &reader, &pruner, &dynamic_schema()),
+            20
+        );
+        assert_eq!(
+            SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed),
+            3,
+            "one active scorer plus two possible segments; the fourth never opens"
+        );
+        assert_eq!(
+            active.take_runtime_skipped(),
+            2,
+            "the abandoned active segment and the never-opened segment are both skipped"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_skips_stay_consumed_when_precision_regresses() {
+        let index_rel = index_from_sql(
+            "dynamic_nan_pruning_test_idx",
+            "CREATE TABLE dynamic_nan_pruning_test (
+                 id bigint PRIMARY KEY,
+                 value double precision NOT NULL
+             );
+             CREATE INDEX dynamic_nan_pruning_test_idx
+             ON dynamic_nan_pruning_test
+             USING paradedb (id, value)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_nan_pruning_test VALUES (1, 0.0);
+             INSERT INTO dynamic_nan_pruning_test VALUES (2, 10.0);
+             INSERT INTO dynamic_nan_pruning_test VALUES (3, 'NaN');
+             RESET paradedb.global_mutable_segment_rows;",
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 3, "the fixture must contain three segments");
+
+        let schema = single_field_schema("value", DataType::Float64);
+        let value = column("value", 0);
+        let above_negative_one = binary(
+            Arc::clone(&value),
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(-1.0))),
+        );
+        let above_five = binary(
+            Arc::clone(&value),
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(5.0))),
+        );
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&value)],
+            above_negative_one,
+        ));
+        let dynamic_expr = Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>;
+        let pruner = DynamicSegmentPruner::new(&[Arc::clone(&dynamic_expr)]);
+        assert!(rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &schema).is_empty());
+        dynamic.update(Arc::clone(&above_five)).unwrap();
+        let rejected = rejected_segments(&reader, &[Arc::clone(&dynamic_expr)], &schema);
+        assert_eq!(rejected.len(), 1);
+        // Eager segment iterators are consumed from the end. Visit the rejected segment first,
+        // then pause before opening the next one to model a batch boundary.
+        let rejected_id = *rejected.iter().next().unwrap();
+        let mut ids = reader.segment_ids();
+        ids.retain(|id| *id != rejected_id);
+        ids.push(rejected_id);
+        let mut results = reader.search_segments(ids.into_iter());
+        assert!(
+            results
+                .current_segment_matching(|ord| pruner.can_match(&reader, ord, &schema))
+                .is_some()
+        );
+        assert_eq!(results.take_runtime_skipped(), 1);
+
+        let above_nan = binary(
+            value,
+            Operator::Gt,
+            lit(ScalarValue::Float64(Some(f64::NAN))),
+        );
+        let values = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![0.0, 10.0, f64::NAN]))],
+        )
+        .unwrap();
+        let evaluate = |predicate: &Arc<dyn PhysicalExpr>| {
+            predicate
+                .evaluate(&values)
+                .unwrap()
+                .into_array(values.num_rows())
+                .unwrap()
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            evaluate(&above_five),
+            vec![Some(false), Some(true), Some(true)]
+        );
+        assert_eq!(
+            evaluate(&above_nan),
+            vec![Some(false), Some(false), Some(false)],
+            "the NaN threshold is semantically tighter under Arrow total ordering"
+        );
+
+        dynamic.update(above_nan).unwrap();
+        assert!(
+            rejected_segments(&reader, &[dynamic_expr], &schema).is_empty(),
+            "NaN deliberately makes a fresh statistics proof fail open"
+        );
+        // Nothing is remembered between checks, so a fresh one keeps all three segments. The
+        // segment already discarded is gone from the iterator and cannot come back.
+        assert_eq!(count_dynamic(&mut results, &reader, &pruner, &schema), 2);
+        assert_eq!(results.take_runtime_skipped(), 0);
+        assert_eq!(
+            count_dynamic(&mut reader.search(), &reader, &pruner, &schema),
+            3
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_in_list_rejects_segments() {
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_in_list_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let membership = |negated: bool| {
+            let id = column("id", 0);
+            let members = vec![int_literal(15), int_literal(16)];
+            dynamic(
+                Arc::clone(&id),
+                in_list(id, members, &negated, &dynamic_schema()).unwrap(),
+            )
+        };
+
+        let rejected = rejected_segments(&reader, &[membership(false)], &dynamic_schema());
+        assert_eq!(
+            rejected.len(),
+            3,
+            "only the segment holding 11..20 can contain 15 or 16"
+        );
+        assert!(
+            rejected_segments(&reader, &[membership(true)], &dynamic_schema()).is_empty(),
+            "NOT IN can only reject a segment whose every row equals a member"
+        );
+
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[membership(false)]);
+        assert_eq!(
+            count_dynamic(&mut results, &reader, &pruner, &dynamic_schema()),
+            10
+        );
+        assert_eq!(results.take_runtime_skipped(), 3);
+    }
+
+    #[pg_test]
+    fn skipped_in_list_pushdown_keeps_its_dynamic_proof() {
+        let (index_rel, _heap) = segmented_index_fixture("skip_in_list_pruning_test", 4, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+
+        let id = column("id", 0);
+        let members = (11..=20).map(int_literal).collect();
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&id)],
+            in_list(id, members, &false, &dynamic_schema()).unwrap(),
+        ));
+        let mut filters = vec![Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>];
+        let pruner = DynamicSegmentPruner::new(&filters);
+
+        // Density 10/10 exceeds any gate at zero, so the pushdown takes `Skip`.
+        Spi::run("SET paradedb.term_set_bitset_max_density_multi = 0").unwrap();
+        let pushed = try_dynamic_filter_pushdown(&mut reader, &mut filters, None);
+        Spi::run("RESET paradedb.term_set_bitset_max_density_multi").unwrap();
+        assert!(!pushed, "Skip must not install a Tantivy term set");
+        assert_eq!(
+            reader.segment_pruning_estimate().candidate_segments,
+            4,
+            "the reader's static proof is untouched by a skipped pushdown"
+        );
+        assert!(
+            filters[0].downcast_ref::<Literal>().is_some(),
+            "the skipped membership predicate is rewritten out of the row filter"
+        );
+
+        let mut results = reader.search();
+        assert_eq!(
+            count_dynamic(&mut results, &reader, &pruner, &dynamic_schema()),
+            10
+        );
+        assert_eq!(results.take_runtime_skipped(), 3);
+    }
+
+    /// A disjunction keeps any segment either side can satisfy. A filter that is constantly
+    /// false rejects every segment, while the `lit(true)` a producer publishes before its first
+    /// update rejects none.
+    #[pg_test]
+    fn dynamic_disjunctions_and_constant_filters_reject_segments() {
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_or_literal", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let id = || column("id", 0);
+
+        // Fixture ids run 1..=40 over four segments of ten.
+        let either_end = dynamic(
+            id(),
+            binary(
+                binary(id(), Operator::Gt, int_literal(35)),
+                Operator::Or,
+                binary(id(), Operator::Lt, int_literal(5)),
+            ),
+        );
+        assert_eq!(
+            rejected_segments(&reader, &[either_end], &dynamic_schema()).len(),
+            2,
+            "only the segments holding 11..30 can satisfy neither side"
+        );
+
+        let constant = |value| dynamic(id(), lit(ScalarValue::Boolean(value)));
+        assert_eq!(
+            rejected_segments(&reader, &[constant(Some(false))], &dynamic_schema()).len(),
+            4,
+            "a filter that is always false rejects every segment"
+        );
+        assert_eq!(
+            rejected_segments(&reader, &[constant(None)], &dynamic_schema()).len(),
+            4,
+            "NULL in filter position rejects every row"
+        );
+        assert!(
+            rejected_segments(&reader, &[constant(Some(true))], &dynamic_schema()).is_empty(),
+            "the placeholder published before a producer's first update rejects nothing"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_multi_field_checks_reject_segments() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_segment_pruning_test", 4, false);
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let (_, id_filter) = dynamic_i64_bound(Operator::Gt, 20);
+        let bucket = column("bucket", 1);
+        let bucket_filter = dynamic(
+            Arc::clone(&bucket),
+            binary(bucket, Operator::Lt, int_literal(300)),
+        );
+        let rejected = rejected_segments(
+            &reader,
+            &[Arc::clone(&id_filter), Arc::clone(&bucket_filter)],
+            &dynamic_schema(),
+        );
+        assert_eq!(rejected.len(), 3);
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[id_filter, bucket_filter]);
+        SCORERS_OPENED.store(0, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            count_dynamic(&mut results, &reader, &pruner, &dynamic_schema()),
+            10
+        );
+        assert_eq!(SCORERS_OPENED.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        let bucket = column("bucket", 1);
+        let null_filter = dynamic(Arc::clone(&bucket), is_null(bucket).unwrap());
+        assert_eq!(
+            rejected_segments(&reader, &[null_filter], &dynamic_schema()).len(),
+            4,
+            "IS NULL rejects every segment whose statistics prove bucket is always present"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_text_ordering_and_timestamp_bounds() {
+        let index_rel = index_from_sql(
+            "dynamic_scalar_bounds_idx",
+            r#"
+            CREATE TABLE dynamic_scalar_bounds (id bigint PRIMARY KEY, raw_text text, folded text, stamp timestamp);
+            CREATE INDEX dynamic_scalar_bounds_idx ON dynamic_scalar_bounds
+            USING paradedb (id, raw_text, folded, stamp)
+            WITH (background_layer_sizes = '0', text_fields = '{
+                "raw_text": {"fast": true, "normalizer": "raw", "tokenizer": {"type": "keyword"}},
+                "folded": {"fast": true, "normalizer": "lowercase", "tokenizer": {"type": "keyword"}}
+            }');
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO dynamic_scalar_bounds VALUES (1, 'Zulu', 'Zulu', '2000-01-01 00:00:00');
+            RESET paradedb.global_mutable_segment_rows;
+        "#,
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        assert_eq!(reader.segment_stats_snapshot().len(), 1);
+        for (name, data_type, inside, outside, can_prune) in [
+            (
+                "raw_text",
+                DataType::Utf8View,
+                ScalarValue::Utf8View(Some("Zulu".into())),
+                ScalarValue::Utf8View(Some("zzzz".into())),
+                true,
+            ),
+            (
+                "folded",
+                DataType::Utf8View,
+                ScalarValue::Utf8View(Some("zulu".into())),
+                ScalarValue::Utf8View(Some("zzzz".into())),
+                false,
+            ),
+            (
+                "stamp",
+                DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+                ScalarValue::TimestampMicrosecond(Some(0), None),
+                ScalarValue::TimestampMicrosecond(Some(1), None),
+                true,
+            ),
+        ] {
+            let field = reader.schema().search_field(name).unwrap();
+            assert!(
+                reader
+                    .segment_stats_snapshot()
+                    .empirical(0, &field)
+                    .is_some()
+            );
+            let schema = single_field_schema(name, data_type);
+            for (value, equal) in [(inside, true), (outside, false)] {
+                let col = column(name, 0);
+                for negated in [false, true] {
+                    let op = if negated {
+                        Operator::NotEq
+                    } else {
+                        Operator::Eq
+                    };
+                    let comparison = binary(Arc::clone(&col), op, lit(value.clone()));
+                    let membership = in_list(
+                        Arc::clone(&col),
+                        vec![lit(value.clone())],
+                        &negated,
+                        &schema,
+                    )
+                    .unwrap();
+                    for predicate in [comparison, membership] {
+                        assert_eq!(
+                            rejected_segments(
+                                &reader,
+                                &[dynamic(Arc::clone(&col), predicate)],
+                                &schema
+                            )
+                            .len(),
+                            usize::from(can_prune && equal == negated),
+                            "{name}, negated={negated}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[pg_test]
+    fn dynamic_numeric64_comparisons_use_storage_scale() {
+        let index_rel = index_from_sql(
+            "dynamic_numeric64_pruning_test_idx",
+            "CREATE TABLE dynamic_numeric64_pruning_test (
+                 id bigint PRIMARY KEY,
+                 price numeric(10, 2) NOT NULL
+             );
+             CREATE INDEX dynamic_numeric64_pruning_test_idx
+             ON dynamic_numeric64_pruning_test
+             USING paradedb (id, price)
+             WITH (target_segment_count = 8,
+                   background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_numeric64_pruning_test
+             SELECT g, g::numeric(10, 2) FROM generate_series(10, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let price_field = reader.schema().search_field("price").unwrap();
+        assert!(
+            matches!(price_field.field_type(), SearchFieldType::Numeric64(_, 2)),
+            "the fixture must exercise the scaled Numeric64 representation"
+        );
+        let snapshot = reader.segment_stats_snapshot();
+        assert!(snapshot.len() > 0, "the fixture must contain a segment");
+        assert!(
+            (0..snapshot.len()).all(|idx| snapshot.empirical(idx, &price_field).is_some()),
+            "the fixture must have readable Numeric64 statistics so missing stats cannot make the test pass"
+        );
+
+        // DataFusion exposes Numeric64 fast fields as storage-scaled Int64 values. For scale 2,
+        // 15.00 arrives as 1500. Treating 1500 as a logical value would scale it again to 150000
+        // and incorrectly reject the segment containing prices 10.00 through 20.00.
+        let schema = single_field_schema("price", DataType::Int64);
+        let price_above = |storage_value: i64| {
+            let price = column("price", 0);
+            dynamic(
+                Arc::clone(&price),
+                binary(price, Operator::Gt, int_literal(storage_value)),
+            )
+        };
+
+        for (value, excluded) in [(1500, false), (2001, true)] {
+            let price = column("price", 0);
+            let predicate = in_list(
+                Arc::clone(&price),
+                vec![int_literal(value)],
+                &false,
+                &schema,
+            )
+            .unwrap();
+            assert_eq!(
+                rejected_segments(&reader, &[dynamic(price, predicate)], &schema).len(),
+                if excluded { snapshot.len() } else { 0 }
+            );
+        }
+
+        let rejected = rejected_segments(&reader, &[price_above(1500)], &schema);
+        assert!(
+            rejected.is_empty(),
+            "a storage-scaled bound inside the segment's range must not reject it"
+        );
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[price_above(1500)]);
+        assert_eq!(count_dynamic(&mut results, &reader, &pruner, &schema), 11);
+
+        let rejected = rejected_segments(&reader, &[price_above(2000)], &schema);
+        assert_eq!(
+            rejected.len(),
+            snapshot.len(),
+            "a storage-scaled bound above the segment's maximum rejects it"
+        );
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[price_above(2000)]);
+        assert_eq!(count_dynamic(&mut results, &reader, &pruner, &schema), 0);
+    }
+
+    #[pg_test]
+    fn dynamic_is_null_through_safe_cast_fails_open() {
+        let index_rel = index_from_sql(
+            "dynamic_safe_cast_pruning_test_idx",
+            "CREATE TABLE dynamic_safe_cast_pruning_test (
+                 id bigint PRIMARY KEY,
+                 f double precision NOT NULL
+             );
+             CREATE INDEX dynamic_safe_cast_pruning_test_idx
+             ON dynamic_safe_cast_pruning_test
+             USING paradedb (id, f)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_safe_cast_pruning_test VALUES (1, 1e10);
+             RESET paradedb.global_mutable_segment_rows;",
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let search_field = reader.schema().search_field("f").unwrap();
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 1, "the fixture must contain one segment");
+        assert!(
+            snapshot
+                .empirical(0, &search_field)
+                .is_some_and(|stats| !stats.nullable),
+            "the fixture must prove `f` always present so only the cast guard can keep the segment"
+        );
+
+        let schema = single_field_schema("f", DataType::Float64);
+        let f = column("f", 0);
+        let cast_to_int32 = |safe: bool| {
+            Arc::new(CastExpr::new(
+                Arc::clone(&f),
+                DataType::Int32,
+                Some(CastOptions {
+                    safe,
+                    format_options: FormatOptions::default(),
+                }),
+            )) as Arc<dyn PhysicalExpr>
+        };
+
+        let predicate = is_null(cast_to_int32(true)).unwrap();
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![1e10]))],
+        )
+        .unwrap();
+        let evaluated = predicate.evaluate(&batch).unwrap().into_array(1).unwrap();
+        let evaluated = evaluated
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+            .unwrap();
+        assert!(
+            evaluated.value(0),
+            "a safe cast turns the out-of-range value into NULL, so the authoritative predicate matches"
+        );
+
+        let rejected = rejected_segments(
+            &reader,
+            &[dynamic(Arc::clone(&f), Arc::clone(&predicate))],
+            &schema,
+        );
+        assert!(
+            rejected.is_empty(),
+            "IS NULL through a safe cast must not be proven from the column's own nullability"
+        );
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[dynamic(Arc::clone(&f), predicate)]);
+        assert_eq!(
+            count_dynamic(&mut results, &reader, &pruner, &schema),
+            1,
+            "failing open must retain the matching row"
+        );
+
+        let unsafe_predicate = is_null(cast_to_int32(false)).unwrap();
+        assert_eq!(
+            rejected_segments(&reader, &[dynamic(f, unsafe_predicate)], &schema).len(),
+            1,
+            "an unsafe cast cannot produce NULL, so the column's nullability proves the segment"
+        );
+    }
+
+    #[pg_test]
+    fn dynamic_cast_comparisons_fail_open() {
+        let index_rel = index_from_sql(
+            "dynamic_cast_pruning_test_idx",
+            "CREATE TABLE dynamic_cast_pruning_test (
+                 id bigint PRIMARY KEY,
+                 f double precision NOT NULL
+             );
+             CREATE INDEX dynamic_cast_pruning_test_idx
+             ON dynamic_cast_pruning_test
+             USING paradedb (id, f)
+             WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO dynamic_cast_pruning_test VALUES (1, 2.1);
+             RESET paradedb.global_mutable_segment_rows;",
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let search_field = reader.schema().search_field("f").unwrap();
+        assert!(
+            matches!(search_field.field_type(), SearchFieldType::F64(_)),
+            "the fixture must exercise raw floating-point statistics"
+        );
+        let snapshot = reader.segment_stats_snapshot();
+        assert_eq!(snapshot.len(), 1, "the fixture must contain one segment");
+        assert!(
+            snapshot.empirical(0, &search_field).is_some(),
+            "the fixture must have readable statistics so missing stats cannot make the test pass"
+        );
+
+        let schema = single_field_schema("f", DataType::Float64);
+        let f = column("f", 0);
+        let cast =
+            Arc::new(CastExpr::new(Arc::clone(&f), DataType::Int64, None)) as Arc<dyn PhysicalExpr>;
+        let predicate = binary(cast, Operator::Eq, int_literal(2));
+
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![2.1]))],
+        )
+        .unwrap();
+        let evaluated = predicate.evaluate(&batch).unwrap().into_array(1).unwrap();
+        let evaluated = evaluated
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+            .unwrap();
+        assert!(
+            evaluated.value(0),
+            "the authoritative DataFusion predicate must match 2.1 after casting to BIGINT"
+        );
+
+        let rejected = rejected_segments(
+            &reader,
+            &[dynamic(Arc::clone(&f), Arc::clone(&predicate))],
+            &schema,
+        );
+        assert!(
+            rejected.is_empty(),
+            "a casted comparison must not reject a segment using raw-column statistics"
+        );
+
+        let mut results = reader.search();
+        let pruner = DynamicSegmentPruner::new(&[dynamic(f, predicate)]);
+        assert_eq!(
+            count_dynamic(&mut results, &reader, &pruner, &schema),
+            1,
+            "failing open must retain the matching row"
         );
     }
 }

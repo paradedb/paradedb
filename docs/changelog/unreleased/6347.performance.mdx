@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Queries on indexes configured with `partition_by` can use filters produced by joins and Top-K sorting to skip segments that cannot match. `EXPLAIN (ANALYZE)` reports these skips as `segments_pruned_dynamic`.

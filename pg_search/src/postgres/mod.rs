@@ -1382,4 +1382,121 @@ mod tests {
             "claimed candidates are searched exactly once"
         );
     }
+    #[pg_test]
+    fn dynamic_checks_follow_lazy_checkout_and_batch_progress() {
+        use crate::index::reader::scorer::test_support::SCORERS_OPENED;
+        use crate::index::segment_pruning::EMPIRICAL_READS;
+        use crate::scan::pre_filter::DynamicSegmentPruner;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::common::ScalarValue;
+        use datafusion::logical_expr::Operator;
+        use datafusion::physical_expr::PhysicalExpr;
+        use datafusion::physical_expr::expressions::{
+            BinaryExpr, Column, DynamicFilterPhysicalExpr, lit,
+        };
+        use std::sync::Arc;
+
+        let (index_rel, _heap) = segmented_index_fixture("dynamic_lazy_claim", 4, false);
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let column = Arc::new(Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let bound = |value| {
+            Arc::new(BinaryExpr::new(
+                Arc::clone(&column),
+                Operator::Gt,
+                lit(ScalarValue::Int64(Some(value))),
+            )) as Arc<dyn PhysicalExpr>
+        };
+        for source_idx in [None, Some(1)] {
+            for stop_early in [false, true] {
+                let reader = SearchIndexReader::open(
+                    &index_rel,
+                    SearchQueryInput::All,
+                    false,
+                    MvccSatisfies::Snapshot,
+                )
+                .unwrap();
+                let view = reader.segment_view();
+                let selected = SegmentView::new(view.entries()[..2].to_vec());
+                let selected_ids = selected.ids().collect::<Vec<_>>();
+                let other = SegmentView::new(view.entries()[2..].to_vec());
+                let all_sources = if source_idx.is_some() {
+                    vec![other, selected]
+                } else {
+                    vec![selected]
+                };
+                let args = ParallelScanArgs {
+                    all_sources,
+                    query: Vec::new(),
+                    with_aggregates: false,
+                    with_segment_info: false,
+                };
+                let size =
+                    ParallelScanState::size_of(&args.all_nsegments(), &args.query, false, false);
+                let state = unsafe {
+                    let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+                    (*state).create_and_populate(args);
+                    state
+                };
+                let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+                    vec![Arc::clone(&column)],
+                    bound(0),
+                ));
+                let pruner =
+                    DynamicSegmentPruner::new(&[Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>]);
+                EMPIRICAL_READS.store(0, Relaxed);
+                SCORERS_OPENED.store(0, Relaxed);
+                let mut results = reader.search_lazy(state, source_idx, 20);
+                assert_eq!(
+                    EMPIRICAL_READS.load(Relaxed),
+                    0,
+                    "construction checks no segments"
+                );
+                let first = results
+                    .current_segment_matching(|ord| pruner.can_match(&reader, ord, &schema))
+                    .unwrap();
+                assert!(
+                    selected_ids.contains(&first.segment_id()),
+                    "only the selected source can be claimed"
+                );
+                assert_eq!(
+                    EMPIRICAL_READS.load(Relaxed),
+                    1,
+                    "one claimed segment, not the whole source or searcher"
+                );
+                assert_eq!(
+                    SCORERS_OPENED.load(Relaxed),
+                    0,
+                    "the check precedes scorer creation"
+                );
+                let ord = first.segment_ord();
+                let (_, address) = first.next().unwrap();
+                assert_eq!(address.segment_ord, ord);
+                assert_eq!(SCORERS_OPENED.load(Relaxed), 1);
+                if stop_early {
+                    drop(results);
+                    assert_eq!(
+                        EMPIRICAL_READS.load(Relaxed),
+                        1,
+                        "LIMIT/drop does not inspect remaining segments"
+                    );
+                } else {
+                    // The next boundary rejects both the active segment and the one still unclaimed.
+                    dynamic.update(bound(100)).unwrap();
+                    assert!(
+                        results
+                            .current_segment_matching(|ord| pruner.can_match(&reader, ord, &schema))
+                            .is_none()
+                    );
+                    assert_eq!(EMPIRICAL_READS.load(Relaxed), 3);
+                    assert_eq!(
+                        SCORERS_OPENED.load(Relaxed),
+                        1,
+                        "the rejected deferred scorer never opens"
+                    );
+                    assert_eq!(results.take_runtime_skipped(), 2);
+                    assert_eq!(results.take_runtime_skipped(), 0);
+                }
+            }
+        }
+    }
 }

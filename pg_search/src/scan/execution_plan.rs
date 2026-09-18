@@ -74,7 +74,9 @@ use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{PreFilter, collect_filters, try_dynamic_filter_pushdown};
+use crate::scan::pre_filter::{
+    DynamicSegmentPruner, PreFilter, collect_filters, try_dynamic_filter_pushdown,
+};
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -1165,6 +1167,14 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", target_partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", target_partition));
+        let segments_pruned_dynamic = (has_dynamic_filters
+            && !PgSearchRelation::open(self.indexrelid.into())
+                .options()
+                .partition_by()
+                .is_empty())
+        .then(|| {
+            MetricBuilder::new(&self.metrics).counter("segments_pruned_dynamic", target_partition)
+        });
         let baseline_metrics = BaselineMetrics::new(&self.metrics, target_partition);
         let plan_metrics = self.metrics.clone();
         let schema = self.properties.eq_properties.schema().clone();
@@ -1188,6 +1198,10 @@ impl ExecutionPlan for PgSearchScanPlan {
             // this block is evaluated lazily during the first `poll_next`, which happens
             // AFTER the build side has completed and dynamic filters are published.
             let mut dynamic_filters = dynamic_filters.clone();
+            // Capture the original dynamic-filter sources first: the pushdown below replaces
+            // a rewritten entry with a static expression, but the join keeps publishing its
+            // predicate through the original source, which is what the segment check reads.
+            let dynamic_segment_pruner = DynamicSegmentPruner::new(&dynamic_filters);
             let strategy_sink = Arc::new(AtomicU8::new(0));
             let pushed = if !dynamic_filters.is_empty() {
                 try_dynamic_filter_pushdown(
@@ -1280,8 +1294,16 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
+                    |segment| dynamic_segment_pruner.can_match(&reader, segment, &schema),
                 );
                 timer.done();
+                // Publish before yielding so a parent LIMIT cannot hide skips.
+                let skipped = scanner.take_runtime_skipped_segments();
+                if skipped > 0
+                    && let Some(counter) = &segments_pruned_dynamic
+                {
+                    counter.add(skipped);
+                }
 
                 if pushed && !pushdown_metric_recorded {
                     let tag = strategy_sink.load(Ordering::Relaxed);
@@ -1357,8 +1379,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         }
 
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
-        // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
-        // join-key bounds from HashJoinExec). We accept and apply all of them.
+        // Multiple sources may push dynamic filters (Top K from SortExec, min/max aggregate
+        // bounds, and join-key bounds from HashJoinExec). Segment rejection assumes every
+        // producer only tightens during one execution; that assumption is not checked at runtime
+        // and is documented on `DynamicSegmentPruner`.
         //
         // The pushdown pass can potentially run more than once. Producers assume
         // pushed-down filters remain installed between passes and may not re-push

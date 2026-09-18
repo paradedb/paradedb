@@ -103,6 +103,11 @@ impl DeferredScorer {
         let scorer = self.scorer_mut();
         scorer.set_threshold(threshold);
     }
+
+    /// Every other accessor creates the scorer on demand; this one never does.
+    fn is_open(&self) -> bool {
+        self.scorer.get().is_some()
+    }
 }
 
 impl DocSet for DeferredScorer {
@@ -153,6 +158,13 @@ impl ScorerIter {
 
     pub fn segment_id(&self) -> tantivy::index::SegmentId {
         self.segment_reader.segment_id()
+    }
+
+    /// A batch ending exactly on the batch-size boundary leaves an iterator installed with
+    /// nothing left. False for a deferred scorer that never opened, which cannot be inspected
+    /// without opening it.
+    pub(crate) fn is_exhausted(&self) -> bool {
+        self.deferred.is_open() && self.deferred.doc() == tantivy::TERMINATED
     }
 
     /// Returns the estimated number of documents that will be yielded by this iterator.

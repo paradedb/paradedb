@@ -527,6 +527,15 @@ impl SearchIndexSchema {
         }
     }
 
+    /// The field whose `.stats` a check on `name` may consult. A JSON path has no statistics
+    /// of its own.
+    pub fn stats_field(&self, name: &FieldName) -> Option<SearchField> {
+        if name.path().is_some() {
+            return None;
+        }
+        self.search_field(name.root())
+    }
+
     /// Returns an additional existence check without replacing the original query.
     ///
     /// For a scalar fast field, `color @@@ 'blue'` gets an `exists(color)` guard.

@@ -39,12 +39,16 @@ BEGIN
 END;
 $$;
 
--- Names instead of oids, and deduplicated: the Postgres plan in the last section leaves a
--- lock per heap tuple it reads.
+-- Only this backend's locks: a lock another session left behind is not something this test
+-- controls. Names instead of oids, and deduplicated, because the Postgres plan in the last
+-- section leaves one lock per heap tuple it reads. That last section reports `tuple` only
+-- while the matches on a page stay within `max_pred_locks_per_page`; a third match there
+-- promotes the report to `page`.
 CREATE VIEW ssi_locks AS
 SELECT DISTINCT locktype, relation::regclass::text AS relation, mode
 FROM pg_locks
 WHERE mode = 'SIReadLock'
+  AND pid = pg_backend_pid()
   AND relation IN ('ssi_doctors'::regclass, 'ssi_doctors_idx'::regclass,
                    'ssi_shifts'::regclass, 'ssi_shifts_idx'::regclass);
 

@@ -2,4 +2,4 @@
 header: stability
 ---
 
-A search read now takes a predicate lock under `SERIALIZABLE`. Without it, two transactions could each count the rows matching a search, then each insert a matching row, and both commit, while Postgres' own plans for the same read abort one of them (#6390). The lock covers the whole table, so a concurrent write conflicts with the read even when it touches a row the search did not match.
+A search read now takes a predicate lock under `SERIALIZABLE`. Without it, two transactions could each count the rows matching a search, then each insert a matching row, and both commit, while Postgres' own plans for the same read abort one of them (#6390). The lock covers the whole table, so a write from another `SERIALIZABLE` transaction creates a dependency with the read even when it touches a row the search did not match.

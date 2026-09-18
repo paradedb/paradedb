@@ -96,22 +96,16 @@ impl RangePartitioning {
                     }
                 },
             });
-        let null_query = range
-            .includes_nulls()
-            .then(|| SearchQueryInput::ConstScore {
-                // A pure-negative Boolean matches nothing. All supplies the positive clause;
-                // the constant score keeps NULL rows scored like rows matching the range.
-                query: Box::new(SearchQueryInput::Boolean {
-                    must: vec![SearchQueryInput::All],
-                    should: vec![],
-                    must_not: vec![SearchQueryInput::FieldedQuery {
-                        field: self.partition_by.clone(),
-                        query: Query::Exists,
-                    }],
-                    minimum_should_match: None,
-                }),
-                score: 1.0,
-            });
+        let null_query = range.includes_nulls().then(|| SearchQueryInput::Boolean {
+            // A pure-negative Boolean matches nothing. All supplies the positive clause.
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::FieldedQuery {
+                field: self.partition_by.clone(),
+                query: Query::Exists,
+            }],
+            minimum_should_match: None,
+        });
         match (range_query, null_query) {
             (Some(range_query), Some(null_query)) => SearchQueryInput::Boolean {
                 must: vec![],

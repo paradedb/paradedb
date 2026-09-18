@@ -574,22 +574,11 @@ mod tests {
                 for (partition, expected_ids) in expected.into_iter().enumerate() {
                     let query = partitioning.partition_bounds(partition);
                     let exact = reader.and_query_input(&query);
-                    // pg_search's All query scores zero; an actual partition predicate
-                    // contributes one for both NULL and non-NULL rows.
-                    let expected_score = if matches!(query, SearchQueryInput::All) {
-                        0.0
-                    } else {
-                        1.0
-                    };
                     let ids = segments_for_partition(&reader, &partitioning, partition);
                     let collect_ids =
                         |results: crate::index::reader::index::MultiSegmentSearchResults| {
                             let mut ids = results
-                                .map(|(score, doc)| {
-                                    if scoring {
-                                        assert_eq!(score.bm25, expected_score,
-                                            "the partition predicate must score NULL and non-NULL rows alike: {query:?}");
-                                    }
+                                .map(|(_, doc)| {
                                     reader
                                         .searcher()
                                         .segment_reader(doc.segment_ord)
@@ -641,13 +630,12 @@ mod tests {
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
         assert_eq!(build.split_points[2], PdbOwnedValue::I64(10));
 
-        // partition 0: upper is NULL -> only NULL rows, with the range query's constant score.
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
         assert!(matches!(
             p0,
-            SearchQueryInput::ConstScore { ref query, score: 1.0 }
-                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
-                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
         ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty
@@ -680,13 +668,12 @@ mod tests {
         assert_eq!(build.split_points[0], PdbOwnedValue::Null);
         assert_eq!(build.split_points[1], PdbOwnedValue::Null);
 
-        // partition 0: upper is NULL -> only NULL rows, with the range query's constant score.
+        // partition 0: upper is NULL -> only NULL rows (All AND NOT Exists).
         let p0 = build.partition_bounds(0);
         assert!(matches!(
             p0,
-            SearchQueryInput::ConstScore { ref query, score: 1.0 }
-                if matches!(**query, SearchQueryInput::Boolean { ref must, .. }
-                    if matches!(must.as_slice(), [SearchQueryInput::All]))
+            SearchQueryInput::Boolean { ref must, .. }
+                if matches!(must.as_slice(), [SearchQueryInput::All])
         ));
 
         // partition 1: lower is Null (Unbounded), upper is Null (Empty) -> Empty

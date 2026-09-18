@@ -13,7 +13,6 @@ Use SQL comparisons such as `rating = 4` and `in_stock = true` for non-text scal
 The `deprecated_*` compatibility tests deliberately retain old syntax where current APIs cannot preserve the tested behavior:
 
 - JSON tokenizer casts change numeric JSON filter and term matching. The legacy JSON pushdown and aggregate cases retain their schema options.
-- `pdb.agg()` over joins cannot read back tokenizer expression fields, including literal casts. The affected aggregate tests and the isolated property-test module retain legacy field configuration.
 - Custom stopword lists have no working tokenizer cast equivalent.
 
 Dedicated compatibility tests also cover the old access-method name, ignored key/datetime options, and rejected legacy operator arguments. These are not examples for new queries. Parser-specific tests use explicit parser functions; this includes phrases with stopwords, whose position gaps are currently lost by `###`. JSON query serialization tests exercise typed query objects rather than query-string syntax.

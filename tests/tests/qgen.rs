@@ -1593,8 +1593,80 @@ async fn generated_numeric_range_precision(database: Db) {
     });
 }
 
-#[path = "support/deprecated_aggregate_readback.rs"]
-mod deprecated_aggregate_readback;
+/// Property test for `pdb.agg()` over joins: the buckets and metrics the DataFusion backend
+/// assembles must equal the rows of the equivalent SQL `GROUP BY` run by PostgreSQL, which is
+/// the oracle since `pdb.agg()` itself has no native fallback. Covers nested `terms`, a
+/// `size` cut under the default count order, NULL buckets, NUMERIC metrics, `cardinality`,
+/// a SQL `GROUP BY` beside the call, and MPP when the parallel GUCs are on.
+/// TODO: Consider merging this property test with other "aggregate over join" tests
+/// (such as `generated_aggregate_join` and `generated_join_aggregates`) in the future.
+#[rstest]
+#[tokio::test]
+async fn generated_pdb_agg_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<String> = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table.to_string())
+        .collect();
+    let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
+
+    let where_columns = columns_named(vec!["name", "color"]);
+    let join_key_columns = columns_named(vec!["id", "age"]);
+
+    proptest!(qgen_proptest_config(), |(
+        (join_expr, agg, wheres) in arb_pdb_agg_join(all_tables.clone(), &join_key_columns, &where_columns),
+        mut gucs in any::<PgGucs>(),
+    )| {
+        let join_clause = join_expr.to_sql();
+        let pg_query = agg.pg_query(&join_clause, &wheres.pg_where());
+        let bm25_query = agg.pdb_query(&join_clause, &wheres.bm25_where());
+
+        // `pdb.agg()` over a join only runs on the DataFusion backend.
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
+
+        if !agg.outer_aggs.is_empty() {
+            let pg_outer_query = agg.pg_outer_query(&join_clause, &wheres.pg_where());
+            qgen_oracle!("qgen: generated_pdb_agg_join - outer aggregates match PostgreSQL", compare_outcome_retrying(
+                &pg_outer_query,
+                &bm25_query,
+                &gucs,
+                &pool,
+                &setup_sql,
+                |query, side, conn| {
+                    "SET work_mem TO '64MB';".execute_result(conn)?;
+                    let rows = query.fetch_dynamic_result(conn)?;
+                    let mut rows = agg.outer_rows(rows, side.is_candidate())?;
+                    rows.sort();
+                    Ok(rows)
+                },
+            ))?;
+        }
+
+        qgen_oracle!("qgen: generated_pdb_agg_join - pdb.agg() buckets match PostgreSQL GROUP BY", compare_outcome_retrying(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &pool,
+            &setup_sql,
+            |query, _, conn| {
+                // A keyless join under three bucket keys makes tens of thousands of
+                // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
+                "SET work_mem TO '64MB';".execute_result(conn)?;
+                let rows = query.fetch_dynamic_result(conn)?;
+                let mut rows = agg.rows(rows)?;
+                rows.sort();
+                Ok(rows)
+            },
+        ))?;
+    });
+}
 
 /// The same single-table `pdb.agg()` answered by Tantivy and by DataFusion. The documents must
 /// be equal as they are: bucket order, `sum_other_doc_count`, NULL buckets, and metric values
@@ -1630,6 +1702,18 @@ async fn generated_pdb_agg_single_table(database: Db) {
             baseline: gucs.set(),
             candidate: gucs.set(),
         };
+
+        // A spec that doesn't lower leaves the candidate on Tantivy too, and the comparison
+        // below would then prove nothing.
+        qgen_oracle!("qgen: generated_pdb_agg_single_table - candidate runs on DataFusion", compare_plan_retrying(
+            &tantivy_query,
+            &datafusion_query,
+            &gucs,
+            &pool,
+            &setup_sql,
+            &["DataFusion Physical Plan"],
+            &[],
+        ))?;
 
         qgen_oracle!("qgen: generated_pdb_agg_single_table - both backends answer pdb.agg() alike", compare_outcome_retrying_on(
             &sides,

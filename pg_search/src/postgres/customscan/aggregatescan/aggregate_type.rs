@@ -26,6 +26,7 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{VarContext, fieldname_from_var, find_one_var_and_fieldname};
@@ -211,25 +212,7 @@ impl AggregateType {
             heap_rti,
         )?;
         let field = aggregate_field.field_name().clone();
-        let missing = aggregate_field.missing()?;
-
-        // `COUNT` never reads the value.
-        if aggfnoid != F_COUNT_ANY
-            && let Some(missing) = missing
-        {
-            let field_type = bm25_index
-                .schema()
-                .ok()
-                .and_then(|schema| schema.search_field(&field))
-                .map(|search_field| search_field.field_type());
-            if !missing_fits_every_column(field_type, missing) {
-                bail!(
-                    "COALESCE default {} for '{}' does not fit the field's column type",
-                    missing,
-                    field
-                );
-            }
-        }
+        let missing = aggregate_field.missing_for(aggfnoid, || bm25_index.schema().ok())?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -849,6 +832,42 @@ impl ParsedAggregateField {
             ),
             _ => bail!("unsupported constant type in COALESCE default value"),
         })
+    }
+
+    /// Returns [`Self::missing`] for `aggfnoid`, and fails when Tantivy would change the default
+    /// for a column the field can have. `schema` is opened only when there is a default to check.
+    pub(crate) unsafe fn missing_for(
+        &self,
+        aggfnoid: u32,
+        schema: impl FnOnce() -> Option<SearchIndexSchema>,
+    ) -> anyhow::Result<Option<f64>> {
+        let missing = self.missing()?;
+        // `COUNT` never reads the value.
+        if aggfnoid == F_COUNT_ANY {
+            return Ok(missing);
+        }
+        let Some(missing) = missing else {
+            return Ok(None);
+        };
+        let field_type = schema()
+            .and_then(|schema| schema.search_field(&self.field_name))
+            .map(|search_field| search_field.field_type());
+        if !missing_fits_every_column(field_type, missing) {
+            bail!(
+                "COALESCE default {} for '{}' does not fit the field's column type",
+                missing,
+                self.field_name
+            );
+        }
+        Ok(Some(missing))
+    }
+
+    pub(crate) unsafe fn heaprelid(&self, context: VarContext) -> Option<pg_sys::Oid> {
+        let var = self
+            .expression
+            .field_expression()
+            .find_single_node::<pg_sys::Var>()?;
+        Some(context.var_relation(var).0)
     }
 }
 

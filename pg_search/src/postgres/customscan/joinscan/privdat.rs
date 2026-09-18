@@ -49,7 +49,9 @@ pub enum OutputColumnInfo {
         field_name: String,
     },
     /// A window function output
-    WindowAgg { agg_index: WindowAggIndex },
+    SqlWindowAgg { agg_index: WindowAggIndex },
+    /// A pdb.agg()-in-a-window-function output
+    PdbWindowAgg { agg_index: WindowAggIndex },
     /// An expression evaluated by DataFusion (e.g. via PgExprUdf in DISTINCT).
     Expression,
     /// A column pruned by a semi/anti join or a non-Var, non-score expression.
@@ -78,7 +80,10 @@ impl From<&OutputColumnInfo> for ChildProjection {
                 source_rti: *source_rti,
                 field_name: field_name.clone(),
             },
-            OutputColumnInfo::WindowAgg { agg_index } => ChildProjection::WindowAgg {
+            OutputColumnInfo::SqlWindowAgg { agg_index } => ChildProjection::SqlWindowAgg {
+                agg_index: *agg_index,
+            },
+            OutputColumnInfo::PdbWindowAgg { agg_index } => ChildProjection::PdbWindowAgg {
                 agg_index: *agg_index,
             },
             OutputColumnInfo::Expression | OutputColumnInfo::Pruned => {

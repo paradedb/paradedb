@@ -24,7 +24,8 @@
 
 use super::GroupingShape;
 use super::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, collect_join_agg_sources, resolve_source_field,
+    FilterExprBuildContext, JoinAggSource, ResolutionSource, collect_join_agg_sources,
+    resolve_source_field,
 };
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
@@ -907,10 +908,11 @@ unsafe fn lower_pdb_agg(
     let (spec, visibility) = arg_expr(0)
         .and_then(|spec_arg| pdb_agg_spec((*aggref).aggfnoid.to_u32(), spec_arg, arg_expr(1)))
         .ok_or("pdb.agg argument must be a constant for aggregate pushdown")?;
+    let resolution_sources = sources.iter().map(ResolutionSource::from);
     PdbAggRequest::lower(spec, visibility, &|field| {
-        let resolved = resolve_source_field(sources, field)?;
+        let resolved = resolve_source_field(resolution_sources.clone(), field)?;
         Ok(PdbAggFieldRef {
-            rti: resolved.source.rti,
+            rti: resolved.source_rti,
             attno: resolved.attno,
             field_name: resolved.field_name,
             field_type: resolved.field_type,

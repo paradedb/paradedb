@@ -152,7 +152,9 @@ use self::planning::{
     get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::privdat::PrivateData;
-use self::window_func::{SupportedWindowAggType, extract_window_agg, is_supported_window_agg_node};
+use self::window_func::{
+    SqlWindowAggType, WindowAggDef, extract_window_agg, is_supported_window_agg_node,
+};
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
 };
@@ -1789,10 +1791,11 @@ impl CustomScan for JoinScan {
                             }
                         }
                         privdat::OutputColumnInfo::Expression
-                        | privdat::OutputColumnInfo::WindowAgg { .. } => {
+                        | privdat::OutputColumnInfo::SqlWindowAgg { .. } => {
                             let col_alias = format!("col_{}", out_idx + 1);
                             schema.index_of(&col_alias).ok()
                         }
+                        privdat::OutputColumnInfo::PdbWindowAgg { .. } => todo!(),
                         privdat::OutputColumnInfo::Var { .. }
                         | privdat::OutputColumnInfo::Pruned => None,
                     })
@@ -1954,7 +1957,18 @@ unsafe fn compute_output_columns(
                 .expect(
                     "At this point, any window agg found should have successfully been extracted and be findable",
                 );
-            output_columns.push(privdat::OutputColumnInfo::WindowAgg { agg_index });
+            let agg = join_clause
+                .window_aggs
+                .get(agg_index)
+                .expect("index should always be good");
+            match agg.agg_def {
+                WindowAggDef::Sql(_) => {
+                    output_columns.push(privdat::OutputColumnInfo::SqlWindowAgg { agg_index })
+                }
+                WindowAggDef::PdbAgg(_) => {
+                    output_columns.push(privdat::OutputColumnInfo::PdbWindowAgg { agg_index })
+                }
+            }
         } else {
             output_columns.push(privdat::OutputColumnInfo::Pruned);
         }
@@ -2045,7 +2059,7 @@ unsafe fn build_output_projection(
         // which projects NULL).
         if matches!(
             private_data.output_columns[scan_idx],
-            privdat::OutputColumnInfo::WindowAgg { .. }
+            privdat::OutputColumnInfo::SqlWindowAgg { .. }
         ) {
             continue;
         }
@@ -2413,7 +2427,8 @@ impl JoinScan {
                 privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
                 privdat::OutputColumnInfo::Pruned
                 | privdat::OutputColumnInfo::Unnested { .. }
-                | privdat::OutputColumnInfo::WindowAgg { .. }
+                | privdat::OutputColumnInfo::SqlWindowAgg { .. }
+                | privdat::OutputColumnInfo::PdbWindowAgg { .. }
                 | privdat::OutputColumnInfo::Expression => {
                     continue;
                 }
@@ -2542,13 +2557,18 @@ impl JoinScan {
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
                     *nulls.add(i) = is_null;
                 }
-                privdat::OutputColumnInfo::WindowAgg { agg_index } => {
+                privdat::OutputColumnInfo::SqlWindowAgg { agg_index } => {
                     let window_agg = state
                         .custom_state()
                         .join_clause
                         .window_aggs
                         .get(*agg_index)
                         .expect("A window agg output column should always have a valid index");
+                    let WindowAggDef::Sql(sql_agg_def) = &window_agg.agg_def else {
+                        pgrx::error!(
+                            "Window agg def at index {agg_index:?} should have been a WindowAggDef::Sql, but was not"
+                        );
+                    };
                     let Some(col_idx) = state
                         .custom_state()
                         .output_batch_col_indices
@@ -2561,8 +2581,8 @@ impl JoinScan {
                     };
                     let agg_col = batch.column(col_idx);
                     let numeric = match numeric_window_field(
-                        window_agg.agg_type,
-                        window_agg.arg_field_type(),
+                        sql_agg_def.agg_type(),
+                        sql_agg_def.arg_field_type(),
                     ) {
                         Ok(f) => f,
                         Err(e) => pgrx::error!(
@@ -2570,7 +2590,7 @@ impl JoinScan {
                         ),
                     };
                     let try_maybe_datum = datafusion_agg_to_datum(
-                        matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
+                        matches!(sql_agg_def.agg_type(), SqlWindowAggType::Avg),
                         numeric,
                         window_agg.result_type.0,
                         agg_col.as_ref(),
@@ -2589,6 +2609,7 @@ impl JoinScan {
                         *nulls.add(i) = true;
                     }
                 }
+                privdat::OutputColumnInfo::PdbWindowAgg { .. } => todo!(),
                 privdat::OutputColumnInfo::Unnested { .. }
                 | privdat::OutputColumnInfo::Expression => {
                     let col_idx = state

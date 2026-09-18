@@ -386,23 +386,10 @@ await dbContext
 
 BM25 uses two parameters, `k1` and `b`, to control how term frequency and field length affect relevance scores. You can configure them independently for each field when creating an index, so a short title and a long article body can use different scoring settings.
 
-### Term Frequency (`k1`)
-
-When a query term appears multiple times in a field, BM25 gives it a higher score, but each additional occurrence contributes less than the previous one. The `k1` parameter controls how quickly this effect, called term frequency saturation, takes place.
-
-Lower values of `k1` reduce the benefit of repeated occurrences, while higher values give them more weight. For example, you might lower `k1` if documents that repeat a query term are ranking too highly. Setting `k1` to `0` removes the influence of both term frequency and field length on a term's score.
-
-The default is `1.2`. Accepted values range from `0` to `100`, inclusive.
-
-### Field Length (`b`)
-
-Longer fields have more opportunities to contain a query term. BM25 accounts for this by comparing a field's length with the average length of that field across documents. The `b` parameter controls the strength of this adjustment, called field length normalization.
-
-Higher values of `b` penalize longer fields more strongly. Lower values reduce the influence of field length, which can be useful when longer documents are just as relevant as shorter ones. Setting `b` to `0` disables length normalization; setting it to `1` applies full length normalization.
-
-The default is `0.75`. Accepted values range from `0` to `1`, inclusive.
-
-### Configuring Parameters
+| Parameter | Default | Accepted Range          | Effect                                                                                                                                                                                                  |
+| --------- | ------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation. Lower values reduce the benefit of repeated query terms; higher values give them more weight. At `0`, term frequency and field length do not affect a term's score. |
+| `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the field's average length. Higher values penalize longer fields more strongly. At `0`, normalization is disabled; at `1`, it is fully applied.         |
 
 Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `title` field uses lower values to reduce the influence of repeated terms and field length. The `body` field gives repeated terms more weight while keeping the default length normalization.
 

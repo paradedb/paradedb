@@ -78,7 +78,11 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::VarContext;
+<<<<<<< HEAD
 use crate::postgres::PgSearchRelation;
+=======
+use crate::postgres::{PgSearchRelation, rel_get_bm25_index};
+>>>>>>> 0b4785596 (fix: decline aggregate COALESCE defaults that the column type would change (#6383))
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
@@ -339,9 +343,18 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     let first_arg = args.get_ptr(0)?;
 
-    let aggregate_field =
-        ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
-    let missing = aggregate_field.missing().ok()?;
+    let context = VarContext::from_query(parse);
+    let aggregate_field = ParsedAggregateField::from_query(first_arg, context).ok()?;
+    let missing = aggregate_field
+        .missing_for(aggfnoid, || {
+            let (_, bm25_index) = rel_get_bm25_index(aggregate_field.heaprelid(context)?)?;
+            // A partitioned index has no storage to read the schema from.
+            if get_rel_relkind(bm25_index.oid()) as u8 == RELKIND_PARTITIONED_INDEX {
+                return None;
+            }
+            bm25_index.schema().ok()
+        })
+        .ok()?;
 
     let agg_type = AggregateType::from_oid(
         aggfnoid,

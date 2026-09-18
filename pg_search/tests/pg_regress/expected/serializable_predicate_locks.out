@@ -54,6 +54,20 @@ SELECT * FROM ssi_locks ORDER BY 1, 2;
 (0 rows)
 
 COMMIT;
+-- A node that Postgres initializes and never executes reads nothing, so it owes nothing
+-- either. `index_beginscan` follows the same rule: it runs on the first `IndexNext`.
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' LIMIT 0;
+ id | name 
+----+------
+(0 rows)
+
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+ locktype | relation | mode 
+----------+----------+------
+(0 rows)
+
+COMMIT;
 -- base scan
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -56,7 +56,7 @@
 
 use std::error::Error;
 
-use pgrx::{FromDatum, Json, JsonB, PgRelation, default, pg_extern, pg_sys};
+use pgrx::{FromDatum, Json, JsonB, PgRelation, default, pg_extern};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{AggregateRequest, execute_aggregate};
@@ -67,7 +67,6 @@ use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_aggregate_result_json_timestamps;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::serializable::predicate_lock_read_oid;
 use crate::postgres::utils::{ExprContextGuard, lookup_pdb_function};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -100,11 +99,6 @@ fn aggregate_impl(
     {
         pgrx::error!("{}", e);
     }
-
-    // This path bypasses the executor, so nothing else takes the read's SIREAD lock.
-    predicate_lock_read_oid(relation.heap_relation_oid(), unsafe {
-        pg_sys::GetActiveSnapshot()
-    });
 
     let standalone_context = ExprContextGuard::new();
     // need a copy of the original request json for rewriting later

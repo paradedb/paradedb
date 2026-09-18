@@ -124,6 +124,12 @@ impl BaseScan {
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+        // The read starts here, not at node init: a node that is initialized and never executed
+        // (`LIMIT 0`, an unreached inner side) reads nothing and owes SSI nothing.
+        predicate_lock_read(state.custom_state().heaprel(), unsafe {
+            (*state.csstate.ss.ps.state).es_snapshot
+        });
+
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -1602,8 +1608,6 @@ impl CustomScan for BaseScan {
                 // don't do anything else if we're only explaining the query
                 return;
             }
-
-            predicate_lock_read(state.custom_state().heaprel(), (*estate).es_snapshot);
 
             // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =

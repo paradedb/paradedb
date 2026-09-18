@@ -14,21 +14,21 @@ DROP TABLE IF EXISTS cdc_json_none CASCADE;
 
 CREATE TABLE cdc_int (id SERIAL8 PRIMARY KEY, g INTEGER, n INTEGER);
 INSERT INTO cdc_int (g, n) VALUES (1, 4), (1, NULL);
-CREATE INDEX cdc_int_idx ON cdc_int USING paradedb (id, g, n);
+CREATE INDEX cdc_int_idx ON cdc_int USING paradedb (id, g, n) WITH (key_field = 'id');
 
 CREATE TABLE cdc_float (id SERIAL8 PRIMARY KEY, x DOUBLE PRECISION);
 INSERT INTO cdc_float (x) VALUES (4), (NULL);
-CREATE INDEX cdc_float_idx ON cdc_float USING paradedb (id, x);
+CREATE INDEX cdc_float_idx ON cdc_float USING paradedb (id, x) WITH (key_field = 'id');
 
 -- Every score is an integer, so the segment's column is an integer column.
 CREATE TABLE cdc_json_int (id SERIAL8 PRIMARY KEY, metadata JSONB);
 INSERT INTO cdc_json_int (metadata) VALUES ('{"score": 4}'), ('{}');
-CREATE INDEX cdc_json_int_idx ON cdc_json_int USING paradedb (id, (metadata::pdb.simple('columnar=true')));
+CREATE INDEX cdc_json_int_idx ON cdc_json_int USING paradedb (id, (metadata::pdb.simple('columnar=true'))) WITH (key_field = 'id');
 
 -- No row has a score, so the segment has no column for it. The brand column holds strings.
 CREATE TABLE cdc_json_none (id SERIAL8 PRIMARY KEY, metadata JSONB);
 INSERT INTO cdc_json_none (metadata) VALUES ('{"brand": "apple"}'), ('{}');
-CREATE INDEX cdc_json_none_idx ON cdc_json_none USING paradedb (id, (metadata::pdb.simple('columnar=true')));
+CREATE INDEX cdc_json_none_idx ON cdc_json_none USING paradedb (id, (metadata::pdb.simple('columnar=true'))) WITH (key_field = 'id');
 
 -- A fractional default on an integer column.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789690885770,
+  "lastUpdate": 1789691825228,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4447,6 +4447,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.189,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7df908094ff421ba761d33bedbc736742f0afbd9",
+          "message": "ci: reuse shared pg_search source build action (#6401)\n\nUse the shared `paradedb/actions/build-pg_search-source` action for\nAntithesis and benchmarker, using `@v13`. Remove the local source-build\naction; other consumers retain their existing local PostgreSQL/toolchain\nsetup actions.\n\nUpgrade all other `paradedb/actions` v12 references to `@v13` as well.\nDepends on merging https://github.com/paradedb/actions/pull/29 and\npublishing v13; CI cannot resolve these references until that release\nexists. The shared action preserves the build inputs and staged\ninstall-tree output, including Antithesis instrumentation, and isolates\npackage output from cached files.\n\nValidation: actionlint and Prettier pass for both workflows;\nshared-action staging contracts cover release, dev, and\ninstrumented/custom-target arguments. Native compilation remains for\nconsumer CI.",
+          "timestamp": "2026-09-17T17:15:51-07:00",
+          "tree_id": "f11e83c098325217c0a838594286a20742e999fd",
+          "url": "https://github.com/paradedb/paradedb/commit/7df908094ff421ba761d33bedbc736742f0afbd9"
+        },
+        "date": 1789691821242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.66245568842197,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.921,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.199,
             "unit": "ms"
           }
         ]

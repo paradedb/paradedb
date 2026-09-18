@@ -77,7 +77,20 @@ static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
 /// The scale factor for the chunk size in a Top K query.
 static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+static POSTINGS_READ_BUFFER_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+static EXPERIMENT_UNION_DEFER: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_IO_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_GLOBAL_TOPK: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_MAX_SCORE_BOUND_MODE: GucSetting<i32> = GucSetting::<i32>::new(0);
+static EXPERIMENT_INTERSECTION_MEMBERSHIP_FIRST: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_INTERSECTION_MEMBERSHIP_ADAPTIVE: GucSetting<bool> =
+    GucSetting::<bool>::new(false);
+static EXPERIMENT_PHRASE_ANCHOR: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_PHRASE_SCORE_BOUND: GucSetting<bool> = GucSetting::<bool>::new(false);
 static EXPERIMENT_COUNT_ALL_VISIBLE: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_DENSE_TERM_RATIO: GucSetting<f64> = GucSetting::<f64>::new(0.0);
+static EXPERIMENT_CANDIDATE_TF_BOUND: GucSetting<bool> = GucSetting::<bool>::new(false);
+static EXPERIMENT_LAZY_POSITIONS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
@@ -317,6 +330,8 @@ pub fn vector_clustering_threshold() -> usize {
 }
 
 pub fn init() {
+    #[cfg(feature = "io_stats")]
+    crate::api::norm_sidecar::register_guc();
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -488,11 +503,116 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.postings_read_buffer_size",
+        c"Experimental lazy postings read buffer size; zero uses eager reads",
+        c"Read-ahead bytes for each term postings cursor",
+        &POSTINGS_READ_BUFFER_SIZE,
+        0,
+        1_048_576,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_union_defer",
+        c"Defer rejection-driven union seeks.",
+        c"Experimental postings optimization.",
+        &EXPERIMENT_UNION_DEFER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.experiment_max_score_bound_mode",
+        c"Term score bounds: zero theoretical, one segment, two suffix.",
+        c"Experimental postings optimization.",
+        &EXPERIMENT_MAX_SCORE_BOUND_MODE,
+        0,
+        2,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_intersection_membership_first",
+        c"Check all conjunction memberships before scoring.",
+        c"Experimental postings optimization.",
+        &EXPERIMENT_INTERSECTION_MEMBERSHIP_FIRST,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_intersection_membership_adaptive",
+        c"Restrict membership-first conjunctions to selective leading terms.",
+        c"Requires experiment_intersection_membership_first; uses a 1/256 document-frequency cutoff.",
+        &EXPERIMENT_INTERSECTION_MEMBERSHIP_ADAPTIVE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_phrase_anchor",
+        c"Test exact phrase anchors before probing the remaining terms.",
+        c"Experimental positional membership optimization; only applies to zero-slop phrases.",
+        &EXPERIMENT_PHRASE_ANCHOR,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_phrase_score_bound",
+        c"Bound exact phrase scores before reading positions or fieldnorms.",
+        c"Experimental term-frequency bound for zero-slop scored phrases.",
+        &EXPERIMENT_PHRASE_SCORE_BOUND,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     GucRegistry::define_bool_guc(
         c"paradedb.experiment_count_all_visible",
         c"Count matching documents directly after proving heap visibility.",
         c"Experimental exact bare COUNT fast path for immutable all-visible segment ranges.",
         &EXPERIMENT_COUNT_ALL_VISIBLE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.experiment_dense_term_ratio",
+        c"Omit dense TermQuery leaves from BM25 scoring while preserving matching.",
+        c"Zero disables this changed-scoring experiment. Phrase scoring is unchanged.",
+        &EXPERIMENT_DENSE_TERM_RATIO,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_candidate_tf_bound",
+        c"Reject candidates by actual frequency before reading fieldnorms.",
+        c"Experimental postings optimization.",
+        &EXPERIMENT_CANDIDATE_TF_BOUND,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_lazy_positions",
+        c"Read phrase positions one compression block at a time.",
+        c"Experimental postings optimization.",
+        &EXPERIMENT_LAZY_POSITIONS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_global_topk",
+        c"Publish the top-K threshold across completed segments.",
+        c"Experimental score-only collector optimization.",
+        &EXPERIMENT_GLOBAL_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.experiment_io_stats",
+        c"Enable component I/O counters for the lazy postings experiment",
+        c"Disabled for timing runs",
+        &EXPERIMENT_IO_STATS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -992,6 +1112,14 @@ pub fn topk_retry_scale_factor() -> i32 {
     TOPK_RETRY_SCALE_FACTOR.get()
 }
 
+pub fn postings_read_buffer_size() -> usize {
+    POSTINGS_READ_BUFFER_SIZE.get() as usize
+}
+
+pub fn experiment_io_stats() -> bool {
+    EXPERIMENT_IO_STATS.get()
+}
+
 pub fn global_mutable_segment_rows() -> Option<usize> {
     let value = GLOBAL_MUTABLE_SEGMENT_ROWS.get();
     if value >= 0 {
@@ -1216,6 +1344,46 @@ mod tests {
     }
 }
 
+pub fn experiment_union_defer() -> bool {
+    EXPERIMENT_UNION_DEFER.get()
+}
+
+pub fn experiment_max_score_bound_mode() -> usize {
+    EXPERIMENT_MAX_SCORE_BOUND_MODE.get() as usize
+}
+
+pub fn experiment_intersection_membership_first() -> bool {
+    EXPERIMENT_INTERSECTION_MEMBERSHIP_FIRST.get()
+}
+
+pub fn experiment_intersection_membership_adaptive() -> bool {
+    EXPERIMENT_INTERSECTION_MEMBERSHIP_ADAPTIVE.get()
+}
+
+pub fn experiment_phrase_anchor() -> bool {
+    EXPERIMENT_PHRASE_ANCHOR.get()
+}
+
+pub fn experiment_phrase_score_bound() -> bool {
+    EXPERIMENT_PHRASE_SCORE_BOUND.get()
+}
+
 pub fn experiment_count_all_visible() -> bool {
     EXPERIMENT_COUNT_ALL_VISIBLE.get()
+}
+
+pub fn experiment_dense_term_ratio() -> f64 {
+    EXPERIMENT_DENSE_TERM_RATIO.get()
+}
+
+pub fn experiment_candidate_tf_bound() -> bool {
+    EXPERIMENT_CANDIDATE_TF_BOUND.get()
+}
+
+pub fn experiment_lazy_positions() -> bool {
+    EXPERIMENT_LAZY_POSITIONS.get()
+}
+
+pub fn experiment_global_topk() -> bool {
+    EXPERIMENT_GLOBAL_TOPK.get()
 }

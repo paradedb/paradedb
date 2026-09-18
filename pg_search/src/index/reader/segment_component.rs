@@ -63,7 +63,19 @@ impl SegmentComponentReader {
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         match &self.component {
-            Some(component) => io_stats::record(component, || self.read_bytes_raw(range)),
+            Some(component) => io_stats::record(component, range.len(), || {
+                let result = self.read_bytes_raw(range.clone());
+                #[cfg(feature = "io_stats")]
+                if let Ok(bytes) = &result {
+                    io_stats::record_postings_range(
+                        component,
+                        self.entry.starting_block,
+                        range.start,
+                        bytes.as_slice(),
+                    );
+                }
+                result
+            }),
             None => self.read_bytes_raw(range),
         }
     }
@@ -71,7 +83,7 @@ impl FileHandle for SegmentComponentReader {
     fn read_byte(&self, offset: usize) -> Result<u8, Error> {
         let read = || Ok(unsafe { self.block_list.get_byte(offset) });
         match &self.component {
-            Some(component) => io_stats::record(component, read),
+            Some(component) => io_stats::record(component, 1, read),
             None => read(),
         }
     }

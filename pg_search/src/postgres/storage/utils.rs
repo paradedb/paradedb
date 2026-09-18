@@ -205,6 +205,12 @@ impl RelationBufferAccess {
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
             } else {
+                #[cfg(feature = "io_stats")]
+                crate::index::reader::io_stats::record_buffer_page(
+                    self.rel.oid(),
+                    self.rel.fork_number(),
+                    blockno,
+                );
                 pg_sys::ReadBufferExtended(
                     self.rel.as_ptr(),
                     self.rel.fork_number(),

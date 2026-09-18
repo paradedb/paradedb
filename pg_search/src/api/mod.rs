@@ -22,7 +22,11 @@ mod admin;
 pub mod aggregate;
 pub mod builder_fns;
 pub mod config;
+#[cfg(feature = "io_stats")]
+pub(crate) mod norm_sidecar;
 pub mod operator;
+#[cfg(feature = "io_stats")]
+mod postings_oracle;
 pub mod tokenize;
 pub mod tokenizers;
 pub mod version;

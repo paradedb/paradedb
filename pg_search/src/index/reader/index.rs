@@ -123,9 +123,11 @@ pub struct TopKSearch {
 
 impl TopKSearch {
     fn from_results(results: TopKSearchResults) -> Self {
+        let mut segment_info = BTreeMap::new();
+        io_stats::attach(&mut segment_info);
         Self {
             results,
-            segment_info: BTreeMap::new(),
+            segment_info,
         }
     }
 
@@ -622,6 +624,22 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
+        tantivy::postings::set_postings_read_buffer_size(crate::gucs::postings_read_buffer_size());
+        tantivy::postings::set_union_deferred_seeks(crate::gucs::experiment_union_defer());
+        tantivy::postings::set_max_score_bound_mode(crate::gucs::experiment_max_score_bound_mode());
+        tantivy::postings::set_intersection_membership_first(
+            crate::gucs::experiment_intersection_membership_first(),
+        );
+        tantivy::postings::set_intersection_membership_adaptive(
+            crate::gucs::experiment_intersection_membership_adaptive(),
+        );
+        #[cfg(feature = "io_stats")]
+        crate::api::norm_sidecar::reset_for_query(index_relation.oid())?;
+        tantivy::postings::set_phrase_anchor_filter(crate::gucs::experiment_phrase_anchor());
+        tantivy::postings::set_phrase_score_bound(crate::gucs::experiment_phrase_score_bound());
+        tantivy::postings::set_dense_term_ratio(crate::gucs::experiment_dense_term_ratio());
+        tantivy::postings::set_candidate_tf_bound(crate::gucs::experiment_candidate_tf_bound());
+        tantivy::postings::set_lazy_position_reads(crate::gucs::experiment_lazy_positions());
         let IndexComponents {
             cleanup_lock,
             directory,
@@ -1200,6 +1218,10 @@ impl SearchIndexReader {
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
                 let order: ComparatorEnum = (*direction).into();
+                tantivy::collector::sort_key::set_global_topk_threshold(
+                    crate::gucs::experiment_global_topk()
+                        && parallel_state_holding_shared_threshold.is_none(),
+                );
                 let mut computer = SortBySimilarityScore::new();
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     computer =
@@ -1542,6 +1564,10 @@ impl SearchIndexReader {
 
             // can use tantivy's score directly, which allows for Block-WAND
             SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
+                tantivy::collector::sort_key::set_global_topk_threshold(
+                    crate::gucs::experiment_global_topk()
+                        && parallel_state_holding_shared_threshold.is_none(),
+                );
                 let mut computer = SortBySimilarityScore::new();
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     computer =

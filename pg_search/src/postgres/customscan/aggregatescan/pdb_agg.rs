@@ -33,7 +33,9 @@ use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchFieldType;
 use arrow_array::cast::AsArray;
-use arrow_array::{Array, ArrayRef, Int64Array, RecordBatch, UInt64Array, new_null_array};
+use arrow_array::{
+    Array, ArrayRef, Int64Array, RecordBatch, RecordBatchOptions, UInt64Array, new_null_array,
+};
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
 use decimal_bytes::Decimal;
@@ -1093,7 +1095,13 @@ pub fn assemble_pdb_agg_rows(
                 }
             })
             .collect();
-        let root_batch = RecordBatch::try_new(null_schema, columns)?;
+        // A query of only `pdb.agg()` entries has no root columns, and a batch
+        // without columns needs its row count spelled out.
+        let root_batch = RecordBatch::try_new_with_options(
+            null_schema,
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(1)),
+        )?;
         return Ok(AssembledPdbAggRows { root_batch, json });
     }
 
@@ -1240,6 +1248,24 @@ mod tests {
         let spec = request(json!({"terms": {"field": "a"}}), &["a"]);
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS - 1, 0).is_ok());
         assert!(PdbAggPlan::build(&[(0, &spec, false)], MAX_GROUP_EXPRS, 0).is_err());
+    }
+
+    /// A query of only `pdb.agg()` entries over no rows still answers with one
+    /// root row, even though that row has no columns.
+    #[test]
+    fn empty_input_without_root_columns_synthesizes_one_row() {
+        let spec = request(json!({"sum": {"field": "v"}}), &["v"]);
+        let plan = PdbAggPlan::build(&[(0, &spec, false)], 0, 0).expect("fits the grouping id");
+        // [count(v), sum(v)]
+        let schema = Arc::new(Schema::new(vec![
+            arrow_schema::Field::new("__pdb_m0", DataType::Int64, true),
+            arrow_schema::Field::new("__pdb_m1", DataType::Float64, true),
+        ]));
+        let assembled =
+            assemble_pdb_agg_rows(schema, &[], &plan, Some(&[])).expect("synthesizes a root row");
+        assert_eq!(assembled.root_batch.num_rows(), 1);
+        assert_eq!(assembled.root_batch.num_columns(), 0);
+        assert_eq!(assembled.json, vec![vec![json!({"value": 0.0})]]);
     }
 
     #[test]

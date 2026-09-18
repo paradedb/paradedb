@@ -38,6 +38,7 @@ pub mod explain;
 mod expr_translators;
 pub mod memory;
 pub mod numeric_agg;
+pub mod pdb_agg_fold;
 pub mod spill;
 pub mod timestamp_to_date;
 pub mod translator;
@@ -51,6 +52,7 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_sum_udaf(),
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
+        pg_agg_fold::pg_agg_fold_udaf(),
     ]
 }
 

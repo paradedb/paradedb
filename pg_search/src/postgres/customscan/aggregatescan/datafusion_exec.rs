@@ -544,7 +544,7 @@ fn build_pdb_aggregate_plan(
 ///
 /// `HAVING` only judges the SQL level. A bucket row of a group the clause drops
 /// stays in the output, and the assembler ignores it for lack of a root row.
-fn apply_pdb_aggregate(
+pub fn apply_pdb_aggregate(
     df: DataFrame,
     pdb_plan: &PdbAggPlan,
     group_exprs: Vec<Expr>,

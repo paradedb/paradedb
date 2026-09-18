@@ -244,6 +244,10 @@ impl WindowAggIndex {
     pub fn from_sentinel_attno(attno: pg_sys::AttrNumber) -> Option<Self> {
         (attno > 0).then(|| Self((attno - 1) as usize))
     }
+
+    pub fn as_int(&self) -> usize {
+        self.0
+    }
 }
 
 pub struct WindowAggColumn(WindowAggIndex);

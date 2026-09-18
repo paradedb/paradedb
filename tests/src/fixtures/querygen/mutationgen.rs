@@ -15,34 +15,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Heap churn around a qgen case, so the comparison does not assume a freshly built,
+//! Heap churn for the qgen fixture, so the comparison does not assume a freshly built,
 //! all-visible table.
 //!
-//! Each case draws a [`Churn`] with two parts:
+//! One churn runs per session, right after the schema, and every case then queries the heap it
+//! left: dead tuples, HOT chains, cleared visibility-map bits, reclaimed and reused ctids, and
+//! index segments that still carry docs for rows that are gone.
 //!
-//! 1. `committed`: mutations committed on the case's own session before either side runs. They
-//!    pile up over the run, so later cases query heaps with dead tuples, HOT chains, cleared
-//!    visibility-map bits, reclaimed and reused ctids, and index segments that still carry docs
-//!    for rows that are gone.
-//! 2. `own`: mutations left uncommitted in the transaction that runs both sides, rolled back once
-//!    the case is over. Both sides see the session's own writes; the rollback then leaves aborted
-//!    tuples behind for the cases after it.
+//! The heap holds still for the whole run, which is what keeps the property test's own
+//! guarantees: a failing case shrinks its query against the same heap it failed on, and the
+//! printed script rebuilds that heap from the schema plus one block of SQL.
 //!
-//! Both sides of a case run back to back on one session, and a case with uncommitted churn runs
-//! them inside its transaction, so they read the same rows. Nothing else writes to the test's
-//! database while a case runs. The index, on the other hand, sees every one of these rows and
-//! has to filter them. Rows another backend holds in flight are a stressgres subject: they need
-//! a second live session, which no reproduction script can replay.
-//!
-//! Row picks and written values come from Postgres `random()`, re-seeded per phase from proptest,
-//! so a case replays under the same `PROPTEST_RNG_SEED`. `PARADEDB_QGEN_CHURN=off` disables the
-//! whole thing, to tell a churn-dependent failure from a plain query bug.
+//! The mutations come from `PARADEDB_QGEN_SEED`, the same seed the fixture's rows come from, so
+//! a run replays whole. Row picks and written values come from Postgres `random()`, seeded once
+//! from that draw. `PARADEDB_QGEN_CHURN=off` skips the churn, to tell a churn-dependent failure
+//! from a plain query bug.
 
 use std::fmt::Write;
 use std::sync::OnceLock;
 
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::{RngAlgorithm, TestRng, TestRunner};
 use sqlx::PgConnection;
 
 use super::{Column, PgGucs, SetupScript, handle_setup_error};
@@ -194,71 +189,13 @@ impl Session {
         }
         statements
     }
-
-    /// For a phase whose transaction goes on to run the case: the queries must plan with the
-    /// settings the case chose, not the churn's.
-    fn closing_statements() -> Vec<String> {
-        vec![
-            "RESET enable_indexonlyscan;".to_string(),
-            "RESET max_parallel_workers_per_gather;".to_string(),
-            "RESET paradedb.global_mutable_segment_rows;".to_string(),
-        ]
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Churn {
-    pub committed: Vec<Mutation>,
-    pub own: Vec<Mutation>,
-    pub sessions: [Session; 2],
+    pub mutations: Vec<Mutation>,
+    pub session: Session,
     pub shape: InsertShape,
-}
-
-/// The uncommitted part of one case's churn, carried by the per-case [`SetupScript`] so the
-/// comparison helpers can frame the case with it. Every field is plain SQL: the framing is
-/// what `compare_outcome_on` does with it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CaseChurn {
-    /// Run on the comparison session after `begin`, before either side.
-    pub own: Vec<String>,
-}
-
-impl CaseChurn {
-    /// The case block of a reproduction script. The comparison queries follow it, inside the
-    /// transaction it opens, and the rollback comes after them.
-    pub fn repro_sql(&self) -> String {
-        let mut sql = String::new();
-        writeln!(
-            sql,
-            "-- Case transaction; both queries below run inside it and it is rolled back after:"
-        )
-        .unwrap();
-        writeln!(sql, "BEGIN;").unwrap();
-        for statement in &self.own {
-            writeln!(sql, "{statement}").unwrap();
-        }
-        sql
-    }
-
-    /// What the case leaves behind for the cases after it: its rolled-back transaction. Appended
-    /// to the churn log once the case is over, so a later failure's script rebuilds the aborted
-    /// tuples and index entries too.
-    pub fn log_rolled_back(&self, log: &mut String) {
-        if !self.own.is_empty() {
-            log.push_str("-- churn: the case transaction, rolled back after the case\n");
-            log.push_str(&rolled_back_block(&self.own));
-        }
-    }
-}
-
-fn rolled_back_block(statements: &[String]) -> String {
-    let mut sql = String::from("BEGIN;\n");
-    for statement in statements {
-        sql.push_str(statement.trim_end());
-        sql.push('\n');
-    }
-    sql.push_str("ROLLBACK;\n");
-    sql
 }
 
 /// `PARADEDB_QGEN_CHURN=off` turns the churn off.
@@ -331,19 +268,9 @@ fn arb_size_neutral(
     }
 }
 
-fn arb_any(
-    tables: &[(&str, usize)],
-    columns: &[Column],
-) -> impl Strategy<Value = Mutation> + use<> {
-    let sized = arb_table(tables).prop_flat_map(|(table, max)| (Just(table), 1..=max));
-    prop_oneof![
-        2 => arb_size_neutral(tables, columns),
-        1 => sized.clone().prop_map(|(table, rows)| Mutation::Insert { table, rows }),
-        1 => sized.prop_map(|(table, rows)| Mutation::Delete { table, rows }),
-    ]
-}
-
-fn arb_committed(
+/// Size-neutral by default, so the row counts each generator sized its joins around hold. A run
+/// draws more of these than a single case would: the heap has to be worth querying 256 times.
+fn arb_mutations(
     tables: &[(&str, usize)],
     columns: &[Column],
 ) -> impl Strategy<Value = Vec<Mutation>> + use<> {
@@ -353,7 +280,7 @@ fn arb_committed(
         5 => arb_size_neutral(tables, columns),
         1 => vacuum,
     ];
-    proptest::collection::vec(mutation, 0..=3)
+    proptest::collection::vec(mutation, 3..=8)
 }
 
 fn arb_session() -> impl Strategy<Value = Session> + Clone {
@@ -372,145 +299,100 @@ fn arb_session() -> impl Strategy<Value = Session> + Clone {
         })
 }
 
-/// Churn for one case over `tables` (name and row count, as given to
-/// [`super::generated_queries_setup`]) with the schema in `columns`. With `enabled` false, or
-/// under `PARADEDB_QGEN_CHURN=off`, every case gets an empty churn: that is the clean run each
-/// test keeps beside the churned one, as the control that tells a churn-dependent failure apart.
-pub fn arb_churn(
+/// Churn over `tables` (name and row count, as given to [`super::generated_queries_setup`]) with
+/// the schema in `columns`.
+fn arb_churn(tables: &[(&str, usize)], columns: &[Column]) -> impl Strategy<Value = Churn> + use<> {
+    let shape = InsertShape::new(columns);
+    (arb_mutations(tables, columns), arb_session()).prop_map(move |(mutations, session)| Churn {
+        mutations,
+        session,
+        shape: shape.clone(),
+    })
+}
+
+/// Churns the fixture once, before any case runs, and returns the script with the churn appended
+/// so a failure replays the whole heap. The heap then holds still, which is what lets proptest
+/// shrink a failing query against the heap it failed on. `enabled` false, or `PARADEDB_QGEN_CHURN=off`, hands back
+/// the pristine fixture: that is the clean run each test keeps beside the churned one, as the
+/// control that tells a churn-dependent failure apart.
+pub fn churn_setup(
+    pool: &MutexObjectPool<PgConnection>,
+    setup: SetupScript,
     tables: &[(&str, usize)],
     columns: &[Column],
     enabled: bool,
-) -> impl Strategy<Value = Churn> + use<> {
-    let shape = InsertShape::new(columns);
+) -> SetupScript {
     if !enabled || !churn_enabled() {
-        return Just(Churn::none(shape)).boxed();
+        return setup;
     }
-    (
-        arb_committed(tables, columns),
-        proptest::collection::vec(arb_any(tables, columns), 0..=3),
-        proptest::array::uniform2(arb_session()),
-    )
-        .prop_map(move |(committed, own, sessions)| Churn {
-            committed,
-            own,
-            sessions,
-            shape: shape.clone(),
-        })
-        .boxed()
+    // Drawn from the fixture's own seed rather than from proptest's RNG. A per-case draw would
+    // move the heap under a shrinking run, so the minimized case would query a heap that never
+    // failed. One seed also replays the rows and the churn together.
+    let seed = setup.qgen_seed.unwrap_or_default();
+    let mut bytes = [0u8; 32];
+    bytes[..8].copy_from_slice(&seed.to_le_bytes());
+    let rng = TestRng::from_seed(RngAlgorithm::ChaCha, &bytes);
+    let mut runner = TestRunner::new_with_rng(ProptestConfig::default(), rng);
+    let churn = arb_churn(tables, columns)
+        .new_tree(&mut runner)
+        .expect("the churn strategy should produce a value")
+        .current();
+    churn.apply(pool, setup)
 }
 
 impl Churn {
-    pub fn none(shape: InsertShape) -> Self {
-        Self {
-            committed: Vec::new(),
-            own: Vec::new(),
-            sessions: [Session {
-                seed: 0.0,
-                mutable_segment_rows: None,
-            }; 2],
-            shape,
-        }
-    }
-
-    /// Runs the committed part on a pooled session and returns the per-case [`SetupScript`]:
-    /// the base script plus the log so far as its SQL, and the uncommitted part for the
-    /// comparison helpers to frame the case with.
-    pub fn apply(
-        &self,
-        pool: &MutexObjectPool<PgConnection>,
-        base: &SetupScript,
-    ) -> Result<SetupScript, TestCaseError> {
-        self.commit(pool, base)?;
-        // The log stays out of `sql`: `repro_setup_sql` appends it at render time.
-        let mut setup = SetupScript {
-            sql: base.sql.clone(),
-            tables: base.tables.clone(),
-            qgen_seed: base.qgen_seed,
-            churn_log: base.churn_log.clone(),
-            case_churn: None,
-        };
-        let case = self.case_churn();
-        if !case.own.is_empty() {
-            setup.case_churn = Some(case);
-        }
-        Ok(setup)
-    }
-
-    /// The committed phase. `VACUUM` refuses a transaction block, so the phase runs as batches
-    /// split at each vacuum, in the order drawn: a vacuum drawn first reclaims what earlier cases
-    /// left, and the inserts after it reuse the space. Each group joins the churn log as soon as
-    /// it lands, so a failure halfway through still leaves a script that rebuilds the heap.
-    fn commit(
-        &self,
-        pool: &MutexObjectPool<PgConnection>,
-        base: &SetupScript,
-    ) -> Result<(), TestCaseError> {
-        if self.committed.is_empty() {
-            return Ok(());
-        }
-        let session = self.sessions[0];
-        let mut preamble = session.session_statements();
+    /// Runs the mutations on a pooled session and hands back the script with their SQL appended.
+    /// `VACUUM` refuses a transaction block, so the run splits into batches at each vacuum, in
+    /// the order drawn: a vacuum drawn first reclaims what the fixture's own build left, and the
+    /// inserts after it reuse the space.
+    fn apply(&self, pool: &MutexObjectPool<PgConnection>, mut setup: SetupScript) -> SetupScript {
+        let mut preamble = self.session.session_statements();
         let mut dml: Vec<String> = Vec::new();
+        setup.sql.push_str("\n-- churn\n");
 
-        for mutation in &self.committed {
+        for mutation in &self.mutations {
             let statements = mutation.statements(&self.shape);
             if !mutation.is_vacuum() {
                 dml.extend(statements);
                 continue;
             }
             if !dml.is_empty() {
-                self.run_batch(pool, base, &mut preamble, &session, &mut dml)?;
+                self.run_batch(pool, &mut setup, &mut preamble, &mut dml);
             }
             for vacuum in statements {
-                run_retrying(pool, base, "qgen churn vacuum", &vacuum)?;
-                append_to_log(base, &vacuum);
+                run_retrying(pool, &setup, "qgen churn vacuum", &vacuum);
+                // Appended as it lands, so a failure later in the churn still prints a script
+                // that rebuilds the heap up to that point.
+                writeln!(setup.sql, "{vacuum}").unwrap();
             }
         }
         if !dml.is_empty() {
-            self.run_batch(pool, base, &mut preamble, &session, &mut dml)?;
+            self.run_batch(pool, &mut setup, &mut preamble, &mut dml);
         }
-        Ok(())
+        setup
     }
 
-    /// One transaction of the committed phase. The session-level settings and the seed go in the
-    /// first batch only: re-seeding would hand the batches after a vacuum the same rows.
+    /// One transaction of the churn. The session-level settings and the seed go in the first
+    /// batch only: re-seeding would hand the batches after a vacuum the same rows.
     fn run_batch(
         &self,
         pool: &MutexObjectPool<PgConnection>,
-        base: &SetupScript,
+        setup: &mut SetupScript,
         preamble: &mut Vec<String>,
-        session: &Session,
         dml: &mut Vec<String>,
-    ) -> Result<(), TestCaseError> {
+    ) {
         let mut statements = std::mem::take(preamble);
-        statements.extend(session.local_statements());
+        statements.extend(self.session.local_statements());
         statements.append(dml);
         let batch = format!("BEGIN;\n{}\nCOMMIT;", statements.join("\n"));
-        run_retrying(pool, base, "qgen churn", &batch)?;
-        append_to_log(base, &batch);
-        Ok(())
-    }
-
-    fn case_churn(&self) -> CaseChurn {
-        let mut own = Vec::new();
-        if !self.own.is_empty() {
-            own.extend(self.sessions[1].session_statements());
-            own.extend(self.sessions[1].local_statements());
-            for mutation in &self.own {
-                own.extend(mutation.statements(&self.shape));
-            }
-            own.extend(Session::closing_statements());
-        }
-        CaseChurn { own }
+        run_retrying(pool, setup, "qgen churn", &batch);
+        writeln!(setup.sql, "{batch}").unwrap();
     }
 }
 
-fn run_retrying(
-    pool: &MutexObjectPool<PgConnection>,
-    base: &SetupScript,
-    what: &str,
-    sql: &str,
-) -> Result<(), TestCaseError> {
+/// The churn runs before proptest does, so a failure here cannot become a case failure. It
+/// panics with the same script a case would have printed.
+fn run_retrying(pool: &MutexObjectPool<PgConnection>, setup: &SetupScript, what: &str, sql: &str) {
     let outcome = retry_transient(pool, what, |conn| {
         let result = sql.execute_result(conn);
         if result.is_err() {
@@ -520,27 +402,13 @@ fn run_retrying(
         }
         sql_attempt(result)
     });
-    match outcome {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(handle_setup_error(base, what, &e.to_string(), sql)),
-        Err(RetryError::TimedOutUnderPause(e)) => Err(handle_setup_error(
-            base,
-            what,
-            &format!("timed out while faults were paused: {e}"),
-            sql,
-        )),
-        Err(RetryError::GraceExpired(reason)) => Err(handle_setup_error(base, what, &reason, sql)),
-    }
-}
-
-/// Every statement the churn commits joins the shared log, since later cases query the heap it
-/// leaves and a failure script has to rebuild it.
-fn append_to_log(base: &SetupScript, sql: &str) {
-    let mut log = base
-        .churn_log
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    log.push_str("-- churn: committed before the case\n");
-    log.push_str(sql.trim_end());
-    log.push('\n');
+    let detail = match outcome {
+        Ok(Ok(())) => return,
+        Ok(Err(e)) => e.to_string(),
+        Err(RetryError::TimedOutUnderPause(e)) => {
+            format!("timed out while faults were paused: {e}")
+        }
+        Err(RetryError::GraceExpired(reason)) => reason,
+    };
+    panic!("{}", handle_setup_error(setup, what, &detail, sql));
 }

@@ -579,6 +579,10 @@ fn try_rewrite_in_list(
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
         FFType::Bytes(c) => c.dictionary(),
+        // No column in this segment, so the row's value is NULL and so is any comparison
+        // with it. A native evaluation would see the `Null`-typed placeholder array instead
+        // and reject the comparison.
+        FFType::Junk => return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))),
         _ => return Ok(None), // Not a string/bytes column. Leave for native DataFusion eval
     };
 
@@ -657,6 +661,10 @@ fn rewrite_col_op_lit(
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
         FFType::Bytes(c) => c.dictionary(),
+        // No column in this segment, so the row's value is NULL and so is any comparison
+        // with it. A native evaluation would see the `Null`-typed placeholder array instead
+        // and reject the comparison.
+        FFType::Junk => return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))),
         _ => return Ok(None), // Not a string/bytes column. Leave for native DataFusion eval over numerics.
     };
 

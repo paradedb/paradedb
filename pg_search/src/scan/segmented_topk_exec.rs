@@ -72,7 +72,7 @@
 //! `survivors_s` bound above.
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFIndex, FFType};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
@@ -106,6 +106,21 @@ use pgrx::pg_sys;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
+
+/// The Arrow type a deferred sort column materializes NULLs and values as.
+///
+/// Every segment of one index stores a column under the same type, but a segment whose
+/// documents never carry a JSON path has no column at all, and asking that one would pick
+/// a type the `RowConverter` then rejects for the segments that do have it.
+fn deferred_sort_data_type(ffhelper: &FFHelper, ff_index: FFIndex) -> arrow_schema::DataType {
+    (0..ffhelper.num_segments() as SegmentOrdinal)
+        .find_map(|segment_ord| match ffhelper.column(segment_ord, ff_index) {
+            FFType::Bytes(_) => Some(arrow_schema::DataType::BinaryView),
+            FFType::Junk => None,
+            _ => Some(arrow_schema::DataType::Utf8View),
+        })
+        .unwrap_or(arrow_schema::DataType::Utf8View)
+}
 
 /// Minimum per-segment buffer capacity on visibility plans. Visibility checking has a
 /// per-batch setup cost (snapshot acquisition, packed-DocAddress → ctid resolution, HOT
@@ -320,11 +335,7 @@ impl SegmentedTopKExec {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let data_type = if let Some(deferred) = is_deferred {
-                    let col = ffhelper.column(0, deferred.canonical.ff_index);
-                    match col {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
-                        _ => arrow_schema::DataType::Utf8View,
-                    }
+                    deferred_sort_data_type(ffhelper, deferred.canonical.ff_index)
                 } else {
                     expr.expr
                         .data_type(schema)
@@ -1187,6 +1198,8 @@ impl SegmentedTopKState {
                 FFType::Bytes(bytes_col) => {
                     bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
                 }
+                // No column in this segment: every row stays NULL.
+                FFType::Junk => {}
                 _ => {
                     panic!(
                         "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
@@ -1805,10 +1818,7 @@ impl SegmentedTopKState {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let mat_type = if let Some(deferred) = deferred {
-                    match self.ffhelper.column(0, deferred.canonical.ff_index) {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
-                        _ => arrow_schema::DataType::Utf8View,
-                    }
+                    deferred_sort_data_type(&self.ffhelper, deferred.canonical.ff_index)
                 } else {
                     expr.expr
                         .data_type(&self.schema)

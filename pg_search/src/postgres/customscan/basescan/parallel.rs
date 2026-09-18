@@ -137,6 +137,10 @@ impl ParallelQueryCapable for BaseScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
         let pscan_state = unsafe { &mut *pscan_state };
+        // Only the counters are reset, never the segment payload: the DSM was sized once at
+        // estimate time, so it cannot hold a larger set. Every participant therefore keeps
+        // replaying the first published view for the life of the query, which also keeps the
+        // leader's pins on those segments held that long.
         pscan_state.bitmap_reset();
         pscan_state.reset();
         // Republish for the relaunched workers. The scan's rescan callback ran

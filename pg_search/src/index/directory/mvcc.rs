@@ -344,6 +344,25 @@ impl MVCCDirectory {
         }
     }
 
+    /// Take over this directory's pins on the segments it loaded. See [`SegmentPins`].
+    pub fn segment_pins(&self) -> SegmentPins {
+        SegmentPins {
+            _pin_cushion: self.pin_cushion.clone(),
+        }
+    }
+
+    /// A short name for the visibility style, for diagnostics that must not print a whole
+    /// [`SegmentView`].
+    pub fn mvcc_style_name(&self) -> &'static str {
+        match &*self.mvcc_style {
+            MvccSatisfies::ParallelWorker(_) => "parallel-worker replay",
+            MvccSatisfies::LargestSegment => "largest segment",
+            MvccSatisfies::Snapshot => "snapshot",
+            MvccSatisfies::Vacuum => "vacuum",
+            MvccSatisfies::Mergeable => "mergeable",
+        }
+    }
+
     /// The bound each loaded mutable segment was materialized from.
     pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
         self.all_entries
@@ -867,6 +886,19 @@ impl Directory for MVCCDirectory {
 #[repr(transparent)]
 pub struct PinCushion(HashMap<pg_sys::BlockNumber, PinnedBuffer>);
 
+/// Keeps one reader's pins on its segments alive after that reader is gone.
+///
+/// A merge marks the segments it consumed as deleted and leaves their blocks in place;
+/// [`SegmentMetaEntry::recyclable`] then reports them recyclable as soon as nothing pins them, and
+/// a [`MvccSatisfies::ParallelWorker`] replay skips a recyclable segment. So a scan that replaces
+/// its reader while the shared work queue still hands out those segments holds this until the
+/// replacement reader has taken its own pins. Dropping it releases them.
+#[must_use]
+pub struct SegmentPins {
+    // Held for its `Drop`, never read: releasing the `PinnedBuffer`s is the whole point.
+    _pin_cushion: Arc<Mutex<Option<PinCushion>>>,
+}
+
 impl PinCushion {
     pub fn push(&mut self, bman: &BufferManager, entry: &SegmentMetaEntry) {
         let blockno = entry.pintest_blockno();
@@ -1115,15 +1147,16 @@ mod tests {
     }
 
     /// A parallel scan publishes its segment view before any participant reads from it, and a
-    /// merge can retire those segments while the claims for them are still outstanding. This is
-    /// why every participant, the leader included, re-opens through the published view: a plain
-    /// [`MvccSatisfies::Snapshot`] open lists whatever is undeleted right now, so it can no
-    /// longer resolve a segment the shared work queue still hands out.
+    /// merge can retire those segments while the claims for them are still outstanding. Two
+    /// things then keep a participant able to resolve its claims, and this test pins both: the
+    /// replay itself, because a plain [`MvccSatisfies::Snapshot`] open lists only what is
+    /// undeleted at that moment, and the origin reader's pins, because a retired segment reads
+    /// as recyclable the moment nothing holds them.
     #[pg_test]
     unsafe fn test_segment_view_replays_retired_segments() {
-        // `target_segment_count = 1` keeps the merge policy engaged, `layer_sizes` puts a
-        // foreground layer in reach so merging stays synchronous with the insert that triggers
-        // it, and no background layers keeps the background merger out of it.
+        // `target_segment_count = 1` keeps the merge policy engaged and `layer_sizes` puts a
+        // foreground layer in reach, so the merge below is synchronous with the insert that
+        // triggers it. No background layers keeps the background merger out of it.
         Spi::run(
             "CREATE TABLE t (id BIGINT PRIMARY KEY, title TEXT NOT NULL);
              CREATE INDEX t_idx ON t USING paradedb (id, title)
@@ -1150,7 +1183,7 @@ mod tests {
         assert_eq!(published.len(), 2, "one sealed and one mutable segment");
 
         // What a scan keeps when it replaces its reader: the reader goes, its pins stay.
-        let pins = origin.pinned_segments();
+        let pins = origin.segment_pins();
         drop(origin);
 
         // A mutable segment is mergeable once the index stops collecting rows into one, and it
@@ -1183,6 +1216,30 @@ mod tests {
             published,
             "the published view still resolves every segment it pinned"
         );
+        drop(replay);
+
+        // The pins are load-bearing, not belt and braces: with nothing holding them the same
+        // entries report recyclable, and a replay drops a recyclable segment.
+        assert_eq!(count_recyclable(&retired), 0, "held pins block recycling");
         drop(pins);
+        assert_eq!(
+            count_recyclable(&retired),
+            retired.len() as i64,
+            "released pins let every retired segment become recyclable"
+        );
+    }
+
+    fn count_recyclable(segment_ids: &[&SegmentId]) -> i64 {
+        let list = segment_ids
+            .iter()
+            .map(|id| format!("'{}'", id.short_uuid_string()))
+            .collect::<Vec<_>>()
+            .join(",");
+        Spi::get_one(&format!(
+            "SELECT count(*) FROM paradedb.index_info('t_idx', show_invisible => true) \
+             WHERE recyclable AND segno IN ({list})"
+        ))
+        .expect("spi should succeed")
+        .unwrap()
     }
 }

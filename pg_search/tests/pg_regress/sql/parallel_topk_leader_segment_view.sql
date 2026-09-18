@@ -1,9 +1,8 @@
 \i common/common_setup.sql
 
--- A parallel Top K scan under a `Gather Merge` inside a hashed `SubPlan`. The leader opens its
--- reader once to publish the shared segment view, and `Gather Merge` then re-scans the child on
--- the first `ExecProcNode`, so the leader opens a second reader while its claims come out of
--- that view. Both readers, and the workers', have to resolve the same segments.
+-- A parallel Top K scan under a `Gather Merge` inside a hashed `SubPlan`. `Gather Merge` re-scans
+-- its child on the first `ExecProcNode`, so the leader opens a second reader after it published
+-- the shared segment view, while its claims still come out of that view.
 
 SET max_parallel_workers_per_gather = 2;
 SET parallel_setup_cost = 0;
@@ -19,11 +18,13 @@ CREATE TABLE psv_inner (id SERIAL8 PRIMARY KEY, uuid UUID, age INTEGER, rating I
 CREATE INDEX psv_outer_idx ON psv_outer USING paradedb (id, age)
 WITH (numeric_fields = '{"age": {"fast": true}}');
 
+-- No layers at all: a frozen or emptied mutable segment is a merge candidate on its own, and a
+-- merge that collapsed the two segments would take the plan serial and the coverage with it.
 CREATE INDEX psv_inner_idx ON psv_inner USING paradedb (id, uuid, age)
 WITH (
     text_fields = '{"uuid": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields = '{"age": {"fast": true}}',
-    mutable_segment_rows = 6,
+    layer_sizes = '0',
     background_layer_sizes = '0'
 );
 
@@ -45,6 +46,10 @@ FROM generate_series(7, 12) i;
 
 ANALYZE psv_outer;
 ANALYZE psv_inner;
+
+-- The fixture is only useful while it holds both segment kinds, so record the composition.
+SELECT count(*) AS segments, count(*) FILTER (WHERE mutable) AS mutable_segments
+FROM paradedb.index_info('psv_inner_idx');
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) FROM psv_outer

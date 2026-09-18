@@ -32,12 +32,12 @@ SET paradedb.enable_filter_pushdown = on;
 EXPLAIN (COSTS OFF)
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE;
 
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE
 ORDER BY id;
 

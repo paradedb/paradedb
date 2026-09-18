@@ -18,16 +18,9 @@ INSERT INTO organisations VALUES
     (10, NULL, 'OrgA'),
     (20, '2023-01-01 00:00:00'::timestamp, NULL);
 CREATE INDEX researchers_idx ON researchers
-USING bm25 (super_researcher_id, super_organisation_id, country)
-WITH (
-    numeric_fields = '{"super_organisation_id": {"fast": true}}',
-    text_fields = '{"country": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (super_researcher_id, super_organisation_id, (country::pdb.literal));
 CREATE INDEX organisations_idx ON organisations
-USING bm25 (super_organisation_id, super_organisation_name)
-WITH (
-    text_fields = '{"super_organisation_name": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-);
+USING paradedb (super_organisation_id, (super_organisation_name::pdb.literal));
 -- TEST 1: Non-null-rejecting IS NULL on a fast field over LEFT JOIN succeeds:
 EXPLAIN (COSTS OFF)
 SELECT pdb.agg('{"terms": {"field": "country"}}')
@@ -115,9 +108,9 @@ EXPLAIN (COSTS OFF)
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
-WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NULL);
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: researchers_idx (r), organisations_idx (o)
@@ -132,7 +125,7 @@ WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NU
      :           TantivyFetchExec: fetch=[country]
      :             HashJoinExec: mode=CollectLeft, join_type=Right, on=[(super_organisation_id@0, super_organisation_id@0)], projection=[country@4, super_organisation_name@1, __o_1_tag_0@2]
      :               CooperativeExec
-     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"super_organisation_name","query_string":"OrgA","lenient":null,"conjunction_mode":null}}}}
+     :                 PgSearchScan: table=o, segments=1, eager=[super_organisation_name], visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"super_organisation_name","value":"OrgA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :               CooperativeExec
      :                 PgSearchScan: table=r, segments=1, visibility=eager, query="all"
 (17 rows)
@@ -140,7 +133,7 @@ WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NU
 SELECT pdb.agg('{"terms": {"field": "country"}}')
 FROM researchers r
 LEFT JOIN organisations o ON o.super_organisation_id = r.super_organisation_id
-WHERE (o.super_organisation_name @@@ 'OrgA') OR (o.super_organisation_name IS NULL);
+WHERE (o.super_organisation_name ||| 'OrgA') OR (o.super_organisation_name IS NULL);
                                                                                   agg                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "CA", "doc_count": 1}, {"key": "UK", "doc_count": 1}, {"key": "US", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}

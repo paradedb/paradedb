@@ -1,12 +1,12 @@
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2);
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2);
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null,"fuzzy_data":{"distance":2,"prefix":false,"transposition_cost_one":false}}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":false}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2);

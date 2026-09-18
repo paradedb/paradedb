@@ -13,8 +13,8 @@ USING paradedb (id, ((metadata->>'color')::pdb.ngram(2, 3)));
 SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
-SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' ||| 'white';
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' ||| 'white';
 
 DROP TABLE mock_items;
 
@@ -30,14 +30,14 @@ WITH (sort_by='rating DESC NULLS LAST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, (metadata->>'rating')::int AS rating
 FROM json_topk_test
-WHERE name @@@ 'foo'
+WHERE name ||| 'foo'
 ORDER BY (metadata->>'rating')::int DESC NULLS LAST
 LIMIT 2;
 
 -- Verify results
 SELECT id, (metadata->>'rating')::int AS rating
 FROM json_topk_test
-WHERE name @@@ 'foo'
+WHERE name ||| 'foo'
 ORDER BY (metadata->>'rating')::int DESC NULLS LAST
 LIMIT 2;
 

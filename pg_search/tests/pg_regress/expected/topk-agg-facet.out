@@ -23,23 +23,7 @@ INSERT INTO products (name, description, category, brand, price, rating, in_stoc
     ('ASUS ROG', 'Gaming laptop with RTX graphics', 'Laptops', 'ASUS', 1899, 4.7, true, 90);
 -- Create BM25 index
 CREATE INDEX products_idx ON products
-USING paradedb (id, name, description, category, brand, price, rating, in_stock, sales)
-WITH (
-    text_fields='{
-        "name": {},
-        "description": {},
-        "brand": {"fast": true},
-        "category": {"fast": true}
-    }',
-    numeric_fields='{
-        "price": {"fast": true},
-        "rating": {"fast": true},
-        "sales": {"fast": true}
-    }',
-    boolean_fields='{
-        "in_stock": {"fast": true}
-    }'
-);
+USING paradedb (id, name, description, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), price, rating, in_stock, sales);
 -- =============================================================================
 -- OPERATOR SUPPORT TESTS
 -- Testing that window aggregate pushdown works with all search operators
@@ -303,11 +287,11 @@ SELECT
     category,
     rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, rating
    ->  Custom Scan (ParadeDB Base Scan) on public.products
@@ -319,7 +303,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -328,7 +312,7 @@ SELECT
     category,
     rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating 
@@ -346,11 +330,11 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Base Scan) on public.products
@@ -362,7 +346,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -371,7 +355,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
@@ -392,7 +376,7 @@ SELECT
     SUM(price) OVER () as total_price,
     AVG(rating) OVER () as avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
@@ -408,7 +392,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -420,7 +404,7 @@ SELECT
     SUM(price) OVER () as total_price,
     AVG(rating) OVER () as avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | total_count | total_price | avg_rating 
@@ -439,11 +423,11 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, rating, (count(*) OVER w1)
    ->  Sort
@@ -462,7 +446,7 @@ LIMIT 3;
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT 
@@ -472,7 +456,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating | category_count 
@@ -491,11 +475,11 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating DESC) as running_total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, price, (sum(price) OVER w1)
    ->  WindowAgg
@@ -511,7 +495,7 @@ LIMIT 3;
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT 
@@ -521,7 +505,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating DESC) as running_total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | running_total 
@@ -539,11 +523,11 @@ SELECT
     rating,
     AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (avg(rating) OVER w1)
    ->  WindowAgg
@@ -559,7 +543,7 @@ LIMIT 3;
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT 
@@ -568,7 +552,7 @@ SELECT
     rating,
     AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating |    moving_avg     
@@ -588,7 +572,7 @@ SELECT
     MIN(price) OVER () as min_price,
     MAX(price) OVER () as max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
@@ -604,7 +588,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -615,7 +599,7 @@ SELECT
     MIN(price) OVER () as min_price,
     MAX(price) OVER () as max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | min_price | max_price 
@@ -634,11 +618,11 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, in_stock, (count(*) FILTER (WHERE in_stock) OVER w1)
    ->  Sort
@@ -654,7 +638,7 @@ LIMIT 3;
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT 
@@ -664,7 +648,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | in_stock | in_stock_count 
@@ -682,7 +666,7 @@ SELECT
     rating,
     COUNT(brand) OVER () as brand_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                         QUERY PLAN                                                                                                         
@@ -698,7 +682,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -707,7 +691,7 @@ SELECT
     rating,
     COUNT(brand) OVER () as brand_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | brand_count 
@@ -727,11 +711,11 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, brand, rating, (count(*) OVER w1)
    ->  Sort
@@ -750,7 +734,7 @@ LIMIT 3;
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT 
@@ -761,7 +745,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | brand  | rating | category_rank_count 
@@ -779,9 +763,9 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop';
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'laptop';
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    Output: id, name, rating, count(*) OVER w1
    Window: w1 AS ()
@@ -792,7 +776,7 @@ WHERE description @@@ 'laptop';
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 SELECT 
@@ -801,7 +785,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
   1 | MacBook Pro |    4.8 |           4
@@ -819,11 +803,11 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, price, (sum(price) OVER w1)
    ->  Sort
@@ -842,7 +826,7 @@ LIMIT 3;
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT 
@@ -852,7 +836,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | range_sum 
@@ -874,11 +858,11 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as by_brand,
     COUNT(*) OVER () as total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, brand, rating, (count(*) OVER w2), (count(*) OVER w1), (count(*) OVER w3)
    ->  Sort
@@ -906,7 +890,7 @@ LIMIT 3;
                                              Worker Selection: Cost model
                                              Exec Method: NormalScanExecState
                                              Scores: false
-                                             Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                             Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (28 rows)
 
 SELECT 
@@ -919,7 +903,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as by_brand,
     COUNT(*) OVER () as total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | brand  | rating | by_category | by_brand | total 
@@ -937,11 +921,11 @@ SELECT
     rating,
     COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (count(*) OVER w1)
    ->  Sort
@@ -960,7 +944,7 @@ LIMIT 3;
                            Worker Selection: Cost model
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT 
@@ -969,7 +953,7 @@ SELECT
     rating,
     COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | group_count 
@@ -1034,7 +1018,7 @@ SELECT
     COUNT(*) OVER () as total_count,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
@@ -1050,7 +1034,7 @@ LIMIT 2;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 2
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -1064,7 +1048,7 @@ SELECT
     COUNT(*) OVER () as total_count,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
  id |    name     | category | brand | price | rating | sales | total_count | total_sales 
@@ -1083,7 +1067,7 @@ SELECT * FROM (
         price,
         COUNT(*) OVER () as total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) sub
@@ -1107,7 +1091,7 @@ LIMIT 2;
                      Scores: false
                         TopK Order By: rating desc
                         TopK Limit: 5
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT * FROM (
@@ -1118,7 +1102,7 @@ SELECT * FROM (
         price,
         COUNT(*) OVER () as total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) sub
@@ -1140,11 +1124,11 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, rating, (count(*) OVER w2), (count(*) OVER w1)
    ->  Sort
@@ -1166,7 +1150,7 @@ LIMIT 3;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1177,7 +1161,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating | total_results | category_count 
@@ -1205,7 +1189,7 @@ SELECT
         ELSE 'Premium'
     END) as bucket_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
                                                                                                                    QUERY PLAN                                                                                                                    
@@ -1231,7 +1215,7 @@ LIMIT 5;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1250,7 +1234,7 @@ SELECT
         ELSE 'Premium'
     END) as bucket_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
  id |    name     | price | price_bucket | total_results | bucket_count 
@@ -1272,11 +1256,11 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as brand_count,
     AVG(price) OVER (PARTITION BY brand) as avg_brand_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, brand, price, (count(*) OVER w2), (count(*) OVER w1), (avg(price) OVER w1), rating
    ->  Sort
@@ -1298,7 +1282,7 @@ LIMIT 3;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1310,7 +1294,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as brand_count,
     AVG(price) OVER (PARTITION BY brand) as avg_brand_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
@@ -1331,11 +1315,11 @@ SELECT
     MIN(price) OVER (PARTITION BY category) as category_min_price,
     MAX(price) OVER (PARTITION BY category) as category_max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, category, price, (count(*) OVER w2), (min(price) OVER w1), (max(price) OVER w1), rating
    ->  Sort
@@ -1357,7 +1341,7 @@ LIMIT 3;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1369,7 +1353,7 @@ SELECT
     MIN(price) OVER (PARTITION BY category) as category_min_price,
     MAX(price) OVER (PARTITION BY category) as category_max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | price | total_results | category_min_price | category_max_price 
@@ -1388,11 +1372,11 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, in_stock, (count(*) OVER w2), (count(*) OVER w1), rating
    ->  Sort
@@ -1414,7 +1398,7 @@ LIMIT 3;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1424,7 +1408,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | in_stock | total_results | stock_count 
@@ -1448,7 +1432,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                             
@@ -1464,7 +1448,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -1479,7 +1463,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | sales | sales_volume | total_results | total_sales 
@@ -1509,7 +1493,7 @@ SELECT
         ELSE 'Fair (<4.0)'
     END) as tier_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
                                                                                                                                                               QUERY PLAN                                                                                                                                                               
@@ -1535,7 +1519,7 @@ LIMIT 5;
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1556,7 +1540,7 @@ SELECT
         ELSE 'Fair (<4.0)'
     END) as tier_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
  id |    name     | rating |     rating_tier     | total_results | tier_count 
@@ -1590,7 +1574,7 @@ SELECT
     -- Stock facets
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                        QUERY PLAN                                                                                                                                       
@@ -1628,7 +1612,7 @@ LIMIT 3;
                                                          Worker Selection: Cost model
                                                          Exec Method: NormalScanExecState
                                                          Scores: false
-                                                         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                                         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (34 rows)
 
 SELECT 
@@ -1652,7 +1636,7 @@ SELECT
     -- Stock facets
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
@@ -1673,13 +1657,13 @@ SELECT
     AVG(price) as avg_price,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (avg(price)), (count(*) OVER w1)
    ->  Sort
@@ -1701,7 +1685,7 @@ LIMIT 3;
                        :       AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[avg(products_0.price) as agg_0]
                        :         TantivyFetchExec: fetch=[category]
                        :           CooperativeExec
-                       :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                       :             PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -1709,7 +1693,7 @@ SELECT
     AVG(price) as avg_price,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
@@ -1739,11 +1723,11 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
-                                                                                                            QUERY PLAN                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.rating, pc.description, (pdb.window_agg('count(*) OVER ()'::text))
    Relation Tree: p INNER pc
@@ -1760,7 +1744,7 @@ LIMIT 3;
      :             CooperativeExec
      :               PgSearchScan: table=pc, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT
@@ -1771,7 +1755,7 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
  id |    name     | rating |       category_desc        | total_count 
@@ -1782,9 +1766,8 @@ LIMIT 3;
 (3 rows)
 
 -- Test 27b: Global window function over a JOIN with fast-field join keys
--- Unlike Test 27 (whose TEXT join keys disqualify JoinScan), this join is
--- JoinScan-compatible, so the JoinScan absorbs the empty OVER () window
--- aggregates and computes them in its DataFusion plan (issue #5637).
+-- JoinScan absorbs the empty OVER () window aggregates and computes them
+-- in its DataFusion plan (issue #5637).
 CREATE TABLE product_reviews (
     id SERIAL PRIMARY KEY,
     product_id INTEGER,
@@ -1816,7 +1799,7 @@ SELECT
     MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
@@ -1835,7 +1818,7 @@ LIMIT 3;
      :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -1851,7 +1834,7 @@ SELECT
     MAX(r.score) OVER () AS max_score
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
  id |    name     | score | total_count | total_score | avg_score | min_score | max_score 
@@ -1874,7 +1857,7 @@ SELECT
     COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                  
@@ -1893,7 +1876,7 @@ LIMIT 3;
      :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, score@4]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -1907,7 +1890,7 @@ SELECT
     COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
 FROM products p
 JOIN product_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY r.score DESC
 LIMIT 3;
  id | score | count_plus_one | avg_score | score_plus_count | count_plus_sum 
@@ -1928,7 +1911,7 @@ FROM (
         price,
         COUNT(*) OVER() AS total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) subq
@@ -1956,7 +1939,7 @@ LIMIT 3;
                            Scores: false
                               TopK Order By: rating desc
                               TopK Limit: 5
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (20 rows)
 
 SELECT *
@@ -1968,7 +1951,7 @@ FROM (
         price,
         COUNT(*) OVER() AS total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) subq
@@ -1996,14 +1979,14 @@ FROM (
             rating,
             COUNT(*) OVER() AS total_count
         FROM products
-        WHERE description @@@ 'laptop'
+        WHERE description ||| 'laptop'
         ORDER BY rating DESC
         LIMIT 4
     ) inner_query
 ) outer_query
 WHERE rank <= 2;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    Output: inner_query.id, inner_query.name, inner_query.rating, inner_query.total_count, row_number() OVER w1
    Window: w1 AS (ORDER BY inner_query.total_count ROWS UNBOUNDED PRECEDING)
@@ -2028,7 +2011,7 @@ WHERE rank <= 2;
                                        Worker Selection: Cost model
                                        Exec Method: NormalScanExecState
                                        Scores: false
-                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                                       Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (25 rows)
 
 SELECT outer_query.*
@@ -2043,7 +2026,7 @@ FROM (
             rating,
             COUNT(*) OVER() AS total_count
         FROM products
-        WHERE description @@@ 'laptop'
+        WHERE description ||| 'laptop'
         ORDER BY rating DESC
         LIMIT 4
     ) inner_query
@@ -2064,13 +2047,13 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.category, pc.description, (avg(p.price)), (count(*) OVER w1)
    ->  Sort
@@ -2092,7 +2075,7 @@ LIMIT 2;
                        :       CooperativeExec
                        :         PgSearchScan: table=pc, segments=1, eager=[description], visibility=eager, query="all"
                        :       CooperativeExec
-                       :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                       :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 SELECT 
@@ -2102,7 +2085,7 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
@@ -2122,11 +2105,11 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1)
    ->  Sort
@@ -2142,7 +2125,7 @@ LIMIT 3;
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT 
@@ -2152,7 +2135,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | in_stock | high_rating_count 
@@ -2169,7 +2152,7 @@ SELECT
     AVG(rating) as avg_rating,
     COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(rating) > 4.0
 ORDER BY avg_rating DESC
@@ -2180,7 +2163,7 @@ SELECT
     AVG(rating) as avg_rating,
     COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(rating) > 4.0
 ORDER BY avg_rating DESC
@@ -2197,7 +2180,7 @@ SELECT
     SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
     COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                      
@@ -2213,7 +2196,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -2225,7 +2208,7 @@ SELECT
     SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
     COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | total_count | total_price | brand_count 
@@ -2245,7 +2228,7 @@ SELECT
     COUNT(*) OVER() AS total_count1,                   -- Supported (COUNT_ANY=true)
     COUNT(*) OVER() AS total_count2                    -- Supported (COUNT_ANY=true)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
@@ -2261,7 +2244,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -2272,7 +2255,7 @@ SELECT
     COUNT(*) OVER() AS total_count1,
     COUNT(*) OVER() AS total_count2
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | total_count1 | total_count2 
@@ -2290,9 +2273,9 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop';
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'laptop';
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
    Output: id, name, rating, count(*) OVER w1
    Window: w1 AS ()
@@ -2303,7 +2286,7 @@ WHERE description @@@ 'laptop';
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 SELECT 
@@ -2312,7 +2295,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
   1 | MacBook Pro |    4.8 |           4
@@ -2329,10 +2312,10 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, name, rating, (count(*) OVER w1)
    Sort Key: products.rating DESC
@@ -2346,7 +2329,7 @@ ORDER BY rating DESC;
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT 
@@ -2355,7 +2338,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -2373,10 +2356,10 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 LIMIT 3;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (count(*) OVER w1)
    ->  WindowAgg
@@ -2389,7 +2372,7 @@ LIMIT 3;
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (13 rows)
 
 SELECT 
@@ -2398,7 +2381,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
@@ -2418,7 +2401,7 @@ SELECT
     SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
     AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                     
@@ -2434,7 +2417,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT 
@@ -2446,7 +2429,7 @@ SELECT
     SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
     AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | price | total_count | total_price_with_default | avg_rating_with_default 
@@ -2461,7 +2444,7 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
                                                                                                          QUERY PLAN                                                                                                          
@@ -2477,12 +2460,12 @@ LIMIT 10;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
  id |    name     |                description                | category | brand  | count 
@@ -2498,7 +2481,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
                                                                                                                                             QUERY PLAN                                                                                                                                            
@@ -2514,12 +2497,12 @@ LIMIT 10;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
  id |    name     |                description                | category | brand  |                                                                                                      agg                                                                                                       
@@ -2535,7 +2518,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
                                                                                                                                            QUERY PLAN                                                                                                                                            
@@ -2551,12 +2534,12 @@ LIMIT 10;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
  id |    name     |                description                | category | brand  |      agg       
@@ -2573,7 +2556,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
                                                                                                                                                          QUERY PLAN                                                                                                                                                         
@@ -2589,13 +2572,13 @@ LIMIT 5;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
  id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          

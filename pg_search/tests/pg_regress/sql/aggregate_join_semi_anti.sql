@@ -56,10 +56,7 @@ INSERT INTO asa_contact_list (list_id, ldf_id)
 SELECT 'list-B', s FROM generate_series(40, 60) s;
 
 CREATE INDEX asa_cccf_idx ON asa_cccf
-USING paradedb (contact_id, job_title)
-WITH (
-    text_fields='{"job_title":{"fast":true}}'
-);
+USING paradedb (contact_id, (job_title::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX asa_contact_list_idx ON asa_contact_list
 USING paradedb (id, (list_id::pdb.literal), ldf_id);
@@ -74,15 +71,15 @@ ANALYZE asa_contact_list;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
-WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-A')
-  AND job_title @@@ 'Senior'
+WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-A')
+  AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
-WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-A')
-  AND job_title @@@ 'Senior'
+WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-A')
+  AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
@@ -94,17 +91,17 @@ ORDER BY doc_count DESC, job_title;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf c
-WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
-  AND NOT EXISTS (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-B')
-  AND c.job_title @@@ 'Senior'
+WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-A')
+  AND NOT EXISTS (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-B')
+  AND c.job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf c
-WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
-  AND NOT EXISTS (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-B')
-  AND c.job_title @@@ 'Senior'
+WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-A')
+  AND NOT EXISTS (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-B')
+  AND c.job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
@@ -121,17 +118,17 @@ ORDER BY doc_count DESC, job_title;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
-WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-A')
-  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-B')
-  AND job_title @@@ 'Senior'
+WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-A')
+  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-B')
+  AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
-WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-A')
-  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-B')
-  AND job_title @@@ 'Senior'
+WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-A')
+  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-B')
+  AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
@@ -144,9 +141,9 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
-WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-A')
-  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list-B')
-  AND job_title @@@ 'Senior'
+WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-A')
+  AND contact_id NOT IN (SELECT ldf_id FROM asa_contact_list WHERE list_id ||| 'list-B')
+  AND job_title ||| 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
 
@@ -190,8 +187,7 @@ INSERT INTO asa_pair_include
 SELECT s FROM generate_series(1, 15) s;
 
 CREATE INDEX asa_pair_outer_idx ON asa_pair_outer
-USING paradedb (id, label)
-WITH (text_fields='{"label":{"fast":true}}');
+USING paradedb (id, (label::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX asa_pair_include_idx ON asa_pair_include
 USING paradedb (id);
@@ -208,7 +204,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_pair_outer
 WHERE id IN (SELECT id FROM asa_pair_include)
   AND (a, b) NOT IN (SELECT x, y FROM asa_pair_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -216,7 +212,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_pair_outer
 WHERE id IN (SELECT id FROM asa_pair_include)
   AND (a, b) NOT IN (SELECT x, y FROM asa_pair_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -227,7 +223,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_pair_outer
 WHERE id IN (SELECT id FROM asa_pair_include)
   AND (a, b) NOT IN (SELECT x, y FROM asa_pair_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -289,8 +285,7 @@ SELECT s FROM generate_series(1, 20) s;
 INSERT INTO asa_excl_inner (iid, eid) VALUES (1, 7), (2, NULL);
 
 CREATE INDEX asa_excl_outer_idx ON asa_excl_outer
-USING paradedb (id, label)
-WITH (text_fields='{"label":{"fast":true}}');
+USING paradedb (id, (label::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX asa_excl_include_idx ON asa_excl_include
 USING paradedb (id);
@@ -307,7 +302,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_excl_outer
 WHERE id IN     (SELECT id FROM asa_excl_include)
   AND id NOT IN (SELECT eid FROM asa_excl_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -315,7 +310,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_excl_outer
 WHERE id IN     (SELECT id FROM asa_excl_include)
   AND id NOT IN (SELECT eid FROM asa_excl_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -327,7 +322,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_excl_outer
 WHERE id IN     (SELECT id FROM asa_excl_include)
   AND id NOT IN (SELECT eid FROM asa_excl_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -344,7 +339,7 @@ SELECT label, COUNT(*) AS doc_count
 FROM asa_excl_outer
 WHERE id IN     (SELECT id FROM asa_excl_include)
   AND id NOT IN (SELECT eid FROM asa_excl_inner)
-  AND label @@@ 'Senior'
+  AND label ||| 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
 
@@ -380,14 +375,9 @@ INSERT INTO asa_adv_right (id, body) VALUES
     (4, 'doc four');
 INSERT INTO asa_adv_third VALUES (1), (3);
 CREATE INDEX asa_adv_left_idx ON asa_adv_left
-USING paradedb (id, fk, label) WITH (
-    text_fields = '{"label": {"fast": true, "tokenizer": {"type": "raw"}}}',
-    numeric_fields = '{"fk": {"fast": true}}'
-);
+USING paradedb (id, fk, (label::pdb.literal_normalized));
 CREATE INDEX asa_adv_right_idx ON asa_adv_right
-USING paradedb (id, body) WITH (
-    text_fields = '{"body": {"fast": true}}'
-);
+USING paradedb (id, (body::pdb.unicode_words('columnar=true')));
 -- BM25 index on the third table so the IN sublink in 7c reaches the
 -- agg-on-join lift logic instead of declining earlier on "no BM25 index".
 CREATE INDEX asa_adv_third_idx ON asa_adv_third
@@ -400,14 +390,14 @@ SELECT l.label, COUNT(*) AS c
 FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
 WHERE NOT EXISTS (SELECT 1 FROM asa_adv_third z
                   WHERE z.id = l.fk + (random()*0)::bigint)
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT l.label, COUNT(*) AS c
 FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
 WHERE NOT EXISTS (SELECT 1 FROM asa_adv_third z
                   WHERE z.id = l.fk + (random()*0)::bigint)
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 
 -- 7b: NOT EXISTS with UNION ALL inner (set-op blocks pull-up).
@@ -419,7 +409,7 @@ WHERE NOT EXISTS (
     UNION ALL
     SELECT 1 FROM asa_adv_third WHERE id = l.fk + 100
 )
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT l.label, COUNT(*) AS c
@@ -429,7 +419,7 @@ WHERE NOT EXISTS (
     UNION ALL
     SELECT 1 FROM asa_adv_third WHERE id = l.fk + 100
 )
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 
 -- 7c: IN pulled up to a Semi join with a residual cross-table predicate.
@@ -443,7 +433,7 @@ WHERE l.fk IN (
     SELECT z.id FROM asa_adv_third z
     WHERE z.id = l.id + (random()*0)::bigint
 )
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT l.label, COUNT(*) AS c
@@ -452,7 +442,7 @@ WHERE l.fk IN (
     SELECT z.id FROM asa_adv_third z
     WHERE z.id = l.id + (random()*0)::bigint
 )
-  AND r.body @@@ 'doc'
+  AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -480,14 +470,10 @@ INSERT INTO asa_rti_outer_b VALUES (1, 1, 60), (2, 2, 10), (3, 3, 70);
 INSERT INTO asa_rti_inner_x VALUES (1, 1, 1), (2, 2, 2);
 INSERT INTO asa_rti_inner_y VALUES (1, 'match', 1), (2, 'block', 100);
 
-CREATE INDEX asa_rti_outer_a_idx ON asa_rti_outer_a USING paradedb (id, body, threshold)
-WITH (text_fields='{"body":{}}', numeric_fields='{"threshold":{"fast":true}}');
-CREATE INDEX asa_rti_outer_b_idx ON asa_rti_outer_b USING paradedb (id, a_id, val)
-WITH (numeric_fields='{"a_id":{"fast":true}, "val":{"fast":true}}');
-CREATE INDEX asa_rti_inner_x_idx ON asa_rti_inner_x USING paradedb (id, aid, y_id)
-WITH (numeric_fields='{"aid":{"fast":true}, "y_id":{"fast":true}}');
-CREATE INDEX asa_rti_inner_y_idx ON asa_rti_inner_y USING paradedb (id, body, val)
-WITH (text_fields='{"body":{}}', numeric_fields='{"val":{"fast":true}}');
+CREATE INDEX asa_rti_outer_a_idx ON asa_rti_outer_a USING paradedb (id, body, threshold);
+CREATE INDEX asa_rti_outer_b_idx ON asa_rti_outer_b USING paradedb (id, a_id, val);
+CREATE INDEX asa_rti_inner_x_idx ON asa_rti_inner_x USING paradedb (id, aid, y_id);
+CREATE INDEX asa_rti_inner_y_idx ON asa_rti_inner_y USING paradedb (id, body, val);
 
 ANALYZE asa_rti_outer_a; ANALYZE asa_rti_outer_b;
 ANALYZE asa_rti_inner_x; ANALYZE asa_rti_inner_y;
@@ -497,9 +483,9 @@ SELECT COUNT(*), SUM(b.val)
 FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
 WHERE a.id NOT IN (
         SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
-        WHERE y.body @@@ 'block'
+        WHERE y.body ||| 'block'
     )
-  AND a.body @@@ 'outermatch'
+  AND a.body ||| 'outermatch'
   AND b.val > a.threshold;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -507,18 +493,18 @@ SELECT COUNT(*), SUM(b.val)
 FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
 WHERE a.id NOT IN (
         SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
-        WHERE y.body @@@ 'block'
+        WHERE y.body ||| 'block'
     )
-  AND a.body @@@ 'outermatch'
+  AND a.body ||| 'outermatch'
   AND b.val > a.threshold;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(b.val)
 FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
 WHERE a.id NOT IN (
         SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
-        WHERE y.body @@@ 'block'
+        WHERE y.body ||| 'block'
     )
-  AND a.body @@@ 'outermatch'
+  AND a.body ||| 'outermatch'
   AND b.val > a.threshold;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -538,8 +524,7 @@ INSERT INTO asa_n9_outer VALUES (1, 'A'), (2, 'A'), (3, 'B'), (4, 'B');
 INSERT INTO asa_n9_mid VALUES (1), (2), (3);
 INSERT INTO asa_n9_inner VALUES (2);
 
-CREATE INDEX asa_n9_outer_idx ON asa_n9_outer USING paradedb (id, label)
-WITH (text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
+CREATE INDEX asa_n9_outer_idx ON asa_n9_outer USING paradedb (id, (label::pdb.literal_normalized));
 CREATE INDEX asa_n9_mid_idx ON asa_n9_mid USING paradedb (id);
 CREATE INDEX asa_n9_inner_idx ON asa_n9_inner USING paradedb (id);
 
@@ -551,7 +536,7 @@ WHERE id IN (
     SELECT m.id FROM asa_n9_mid m
     WHERE m.id NOT IN (SELECT i.id FROM asa_n9_inner i)
 )
-  AND label @@@ 'A'
+  AND label ||| 'A'
 GROUP BY label ORDER BY label;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT label, COUNT(*) AS c FROM asa_n9_outer
@@ -559,7 +544,7 @@ WHERE id IN (
     SELECT m.id FROM asa_n9_mid m
     WHERE m.id NOT IN (SELECT i.id FROM asa_n9_inner i)
 )
-  AND label @@@ 'A'
+  AND label ||| 'A'
 GROUP BY label ORDER BY label;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -582,8 +567,7 @@ INSERT INTO asa_n10_in1 VALUES (1), (2), (3), (4), (5);
 INSERT INTO asa_n10_in2 VALUES (4);
 INSERT INTO asa_n10_in3 VALUES (5);
 
-CREATE INDEX asa_n10_outer_idx ON asa_n10_outer USING paradedb (id, label)
-WITH (text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
+CREATE INDEX asa_n10_outer_idx ON asa_n10_outer USING paradedb (id, (label::pdb.literal_normalized));
 CREATE INDEX asa_n10_in1_idx ON asa_n10_in1 USING paradedb (id);
 CREATE INDEX asa_n10_in2_idx ON asa_n10_in2 USING paradedb (id);
 CREATE INDEX asa_n10_in3_idx ON asa_n10_in3 USING paradedb (id);
@@ -596,14 +580,14 @@ SELECT label, COUNT(*) AS c FROM asa_n10_outer
 WHERE id IN (SELECT id FROM asa_n10_in1)
   AND id NOT IN (SELECT id FROM asa_n10_in2)
   AND id NOT IN (SELECT id FROM asa_n10_in3)
-  AND label @@@ 'A'
+  AND label ||| 'A'
 GROUP BY label ORDER BY label;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT label, COUNT(*) AS c FROM asa_n10_outer
 WHERE id IN (SELECT id FROM asa_n10_in1)
   AND id NOT IN (SELECT id FROM asa_n10_in2)
   AND id NOT IN (SELECT id FROM asa_n10_in3)
-  AND label @@@ 'A'
+  AND label ||| 'A'
 GROUP BY label ORDER BY label;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -618,29 +602,29 @@ SELECT COUNT(*) AS doc_count
 FROM asa_cccf c
 WHERE EXISTS (
     SELECT 1 FROM asa_contact_list cl
-    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
-       OR (cl.list_id @@@ 'list-A')
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-A')
+       OR (cl.list_id ||| 'list-A')
 )
-AND c.job_title @@@ 'Senior';
+AND c.job_title ||| 'Senior';
 
 SELECT COUNT(*) AS doc_count
 FROM asa_cccf c
 WHERE EXISTS (
     SELECT 1 FROM asa_contact_list cl
-    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
-       OR (cl.list_id @@@ 'list-A')
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-A')
+       OR (cl.list_id ||| 'list-A')
 )
-AND c.job_title @@@ 'Senior';
+AND c.job_title ||| 'Senior';
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*) AS doc_count
 FROM asa_cccf c
 WHERE EXISTS (
     SELECT 1 FROM asa_contact_list cl
-    WHERE (cl.ldf_id = c.contact_id AND cl.list_id @@@ 'list-A')
-       OR (cl.list_id @@@ 'list-A')
+    WHERE (cl.ldf_id = c.contact_id AND cl.list_id ||| 'list-A')
+       OR (cl.list_id ||| 'list-A')
 )
-AND c.job_title @@@ 'Senior';
+AND c.job_title ||| 'Senior';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================

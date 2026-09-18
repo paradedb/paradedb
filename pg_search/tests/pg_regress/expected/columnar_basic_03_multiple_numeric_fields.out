@@ -21,35 +21,24 @@ CREATE TABLE mixed_numeric_string_test (
     content TEXT
 );
 -- Create index with both numeric and string fast fields
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb ((id::pdb.literal), numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 -- Insert sample data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
 ('mix2', 200, 20000, 'Banana', 'Yellow', 'Fruit', 'This is a yellow banana'),
 ('mix3', 300, 30000, 'Carrot', 'Orange', 'Vegetable', 'This is an orange carrot'),
 ('mix4', 400, 40000, 'Donut', 'Brown', 'Dessert', 'This is a chocolate donut'),
-('mix5', 500, 50000, 'Egg', 'White', 'Protein', 'This is a white egg'); 
+('mix5', 500, 50000, 'Egg', 'White', 'Protein', 'This is a white egg');
 \echo 'Test: Multiple numeric fast fields'
 Test: Multiple numeric fast fields
 -- Query with multiple numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT numeric_field1, numeric_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'red'
+WHERE content ||| 'red'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on mixed_numeric_string_test
@@ -58,13 +47,13 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id, numeric_field1, numeric_field2
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"red","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"red","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- Execute query and check results
 SELECT numeric_field1, numeric_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'red'
+WHERE content ||| 'red'
 ORDER BY id;
  numeric_field1 | numeric_field2 
 ----------------+----------------

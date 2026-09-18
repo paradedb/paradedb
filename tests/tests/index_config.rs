@@ -109,15 +109,14 @@ fn default_text_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn text_field_with_options(mut conn: PgConnection) {
+fn text_field_with_tokenizer(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}');
+        USING paradedb (id, (description::pdb.simple('columnar=true')));
 "#
-        .execute(&mut conn);
+    .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -135,12 +134,9 @@ fn multiple_text_fields(mut conn: PgConnection) {
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
 
-        USING paradedb (id, description, category)
-        WITH (
-            text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}'
-        );
+        USING paradedb (id, (description::pdb.simple('columnar=true')), category);
         "#
-        .execute(&mut conn);
+    .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -171,12 +167,12 @@ fn default_numeric_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn numeric_field_with_options(mut conn: PgConnection) {
+fn numeric_field_without_options(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, rating) WITH (numeric_fields='{"rating": {"fast": true}}')"#
+        USING paradedb (id, rating)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -207,12 +203,12 @@ fn default_boolean_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn boolean_field_with_options(mut conn: PgConnection) {
+fn boolean_field_without_options(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, in_stock) WITH (boolean_fields='{"in_stock": {"fast": false}}')"#
+        USING paradedb (id, in_stock)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -243,15 +239,12 @@ fn default_json_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn json_field_with_options(mut conn: PgConnection) {
+fn json_field_with_tokenizer(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, metadata)
-        WITH (
-            json_fields='{"metadata": {"fast": true, "expand_dots": false, "tokenizer": {"type": "raw", "normalizer": "raw"}}}'
-        )"#
+        USING paradedb (id, (metadata::pdb.literal_normalized))"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -349,7 +342,7 @@ fn null_values(mut conn: PgConnection) {
 
     let rows: Vec<(String, Option<String>, Option<i32>)> = "
         SELECT description, category, rating
-        FROM paradedb.index_config WHERE index_config @@@ 'description:\"Null Item\"'
+        FROM paradedb.index_config WHERE index_config @@@ pdb.parse('description:\"Null Item\"')
         ORDER BY id"
         .fetch(&mut conn);
 
@@ -358,7 +351,7 @@ fn null_values(mut conn: PgConnection) {
     assert_eq!(rows[1], ("Null Item 2".into(), None, Some(2)));
 
     let rows: Vec<(bool,)> =
-        "SELECT in_stock FROM paradedb.index_config WHERE index_config @@@ 'in_stock:false'"
+        "SELECT in_stock FROM paradedb.index_config WHERE id @@@ pdb.all() AND in_stock = false"
             .fetch(&mut conn);
 
     assert_eq!(rows.len(), 13);
@@ -376,7 +369,7 @@ fn column_name_camelcase(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config WHERE index_config @@@ 'ColumnName:keyboard'"
+        "SELECT * FROM paradedb.index_config WHERE index_config @@@ pdb.parse('ColumnName:keyboard')"
             .fetch(&mut conn);
 
     assert_eq!(rows.len(), 1);
@@ -399,13 +392,11 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "COMMIT".execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config1 WHERE index_config1 @@@ 'description:item'"
-            .fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config1 WHERE description ||| 'item'".fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config2 WHERE index_config2 @@@ 'description:item'"
-            .fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config2 WHERE description ||| 'item'".fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
@@ -513,7 +504,7 @@ fn partitioned_query(mut conn: PgConnection) {
     for table in ["sales", "sales_2023_q1"] {
         let search_results: Vec<(i32, String)> = format!(
             r#"
-            SELECT id, description FROM {table} WHERE id @@@ 'description:keyboard'
+            SELECT id, description FROM {table} WHERE description ||| 'keyboard'
             "#
         )
         .fetch(&mut conn);
@@ -525,7 +516,7 @@ fn partitioned_query(mut conn: PgConnection) {
         let amount_results: Vec<(i32, String, f32)> = format!(
             r#"
             SELECT id, description, amount FROM {table}
-            WHERE amount @@@ '[175 TO 250]'
+            WHERE id @@@ pdb.all() AND amount BETWEEN 175 AND 250
             ORDER BY amount ASC
             "#
         )
@@ -556,7 +547,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
         FROM sales
-        WHERE id @@@ '1';
+        WHERE id @@@ pdb.all() AND id = 1;
         "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
@@ -584,7 +575,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
         FROM sales
-        WHERE description @@@ 'keyboard' and sale_date = '2023-01-10';
+        WHERE description ||| 'keyboard' and sale_date = '2023-01-10';
         "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
@@ -659,8 +650,10 @@ fn uuid_as_raw_issue2199(mut conn: PgConnection) {
     let uuid = uuid::Uuid::new_v4();
 
     format!("INSERT INTO issue2199(value) VALUES ('{uuid}')").execute(&mut conn);
-    let (count,) = format!("SELECT count(*) FROM issue2199 WHERE value @@@ '{uuid}'")
-        .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = format!(
+        "SELECT count(*) FROM issue2199 WHERE value @@@ pdb.all() AND value = '{uuid}'::uuid"
+    )
+    .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =
@@ -710,11 +703,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         ('Speaker', 120.00, '2024-06-30');
 
         CREATE INDEX idx_sales_bm25 ON sales
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
         "#
         .execute(conn);
     } else {
@@ -755,18 +744,10 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
 
         -- Create BM25 indexes for both tables
         CREATE INDEX idx_products_2023_bm25 ON products_2023
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
 
         CREATE INDEX idx_products_2024_bm25 ON products_2024
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
         "#
         .execute(conn);
     }
@@ -816,18 +797,10 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
 
     -- Create BM25 indexes for both tables
     CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
-    USING paradedb (id, product_name, amount, sale_date)
-    WITH (
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}'
-    );
+    USING paradedb (id, product_name, amount, sale_date);
 
     CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
-    USING paradedb (id, product_name, amount, sale_date)
-    WITH (
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}'
-    );
+    USING paradedb (id, product_name, amount, sale_date);
 
     -- Create view combining both tables
     CREATE VIEW products_view AS
@@ -846,7 +819,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM sales
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch::<(String,)>(&mut conn)
@@ -876,7 +849,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     // Also test that we get the correct sorted results
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM sales
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -904,10 +877,10 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM (
         SELECT * FROM products_2023
-        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
         UNION ALL
         SELECT * FROM products_2024
-        WHERE product_name @@@ 'tablet OR printer'
+        WHERE (product_name ||| 'tablet' OR product_name ||| 'printer')
     ) combined_products
     ORDER BY sale_date LIMIT 5;
     "#
@@ -933,10 +906,10 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM (
         SELECT * FROM products_2023
-        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
         UNION ALL
         SELECT * FROM products_2024
-        WHERE product_name @@@ 'tablet OR printer'
+        WHERE (product_name ||| 'tablet' OR product_name ||| 'printer')
     ) combined_products
     ORDER BY sale_date LIMIT 5;
     "#
@@ -989,7 +962,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Verify direct table queries work
     let test_query: Vec<(String,)> = r#"
     SELECT product_name FROM products_2023_view
-    WHERE product_name @@@ 'laptop'
+    WHERE product_name ||| 'laptop'
     LIMIT 1;
     "#
     .fetch(&mut conn);
@@ -999,7 +972,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM products_view
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones' OR product_name ||| 'tablet' OR product_name ||| 'printer')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch::<(String,)>(&mut conn)
@@ -1025,7 +998,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Ensure the query works and returns correct results
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM products_view
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones' OR product_name ||| 'tablet' OR product_name ||| 'printer')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch(&mut conn);

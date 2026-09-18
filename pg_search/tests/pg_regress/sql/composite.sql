@@ -820,9 +820,9 @@ CREATE INDEX arr_idx ON arr_test USING paradedb (
     (ROW((b)::pdb.literal_normalized('fieldnorms=false'))::arr_search)
 );
 INSERT INTO arr_test VALUES (1, ARRAY['x']), (2, ARRAY['y','z']);
-SELECT id FROM arr_test WHERE id @@@ 'b:x' ORDER BY id;
-SELECT id FROM arr_test WHERE id @@@ 'b:y' ORDER BY id;
-SELECT id FROM arr_test WHERE id @@@ 'b:nope';
+SELECT id FROM arr_test WHERE b ||| 'x' ORDER BY id;
+SELECT id FROM arr_test WHERE b ||| 'y' ORDER BY id;
+SELECT id FROM arr_test WHERE b ||| 'nope';
 
 -- Implicit cast (no explicit cast in ROW; PG inserts it from composite type)
 CREATE TYPE arr_search_imp AS (b pdb.literal_normalized('fieldnorms=false'));
@@ -831,7 +831,7 @@ CREATE INDEX arr_idx_imp ON arr_test_imp USING paradedb (
     id, (ROW(b)::arr_search_imp)
 );
 INSERT INTO arr_test_imp VALUES (1, ARRAY['hello']);
-SELECT id FROM arr_test_imp WHERE id @@@ 'b:hello';
+SELECT id FROM arr_test_imp WHERE b ||| 'hello';
 
 -- Multi-field composite mixing text, text[], and bigint casts
 CREATE TYPE multi_search AS (
@@ -851,9 +851,9 @@ CREATE INDEX multi_idx ON multi_test USING paradedb (
 INSERT INTO multi_test VALUES
     (1, 'hello world', ARRAY['action','adventure'], 10),
     (2, 'foo bar',     ARRAY['comedy'],             20);
-SELECT id FROM multi_test WHERE id @@@ 'txt:hello'  ORDER BY id;
-SELECT id FROM multi_test WHERE id @@@ 'arr:action' ORDER BY id;
-SELECT id FROM multi_test WHERE id @@@ 'arr:comedy' ORDER BY id;
+SELECT id FROM multi_test WHERE txt ||| 'hello'  ORDER BY id;
+SELECT id FROM multi_test WHERE arr ||| 'action' ORDER BY id;
+SELECT id FROM multi_test WHERE arr ||| 'comedy' ORDER BY id;
 
 ------------------------------------------------------------
 -- SMOKE TESTS: Comprehensive feature coverage
@@ -1368,8 +1368,8 @@ SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:Postgr
 
 -- Search JSON field using JSON path operator
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
-SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
+SELECT id, metadata FROM json_test WHERE metadata->>'title' ||| 'PostgreSQL';
+SELECT id, metadata FROM json_test WHERE metadata->>'title' ||| 'PostgreSQL';
 
 -- Search JSON nested path using id
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -1378,8 +1378,8 @@ SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John'
 
 -- Search JSON nested path using JSON path operator
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
-SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
+SELECT id, metadata FROM json_test WHERE metadata->>'author' ||| 'John';
+SELECT id, metadata FROM json_test WHERE metadata->>'author' ||| 'John';
 
 ------------------------------------------------------------
 -- TEST: Array fields in composite types
@@ -1439,8 +1439,8 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 
 -- Same query with simple string shows explicit field name in Tantivy Query (parse_with_field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
-SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) ||| 'owe';
+SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) ||| 'owe';
 
 ------------------------------------------------------------
 -- TEST: Non-text expressions in composite fields

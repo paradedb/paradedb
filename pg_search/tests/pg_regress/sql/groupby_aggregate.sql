@@ -33,11 +33,7 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 
 CREATE INDEX products_idx ON products
-USING paradedb (id, description, rating, category, price)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
-);
+USING paradedb (id, description, rating, (category::pdb.unicode_words('columnar=true')), price);
 
 -- =====================================================================
 -- SECTION 1: GROUP BY with Aggregate Functions
@@ -47,13 +43,13 @@ WITH (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, COUNT(*)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -61,13 +57,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) AS total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, SUM(price) AS total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -75,13 +71,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) AS avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, AVG(price) AS avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -89,13 +85,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -108,7 +104,7 @@ SELECT category,
        MIN(price) AS min_price,
        MAX(price) AS max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -119,7 +115,7 @@ SELECT category,
        MIN(price) AS min_price,
        MAX(price) AS max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -127,13 +123,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*), SUM(price), AVG(price)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY rating
 ORDER BY rating;
 
 SELECT rating, COUNT(*), SUM(price), AVG(price)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY rating
 ORDER BY rating;
 
@@ -145,26 +141,26 @@ ORDER BY rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating;
 
 SELECT category, rating, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating;
 
 -- Test 2.2: GROUP BY with different column orders
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
+SELECT COUNT(*), category FROM products WHERE description ||| 'laptop' GROUP BY category ORDER BY category;
 
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
+SELECT COUNT(*), category FROM products WHERE description ||| 'laptop' GROUP BY category ORDER BY category;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
+SELECT category, COUNT(*) FROM products WHERE description ||| 'laptop' GROUP BY category ORDER BY category;
 
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
+SELECT category, COUNT(*) FROM products WHERE description ||| 'laptop' GROUP BY category ORDER BY category;
 
 -- =====================================================================
 -- SECTION 3: GROUP BY Edge Cases and Error Conditions
@@ -174,25 +170,25 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(price)
 FROM products
-WHERE description @@@ 'nonexistent'
+WHERE description ||| 'nonexistent'
 GROUP BY category;
 
 SELECT category, COUNT(*), SUM(price), AVG(price)
 FROM products
-WHERE description @@@ 'nonexistent'
+WHERE description ||| 'nonexistent'
 GROUP BY category;
 
 -- Test 3.2: GROUP BY with grouping column in the middle
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating;
 
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating;
 
@@ -200,26 +196,26 @@ ORDER BY category, rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+WHERE ((NOT (description ||| 'laptop')) AND (description ||| 'laptop'))
 GROUP BY category;
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+WHERE ((NOT (description ||| 'laptop')) AND (description ||| 'laptop'))
 GROUP BY category
 ORDER BY category;
 
 -- Test 3.4: Tautological WHERE clauses with GROUP BY
--- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
+-- WHERE (NOT (description ||| 'laptop')) OR (description ||| 'laptop') is always true
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+WHERE ((NOT (description ||| 'laptop')) OR (description ||| 'laptop'))
 GROUP BY category;
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+WHERE ((NOT (description ||| 'laptop')) OR (description ||| 'laptop'))
 GROUP BY category
 ORDER BY category;
 
@@ -245,30 +241,19 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
     (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
 
 CREATE INDEX type_test_idx ON type_test
-USING paradedb (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
-WITH (
-    text_fields='{"text_val": {"fast": true}}',
-    numeric_fields='{
-        "int_val": {"fast": true},
-        "bigint_val": {"fast": true},
-        "smallint_val": {"fast": true},
-        "numeric_val": {"fast": true},
-        "float_val": {"fast": true},
-        "double_val": {"fast": true}
-    }'
-);
+USING paradedb (id, (text_val::pdb.unicode_words('columnar=true')), int_val, bigint_val, smallint_val, numeric_val, float_val, double_val);
 
 -- Test 4.1: GROUP BY with different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
 FROM type_test
-WHERE text_val @@@ 'test1 OR test2 OR test3'
+WHERE (text_val ||| 'test1' OR text_val ||| 'test2' OR text_val ||| 'test3')
 GROUP BY text_val
 ORDER BY text_val;
 
 SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
 FROM type_test
-WHERE text_val @@@ 'test1 OR test2 OR test3'
+WHERE (text_val ||| 'test1' OR text_val ||| 'test2' OR text_val ||| 'test3')
 GROUP BY text_val
 ORDER BY text_val;
 
@@ -280,12 +265,12 @@ ORDER BY text_val;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category;
 
 SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -294,12 +279,12 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, SUM(price), MAX(rating)
 FROM products
-WHERE description @@@ 'keyboard'
+WHERE description ||| 'keyboard'
 GROUP BY rating;
 
 SELECT rating, SUM(price), MAX(rating)
 FROM products
-WHERE description @@@ 'keyboard'
+WHERE description ||| 'keyboard'
 GROUP BY rating
 ORDER BY rating;
 
@@ -308,12 +293,12 @@ ORDER BY rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products
-WHERE category @@@ 'Electronics'
+WHERE category ||| 'Electronics'
 GROUP BY category;
 
 SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products
-WHERE category @@@ 'Electronics'
+WHERE category ||| 'Electronics'
 GROUP BY category
 ORDER BY category;
 
@@ -325,13 +310,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
 
@@ -339,13 +324,13 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category;
 
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating;
 
@@ -357,15 +342,15 @@ ORDER BY category, rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, SUM(price), COUNT(*)
 FROM products
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
-  AND (rating >= 4 OR category @@@ 'Electronics')
+WHERE ((description ||| 'laptop') OR (description ||| 'keyboard'))
+  AND (rating >= 4 OR category ||| 'Electronics')
 GROUP BY rating
 ORDER BY rating;
 
 SELECT rating, SUM(price), COUNT(*)
 FROM products
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
-  AND (rating >= 4 OR category @@@ 'Electronics')
+WHERE ((description ||| 'laptop') OR (description ||| 'keyboard'))
+  AND (rating >= 4 OR category ||| 'Electronics')
 GROUP BY rating
 ORDER BY rating;
 
@@ -373,13 +358,13 @@ ORDER BY rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
+WHERE (NOT (NOT (category ||| 'Electronics'))) AND ((description ||| 'laptop' OR description ||| 'keyboard'))
 GROUP BY category
 ORDER BY category;
 
 SELECT category, AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
+WHERE (NOT (NOT (category ||| 'Electronics'))) AND ((description ||| 'laptop' OR description ||| 'keyboard'))
 GROUP BY category
 ORDER BY category;
 
@@ -391,14 +376,14 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
@@ -407,13 +392,13 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(category) DESC;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(category) DESC;
 
@@ -421,13 +406,13 @@ ORDER BY COUNT(category) DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY SUM(price) DESC;
 
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY SUM(price) DESC;
 
@@ -435,13 +420,13 @@ ORDER BY SUM(price) DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY AVG(price) ASC;
 
 SELECT category, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY AVG(price) ASC;
 
@@ -449,13 +434,13 @@ ORDER BY AVG(price) ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY MIN(price) DESC;
 
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY MIN(price) DESC;
 
@@ -463,13 +448,13 @@ ORDER BY MIN(price) DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt, SUM(price) as total
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
 
 SELECT category, COUNT(*) as cnt, SUM(price) as total
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
 
@@ -477,14 +462,14 @@ ORDER BY COUNT(*) DESC, category ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as product_count
 FROM products
-WHERE description @@@ 'laptop OR keyboard OR jacket'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard' OR description ||| 'jacket')
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
 
 SELECT category, COUNT(*) as product_count
 FROM products
-WHERE description @@@ 'laptop OR keyboard OR jacket'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard' OR description ||| 'jacket')
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
@@ -497,14 +482,14 @@ LIMIT 2;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as pcount
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
 
 SELECT category, COUNT(*) as pcount
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
@@ -513,13 +498,13 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(category) DESC;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(category) DESC;
 
@@ -527,13 +512,13 @@ ORDER BY COUNT(category) DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY SUM(price) DESC;
 
 SELECT category, SUM(price) as total_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY SUM(price) DESC;
 
@@ -541,13 +526,13 @@ ORDER BY SUM(price) DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
 
 SELECT category, COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
 
@@ -555,13 +540,13 @@ ORDER BY cnt DESC, category ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
 
 SELECT COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
 
@@ -569,13 +554,13 @@ ORDER BY cnt DESC, category ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
 
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
 
@@ -583,52 +568,52 @@ ORDER BY cnt DESC, avg_price ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category ASC;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category ASC;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
 SELECT category
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, avg(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
 SELECT category, rating, avg(price) as avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, rating
 ORDER BY category, rating ASC;
 
@@ -636,25 +621,25 @@ ORDER BY category, rating ASC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 ORDER BY COUNT(*) DESC;
 
 SELECT COUNT(*) as cnt
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 ORDER BY cnt DESC;
 
 -- Test 8.9: Target list parsing with cast and alias
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT d.category AS label, COUNT(*)::int AS count
 FROM products d
-WHERE d.description @@@ 'laptop'
+WHERE d.description ||| 'laptop'
 GROUP BY d.category
 ORDER BY count DESC;
 
 SELECT d.category AS label, COUNT(*)::int AS count
 FROM products d
-WHERE d.description @@@ 'laptop'
+WHERE d.description ||| 'laptop'
 GROUP BY d.category
 ORDER BY count DESC;
 

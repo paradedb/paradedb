@@ -18,8 +18,7 @@ SELECT md5('cardtest' || ((x % 12) + 1))::uuid, (x % 12) + 1
 FROM generate_series(1, 10000) x;
 
 CREATE INDEX idx_card_mvcc ON card_mvcc
-USING bm25 (id, val, num)
-WITH (numeric_fields = '{"num": {"fast": true}}');
+USING paradedb (id, val, num);
 
 -- the aggregate form runs on the aggregate custom scan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -91,14 +90,7 @@ CREATE TABLE card_mvcc_seg (
 -- mutable_segment_rows and the zeroed layer sizes force each insert into its
 -- own immutable segment, with no merging
 CREATE INDEX idx_card_mvcc_seg ON card_mvcc_seg
-USING bm25 (id, val, batch)
-WITH (
-    text_fields = '{"val": {"fast": true}}',
-    numeric_fields = '{"batch": {"fast": true}}',
-    mutable_segment_rows = 2,
-    layer_sizes = '0',
-    background_layer_sizes = '0'
-);
+USING paradedb (id, (val::pdb.unicode_words('columnar=true')), batch) WITH (mutable_segment_rows = 2, layer_sizes = '0', background_layer_sizes = '0');
 
 -- two inserts -> separate segments over the same five values
 INSERT INTO card_mvcc_seg (val, batch) SELECT 'v' || (x % 5), 1 FROM generate_series(1, 1000) x;

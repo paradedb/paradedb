@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789691825228,
+  "lastUpdate": 1789692839313,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4496,6 +4496,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.199,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8325b0bab2f4b37acb5325532ae9f573cb9c3186",
+          "message": "fix: stop benchmark recall sweeps on plateaus (#6400)\n\n# Ticket(s) Closed\n\nNone.\n\n## What\n\nStop recall sweeps after three consecutive larger operating points fail\nto improve the best measured recall. When a target is not reached,\nmeasure latency at the cheapest point tied for the best recall.\n\n## Why\n\nThe Cohere 10M unfiltered sweep reached 97.5% recall at\n`vector_cluster_max_probe=0.05` and stayed there through `1.0`. The\nbenchmark swept every remaining budget and selected `1.0` for r99\nlatency, scoring nearly all 10M vectors per query despite gaining no\nrecall.\n\n## How\n\nAny new best recall resets the plateau window. Reaching the highest\nrecall target still stops immediately. Log plateau termination and\npreserve the unreached-target flag; the warning now describes measured\nrecall rather than suggesting a wider sweep. Plateau stopping is a\nheuristic and can miss gains beyond the three-point window.\n\nFor the recorded 10M curve, the sweep now stops at `0.2` and selects\n`0.05` for the best available recall.\n\n## Tests\n\n- `cargo test -p benchmarks --bin benchmarks --locked`: 33 passed.\n- Repository commit hooks passed, including workspace formatting,\nClippy, compilation, and documentation checks.\n- Regression coverage for the recorded 10M plateau, cheapest ties, short\nsweeps, declining recall, and improvement resetting the plateau window.\n- The full 10M benchmark has not been rerun with this change.",
+          "timestamp": "2026-09-17T17:33:41-07:00",
+          "tree_id": "5da25d2ddff046924c59b7cb2e59c5b479289f00",
+          "url": "https://github.com/paradedb/paradedb/commit/8325b0bab2f4b37acb5325532ae9f573cb9c3186"
+        },
+        "date": 1789692835021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.651250138750117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.053,
             "unit": "ms"
           }
         ]

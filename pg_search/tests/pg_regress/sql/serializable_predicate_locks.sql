@@ -23,6 +23,22 @@ CREATE INDEX ssi_shifts_idx ON ssi_shifts USING bm25 (id, doctor_id, ward)
 WITH (text_fields = '{"ward": {"tokenizer": {"type": "keyword"}, "fast": true}}');
 ANALYZE ssi_shifts;
 
+-- Which scan ran is the point. The rest of a plan (worker selection, exec method, the
+-- Tantivy query, the DataFusion physical plan, the rewritten index oid) moves with changes
+-- this test has no opinion about.
+CREATE FUNCTION ssi_plan_nodes(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        line := regexp_replace(btrim(line), '^-> *', '');
+        IF line ~ '^(Custom Scan|Index Scan|Index Only Scan|Seq Scan|Bitmap)' THEN
+            RETURN NEXT line;
+        END IF;
+    END LOOP;
+END;
+$$;
+
 -- Names instead of oids, and deduplicated: the Postgres plan in the last section leaves a
 -- lock per heap tuple it reads.
 CREATE VIEW ssi_locks AS
@@ -32,9 +48,15 @@ WHERE mode = 'SIReadLock'
   AND relation IN ('ssi_doctors'::regclass, 'ssi_doctors_idx'::regclass,
                    'ssi_shifts'::regclass, 'ssi_shifts_idx'::regclass);
 
+-- Below SERIALIZABLE there is no lock to take.
+BEGIN;
+SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+SELECT * FROM ssi_locks ORDER BY 1, 2;
+COMMIT;
+
 -- An EXPLAIN without ANALYZE reads nothing, so it must take no lock.
 BEGIN ISOLATION LEVEL SERIALIZABLE;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXPLAIN (COSTS OFF)
 SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
@@ -48,24 +70,21 @@ COMMIT;
 
 -- base scan
 BEGIN ISOLATION LEVEL SERIALIZABLE;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
+SELECT * FROM ssi_plan_nodes($$SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id$$);
 SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 
 -- base scan answered from the columnar store, which never reaches the heap
 BEGIN ISOLATION LEVEL SERIALIZABLE;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY name;
+SELECT * FROM ssi_plan_nodes($$SELECT name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY name$$);
 SELECT name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY name;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 
 -- aggregate scan
 BEGIN ISOLATION LEVEL SERIALIZABLE;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';
+SELECT * FROM ssi_plan_nodes($$SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall'$$);
 SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall';
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
@@ -80,27 +99,26 @@ COMMIT;
 
 -- join scan, which locks every source it reads. It needs the LIMIT to be chosen at all.
 BEGIN ISOLATION LEVEL SERIALIZABLE;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id
-WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10;
+SELECT * FROM ssi_plan_nodes($$SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id
+WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10$$);
 SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id
 WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 
 -- Postgres' own plan for the same read locks the index, because the bm25 access method
--- does not set `ampredlocks`.
+-- sets no `ampredlocks`, plus the heap tuples it fetches.
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 SET LOCAL paradedb.enable_custom_scan = off;
 SET LOCAL paradedb.enable_aggregate_custom_scan = off;
 SET LOCAL paradedb.planner_warnings = 'off';
 SET LOCAL enable_seqscan = off;
--- No EXPLAIN here: the pushed-down `Index Cond` prints the index oid, which moves from run
--- to run. The locked relation below says which plan ran.
+SELECT * FROM ssi_plan_nodes($$SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id$$);
 SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall' ORDER BY id;
 SELECT * FROM ssi_locks ORDER BY 1, 2;
 COMMIT;
 
 DROP VIEW ssi_locks;
+DROP FUNCTION ssi_plan_nodes(text);
 DROP TABLE ssi_shifts;
 DROP TABLE ssi_doctors;

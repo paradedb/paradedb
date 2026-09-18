@@ -52,6 +52,24 @@ fn sqlstate(err: &sqlx::Error) -> String {
         .unwrap_or_else(|| format!("{err}"))
 }
 
+/// Fails the test if `query` does not plan to `node`. A planner decline is a warning, not an
+/// error, so without this a declined scan would quietly retest the base scan.
+async fn assert_plan_has(conn: &mut PgConnection, query: &str, node: &str) {
+    let plan: Vec<(String,)> =
+        sqlx::query_as(AssertSqlSafe(format!("EXPLAIN (COSTS OFF) {query}")))
+            .fetch_all(conn)
+            .await
+            .expect("EXPLAIN should succeed");
+    assert!(
+        plan.iter().any(|(line,)| line.contains(node)),
+        "expected `{node}` in plan:\n{}",
+        plan.iter()
+            .map(|(line,)| line.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 /// Interleaves the two transactions and returns the `SQLSTATE` of the first step that failed.
 ///
 /// The conflict surfaces wherever SSI notices it first: on the second write, or on either
@@ -87,6 +105,12 @@ const INSERT_TWO: &str = "INSERT INTO ssi_doctors VALUES (102, 'new2', 'oncall')
 async fn base_scan_phantom_insert(database: Db) {
     let mut conn = database.connection().await;
     run(&mut conn, SETUP).await.expect("setup should succeed");
+    assert_plan_has(
+        &mut conn,
+        "SELECT id, name FROM ssi_doctors WHERE status @@@ 'oncall'",
+        "ParadeDB Base Scan",
+    )
+    .await;
 
     let failure = write_skew(
         &database,
@@ -105,6 +129,12 @@ async fn base_scan_phantom_insert(database: Db) {
 async fn columnar_scan_phantom_insert(database: Db) {
     let mut conn = database.connection().await;
     run(&mut conn, SETUP).await.expect("setup should succeed");
+    assert_plan_has(
+        &mut conn,
+        "SELECT name FROM ssi_doctors WHERE status @@@ 'oncall'",
+        "ParadeDB Base Scan",
+    )
+    .await;
 
     let failure = write_skew(
         &database,
@@ -121,6 +151,12 @@ async fn columnar_scan_phantom_insert(database: Db) {
 async fn aggregate_scan_phantom_insert(database: Db) {
     let mut conn = database.connection().await;
     run(&mut conn, SETUP).await.expect("setup should succeed");
+    assert_plan_has(
+        &mut conn,
+        "SELECT count(*) FROM ssi_doctors WHERE status @@@ 'oncall'",
+        "ParadeDB Aggregate Scan",
+    )
+    .await;
 
     let failure = write_skew(
         &database,
@@ -156,10 +192,13 @@ async fn join_scan_phantom_insert(database: Db) {
     let mut conn = database.connection().await;
     run(&mut conn, SETUP).await.expect("setup should succeed");
 
+    let read = "SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id \
+                WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10";
+    assert_plan_has(&mut conn, read, "ParadeDB Join Scan").await;
+
     let failure = write_skew(
         &database,
-        "SELECT d.id, s.ward FROM ssi_doctors d JOIN ssi_shifts s ON d.id = s.doctor_id \
-         WHERE d.status @@@ 'oncall' AND s.ward @@@ 'ward1' ORDER BY d.id LIMIT 10",
+        read,
         "INSERT INTO ssi_shifts VALUES (101, 1, 'ward1')",
         "INSERT INTO ssi_shifts VALUES (102, 1, 'ward1')",
     )

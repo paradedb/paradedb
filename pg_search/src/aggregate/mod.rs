@@ -44,7 +44,7 @@ use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::heap::VisibilityStats;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::serializable::predicate_lock_read_oid;
+use crate::postgres::serializable::predicate_lock_read;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -478,9 +478,9 @@ pub fn execute_aggregate(
     mut bitmap_exec: Option<&mut BitmapExec>,
     mut visibility_stats: Option<&mut VisibilityStats>,
 ) -> Result<AggregationResults, Box<dyn Error>> {
-    predicate_lock_read_oid(index.heap_relation_oid(), unsafe {
-        pg_sys::GetActiveSnapshot()
-    });
+    if let Some(heaprel) = index.heap_relation() {
+        predicate_lock_read(&heaprel, unsafe { pg_sys::GetActiveSnapshot() });
+    }
 
     // Resolve `visibility` to a single decision for this execution before anything
     // branches on it. `threshold` estimates the query's matching row count here

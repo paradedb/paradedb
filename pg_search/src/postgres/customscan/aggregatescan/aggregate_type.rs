@@ -23,12 +23,13 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::joinscan::build::lookup_base_rel_info;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::node::NodeExt;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::{fieldname_from_var, find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use anyhow::{bail, Context};
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -209,7 +210,7 @@ impl AggregateType {
             heap_rti,
         )?;
         let field = aggregate_field.field_name().clone();
-        let missing = aggregate_field.missing()?;
+        let missing = aggregate_field.missing_for(aggfnoid, || bm25_index.schema().ok())?;
 
         // Check if aggregate pushdown is supported for this field type on the
         // Tantivy backend. NUMERIC fields are not supported here; standard SQL
@@ -246,6 +247,8 @@ impl AggregateType {
         let field = field.into_inner();
 
         match aggfnoid {
+            // A non-null default makes every row count, and a string column would drop it.
+            F_COUNT_ANY if missing.is_some() => Some(Self::CountAny { filter, indexrelid }),
             F_COUNT_ANY => Some(Self::Count {
                 field,
                 missing,
@@ -836,6 +839,70 @@ impl ParsedAggregateField {
             _ => bail!("unsupported constant type in COALESCE default value"),
         })
     }
+
+    /// Returns [`Self::missing`] for `aggfnoid`, and fails when Tantivy would change the default
+    /// for a column the field can have. `schema` is opened only when there is a default to check.
+    pub(crate) unsafe fn missing_for(
+        &self,
+        aggfnoid: u32,
+        schema: impl FnOnce() -> Option<SearchIndexSchema>,
+    ) -> anyhow::Result<Option<f64>> {
+        let missing = self.missing()?;
+        // `from_oid` turns a `COUNT` with a default into `CountAny`, which never reads the column.
+        if aggfnoid == F_COUNT_ANY {
+            return Ok(missing);
+        }
+        let Some(missing) = missing else {
+            return Ok(None);
+        };
+        let field_type = schema()
+            .and_then(|schema| schema.search_field(&self.field_name))
+            .map(|search_field| search_field.field_type());
+        if !missing_fits_every_column(&self.field_name, field_type, missing) {
+            bail!(
+                "COALESCE default {} for '{}' does not fit the field's column type",
+                missing,
+                self.field_name
+            );
+        }
+        Ok(Some(missing))
+    }
+
+    pub(crate) unsafe fn heaprelid(&self, context: VarContext) -> Option<pg_sys::Oid> {
+        let var = self
+            .expression
+            .field_expression()
+            .find_single_node::<pg_sys::Var>()?;
+        Some(context.var_relation(var).0)
+    }
+}
+
+/// Tantivy casts `missing` to each segment's column type before it aggregates. An `i64` column
+/// drops a fraction, and a `u64` column also turns a negative into zero. A declared field has the
+/// same column type in every segment. A JSON path can get an `i64`, `u64` or `f64` column from its
+/// values, and an empty `u64` column where no document has the path, so only a non-negative
+/// integer that fits in `i64` is exact there. The plan's JSON has no encoding for a non-finite
+/// default, so it would arrive as no default at all.
+fn missing_fits_every_column(
+    field: &FieldName,
+    field_type: Option<SearchFieldType>,
+    missing: f64,
+) -> bool {
+    if !missing.is_finite() {
+        return false;
+    }
+    let is_integer = missing.fract() == 0.0;
+    let fits_every_integer_column = is_integer && missing >= 0.0 && missing < i64::MAX as f64;
+    if field.path().is_some() {
+        return fits_every_integer_column;
+    }
+    match field_type {
+        Some(SearchFieldType::F64(_)) => true,
+        Some(SearchFieldType::I64(_)) => {
+            is_integer && missing >= i64::MIN as f64 && missing < i64::MAX as f64
+        }
+        _ => fits_every_integer_column,
+    }
 }
 
 /// The SQL expression shapes supported as aggregate arguments.
@@ -893,7 +960,46 @@ impl AggregateFieldExpression {
 
 #[cfg(test)]
 mod tests {
-    use super::F64Lossless;
+    use super::{missing_fits_every_column, F64Lossless};
+    use crate::api::FieldName;
+    use crate::schema::SearchFieldType;
+    use pgrx::pg_sys;
+
+    #[test]
+    fn test_missing_fits_every_column() {
+        const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+        let float = Some(SearchFieldType::F64(pg_sys::FLOAT8OID));
+        let int = Some(SearchFieldType::I64(pg_sys::INT8OID));
+        let json = Some(SearchFieldType::Json(pg_sys::JSONBOID));
+        let fits = |field: &str, field_type: Option<SearchFieldType>, missing: f64| {
+            missing_fits_every_column(&FieldName::from(field), field_type, missing)
+        };
+
+        for missing in [1.5, -1.5, -1.0, 0.0, TWO_POW_63] {
+            assert!(fits("x", float, missing), "{missing}");
+        }
+        for missing in [2.0, -1.0, -0.0, i64::MIN as f64, TWO_POW_63 / 2.0] {
+            assert!(fits("n", int, missing), "{missing}");
+        }
+        for missing in [1.5, -0.5, TWO_POW_63] {
+            assert!(!fits("n", int, missing), "{missing}");
+        }
+        for (field, field_type) in [("metadata.score", json), ("n", None)] {
+            for missing in [0.0, 2.0, TWO_POW_63 / 2.0] {
+                assert!(fits(field, field_type, missing), "{field} {missing}");
+            }
+            for missing in [-1.0, 1.5, TWO_POW_63] {
+                assert!(!fits(field, field_type, missing), "{field} {missing}");
+            }
+        }
+        // A JSON path's column comes from its values, whatever type the root field has.
+        assert!(!fits("metadata.score", float, 1.5));
+        for field_type in [float, int, json, None] {
+            for missing in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                assert!(!fits("x", field_type, missing), "{missing}");
+            }
+        }
+    }
 
     #[test]
     fn test_f64_lossless_integer_boundaries() {

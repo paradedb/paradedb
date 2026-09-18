@@ -518,6 +518,7 @@ async fn generated_group_by_aggregates(database: Db) {
             "MAX((metadata->>'rating')::bigint)",
             "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
             "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
+            "SUM(COALESCE((metadata->>'rating')::bigint, 7))",
             "SUM((metadata->'details'->>'score')::double precision)",
             "AVG((metadata->'details'->>'score')::double precision)",
             "MIN((metadata->'details'->>'score')::double precision)",

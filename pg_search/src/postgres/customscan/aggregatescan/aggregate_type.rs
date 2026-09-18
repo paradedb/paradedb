@@ -249,6 +249,8 @@ impl AggregateType {
         let field = field.into_inner();
 
         match aggfnoid {
+            // A non-null default makes every row count, and a string column would drop it.
+            F_COUNT_ANY if missing.is_some() => Some(Self::CountAny { filter, indexrelid }),
             F_COUNT_ANY => Some(Self::Count {
                 field,
                 missing,
@@ -842,7 +844,7 @@ impl ParsedAggregateField {
         schema: impl FnOnce() -> Option<SearchIndexSchema>,
     ) -> anyhow::Result<Option<f64>> {
         let missing = self.missing()?;
-        // `COUNT` never reads the value.
+        // `from_oid` turns a `COUNT` with a default into `CountAny`, which never reads the column.
         if aggfnoid == F_COUNT_ANY {
             return Ok(missing);
         }

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -25,12 +25,13 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
+use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -362,6 +363,7 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
+    segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -408,6 +410,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
+            segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
@@ -484,6 +487,9 @@ struct IndexComponents {
     cleanup_lock: Arc<PinnedBuffer>,
     directory: MVCCDirectory,
     index: Index,
+    /// Statistics of `searcher`'s segments, opened on first use. Built once per open, so readers
+    /// sharing a manifest share one lazily opened cache.
+    segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     reader: IndexReader,
     searcher: Searcher,
     total_segment_count: usize,
@@ -519,11 +525,13 @@ impl SearchIndexReader {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
+        let segment_stats_snapshot = SegmentStatsSnapshot::capture(&searcher);
 
         Ok(IndexComponents {
             cleanup_lock,
             directory,
             index,
+            segment_stats_snapshot,
             reader,
             searcher,
             total_segment_count,
@@ -626,6 +634,7 @@ impl SearchIndexReader {
             cleanup_lock,
             directory,
             index,
+            segment_stats_snapshot,
             reader,
             searcher,
             total_segment_count,
@@ -668,6 +677,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
+            segment_stats_snapshot,
             need_scores,
             total_segment_count,
             total_docs,
@@ -865,6 +875,10 @@ impl SearchIndexReader {
     /// Returns the total number of docs in the index, according to the MVCC directory.
     pub fn total_docs(&self) -> u64 {
         self.total_docs
+    }
+
+    pub(crate) fn segment_stats_snapshot(&self) -> &SegmentStatsSnapshot {
+        &self.segment_stats_snapshot
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -1647,7 +1661,7 @@ impl SearchIndexReader {
         // collects them. Asking per field would re-walk the tree once per column, and a proximity
         // clause would re-expand its regex every time.
         let (any_field, _) = self.schema.fields().next()?;
-        let mut terms: HashSet<Term> = HashSet::new();
+        let mut terms: HashSet<Term> = HashSet::default();
         self.query.query_terms(
             any_field,
             segment_reader,
@@ -2037,7 +2051,22 @@ impl ErasedFeatures {
 mod tests {
     use super::test_support::{INDEX_COMPONENT_OPENS, segmented_index_fixture};
     use super::*;
+    use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
+    use crate::index::stats::SegmentStats;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
+    use tantivy::index::SegmentComponent;
+
+    fn open_snapshot_reader(index_rel: &PgSearchRelation) -> SearchIndexReader {
+        SearchIndexReader::open(
+            index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap()
+    }
 
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
     /// still install the index's tokenizers: the `Parse` query below matches rows only if
@@ -2082,6 +2111,22 @@ mod tests {
             10,
             "the tokenized query resolves through the registered tokenizers"
         );
+        let sibling = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            SearchQueryInput::All,
+            /* need_scores */ false,
+            None,
+            /* needs_tokenizer_manager */ false,
+        )
+        .expect("from_manifest");
+        assert!(
+            std::ptr::eq(
+                reader.segment_stats_snapshot(),
+                sibling.segment_stats_snapshot()
+            ),
+            "readers built from one manifest share its statistics snapshot and cache"
+        );
 
         // Registration must reach managers shared with the already-built searcher (execution
         // paths like MoreLikeThis and fast-field normalization look tokenizers up through it,
@@ -2115,6 +2160,188 @@ mod tests {
                 .get("test_probe")
                 .is_some(),
             "the fast-field manager must be shared the same way"
+        );
+    }
+
+    #[pg_test]
+    fn unreadable_stats_abort_query() {
+        let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
+        let probe = open_snapshot_reader(&index_rel);
+        let id = probe.schema().search_field("id").unwrap();
+        // No fixture row has an id in this range, so readable statistics rule every segment out.
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(100), PdbOwnedValue::I64(201)],
+        }
+        .partition_range(1)
+        .unwrap();
+        let snapshot = probe.segment_stats_snapshot();
+        let segment_ids = probe.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+        assert_eq!(
+            snapshot
+                .segments_intersecting_partition(&id, &range)
+                .count(),
+            0,
+            "readable statistics must reject all segments before failure injection"
+        );
+        let segment = segment_ids[0];
+        for operation in [
+            InjectedStatsFailure::Open,
+            InjectedStatsFailure::Empirical,
+            InjectedStatsFailure::Logical,
+        ] {
+            let failure = inject_stats_failure(segment, operation);
+            let reader = open_snapshot_reader(&index_rel);
+            let snapshot = reader.segment_stats_snapshot();
+            let expected_message = match operation {
+                InjectedStatsFailure::Open => format!(
+                    "could not open segment statistics for {segment:?}: injected Open statistics failure"
+                ),
+                InjectedStatsFailure::Empirical => format!(
+                    "could not read empirical statistics for field {:?} in segment {segment:?}: injected Empirical statistics failure",
+                    id.field()
+                ),
+                InjectedStatsFailure::Logical => format!(
+                    "could not read logical statistics for field {:?} in segment {segment:?}: injected Logical statistics failure",
+                    id.field()
+                ),
+            };
+            for attempt in 1..=2 {
+                let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
+                    snapshot
+                        .segments_intersecting_partition(&id, &range)
+                        .count();
+                    None
+                }))
+                .catch_others(|caught| match caught {
+                    pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => {
+                        Some(report.message().to_string())
+                    }
+                    other => other.rethrow(),
+                })
+                .execute();
+                assert_eq!(
+                    error.as_deref(),
+                    Some(expected_message.as_str()),
+                    "an unreadable component must raise the specific query error: {operation:?}"
+                );
+                assert_eq!(
+                    failure.hits(),
+                    attempt,
+                    "each attempt must reach the real operation's injected error"
+                );
+            }
+            drop(failure);
+            assert_eq!(
+                snapshot
+                    .segments_intersecting_partition(&id, &range)
+                    .count(),
+                0,
+                "a failed read must not cache absence or make the segment permanently eligible"
+            );
+        }
+    }
+
+    #[pg_test]
+    fn missing_stats_keep_segment_eligible() {
+        let (index_rel, _heap) = segmented_index_fixture("missing_stats_test", 1, true);
+        let reader = open_snapshot_reader(&index_rel);
+        let id = reader.schema().search_field("id").unwrap();
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(100), PdbOwnedValue::I64(201)],
+        }
+        .partition_range(1)
+        .unwrap();
+        let segment_ids = reader.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+        let mutable = segment_ids
+            .into_iter()
+            .find(|id| reader.directory.is_mutable(id))
+            .expect("fixture must include a mutable segment");
+        let snapshot = reader.segment_stats_snapshot();
+        for _ in 0..2 {
+            assert_eq!(
+                snapshot
+                    .segments_intersecting_partition(&id, &range)
+                    .collect::<Vec<_>>(),
+                vec![mutable],
+                "missing statistics retain the mutable segment; readable bounds prune the other"
+            );
+        }
+        assert_eq!(reader.search().count(), 15);
+    }
+
+    /// A `.stats` probe must be answered from the manifest: building a mutable segment's
+    /// in-memory index for it would cost a full re-index of that segment.
+    #[pg_test]
+    fn stats_probe_does_not_materialize_a_mutable_segment() {
+        let (index_rel, _heap) = segmented_index_fixture("mutable_stats_probe_test", 1, true);
+        let directory = MvccSatisfies::Snapshot.directory(&index_rel);
+        let index = Index::open(directory.clone()).unwrap();
+        let mutable = index
+            .searchable_segments()
+            .unwrap()
+            .into_iter()
+            .find(|segment| directory.is_mutable(&segment.id()))
+            .expect("fixture must include a mutable segment");
+        let id = mutable.id();
+        assert_eq!(directory.mutable_segment_materialized(&id), Some(false));
+
+        assert!(
+            SegmentStats::of_segment(&mutable).unwrap().is_none(),
+            "a mutable segment has no .stats"
+        );
+        assert_eq!(
+            directory.mutable_segment_materialized(&id),
+            Some(false),
+            "probing .stats must not build the in-memory index"
+        );
+
+        // Control: a component the segment does have materializes it.
+        mutable.open_read(SegmentComponent::Terms).unwrap();
+        assert_eq!(directory.mutable_segment_materialized(&id), Some(true));
+    }
+
+    #[pg_test]
+    fn stats_are_opened_only_when_read() {
+        let (index_rel, _heap) = segmented_index_fixture("lazy_stats_open_test", 4, false);
+
+        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let reader = open_snapshot_reader(&index_rel);
+        assert_eq!(reader.search().count(), 40);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "opening and searching a reader must not open any .stats component"
+        );
+
+        let snapshot = reader.segment_stats_snapshot();
+        let id = reader.schema().search_field("id").unwrap();
+        // Every fixture id sits below the single split point, in the NULL partition's range.
+        let range = RangePartitioning {
+            partition_by: FieldName::from("id"),
+            split_points: vec![PdbOwnedValue::I64(1000)],
+        }
+        .partition_range(0)
+        .unwrap();
+        let consult = || {
+            snapshot
+                .segments_intersecting_partition(&id, &range)
+                .count()
+        };
+        assert_eq!(consult(), 4);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            4,
+            "the first read of each immutable segment opens its .stats exactly once"
+        );
+        assert_eq!(consult(), 4);
+        assert_eq!(
+            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+            4,
+            "later reads reuse the opened component"
         );
     }
 }

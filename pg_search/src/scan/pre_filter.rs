@@ -1021,7 +1021,7 @@ pub fn try_dynamic_filter_pushdown(
     }
 }
 
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(test)]
 mod tests {
     use super::try_extract_score_threshold;
     use datafusion::logical_expr::Operator;

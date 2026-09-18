@@ -2435,14 +2435,27 @@ impl JoinScan {
                 // which the index fetch rejects at chain start. On an all-visible page it stays
                 // the root the index holds, and a pruned root is a redirect the direct fetch
                 // cannot follow.
-                if !rel_state
+                let fetched = rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
-                    && rel_state
+                    || rel_state
                         .visibility_checker
                         .exec_if_visible(ctid, rel_state.fetch_slot, |_| ())
-                        .is_none()
-                {
+                        .is_some();
+                // A miss means the two fetches do not cover some ctid shape, not that the
+                // row is gone. Skipping it drops the row, and on an outer join that takes
+                // the preserved side's columns with it, so the loss is silent and far from
+                // its cause. Fail loudly where tests and DST can see it, and fix the fetch.
+                //
+                // Null-extending instead would be worse: the source did match, so blanking
+                // its columns claims a no-match row that never existed.
+                debug_assert!(
+                    fetched,
+                    "JoinScan: no heap tuple for source {plan_position} at ctid ({}, {})",
+                    ctid >> 16,
+                    ctid & 0xffff
+                );
+                if !fetched {
                     return None;
                 }
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);

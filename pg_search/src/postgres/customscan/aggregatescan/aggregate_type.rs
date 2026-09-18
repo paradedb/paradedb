@@ -854,7 +854,7 @@ impl ParsedAggregateField {
         let field_type = schema()
             .and_then(|schema| schema.search_field(&self.field_name))
             .map(|search_field| search_field.field_type());
-        if !missing_fits_every_column(field_type, missing) {
+        if !missing_fits_every_column(&self.field_name, field_type, missing) {
             bail!(
                 "COALESCE default {} for '{}' does not fit the field's column type",
                 missing,
@@ -879,18 +879,25 @@ impl ParsedAggregateField {
 /// values, and an empty `u64` column where no document has the path, so only a non-negative
 /// integer that fits in `i64` is exact there. The plan's JSON has no encoding for a non-finite
 /// default, so it would arrive as no default at all.
-fn missing_fits_every_column(field_type: Option<SearchFieldType>, missing: f64) -> bool {
+fn missing_fits_every_column(
+    field: &FieldName,
+    field_type: Option<SearchFieldType>,
+    missing: f64,
+) -> bool {
     if !missing.is_finite() {
         return false;
     }
     let is_integer = missing.fract() == 0.0;
+    let fits_every_integer_column = is_integer && missing >= 0.0 && missing < i64::MAX as f64;
+    if field.path().is_some() {
+        return fits_every_integer_column;
+    }
     match field_type {
         Some(SearchFieldType::F64(_)) => true,
         Some(SearchFieldType::I64(_)) => {
             is_integer && missing >= i64::MIN as f64 && missing < i64::MAX as f64
         }
-        Some(SearchFieldType::U64(_)) => is_integer && missing >= 0.0 && missing < u64::MAX as f64,
-        _ => is_integer && missing >= 0.0 && missing < i64::MAX as f64,
+        _ => fits_every_integer_column,
     }
 }
 
@@ -949,7 +956,46 @@ impl AggregateFieldExpression {
 
 #[cfg(test)]
 mod tests {
-    use super::F64Lossless;
+    use super::{F64Lossless, missing_fits_every_column};
+    use crate::api::FieldName;
+    use crate::schema::SearchFieldType;
+    use pgrx::pg_sys;
+
+    #[test]
+    fn test_missing_fits_every_column() {
+        const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+        let float = Some(SearchFieldType::F64(pg_sys::FLOAT8OID));
+        let int = Some(SearchFieldType::I64(pg_sys::INT8OID));
+        let json = Some(SearchFieldType::Json(pg_sys::JSONBOID));
+        let fits = |field: &str, field_type: Option<SearchFieldType>, missing: f64| {
+            missing_fits_every_column(&FieldName::from(field), field_type, missing)
+        };
+
+        for missing in [1.5, -1.5, -1.0, 0.0, TWO_POW_63] {
+            assert!(fits("x", float, missing), "{missing}");
+        }
+        for missing in [2.0, -1.0, -0.0, i64::MIN as f64, TWO_POW_63 / 2.0] {
+            assert!(fits("n", int, missing), "{missing}");
+        }
+        for missing in [1.5, -0.5, TWO_POW_63] {
+            assert!(!fits("n", int, missing), "{missing}");
+        }
+        for (field, field_type) in [("metadata.score", json), ("n", None)] {
+            for missing in [0.0, 2.0, TWO_POW_63 / 2.0] {
+                assert!(fits(field, field_type, missing), "{field} {missing}");
+            }
+            for missing in [-1.0, 1.5, TWO_POW_63] {
+                assert!(!fits(field, field_type, missing), "{field} {missing}");
+            }
+        }
+        // A JSON path's column comes from its values, whatever type the root field has.
+        assert!(!fits("metadata.score", float, 1.5));
+        for field_type in [float, int, json, None] {
+            for missing in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                assert!(!fits("x", field_type, missing), "{missing}");
+            }
+        }
+    }
 
     #[test]
     fn test_f64_lossless_integer_boundaries() {

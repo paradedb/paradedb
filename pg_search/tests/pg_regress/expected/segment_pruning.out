@@ -330,7 +330,6 @@ COPY (
        AND NOT EXISTS (SELECT 1 FROM segment_pruning_topk_plan WHERE line LIKE '%segments_pruned_dynamic=%')
 ) TO STDOUT;
 t
-
 COPY (
     SELECT count(*) = 1
     FROM segment_pruning_topk_plan

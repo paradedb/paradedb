@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789755762748,
+  "lastUpdate": 1789755881173,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4643,6 +4643,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.15,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5df1bb84d09c63e703f6a942a979e8503cfe19f5",
+          "message": "fix: read a JSON path with no column in a segment as NULL (#6381)\n\n## Ticket(s) Closed\n\n- Closes #6363\n\n## What\n\nThis PR makes the DataFusion scans read a JSON path that a segment has\nno column for as NULL. Before, they failed with `` `metadata.brand` is\nmissing or is not configured as columnar ``.\n\n## Why\n\nA segment writes a column for a JSON path only if one of its documents\nhas the key. A row inserted after `CREATE INDEX` without the key goes to\na segment of its own, with no such column. `FFType::new` tried every\ncolumn type, found none, and panicked. PostgreSQL returns NULL for the\nmissing key, and so does the Tantivy aggregate path.\n\n## How\n\n`FFHelper::column` classifies the miss instead of panicking. A non-empty\npath on a columnar JSON field that the segment wrote no column for\nbecomes `FFType::Junk`. Anything else still panics, so a real\nmisconfiguration keeps its error. The field type is checked too, since\n`Schema::find_field` resolves a dotted suffix against any field, not\nonly a JSON one.\n\nEvery reader of a `Junk` column then yields NULL: the batch scanner, the\ndeferred fetch, the top-K and the pre-filter. The scanner leaves the\ncolumn empty for `to_record_batch` to fill, because the `Null`-typed\nplaceholder the old code produced breaks the deferred-ordinal downcast.\nThe top-K also takes its sort type from the first segment that has the\ncolumn, since segment `0` may be the one without it.\n\n## Tests\n\n`json_path_missing_column`",
+          "timestamp": "2026-09-18T11:01:50-07:00",
+          "tree_id": "998f714a306e8b15936e2818afb4e38847f9bdbb",
+          "url": "https://github.com/paradedb/paradedb/commit/5df1bb84d09c63e703f6a942a979e8503cfe19f5"
+        },
+        "date": 1789755871071,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6545513348164307,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.977,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.014,
             "unit": "ms"
           }
         ]

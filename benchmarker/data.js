@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789680116629,
+  "lastUpdate": 1789690885770,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4398,6 +4398,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.035,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6de75132f685706f99acc01a9532ced7cab07b6",
+          "message": "perf: read persisted settings directly for CTID sort checks (#6398)\n\n## What\n\nAdd `PgSearchRelation::settings()` alongside the existing `schema()`\naccessor, and use it to check whether stored segments are sorted by\nascending CTID.\n\n## Why\n\nBitmap-intersection planning currently opens a full Tantivy index just\nto inspect its persisted sort order. Reading the settings directly\navoids loading and pinning segment metadata for that check.\n\n## How\n\nDeserialize persisted settings through `MetaPage::settings()`.\n`load_metas()` reuses its already-open metadata page, so this refactor\nadds no extra metadata-page access there. The CTID check continues to\nuse stored settings and returns false if they cannot be read.\n\n## Tests\n\n- PG18: all 11 `postgres::build::tests` passed.\n- PG18 SQL regressions: `sort_by`, `bitmap_intersection`,\n`partition_by`, and `recursive_estimates` passed.\n- `cargo fmt --all --check`, workspace Clippy, and `cargo check\n--workspace` passed.",
+          "timestamp": "2026-09-17T17:00:30-07:00",
+          "tree_id": "d0e83fdcfbbcbb64b44149d56194ac846e291fe8",
+          "url": "https://github.com/paradedb/paradedb/commit/c6de75132f685706f99acc01a9532ced7cab07b6"
+        },
+        "date": 1789690881028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6739241631504787,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.93,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 2.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.189,
             "unit": "ms"
           }
         ]

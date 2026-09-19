@@ -471,11 +471,7 @@ impl BitmapPlanner {
     /// its bitmap would overflow `work_mem`.
     unsafe fn candidate(&self, ioi: *mut pg_sys::IndexOptInfo) -> Option<Candidate> {
         unsafe {
-            if (*ioi).indexoid == self.bm25_oid || !(*ioi).amhasgetbitmap || (*ioi).hypothetical {
-                return None;
-            }
-            // Partial indexes need predicate-implication checks.
-            if !(*ioi).indpred.is_null() {
+            if !self.usable_index(ioi) {
                 return None;
             }
 
@@ -495,23 +491,7 @@ impl BitmapPlanner {
             // `IndexPath.indexclauses` must be ordered by index column; the
             // clauses above accumulate in `indrestrictinfo` order.
             matched.sort_by_key(IndexClause::indexcol);
-            let mut iclauses = PgList::<pg_sys::IndexClause>::new();
-            for iclause in matched {
-                iclauses.push(iclause.into_pg());
-            }
-            let ipath = pg_sys::create_index_path(
-                self.root,
-                ioi,
-                iclauses.into_pg(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                pg_sys::ScanDirection::ForwardScanDirection,
-                false,
-                std::ptr::null_mut(),
-                1.0,
-                false,
-            );
+            let ipath = self.index_path(ioi, matched);
             let index_name = PgSearchRelation::open((*ioi).indexoid).name().to_string();
             let (build_cost, selectivity) = self.bitmap_tree_cost(ipath.cast());
             if self.overflows_work_mem(selectivity) {
@@ -527,6 +507,46 @@ impl BitmapPlanner {
                 selectivity,
                 covers,
             })
+        }
+    }
+
+    /// Whether this index can feed the intersection at all: not the ParadeDB index
+    /// itself, able to produce a bitmap, real, and not partial (a partial index
+    /// would need predicate-implication checks).
+    unsafe fn usable_index(&self, ioi: *mut pg_sys::IndexOptInfo) -> bool {
+        unsafe {
+            (*ioi).indexoid != self.bm25_oid
+                && (*ioi).amhasgetbitmap
+                && !(*ioi).hypothetical
+                && (*ioi).indpred.is_null()
+        }
+    }
+
+    /// A plain forward `IndexPath` over `iclauses`, which must already be in index
+    /// column order.
+    unsafe fn index_path(
+        &self,
+        ioi: *mut pg_sys::IndexOptInfo,
+        iclauses: Vec<IndexClause>,
+    ) -> *mut pg_sys::IndexPath {
+        unsafe {
+            let mut list = PgList::<pg_sys::IndexClause>::new();
+            for iclause in iclauses {
+                list.push(iclause.into_pg());
+            }
+            pg_sys::create_index_path(
+                self.root,
+                ioi,
+                list.into_pg(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                pg_sys::ScanDirection::ForwardScanDirection,
+                false,
+                std::ptr::null_mut(),
+                1.0,
+                false,
+            )
         }
     }
 

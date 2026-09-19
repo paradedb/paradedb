@@ -69,7 +69,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_ci = 'Electronics'::text)"}]}}]}}
@@ -111,7 +111,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_ci <> 'Electronics'::text)"}]}}]}}
@@ -151,7 +151,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_ci = ANY ('{Electronics,Books}'::text[]))"}]}}]}}
@@ -197,7 +197,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"name_icu","value":"Banana"}}]}}
 (9 rows)
@@ -234,7 +234,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"name_icu","value":"apple"},{"field":"name_icu","value":"cherry"}]}}]}}
 (9 rows)
@@ -264,7 +264,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"always_filters":[{"heap_filter":"(name_icu > 'B'::text)"}]}}]}}
@@ -308,7 +308,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"name_c","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
@@ -351,7 +351,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"name_icu","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
@@ -396,7 +396,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"name_default","value":"Banana"}}]}}
 (9 rows)
@@ -425,7 +425,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"name_default","lower_bound":{"excluded":"B"},"upper_bound":null}}]}}
 (9 rows)
@@ -468,7 +468,7 @@ ORDER BY id;
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: id
+         Columnar: id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"id","lower_bound":{"excluded":1},"upper_bound":null}}]}}
 (9 rows)
@@ -502,7 +502,7 @@ WHERE id @@@ paradedb.all();
          Table: issue_5858_products
          Index: issue_5858_products_idx
          Exec Method: ColumnarExecState
-         Fast Fields: name_ci, name_icu
+         Columnar: name_ci, name_icu
          Scores: false
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}

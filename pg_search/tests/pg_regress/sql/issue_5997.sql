@@ -28,7 +28,6 @@ INSERT INTO issue_5997 (title, n, title_vc, span) VALUES
 CREATE INDEX issue_5997_idx ON issue_5997
 USING paradedb (id, title, n, title_vc, span)
 WITH (
-    key_field = 'id',
     text_fields = '{"title_vc": {"fast": true, "tokenizer": {"type": "raw"}}}'
 );
 
@@ -109,8 +108,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- native numeric field too, so the plan must choose the n_text expression field.
 DROP INDEX issue_5997_idx;
 CREATE INDEX issue_5997_idx ON issue_5997
-USING paradedb (id, title, n, ((n::text)::pdb.literal('alias=n_text')))
-WITH (key_field = 'id');
+USING paradedb (id, title, n, ((n::text)::pdb.literal('alias=n_text')));
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n FROM issue_5997

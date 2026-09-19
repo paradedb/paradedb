@@ -50,10 +50,10 @@ SELECT md5('k' || i)::uuid,
 FROM generate_series(1, 5000) i;
 
 CREATE INDEX strkey_build_idx ON strkey_build
-USING bm25 (id, (id_txt::pdb.literal), keep, ordinal);
+USING paradedb (id, (id_txt::pdb.literal), keep, ordinal);
 
 CREATE INDEX strkey_probe_idx ON strkey_probe
-USING bm25 (id, fk_uuid, (fk_txt::pdb.literal), amount);
+USING paradedb (id, fk_uuid, (fk_txt::pdb.literal), amount);
 
 ANALYZE strkey_build;
 ANALYZE strkey_probe;

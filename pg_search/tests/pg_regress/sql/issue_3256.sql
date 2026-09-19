@@ -10,6 +10,6 @@ SELECT
     pdb.snippet(description, start_tag => '<b>', end_tag => '</b>', max_num_chars => 10),
     pdb.snippet(description, start_tag => '<i>', end_tag => '</i>'),
     pdb.snippet_positions(description)
-FROM mock_items WHERE description @@@ 'shoes';
+FROM mock_items WHERE description ||| 'shoes';
 
 DROP TABLE mock_items;

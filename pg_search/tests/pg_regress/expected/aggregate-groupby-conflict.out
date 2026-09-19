@@ -31,26 +31,22 @@ INSERT INTO groupby_conflict_test (title, category, rating, price, views) VALUES
 ('Product G2', 'clothing', 1, 299.99, 300);
 -- Create BM25 index with fast fields
 CREATE INDEX groupby_conflict_idx ON groupby_conflict_test 
-USING paradedb (id, title, category, rating, price, views)
-WITH (
-    text_fields='{"title": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}, "views": {"fast": true}}'
-);
+USING paradedb (id, title, (category::pdb.unicode_words('columnar=true')), rating, price, views);
 -- =====================================================================
 -- Test 1: GROUP BY on rating field with AVG(rating)
 -- =====================================================================
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT rating, AVG(rating) as avg_rating, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY rating
 ORDER BY rating;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: rating, pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: AVG(rating), COUNT(*)
      Group By: rating
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -59,7 +55,7 @@ ORDER BY rating;
 -- Execute the query
 SELECT rating, AVG(rating) as avg_rating, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY rating
 ORDER BY rating;
  rating | avg_rating | count 
@@ -77,7 +73,7 @@ ORDER BY rating;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT price, SUM(price) as total_price, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY price
 ORDER BY price;
                                                                                                 QUERY PLAN                                                                                                
@@ -85,7 +81,7 @@ ORDER BY price;
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: price, pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: SUM(price), COUNT(*)
      Group By: price
      Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null,"none_if_no_match":true}}},"terms":{"field":"price","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -94,7 +90,7 @@ ORDER BY price;
 -- Execute the query
 SELECT price, SUM(price) as total_price, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY price
 ORDER BY price;
  price  | total_price | count 
@@ -118,7 +114,7 @@ ORDER BY price;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT views, MAX(views) as max_views, MIN(views) as min_views
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY views
 ORDER BY views;
                                                                                                           QUERY PLAN                                                                                                           
@@ -126,7 +122,7 @@ ORDER BY views;
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: views, pdb.agg_fn('MAX'::text), pdb.agg_fn('MIN'::text)
    Index: groupby_conflict_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"Product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: MAX(views), MIN(views)
      Group By: views
      Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}},"1":{"min":{"field":"views","missing":null}}},"terms":{"field":"views","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -135,7 +131,7 @@ ORDER BY views;
 -- Execute the query
 SELECT views, MAX(views) as max_views, MIN(views) as min_views
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY views
 ORDER BY views;
  views | max_views | min_views 
@@ -164,7 +160,7 @@ SELECT rating,
        MAX(rating) as max_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY rating
 ORDER BY rating;
                                                                                                                                    QUERY PLAN                                                                                                                                   
@@ -172,7 +168,7 @@ ORDER BY rating;
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: rating, pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: groupby_conflict_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"category","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: AVG(rating), MIN(rating), MAX(rating), COUNT(*)
      Group By: rating
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}},"1":{"min":{"field":"rating","missing":null}},"2":{"max":{"field":"rating","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -185,7 +181,7 @@ SELECT rating,
        MAX(rating) as max_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY rating
 ORDER BY rating;
  rating | avg_rating | min_rating | max_rating | count 
@@ -205,12 +201,12 @@ SELECT title,
        AVG(rating) as avg_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY title
 ORDER BY title;
 WARNING:  Aggregate Scan not used: grouping column title exists, but is not columnar. To disable this warning: SET paradedb.planner_warnings = 'off' (table: groupby_conflict_test)
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: title, avg(rating), count(*)
    Group Key: groupby_conflict_test.title
@@ -224,7 +220,7 @@ WARNING:  Aggregate Scan not used: grouping column title exists, but is not colu
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"category","value":"electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 -- Execute the query
@@ -232,7 +228,7 @@ SELECT title,
        AVG(rating) as avg_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY title
 ORDER BY title
 LIMIT 5;

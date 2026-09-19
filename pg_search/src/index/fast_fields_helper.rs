@@ -24,7 +24,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{TantivyValue, is_pgoid_datetime_type};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
-use crate::schema::SearchFieldType;
+use crate::schema::{SearchFieldType, is_columnar_json_path};
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -80,6 +80,12 @@ struct FFInner {
     segment_caches: Vec<SegmentCache>,
 }
 
+/// One wording for every scan that asks a segment for a column it cannot give.
+#[track_caller]
+fn missing_columnar_field(field_name: &str) -> ! {
+    panic!("`{field_name}` is missing or is not configured as columnar")
+}
+
 impl FFHelper {
     pub fn empty() -> Self {
         Self::default()
@@ -132,7 +138,19 @@ impl FFHelper {
                 WhichFastField::Named(name, _)
                 | WhichFastField::Array(name, _)
                 | WhichFastField::Deferred(name, _) => {
-                    FFType::new(self.fast_fields(segment_ord), name)
+                    let ffr = self.fast_fields(segment_ord);
+                    FFType::try_new(ffr, name).unwrap_or_else(|| {
+                        // A JSON path that no document in this segment carries reads as NULL,
+                        // like the missing key does in Postgres. Any other absence is a bug.
+                        let has_no_column = ffr
+                            .dynamic_column_handles(name)
+                            .is_ok_and(|handles| handles.is_empty());
+                        if has_no_column && is_columnar_json_path(self.searcher().schema(), name) {
+                            FFType::Junk
+                        } else {
+                            missing_columnar_field(name)
+                        }
+                    })
                 }
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
@@ -208,6 +226,9 @@ macro_rules! fetch_term_ords {
 /// Tantivy column readers.
 #[derive(Debug)]
 pub enum FFType {
+    /// Nothing to read: a synthetic column (`ctid`, `tableoid`, a score, a match tag), or a
+    /// real field the segment wrote no column for. Both read as NULL, so a consumer that
+    /// wants only the second meaning has to check the [`WhichFastField`] first.
     Junk,
     Text(StrColumn),
     Bytes(BytesColumn),
@@ -232,22 +253,30 @@ impl FFType {
     /// should be a known field name in the Tantivy index
     #[track_caller]
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
+        match Self::try_new(ffr, field_name) {
+            Some(ff) => ff,
+            None => missing_columnar_field(field_name),
+        }
+    }
+
+    /// Like [`FFType::new`], but `None` when the segment has no typed column for `field_name`.
+    pub fn try_new(ffr: &FastFieldReaders, field_name: &str) -> Option<Self> {
         if let Ok(ff) = ffr.i64(field_name) {
-            Self::I64(ff)
+            Some(Self::I64(ff))
         } else if let Ok(Some(ff)) = ffr.str(field_name) {
-            Self::Text(ff)
+            Some(Self::Text(ff))
         } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
-            Self::Bytes(ff)
+            Some(Self::Bytes(ff))
         } else if let Ok(ff) = ffr.u64(field_name) {
-            Self::U64(ff)
+            Some(Self::U64(ff))
         } else if let Ok(ff) = ffr.f64(field_name) {
-            Self::F64(ff)
+            Some(Self::F64(ff))
         } else if let Ok(ff) = ffr.bool(field_name) {
-            Self::Bool(ff)
+            Some(Self::Bool(ff))
         } else if let Ok(ff) = ffr.date(field_name) {
-            Self::Date(ff)
+            Some(Self::Date(ff))
         } else {
-            panic!("`{field_name}` is missing or is not configured as columnar")
+            None
         }
     }
 

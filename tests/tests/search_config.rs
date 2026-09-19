@@ -210,7 +210,7 @@ static MOCK_LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
 fn basic_search_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let rows: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE category ||| 'electronics' ORDER BY id"
             .fetch_collect(&mut conn);
 
     assert_eq!(rows.id, vec![1, 2, 12, 22, 32])
@@ -220,14 +220,14 @@ fn basic_search_query(mut conn: PgConnection) {
 fn with_limit_and_offset(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let rows: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+        "SELECT * FROM paradedb.bm25_search WHERE category ||| 'electronics'
          ORDER BY id LIMIT 2"
             .fetch_collect(&mut conn);
 
     assert_eq!(rows.id, vec![1, 2]);
 
     let rows: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+        "SELECT * FROM paradedb.bm25_search WHERE category ||| 'electronics'
          ORDER BY id OFFSET 1 LIMIT 2"
             .fetch_collect(&mut conn);
 
@@ -240,13 +240,12 @@ fn default_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "default"}}}')"#
+        USING paradedb (id, (description::pdb.simple))"#
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.tokenizer_config
-    WHERE tokenizer_config @@@ 'description:earbud' ORDER BY id"
+    WHERE description ||| 'earbud' ORDER BY id"
         .fetch(&mut conn);
 
     assert!(rows.is_empty())
@@ -258,13 +257,12 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 8, "prefix_only": false}}}')"#
+        USING paradedb (id, (description::pdb.ngram(3, 8, 'prefix_only=false')))"#
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM paradedb.tokenizer_config
-        WHERE tokenizer_config @@@ 'description:boa' ORDER BY id"
+        WHERE description ||| 'boa' ORDER BY id"
         .fetch(&mut conn);
 
     assert_eq!(rows[0], (1,));
@@ -278,15 +276,14 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX tokenizer_config_idx ON paradedb.tokenizer_config
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "chinese_compatible"}}}')"#
+        USING paradedb (id, (description::pdb.chinese_compatible))"#
         .execute(&mut conn);
 
     "INSERT INTO paradedb.tokenizer_config (description, rating, category) VALUES ('电脑', 4, 'Electronics');".execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
         SELECT id FROM paradedb.tokenizer_config
-        WHERE tokenizer_config @@@ 'description:电脑' ORDER BY id"
+        WHERE description ||| '电脑' ORDER BY id"
         .fetch(&mut conn);
 
     assert_eq!(rows[0], (42,));
@@ -298,13 +295,12 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "whitespace"}}}')"#
+        USING paradedb (id, (description::pdb.whitespace))"#
         .execute(&mut conn);
 
     let count: (i64,) = "
     SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:shoes'"
+    WHERE description ||| 'shoes'"
         .fetch_one(&mut conn);
     assert_eq!(count.0, 3);
 }
@@ -315,26 +311,25 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "raw"}}}');
+        USING paradedb (id, (description::pdb.literal_normalized));
     "#
     .execute(&mut conn);
 
     let count: (i64,) = r#"
         SELECT COUNT(*) FROM paradedb.bm25_search
-        WHERE bm25_search @@@ 'description:shoes'"#
+        WHERE description ||| 'shoes'"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 0);
 
     let count: (i64,) = r#"
         SELECT COUNT(*) FROM paradedb.bm25_search
-        WHERE bm25_search @@@ 'description:"GENERIC SHOES"'"#
+        WHERE description ### 'GENERIC SHOES'"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
 
     let count: (i64,) = r#"
         SELECT COUNT(*) FROM paradedb.bm25_search
-        WHERE bm25_search @@@ 'description:"Generic shoes"'"#
+        WHERE description ### 'Generic shoes'"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
 }
@@ -345,8 +340,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "regex", "pattern": "\\b\\w{4,}\\b"}}}');
+        USING paradedb (id, (description::pdb.regex_pattern('\b\w{4,}\b')));
     INSERT INTO paradedb.bm25_search (id, description) VALUES
         (11001, 'This is a simple test'),
         (11002, 'Rust is awesome'),
@@ -355,19 +349,16 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let count: (i64,) =
-        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:simple'"
-            .fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'simple'"
+        .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
 
     let count: (i64,) =
-        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:is'"
-            .fetch_one(&mut conn);
+        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'is'".fetch_one(&mut conn);
     assert_eq!(count.0, 0);
 
-    let count: (i64,) =
-        "SELECT COUNT(*) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:longer'"
-            .fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM paradedb.bm25_search WHERE description ||| 'longer'"
+        .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
 }
 
@@ -387,25 +378,17 @@ fn language_stem_filter(mut conn: PgConnection) {
             INSERT INTO test_table (author, title, message)
             VALUES {data};
             CREATE INDEX stem_test ON test_table
-                USING paradedb (id, author, title, message)
-                WITH (text_fields='{{
-                    "author": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
-                    "title": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
-                    "message": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}}
-                }}');"#
+                USING paradedb (id, (author::pdb.simple('stemmer={language_str}')), (title::pdb.simple('stemmer={language_str}')), (message::pdb.simple('stemmer={language_str}')));"#
         );
 
         setup_query.execute(&mut conn);
 
-        let author_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'author:{author_query}' ORDER BY id"
-        );
-        let title_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'title:{title_query}' ORDER BY id"
-        );
-        let message_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'message:{message_query}' ORDER BY id"
-        );
+        let author_search_query =
+            format!("SELECT id FROM test_table WHERE author ||| '{author_query}' ORDER BY id");
+        let title_search_query =
+            format!("SELECT id FROM test_table WHERE title ||| '{title_query}' ORDER BY id");
+        let message_search_query =
+            format!("SELECT id FROM test_table WHERE message ||| '{message_query}' ORDER BY id");
 
         let row: (i32,) = author_search_query.fetch_one(&mut conn);
         assert_eq!(row.0, 1);
@@ -447,38 +430,19 @@ fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "default", "stopwords_language": "English"}}}');
+        USING paradedb (id, (description::pdb.simple('stopwords_language=english')));
     "#
     .execute(&mut conn);
 
     let count: (i64,) = "
     SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:on'"
+    WHERE description ||| 'on'"
         .fetch_one(&mut conn);
     assert_eq!(count.0, 0);
 
     let count: (i64,) = r#"
     SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:"Hardcover book on history"'"#
+    WHERE description @@@ pdb.parse_with_field('"Hardcover book on history"')"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
-}
-
-#[rstest]
-fn stopwords_tokenizer_config(mut conn: PgConnection) {
-    r#"
-    CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
-
-    CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, description)
-        WITH (text_fields='{"description": {"tokenizer": {"type": "default", "stopwords": ["shoes"]}}}');
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) = "
-    SELECT COUNT(*) FROM paradedb.bm25_search
-    WHERE bm25_search @@@ 'description:shoes'"
-        .fetch_one(&mut conn);
-    assert_eq!(count.0, 0);
 }

@@ -88,14 +88,14 @@ FROM (
     SELECT pg_temp.issue_4906_absent_ltree_explain_text(
         $$SELECT id, body
             FROM issue_4906_without_ltree
-           WHERE body @@@ 'document'
+           WHERE body @@@ pdb.term('document')
              AND rating > 1$$
     ) AS plan
 ) s;
 
 SELECT array_agg(id ORDER BY id) AS non_ltree_query_result_ids
 FROM issue_4906_without_ltree
-WHERE body @@@ 'document'
+WHERE body @@@ pdb.term('document')
   AND rating > 1;
 
 RESET enable_seqscan;

@@ -13,17 +13,17 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.pa
 FROM documents d
          JOIN files f ON d.id = f.documentId
          JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures'
+  AND f.title ||| 'Receipt'
+  AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
          JOIN files f ON d.id = f.documentId
          JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures'
+  AND f.title ||| 'Receipt'
+  AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 
 -- this should return two rows
@@ -32,21 +32,21 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
        (
            SELECT f.title
            FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+           WHERE f.documentId = d.id AND f.title ||| 'Invoice'
            ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 SELECT d.id, d.title, d.parents,
        (
            SELECT f.title
            FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+           WHERE f.documentId = d.id AND f.title ||| 'Invoice'
            ORDER BY pdb.score(f.id) DESC LIMIT 1
        ) AS file_title
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
 
 -- be a good citizen

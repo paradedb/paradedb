@@ -25,7 +25,7 @@ ON mock_items
 --
 -- @@@ (parse)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
@@ -36,7 +36,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
-SELECT * FROM mock_items WHERE description @@@ 'running shoes';
+SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -44,7 +44,7 @@ SELECT * FROM mock_items WHERE description @@@ 'running shoes';
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes');
                                                                              QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
@@ -55,7 +55,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lowe
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description_lower","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
-SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
+SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes') ORDER BY id;
  id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
@@ -263,7 +263,7 @@ SELECT * FROM mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] OR
 ---
 --- the rhs of the operator is an expression that must be evaluated at execution time
 ---
-select * from mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description @@@ pdb.parse_with_field(case when id = 1 then 'keyboard' else 'DoesNotExist' end);
 WARNING:  the table is being sequentially scanned for this query, so performance may be slow
 if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
  id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
@@ -307,8 +307,8 @@ if you are not sure why, please file an issue: https://github.com/paradedb/parad
 -- other supported types on the lhs
 -- these are types that postgres will coerce to TEXT
 --
-SELECT * FROM mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `@@@` operator: the right-hand side could not be converted to a search query
+SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
+ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
@@ -317,7 +317,7 @@ SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
 ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
-SELECT * FROM mock_items WHERE category @@@ 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
   3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293

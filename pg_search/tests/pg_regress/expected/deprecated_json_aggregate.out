@@ -1,0 +1,74 @@
+-- Legacy JSON configuration preserves numeric term matching until tokenizer casts support it.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- =========================================
+-- Test 14: Special characters and edge cases
+-- =========================================
+-- Create table with special JSON keys
+CREATE TABLE json_special_agg (
+    id SERIAL PRIMARY KEY,
+    payload JSONB
+);
+-- Insert data with special characters
+INSERT INTO json_special_agg (payload) VALUES
+    ('{"user-profile": {"first_name": "John", "email@work": "john@company.com", "settings.theme": "dark"}}'),
+    ('{"user-profile": {"first_name": "Jane", "email@work": "jane@company.com", "settings.theme": "light"}}'),
+    ('{"api-response": {"status_code": 200, "response.time": 150, "cache-hit": true}}'),
+    ('{"api-response": {"status_code": 404, "response.time": 50, "cache-hit": false}}');
+-- Create BM25 index
+CREATE INDEX idx_json_special_agg ON json_special_agg
+USING paradedb (id, payload)
+WITH (
+    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test COUNT with special character fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM json_special_agg
+WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: idx_json_special_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.user-profile.email@work"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT COUNT(*)
+FROM json_special_agg
+WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+ count 
+-------
+     2
+(1 row)
+
+-- Test COUNT on API responses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM json_special_agg
+WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: idx_json_special_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"payload.api-response.status_code","value":"200"}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT COUNT(*)
+FROM json_special_agg
+WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE json_special_agg;

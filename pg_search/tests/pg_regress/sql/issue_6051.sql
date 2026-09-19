@@ -33,7 +33,7 @@ VALUES
     ('debit', -999999999999999999, -100000000000000000000, -100000000000000000000, -1000000000000000000.0000000001),
     ('zero', 0, 0, 0, 0);
 
-CREATE INDEX amounts_idx ON amounts USING bm25 (
+CREATE INDEX amounts_idx ON amounts USING paradedb (
     id, (direction::pdb.literal), amt_18, amt_78, amt_any, amt_scaled, discarded_at
 ) WHERE (discarded_at IS NULL);
 
@@ -187,7 +187,7 @@ CREATE TABLE prices (
 
 INSERT INTO prices (price) VALUES (1.23), (4.56), (1.00), (4.00), (-1.23);
 
-CREATE INDEX prices_idx ON prices USING bm25 (id, price);
+CREATE INDEX prices_idx ON prices USING paradedb (id, price);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, price FROM prices
@@ -213,7 +213,7 @@ INSERT INTO spans (span) VALUES
     ('[-0.51, -0.5)'),
     ('[-0.5, 0.5]');
 
-CREATE INDEX spans_idx ON spans USING bm25 (id, span);
+CREATE INDEX spans_idx ON spans USING paradedb (id, span);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, span FROM spans

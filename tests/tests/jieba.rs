@@ -76,27 +76,19 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX chinese_texts_idx ON chinese_texts
-        USING paradedb (id, content)
-        WITH (
-            text_fields = '{
-                "content": { "tokenizer": {"type": "jieba"} }
-            }'
-        );"#
-    .execute(&mut conn);
+        USING paradedb (id, (content::pdb.jieba));"#
+        .execute(&mut conn);
 
     // Test searching using fetch/fetch_one extension methods
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM chinese_texts WHERE chinese_texts @@@ 'content:光明' ORDER BY id"#
-            .fetch(&mut conn);
+        r#"SELECT id FROM chinese_texts WHERE content ||| '光明' ORDER BY id"#.fetch(&mut conn);
     assert_eq!(rows, vec![(1,)], "Failed on 'content:光明'");
 
-    let row: (i32,) =
-        r#"SELECT id FROM chinese_texts WHERE chinese_texts @@@ 'content:公安局' ORDER BY id"#
-            .fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM chinese_texts WHERE content ||| '公安局' ORDER BY id"#
+        .fetch_one(&mut conn);
     assert_eq!(row, (2,), "Failed on 'content:公安局'");
 
     let row: (i32,) =
-        r#"SELECT id FROM chinese_texts WHERE chinese_texts @@@ 'content:就业' ORDER BY id"#
-            .fetch_one(&mut conn);
+        r#"SELECT id FROM chinese_texts WHERE content ||| '就业' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row, (3,), "Failed on 'content:就业'");
 }

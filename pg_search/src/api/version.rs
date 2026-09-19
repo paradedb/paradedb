@@ -98,8 +98,7 @@ pub const fn parse_version_component(s: &str) -> u16 {
     result
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
     use super::*;
 

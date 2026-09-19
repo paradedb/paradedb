@@ -48,7 +48,6 @@ use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, get_plan_with_merged_metrics,
 };
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 
 use datafusion_distributed::{DistributedExt, DistributedTaskContext};
@@ -107,7 +106,9 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
+use crate::postgres::customscan::joinscan::scan_state::{
+    build_physical_plan, build_task_context, clone_task_context_with_config,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -1598,7 +1599,9 @@ impl AggregateScan {
         }
 
         let path_info = match datafusion_build::check_join_path_predicates(
-            root, input_rel, &sources,
+            root,
+            input_rel.cheapest_total_path,
+            &sources,
         ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
@@ -2060,11 +2063,7 @@ impl AggregateScan {
                         task_count: 1,
                     },
                 ));
-                Arc::new(
-                    TaskContext::default()
-                        .with_session_config(cfg)
-                        .with_runtime(task_ctx.runtime_env().clone()),
-                )
+                Arc::new(clone_task_context_with_config(&task_ctx, cfg))
             };
             let stream = {
                 let _guard = runtime.enter();

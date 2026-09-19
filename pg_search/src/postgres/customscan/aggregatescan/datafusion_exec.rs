@@ -1073,7 +1073,10 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let source_idx = mpp_manifests.map(|_| plan_position);
+    let is_mpp = mpp_manifests.is_some()
+        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
+            && ctx.state().config().target_partitions() > 1);
+    let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that
@@ -1092,7 +1095,7 @@ async fn build_source_df(
         }
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
-    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // `pdb.literal` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.
     // The provider's `scan()` reaches for them via
     // `init_postgres_expressions` / `solve_postgres_expressions` only

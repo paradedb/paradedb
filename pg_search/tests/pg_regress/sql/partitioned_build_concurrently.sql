@@ -24,12 +24,8 @@ INSERT INTO cic_posts (owner_user_id, title, body)
 SELECT 1 + ((g * 7919) % 20000), CASE WHEN g % 3 = 0 THEN 'error in build ' ELSE 'note ' END || g, repeat('b', 900) || g
 FROM generate_series(1, 20000) g;
 
-CREATE INDEX CONCURRENTLY cic_users_idx ON cic_users USING paradedb (id, display_name)
-WITH (partition_by = 'id', target_segment_count = 4,
-      text_fields = '{"display_name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-CREATE INDEX CONCURRENTLY cic_posts_idx ON cic_posts USING paradedb (id, owner_user_id, title)
-WITH (partition_by = 'owner_user_id', target_segment_count = 4,
-      numeric_fields = '{"owner_user_id": {"fast": true}}');
+CREATE INDEX CONCURRENTLY cic_users_idx ON cic_users USING paradedb (id, (display_name::pdb.literal)) WITH (partition_by = 'id', target_segment_count = 4);
+CREATE INDEX CONCURRENTLY cic_posts_idx ON cic_posts USING paradedb (id, owner_user_id, title) WITH (partition_by = 'owner_user_id', target_segment_count = 4);
 
 SELECT relname, count(*) AS segments
 FROM (SELECT 'cic_users_idx' AS relname FROM paradedb.index_info('cic_users_idx')
@@ -44,7 +40,7 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT count(*)
 FROM cic_users u JOIN cic_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 -- =====================================================================
 -- MPP: the scans show the boundaries the build recorded, and
@@ -56,11 +52,11 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM cic_users u JOIN cic_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 SELECT count(*)
 FROM cic_users u JOIN cic_posts p ON u.id = p.owner_user_id
-WHERE u.id @@@ pdb.all() AND p.title @@@ 'error';
+WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
 DROP TABLE cic_posts;
 DROP TABLE cic_users;

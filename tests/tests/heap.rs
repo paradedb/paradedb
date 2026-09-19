@@ -64,7 +64,7 @@ fn mvcc_snippet(mut conn: PgConnection) {
         let results: Vec<(i32, String)> = r#"
             SELECT id, pdb.snippet(description)
             FROM mock_items
-            WHERE description @@@ 'shoes'
+            WHERE description ||| 'shoes'
             ORDER BY id
             LIMIT 5;
         "#

@@ -9,19 +9,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH searchable_docs AS (
     SELECT d.id, d.title, d.parents
     FROM documents d
-    WHERE d.title @@@ 'CTE Test' AND d.parents @@@ 'Reports'
+    WHERE d.title ||| 'CTE Test' AND d.parents ||| 'Reports'
 ),
 matching_files AS (
     SELECT f.id, f.documentId, f.title, f.file_path, f.file_size
     FROM files f
     JOIN searchable_docs sd ON f.documentId = sd.id
-    WHERE f.title @@@ 'CTE Test'
+    WHERE f.title ||| 'CTE Test'
 ),
 relevant_pages AS (
     SELECT p.id, p.fileId, p.page_number
     FROM pages p
     JOIN matching_files mf ON p.fileId = mf.id
-    WHERE p.content @@@ 'searchable OR testing'
+    WHERE (p.content ||| 'searchable' OR p.content ||| 'testing')
 )
 SELECT 
     sd.title as document_title, 
@@ -37,19 +37,19 @@ ORDER BY document_title, file_title, page_number;
 WITH searchable_docs AS (
     SELECT d.id, d.title, d.parents
     FROM documents d
-    WHERE d.title @@@ 'CTE Test' AND d.parents @@@ 'Reports'
+    WHERE d.title ||| 'CTE Test' AND d.parents ||| 'Reports'
 ),
 matching_files AS (
     SELECT f.id, f.documentId, f.title, f.file_path, f.file_size
     FROM files f
     JOIN searchable_docs sd ON f.documentId = sd.id
-    WHERE f.title @@@ 'CTE Test'
+    WHERE f.title ||| 'CTE Test'
 ),
 relevant_pages AS (
     SELECT p.id, p.fileId, p.page_number
     FROM pages p
     JOIN matching_files mf ON p.fileId = mf.id
-    WHERE p.content @@@ 'searchable OR testing'
+    WHERE (p.content ||| 'searchable' OR p.content ||| 'testing')
 )
 SELECT 
     sd.title as document_title, 

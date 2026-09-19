@@ -21,24 +21,18 @@ VALUES
     (gen_random_uuid(), gen_random_uuid(), 'cloe'),
     (gen_random_uuid(), gen_random_uuid(), 'sally');
 
-CREATE INDEX idxproducts ON products USING paradedb (uuid_key, uuid, name)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }'
-);
+CREATE INDEX idxproducts ON products USING paradedb (uuid_key, (uuid::pdb.literal), (name::pdb.literal));
 
 -- Confirm that the UUID primary key is fast and gets MixedFF.
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid_key;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid_key;
 
 -- And that other UUID fields do too.
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
+SELECT name FROM products WHERE name ||| 'bob' ORDER BY uuid;
 
 \i common/common_cleanup.sql

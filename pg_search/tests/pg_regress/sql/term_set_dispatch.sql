@@ -55,26 +55,19 @@ DROP TABLE IF EXISTS ts_sorted CASCADE;
 
 CREATE TABLE ts_outer (id INTEGER PRIMARY KEY, val TEXT);
 INSERT INTO ts_outer SELECT i, 'doc' FROM generate_series(1, 100) i;
-CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, val)
-WITH (text_fields = '{"val": {"fast": true}}');
+CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, (val::pdb.unicode_words('columnar=true')));
 
 CREATE TABLE ts_unique (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_unique SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val)
-WITH (numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val);
 
 CREATE TABLE ts_multi (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_multi SELECT i, ((i - 1) % 100) + 1, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val)
-WITH (numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val);
 
 CREATE TABLE ts_sorted (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_sorted SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val)
-WITH (
-    numeric_fields = '{"fk": {"fast": true}}',
-    sort_by = 'fk ASC NULLS FIRST'
-);
+CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val) WITH (sort_by = 'fk ASC NULLS FIRST');
 
 ANALYZE ts_outer;
 ANALYZE ts_unique;
@@ -93,13 +86,13 @@ ANALYZE ts_sorted;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 4
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 4
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
@@ -112,13 +105,13 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 5
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 5
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 5
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 5
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
@@ -130,13 +123,13 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 6
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 6
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 6
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 6
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
@@ -150,13 +143,13 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 50
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 50
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 50
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 50
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
@@ -168,13 +161,13 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 60
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 60
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
@@ -187,13 +180,13 @@ LIMIT 10;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_sorted.id ASC
 LIMIT 10;
 
 SELECT ts_outer.id, ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_sorted.id ASC
 LIMIT 10;
 
@@ -207,7 +200,7 @@ SET paradedb.term_set_bitset_max_density_unique = 0.0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 4
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
@@ -223,7 +216,7 @@ SET paradedb.term_set_bitset_max_density_unique = 1.0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 20
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 20
 ORDER BY ts_unique.id ASC
 LIMIT 10;
 
@@ -240,7 +233,7 @@ SET paradedb.term_set_bitset_max_density_multi = 0.0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 40
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 40
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
@@ -257,7 +250,7 @@ SET paradedb.term_set_bitset_max_density_multi = 1.0;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_multi.id ASC
 LIMIT 10;
 
@@ -275,7 +268,7 @@ SET paradedb.term_set_gallop_enabled = OFF;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 4
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 4
 ORDER BY ts_sorted.id ASC
 LIMIT 10;
 

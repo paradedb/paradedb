@@ -19,17 +19,12 @@ INSERT INTO ascii (id, description) VALUES
 
 
 CREATE INDEX ON ascii
-USING paradedb (id, description)
-WITH (
-    text_fields='{
-        "description": {"tokenizer": {"type": "default", "ascii_folding": true}}
-    }'
-);
+USING paradedb (id, (description::pdb.simple('ascii_folding=true')));
 
-SELECT * FROM ascii WHERE description @@@ 'café' ORDER BY id;
-SELECT * FROM ascii WHERE description @@@ 'cafe' ORDER BY id;
-SELECT * FROM ascii WHERE description @@@ 'Ångström' ORDER BY id;
-SELECT * FROM ascii WHERE description @@@ 'angstrom' ORDER BY id;
+SELECT * FROM ascii WHERE description ||| 'café' ORDER BY id;
+SELECT * FROM ascii WHERE description ||| 'cafe' ORDER BY id;
+SELECT * FROM ascii WHERE description ||| 'Ångström' ORDER BY id;
+SELECT * FROM ascii WHERE description ||| 'angstrom' ORDER BY id;
 
 SELECT * FROM paradedb.tokenize(
   paradedb.tokenizer('default', ascii_folding => true),

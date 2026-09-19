@@ -105,7 +105,7 @@ jobs:
           cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v13
         with:
           packages: >-
             --no-install-recommends

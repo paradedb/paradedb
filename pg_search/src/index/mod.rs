@@ -21,6 +21,7 @@ pub mod kdtree;
 pub mod merge_policy;
 pub mod reader;
 pub mod search;
+pub(crate) mod segment_pruning;
 pub mod stats;
 pub mod writer;
 

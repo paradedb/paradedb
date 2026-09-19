@@ -27,7 +27,7 @@ USING paradedb (id, short_text);
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_default_idx;
@@ -42,7 +42,7 @@ USING paradedb (id, (short_text::pdb.simple('k1=0.0')));
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_low_k1_idx;
@@ -56,7 +56,7 @@ USING paradedb (id, (long_text::pdb.simple('b=0.0')));
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE long_text @@@ 'search'
+WHERE long_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_no_len_norm_idx;
@@ -70,7 +70,7 @@ USING paradedb (id, (long_text::pdb.simple('b=1.0')));
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE long_text @@@ 'search'
+WHERE long_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_full_len_norm_idx;
@@ -88,12 +88,12 @@ USING paradedb (
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE long_text @@@ 'search'
+WHERE long_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_per_field_idx;
@@ -107,7 +107,7 @@ USING paradedb (id, (short_text::pdb.simple('k1=5.0')));
 
 SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_high_k1_idx;
@@ -175,7 +175,7 @@ USING paradedb (id, (short_text::pdb.simple('k1=5.0', 'b=0.0')));
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_custom_idx;
@@ -185,7 +185,7 @@ USING paradedb (id, short_text);
 
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
 FROM bm25_params_test
-WHERE short_text @@@ 'search'
+WHERE short_text ||| 'search'
 ORDER BY pdb.score(id) DESC, id;
 
 DROP INDEX bm25_default_roundtrip_idx;

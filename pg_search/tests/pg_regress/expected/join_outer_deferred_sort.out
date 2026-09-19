@@ -16,17 +16,13 @@ CREATE TABLE oj_side (id INT PRIMARY KEY, txt TEXT);
 -- `tag` here is a plain integer column that shares its name with the deferred column.
 CREATE TABLE oj_ref (id INT PRIMARY KEY, k INT, tag OID);
 CREATE INDEX oj_dim_idx ON oj_dim
-USING paradedb (id, k, txt, tag, amt)
-WITH (numeric_fields='{"k":{"fast":true},"amt":{"fast":true}}', text_fields='{"txt":{"fast":true},"tag":{"fast":true}}', mutable_segment_rows = 5);
+USING paradedb (id, k, (txt::pdb.unicode_words('columnar=true')), (tag::pdb.unicode_words('columnar=true')), amt) WITH (mutable_segment_rows = 5);
 CREATE INDEX oj_fact_idx ON oj_fact
-USING paradedb (id, k, txt)
-WITH (numeric_fields='{"k":{"fast":true}}', text_fields='{"txt":{"fast":true}}');
+USING paradedb (id, k, (txt::pdb.unicode_words('columnar=true')));
 CREATE INDEX oj_side_idx ON oj_side
-USING paradedb (id, txt)
-WITH (text_fields='{"txt":{"fast":true}}');
+USING paradedb (id, (txt::pdb.unicode_words('columnar=true')));
 CREATE INDEX oj_ref_idx ON oj_ref
-USING paradedb (id, k, tag)
-WITH (numeric_fields='{"k":{"fast":true},"tag":{"fast":true}}');
+USING paradedb (id, k, tag);
 -- One insert of twenty rows lands in more than one segment. Rows 16..20 have a NULL `amt`.
 INSERT INTO oj_dim
 SELECT g, g, 'alpha item ' || g,
@@ -52,9 +48,9 @@ SET paradedb.enable_join_custom_scan = on;
 -- RIGHT JOIN: the left input is null-extended
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -69,10 +65,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -103,9 +99,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 (25 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -120,10 +116,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag DESC, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
  10 |       | 10
@@ -154,9 +150,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 (25 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -171,10 +167,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag NULLS FIRST, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
  10 |       | 10
@@ -206,9 +202,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 
 -- A mixed ON condition keeps the nullable side deferred as well.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -224,10 +220,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.i
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.id <= f.id WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -259,9 +255,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k AND d.i
 
 -- A bytes-backed deferred column (NUMERIC) on the nullable side.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.amt, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.amt, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.amt, f.id
    Relation Tree: f LEFT d
@@ -276,10 +272,10 @@ SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[amt], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.amt, f.id LIMIT 25;
+SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.amt, f.id LIMIT 25;
  id | amt  | id 
 ----+------+----
   1 |  1.5 |  1
@@ -314,9 +310,9 @@ SELECT d.id, d.amt, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 -- =============================================================================
 SET paradedb.defer_column_fetch = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -331,10 +327,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -369,9 +365,9 @@ RESET paradedb.defer_column_fetch;
 -- LEFT JOIN: the right input is null-extended
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -386,10 +382,10 @@ SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.
      :         CooperativeExec
      :           PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -423,14 +419,14 @@ SELECT d.id, d.tag, f.id FROM oj_fact f LEFT JOIN oj_dim d ON d.k = f.k WHERE f.
 -- FULL JOIN: both inputs are null-extended
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' OR d.txt @@@ 'alpha' ORDER BY d.tag, f.id LIMIT 25;
-                                                                                                                                    QUERY PLAN                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' OR d.txt ||| 'alpha' ORDER BY d.tag, f.id LIMIT 25;
+                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: d FULL f
    Join Cond: d.k = f.k
-   Join Predicate: (f:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}} OR d:{"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (f:{"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR d:{"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 25
    Order By: d.tag asc, f.id asc
    DataFusion Physical Plan: 
@@ -440,12 +436,12 @@ SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.
      :       FilterExec: __f_1_tag_0@5 OR __d_0_tag_0@2, projection=[ctid_0@0, tag@1, ctid_1@3, id@4]
      :         HashJoinExec: mode=CollectLeft, join_type=Full, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, __d_0_tag_0@3, ctid_1@4, id@6, __f_1_tag_0@7]
      :           CooperativeExec
-     :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, visibility=eager, tag_0={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=f, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' OR d.txt @@@ 'alpha' ORDER BY d.tag, f.id LIMIT 25;
+SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' OR d.txt ||| 'alpha' ORDER BY d.tag, f.id LIMIT 25;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -479,9 +475,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d FULL JOIN oj_fact f ON d.k = f.k WHERE f.
 -- A third relation under the outer join
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id, s.id
    Relation Tree: (f LEFT d) INNER s
@@ -500,10 +496,10 @@ SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k C
      :             CooperativeExec
      :               PgSearchScan: table=d, segments=2, fetch=[tag], visibility=eager, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
-SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt @@@ 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
+SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k CROSS JOIN oj_side s WHERE f.txt ||| 'beta' ORDER BY d.tag, f.id, s.id LIMIT 70;
  id |  tag  | id | id 
 ----+-------+----+----
   1 | aaa   |  1 |  1
@@ -580,9 +576,9 @@ SELECT d.id, d.tag, f.id, s.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k C
 
 -- With no sort on the column, the join scan reads it from the heap.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY f.id LIMIT 40;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY f.id LIMIT 40;
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, f.id
    Relation Tree: f LEFT d
@@ -598,10 +594,10 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
      :           CooperativeExec
      :             PgSearchScan: table=d, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=f, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"txt","value":"beta","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
-SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt @@@ 'beta' ORDER BY f.id LIMIT 40;
+SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f.txt ||| 'beta' ORDER BY f.id LIMIT 40;
  id |  tag  | id 
 ----+-------+----
   1 | aaa   |  1
@@ -650,9 +646,9 @@ SELECT d.id, d.tag, f.id FROM oj_dim d RIGHT JOIN oj_fact f ON d.k = f.k WHERE f
 -- A plain integer column with the deferred column's name on the other relation
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @@@ 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt ||| 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: d.id, d.tag, r.tag
    Relation Tree: d INNER r
@@ -665,12 +661,12 @@ SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @
      :     SegmentedTopKExec: expr=[tag@1 ASC NULLS LAST, tag@3 ASC NULLS LAST], k=5, visibility_checks=[d, r]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(k@1, k@1)], projection=[ctid_0@0, tag@2, ctid_1@3, tag@5]
      :         CooperativeExec
-     :           PgSearchScan: table=d, segments=2, fetch=[tag], query={"with_index":{"query":{"parse_with_field":{"field":"txt","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=d, segments=2, fetch=[tag], query={"with_index":{"query":{"match":{"field":"txt","value":"alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (15 rows)
 
-SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt @@@ 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
+SELECT d.id, d.tag, r.tag FROM oj_dim d JOIN oj_ref r ON d.k = r.k WHERE d.txt ||| 'alpha' ORDER BY d.tag, r.tag LIMIT 5;
  id |  tag  | tag  
 ----+-------+------
   1 | aaa   | 1001

@@ -68,12 +68,7 @@ fn setup_parameterized_joinscan_schema(conn: &mut sqlx::PgConnection) {
 
     r#"
     CREATE INDEX js_param_items_bm25 ON js_param_items
-    USING paradedb (id, name, content, category_id)
-    WITH (
-        numeric_fields = '{"category_id": {"fast": true}}',
-        target_segment_count = 64,
-        background_layer_sizes = '0'
-    );
+    USING paradedb (id, name, content, category_id) WITH (target_segment_count = 64, background_layer_sizes = '0');
     "#
     .execute(conn);
 
@@ -123,8 +118,8 @@ async fn prepared_param_on_replicated_source_succeeds(database: Db) -> Result<()
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ 'wireless'
-          AND c.name @@@ 'electronics'
+        WHERE i.content ||| 'wireless'
+          AND c.name ||| 'electronics'
         ORDER BY i.id
         LIMIT 100
     "#;
@@ -141,8 +136,8 @@ async fn prepared_param_on_replicated_source_succeeds(database: Db) -> Result<()
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ 'wireless'
-          AND c.name @@@ $1
+        WHERE i.content ||| 'wireless'
+          AND c.name ||| $1
         ORDER BY i.id
         LIMIT 100
     "#;
@@ -170,8 +165,8 @@ async fn initplan_param_on_replicated_source_succeeds(database: Db) -> Result<()
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ 'wireless'
-          AND c.name @@@ 'electronics'
+        WHERE i.content ||| 'wireless'
+          AND c.name ||| 'electronics'
         ORDER BY i.id
         LIMIT 100
     "#;
@@ -188,8 +183,8 @@ async fn initplan_param_on_replicated_source_succeeds(database: Db) -> Result<()
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ 'wireless'
-          AND c.name @@@ (SELECT value FROM js_param_values WHERE id = 1)
+        WHERE i.content ||| 'wireless'
+          AND c.name ||| (SELECT value FROM js_param_values WHERE id = 1)
         ORDER BY i.id
         LIMIT 100
     "#;
@@ -216,8 +211,8 @@ async fn prepared_param_on_partitioning_source_succeeds(database: Db) -> Result<
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ 'wireless'
-          AND c.name @@@ 'electronics'
+        WHERE i.content ||| 'wireless'
+          AND c.name ||| 'electronics'
         ORDER BY i.id
         LIMIT 100
     "#;
@@ -234,8 +229,8 @@ async fn prepared_param_on_partitioning_source_succeeds(database: Db) -> Result<
         SELECT i.id
         FROM js_param_items i
         JOIN js_param_categories c ON i.category_id = c.id
-        WHERE i.content @@@ $1
-          AND c.name @@@ 'electronics'
+        WHERE i.content ||| $1
+          AND c.name ||| 'electronics'
         ORDER BY i.id
         LIMIT 100
     "#;

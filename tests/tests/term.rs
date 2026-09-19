@@ -34,7 +34,7 @@ fn boolean_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (boolean_fields='{"value": {}}');
+    USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
@@ -67,7 +67,7 @@ fn integer_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value_int2, value_int4, value_int8) WITH (numeric_fields='{"value_int2": {}, "value_int4": {}, "value_int8": {}}');
+    USING paradedb (id, value_int2, value_int4, value_int8);
     "#
     .execute(&mut conn);
 
@@ -119,7 +119,7 @@ fn float_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value_float4, value_float8, value_numeric) WITH (numeric_fields='{"value_float4": {}, "value_float8": {}, "value_numeric": {}}');
+    USING paradedb (id, value_float4, value_float8, value_numeric);
     "#
     .execute(&mut conn);
 
@@ -171,11 +171,7 @@ fn text_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value_text, value_varchar, value_uuid) WITH (text_fields='{
-        "value_text": {}, 
-        "value_varchar": {}, 
-        "value_uuid": {"tokenizer": {"type": "raw"}, "normalizer": "raw", "record": "basic", "fieldnorms": false}
-    }');
+    USING paradedb (id, value_text, value_varchar, (value_uuid::pdb.literal_normalized('normalizer=raw', 'fieldnorms=false')));
     "#
     .execute(&mut conn);
 

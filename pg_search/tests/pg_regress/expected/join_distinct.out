@@ -74,21 +74,11 @@ VALUES (201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connecti
 -- Create BM25 indexes with fast fields on join keys and ORDER BY columns
 -- All columns that appear in DISTINCT target lists must be fast fields
 CREATE INDEX dist_products_bm25_idx ON dist_products
-    USING paradedb (id, name, description, supplier_id, category_id, price)
-    WITH (
-    text_fields = '{"name": {"fast": true}}',
-    numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description, supplier_id, category_id, price);
 CREATE INDEX dist_suppliers_bm25_idx ON dist_suppliers
-    USING paradedb (id, name, contact_info, country)
-    WITH (
-    text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), contact_info, country);
 CREATE INDEX dist_categories_bm25_idx ON dist_categories
-    USING paradedb (id, name, description)
-    WITH (
-    text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description);
 -- Enable JoinScan
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -102,11 +92,11 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -123,7 +113,7 @@ ORDER BY p.name
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 -- =============================================================================
@@ -139,11 +129,11 @@ EXPLAIN
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 20;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=20 width=32)
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
@@ -157,13 +147,13 @@ ORDER BY s.name
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, fetch=[name], dynamic_filters=1, query="all"
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 20;
  supplier_name 
@@ -179,7 +169,7 @@ ORDER BY s.name
 SELECT DISTINCT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
  supplier_name 
@@ -197,7 +187,7 @@ ORDER BY s.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
        name       | supplier_name 
@@ -214,7 +204,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
        name       | supplier_name 
@@ -238,11 +228,11 @@ EXPLAIN
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -259,13 +249,13 @@ ORDER BY paradedb.score(p.id) DESC, p.name
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
        name       |   score   
@@ -287,7 +277,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
 SELECT DISTINCT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
  supplier_name 
@@ -308,11 +298,11 @@ SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name, c.name
    Relation Tree: (p INNER s) INNER c
@@ -332,14 +322,14 @@ ORDER BY p.name
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (20 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
      product      |   supplier   |  category   
@@ -357,7 +347,7 @@ SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
      product      |   supplier   |  category   
@@ -379,7 +369,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT DISTINCT p.name AS product_name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
    product_name   | supplier_name 
@@ -407,11 +397,11 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -428,7 +418,7 @@ ORDER BY s.name
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 -- =============================================================================
@@ -441,11 +431,11 @@ EXPLAIN
 SELECT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -461,7 +451,7 @@ ORDER BY p.name
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 -- =============================================================================
@@ -474,11 +464,11 @@ EXPLAIN
 SELECT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
+WHERE p.description ||| 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -494,14 +484,13 @@ ORDER BY p.name
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query={"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column
 -- =============================================================================
--- 'description' is indexed but NOT a fast field (it's a text field without
--- fast:true). If DISTINCT includes description, JoinScan should fall back
+-- 'description' is indexed with a word tokenizer and is not columnar. If DISTINCT includes description, JoinScan should fall back
 -- because deduplication requires fast field access for all DISTINCT columns.
 -- Expect a planner warning about DISTINCT columns not being fast fields.
 EXPLAIN
@@ -509,12 +498,12 @@ EXPLAIN
 SELECT DISTINCT p.name, p.description
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: p, s)
-                                                                                      QUERY PLAN                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, p.description
    ->  Unique
@@ -536,7 +525,7 @@ WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: 
                                  Worker Selection: Cost model
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (22 rows)
 
 -- =============================================================================
@@ -549,10 +538,10 @@ EXPLAIN
 SELECT COUNT(*)
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
     LIMIT 10;
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (count(*))
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -566,7 +555,7 @@ WHERE p.description @@@ 'wireless'
            :     CooperativeExec
            :       PgSearchScan: table=s, segments=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 -- =============================================================================
@@ -578,7 +567,7 @@ WHERE p.description @@@ 'wireless'
 SELECT COUNT(*)
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
     LIMIT 3;
  count 
 -------
@@ -596,11 +585,11 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.name, s.name
    Sort Key: p.name
@@ -617,7 +606,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
            :         CooperativeExec
            :           PgSearchScan: table=s, segments=1, eager=[name], visibility=eager, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 -- =============================================================================
@@ -627,7 +616,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p,
 SELECT DISTINCT p.name AS product, s.name AS supplier
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.name
     LIMIT 10;
      product      | supplier 
@@ -643,7 +632,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name AS product, s.name AS supplier
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.name
     LIMIT 10;
      product      | supplier 
@@ -664,7 +653,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3;
     name    | supplier_name 
@@ -685,22 +674,22 @@ SELECT DISTINCT
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
-    s.country @@@ 'USA'
+    s.country ||| 'USA'
     AND (
-        p.name @@@ 'Wireless'
+        p.name ||| 'Wireless'
         OR
-        s.name @@@ 'Wireless'
+        s.name ||| 'Wireless'
     )
 ORDER BY
     score DESC
 LIMIT 10;
-                                                                                                                                                           QUERY PLAN                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (p:{"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Distinct: true
    Order By: pdb.score() desc, p.id asc, p.name asc
@@ -711,9 +700,9 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[pdb.score()@3, ctid_0@4, id@6, name@7, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"country","value":"USA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 SELECT DISTINCT
@@ -723,11 +712,11 @@ SELECT DISTINCT
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
-    s.country @@@ 'USA'
+    s.country ||| 'USA'
     AND (
-        p.name @@@ 'Wireless'
+        p.name ||| 'Wireless'
         OR
-        s.name @@@ 'Wireless'
+        s.name ||| 'Wireless'
     )
 ORDER BY
     score DESC
@@ -754,7 +743,7 @@ LIMIT 10;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 0;
     name    | supplier_name 
@@ -769,7 +758,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
        name       | supplier_name 
@@ -784,7 +773,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 4;
       name      | supplier_name 
@@ -797,7 +786,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 10;
  name | supplier_name 
@@ -810,7 +799,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
        name       | supplier_name 
@@ -827,11 +816,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, s.name
    Relation Tree: p INNER s
@@ -850,7 +839,7 @@ ORDER BY p.name
      :             CooperativeExec
      :               PgSearchScan: table=s, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
@@ -867,7 +856,7 @@ INSERT INTO jobs VALUES
   (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
   (5, 3, 'Recruiter');         -- Charlie
 CREATE INDEX jobs_bm25 ON jobs USING paradedb (id, person_id, title);
-CREATE INDEX persons_bm25 ON persons USING paradedb (id, name) WITH (text_fields='{"name": {"fast": true}}');
+CREATE INDEX persons_bm25 ON persons USING paradedb (id, (name::pdb.unicode_words('columnar=true')));
 SET paradedb.enable_join_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.id, p.name
@@ -1116,12 +1105,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
-                                                                                      QUERY PLAN                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
@@ -1144,13 +1133,13 @@ LIMIT 10;
                                  Exec Method: ColumnarExecState
                                  Columnar: name, supplier_id
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (23 rows)
 
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
@@ -1163,7 +1152,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.name = s.name
 ORDER BY p.name
 LIMIT 10;
@@ -1178,12 +1167,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;
-                                                                                                                              QUERY PLAN                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                     QUERY PLAN                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.name, p.category_id
    Relation Tree: p INNER s
@@ -1198,7 +1187,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_0@0, name@2, category_id@3, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"category_id","value":301}}]}}
+     :             PgSearchScan: table=p, segments=2, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"category_id","value":301}}]}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -1206,7 +1195,7 @@ LIMIT 10;
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;
@@ -1222,7 +1211,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, p.category_id
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id = 301
 ORDER BY p.name
 LIMIT 10;

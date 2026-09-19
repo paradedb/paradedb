@@ -116,7 +116,7 @@ const LEADER_QUERY: &str = r#"
 SELECT t.id, t.category_id, c.name
 FROM mppc_test t
 JOIN mppc_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25
 "#;
@@ -125,7 +125,7 @@ const WORKER_QUERY: &str = r#"
 SELECT t.id, t.category_id, c.name
 FROM mppc_test_multi t
 JOIN mppc_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25
 "#;

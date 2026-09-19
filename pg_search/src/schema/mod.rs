@@ -444,6 +444,21 @@ impl From<SearchIndexSchema> for Schema {
     }
 }
 
+/// Is `name` a path into a columnar JSON field?
+///
+/// A segment writes a column only for the JSON paths its own documents carry, so this names the
+/// one case where a columnar field has no column in a given segment. A declared field gets its
+/// column everywhere, so its absence there is a bug and the reader should say so.
+///
+/// Takes the tantivy `Schema` and not a [`SearchIndexSchema`], because the latter caches
+/// backend-thread state behind an `Rc` and a DataFusion node has to stay `Send`.
+pub fn is_columnar_json_path(schema: &Schema, name: &str) -> bool {
+    schema.find_field(name).is_some_and(|(field, path)| {
+        let entry = schema.get_field_entry(field);
+        !path.is_empty() && entry.is_fast() && entry.field_type().is_json()
+    })
+}
+
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
         Ok(load_index_schema(indexrel)?

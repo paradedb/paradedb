@@ -325,6 +325,24 @@ pub enum FieldSource {
     },
 }
 
+impl FieldSource {
+    /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
+    /// column's value as it is, so it names that column; a computed expression or a
+    /// composite field has no single column to read back.
+    pub fn heap_attno(&self, index: &PgSearchRelation) -> Option<usize> {
+        match *self {
+            FieldSource::Heap { attno } => Some(attno),
+            FieldSource::Expression { att_idx } => {
+                let expr = index.index_expressions().get_ptr(att_idx)?;
+                let var = unsafe { nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast())) }?;
+                let varattno = unsafe { (*var).varattno };
+                (varattno > 0).then(|| (varattno - 1) as usize)
+            }
+            FieldSource::CompositeField { .. } => None,
+        }
+    }
+}
+
 /// Collect composite slot info from categorized fields for upfront unpacking.
 ///
 /// Returns a lazy iterator of (slot_index, datum, is_null, type_oid) for each unique

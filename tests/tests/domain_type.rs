@@ -42,18 +42,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     sql.execute(&mut conn);
 
     let sql = r#"
-        CREATE INDEX idx_employees ON employees USING paradedb (id, salary_range, status_history, ratings)
-        WITH (
-            range_fields='{
-                "salary_range": {"fast": true}
-            }',
-            text_fields='{
-                "status_history": {"fast": true}
-            }',
-            numeric_fields='{
-                "ratings": {"fast": true}
-            }'
-        );
+        CREATE INDEX idx_employees ON employees USING paradedb (id, salary_range, (status_history::text[]::pdb.literal), ratings);
     "#;
     sql.execute(&mut conn);
 

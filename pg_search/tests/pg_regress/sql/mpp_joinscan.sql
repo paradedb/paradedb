@@ -1,7 +1,7 @@
 -- =====================================================================
 -- End-to-end MPP exercise on JoinScan.
 --
--- Same dataset shape as mpp_aggregate.sql but the queries don't
+-- Same dataset shape as deprecated_mpp_aggregate.sql but the queries don't
 -- aggregate — they project columns through a JOIN under a LIMIT,
 -- which is what JoinScan activates on. Two passes: serial baseline
 -- (max_parallel_workers_per_gather = 0) and MPP path (max_parallel_workers_per_gather = 3). Results must
@@ -23,7 +23,7 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 
 -- =====================================================================
--- Test data (mirrors mpp_aggregate.sql)
+-- Test data (mirrors deprecated_mpp_aggregate.sql)
 -- =====================================================================
 
 CREATE TABLE mpp_join_files (
@@ -69,20 +69,9 @@ ANALYZE mpp_join_pages;
 SET max_parallel_maintenance_workers TO 0;
 
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
-USING paradedb (id, title, content)
-WITH (
-    target_segment_count=3,
-    partition_by='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content) WITH (target_segment_count=3, partition_by='id');
 CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    target_segment_count=3,
-    partition_by='file_id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes) WITH (target_segment_count=3, partition_by='file_id');
 
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
@@ -96,13 +85,13 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -117,13 +106,13 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -148,7 +137,7 @@ SELECT line
 FROM mpp_explain_analyze_lines(
   'SELECT f.title, p.size_bytes
    FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-   WHERE f.content @@@ ''Section''
+   WHERE f.content ||| ''Section''
      AND f.id <= 20
    ORDER BY f.title, p.size_bytes
    LIMIT 10'
@@ -200,14 +189,14 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
@@ -223,14 +212,14 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
@@ -247,13 +236,13 @@ SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -264,13 +253,13 @@ SET paradedb.defer_column_fetch TO off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -280,7 +269,7 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -295,14 +284,14 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -321,7 +310,7 @@ SET plan_cache_mode = force_generic_plan;
 PREPARE mpp_join_heapfilter_param(int) AS
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > $1
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
@@ -360,14 +349,14 @@ DEALLOCATE mpp_join_heapfilter_param;
 SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 6
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > 7
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
@@ -388,7 +377,7 @@ SELECT count(*) > 0 AS worker_metrics_shown
 FROM mpp_explain_analyze_lines(
   $$SELECT f.title, p.size_bytes
     FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+    WHERE f.content ||| (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
     ORDER BY f.title, p.size_bytes
     LIMIT 10$$
 ) AS line
@@ -398,7 +387,7 @@ SELECT count(*) > 0 AS distributed_exec_shown
 FROM mpp_explain_analyze_lines(
   $$SELECT f.title, p.size_bytes
     FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+    WHERE f.content ||| (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
     ORDER BY f.title, p.size_bytes
     LIMIT 10$$
 ) AS line
@@ -406,7 +395,7 @@ WHERE line LIKE '%DistributedExec%';
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+WHERE f.content ||| (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -415,7 +404,7 @@ LIMIT 10;
 SET max_parallel_workers_per_gather TO 0;
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
+WHERE f.content ||| (SELECT content FROM mpp_join_files ORDER BY id LIMIT 1)
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 SET max_parallel_workers_per_gather TO 4;
@@ -436,9 +425,9 @@ PREPARE mpp_join_two_source_params(int, int) AS
 SELECT f.id AS file_id, p.id AS page_id
 FROM mpp_join_files f
 JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
   AND length(f.title) > $1
-  AND p.page_text @@@ 'Page'
+  AND p.page_text ||| 'Page'
   AND length(p.page_text) > $2
 ORDER BY f.id, p.id
 LIMIT 5;
@@ -472,8 +461,8 @@ PREPARE mpp_join_level_param(text) AS
 SELECT f.id AS file_id, p.id AS page_id
 FROM mpp_join_files f
 JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ $1
-   OR p.page_text @@@ 'zzzznotpresent'
+WHERE f.content ||| $1
+   OR p.page_text ||| 'zzzznotpresent'
 ORDER BY f.id, p.id
 LIMIT 5;
 
@@ -514,7 +503,7 @@ LATERAL (
     SELECT f.title
     FROM mpp_join_files f
     JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ t.q
+    WHERE f.content ||| t.q
     ORDER BY f.title, p.id
     LIMIT 1
 ) sub
@@ -528,7 +517,7 @@ FROM mpp_explain_analyze_lines(
       SELECT f.title
       FROM mpp_join_files f
       JOIN mpp_join_pages p ON f.id = p.file_id
-      WHERE f.content @@@ t.q
+      WHERE f.content ||| t.q
       ORDER BY f.title, p.id
       LIMIT 1
     ) sub
@@ -553,13 +542,13 @@ SET paradedb.mpp_min_rows TO 1000000000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
 
@@ -570,7 +559,7 @@ SELECT count(*) = 0 AS gated_no_distributed_exec
 FROM mpp_explain_analyze_lines(
   $$SELECT f.title, p.size_bytes
     FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
     ORDER BY f.title, p.size_bytes
     LIMIT 10$$
 ) AS line
@@ -580,7 +569,7 @@ SELECT count(*) = 0 AS gated_no_network_boundaries
 FROM mpp_explain_analyze_lines(
   $$SELECT f.title, p.size_bytes
     FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
     ORDER BY f.title, p.size_bytes
     LIMIT 10$$
 ) AS line

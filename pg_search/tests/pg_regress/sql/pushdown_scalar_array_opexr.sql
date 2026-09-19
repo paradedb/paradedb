@@ -23,11 +23,7 @@ SELECT
 FROM generate_series(1, 1000) i;
 
 -- Non-keyword text fields are not pushed down
-CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
-    id, uuid_col, text_col, int_col, date_col, ts_col
-) WITH (
-    text_fields = '{"uuid_col": { "tokenizer": {"type": "whitespace"} } }'
-);
+CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (id, (uuid_col::pdb.whitespace), text_col, int_col, date_col, ts_col);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM scalar_array_pushdown
@@ -44,11 +40,7 @@ LIMIT 10;
 DROP INDEX scalar_array_pushdown_idx;
 
 -- Now test pushdown
-CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (
-    id, uuid_col, text_col, int_col, date_col, ts_col
-) WITH (
-    text_fields = '{"text_col": { "tokenizer": {"type": "keyword"} } }'
-);
+CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING paradedb (id, uuid_col, (text_col::pdb.literal), int_col, date_col, ts_col);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM scalar_array_pushdown
@@ -85,7 +77,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM scalar_array_pushdown
 WHERE uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid])
 AND text_col IN ('Alice', 'Bob')
-OR text_col @@@ 'Alice'
+OR text_col ||| 'Alice'
 AND int_col > 2
 ORDER BY id
 LIMIT 10;

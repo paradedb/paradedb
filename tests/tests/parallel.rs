@@ -47,12 +47,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     );
 
     CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
-    USING paradedb (id, description)
-    WITH (
-        text_fields = '{
-            "description": {}
-        }'
-    );
+    USING paradedb (id, description);
     "#
     .execute(&mut conn1);
 
@@ -116,20 +111,10 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     );
 
     CREATE INDEX index_a_bm25 ON public.index_a
-    USING paradedb (id, content)
-    WITH (
-        text_fields = '{
-            "content": {}
-        }'
-    );
+    USING paradedb (id, content);
 
     CREATE INDEX index_b_bm25 ON public.index_b
-    USING paradedb (id, content)
-    WITH (
-        text_fields = '{
-            "content": {}
-        }'
-    );
+    USING paradedb (id, content);
     "#
     .execute(&mut conn);
 
@@ -292,7 +277,7 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
         SELECT COUNT(*)
         FROM document_text dt
         JOIN core c ON dt.dwf_doid = c.dwf_doid
-        WHERE dt.full_text @@@ 'ea'
+        WHERE dt.full_text ||| 'ea'
           AND (c.author @@@ paradedb.match('author', 'brian griffin')
                OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
                OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -392,23 +377,11 @@ async fn test_parallel_rescan_does_not_double_scan(database: Db) -> Result<()> {
     CREATE TABLE rescan_orders (id BIGINT PRIMARY KEY, name TEXT, age INTEGER);
 
     CREATE INDEX idx_rescan_users ON rescan_users
-    USING paradedb (id, name, age)
-    WITH (
-        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-        numeric_fields = '{ "age": { "fast": true } }'
-    );
+    USING paradedb (id, (name::pdb.literal), age);
     CREATE INDEX idx_rescan_products ON rescan_products
-    USING paradedb (id, name, age)
-    WITH (
-        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-        numeric_fields = '{ "age": { "fast": true } }'
-    );
+    USING paradedb (id, (name::pdb.literal), age);
     CREATE INDEX idx_rescan_orders ON rescan_orders
-    USING paradedb (id, name, age)
-    WITH (
-        text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-        numeric_fields = '{ "age": { "fast": true } }'
-    );
+    USING paradedb (id, (name::pdb.literal), age);
 
     INSERT INTO rescan_users (id, name, age) VALUES
         (1, 'bob', 20), (2, 'alice', 30), (3, 'cloe', 40), (4, 'anchovy', 50);
@@ -461,8 +434,8 @@ async fn test_parallel_rescan_does_not_double_scan(database: Db) -> Result<()> {
         SELECT COUNT(*)
         FROM rescan_users CROSS JOIN rescan_products
         JOIN rescan_orders ON rescan_products.name = rescan_orders.name
-        WHERE (rescan_users.name @@@ 'bob')
-           OR ((rescan_users.id @@@ '4') AND ((rescan_orders.id @@@ '4') AND (rescan_products.age @@@ '20')))
+        WHERE (rescan_users.name ||| 'bob')
+           OR ((rescan_users.id @@@ pdb.all() AND rescan_users.id = 4) AND ((rescan_orders.id @@@ pdb.all() AND rescan_orders.id = 4) AND (rescan_products.id @@@ pdb.all() AND rescan_products.age = 20)))
     "#;
 
     if forced_parallel {

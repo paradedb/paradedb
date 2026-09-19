@@ -34,6 +34,7 @@ use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::node::NodeExt;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
@@ -906,32 +907,92 @@ impl SearchIndexReader {
         Ok(self.underlying_index.validate_checksum()?)
     }
 
-    pub fn snippet_generator(
+    /// Snippet generators for `column`, one per indexed field the column is stored under.
+    ///
+    /// A column can back more than one field: an alias carries its own tokenizer over the same
+    /// text, and a column indexed only through an aliased expression has no field of its own.
+    /// Which of those fields a query matched cannot be read off the index, because term
+    /// lookups go through the segment readers and an empty index reports that nothing is
+    /// addressed at all. So the list comes from the index settings, and a field the query
+    /// never touched yields a generator with no terms, which renders nothing.
+    pub fn snippet_generators(
         &self,
         field_name: impl AsRef<str> + Display,
         query: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
-    ) -> (tantivy::schema::Field, SnippetGenerator) {
-        let search_field = self
-            .schema
-            .search_field(&field_name)
-            .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
-        if search_field.is_text() || search_field.is_json() {
-            let field = search_field.field();
-            let generator = SnippetGenerator::create(
-                &self.searcher,
-                &self.make_query(query, expr_context),
-                field,
-            )
-            .unwrap_or_else(|err| {
-                panic!("failed to create snippet generator for field: {field_name}... {err}")
-            });
-            (field, generator)
-        } else {
+    ) -> Vec<(tantivy::schema::Field, SnippetGenerator)> {
+        let named = self.schema.search_field(&field_name);
+        if let Some(field) = &named
+            && !(field.is_text() || field.is_json())
+        {
             panic!(
                 "failed to create snippet generator for field: {field_name}... can only highlight text fields"
             )
         }
+
+        let mut fields: Vec<_> = named.iter().map(|field| field.field()).collect();
+        let siblings: Vec<_> = self
+            .fields_backed_by(field_name.as_ref())
+            .into_iter()
+            .filter(|sibling| sibling.is_text() || sibling.is_json())
+            .map(|sibling| sibling.field())
+            .filter(|sibling| !fields.contains(sibling))
+            .collect();
+        fields.extend(siblings);
+        if fields.is_empty() {
+            panic!(
+                "cannot generate snippet for field {field_name} because it was not found in the index"
+            )
+        }
+
+        let query = self.make_query(query, expr_context);
+        fields
+            .into_iter()
+            .map(|field| {
+                let generator = SnippetGenerator::create(&self.searcher, &*query, field)
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "failed to create snippet generator for field: {field_name}... {err}"
+                        )
+                    });
+                (field, generator)
+            })
+            .collect()
+    }
+
+    /// Every indexed field whose text comes from the heap column `column`.
+    ///
+    /// Two spellings reach the same column: a field configured with the column as its source,
+    /// which the schema resolves on its own, and an indexed expression carrying an alias,
+    /// whose source column is only recoverable by looking at the expression's `Var`. A column
+    /// indexed solely through the second spelling has no field of its own, so this is also
+    /// what lets highlighting resolve it at all.
+    fn fields_backed_by(&self, column: &str) -> Vec<crate::schema::SearchField> {
+        let mut fields = self.schema.fields_sourced_from(column);
+        let Some(heaprel) = self.index_rel.heap_relation() else {
+            return fields;
+        };
+        let expressions = self.index_rel.index_expressions();
+        for (field, data) in self.schema.categorized_fields().iter() {
+            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+                continue;
+            };
+            if fields.iter().any(|existing| existing == field) {
+                continue;
+            }
+            let matches_column = unsafe {
+                expressions
+                    .get_ptr(att_idx)
+                    .map(|expr| crate::postgres::utils::strip_tokenizer_cast(expr.cast()))
+                    .and_then(|node| node.find_single_node::<pgrx::pg_sys::Var>())
+                    .and_then(|var| crate::api::operator::attname_from_var(&heaprel, var))
+                    .is_some_and(|attname| attname.as_ref() == column)
+            };
+            if matches_column {
+                fields.push(field.clone());
+            }
+        }
+        fields
     }
 
     /// Search the Tantivy index for matching documents.

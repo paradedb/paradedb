@@ -1,0 +1,97 @@
+-- Tests that snippets highlight a column matched through an aliased field.
+-- An alias indexes the same column under a second tokenizer, so a query against
+-- it produces terms the column's own field never sees.
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS snippet_alias_test;
+CREATE TABLE snippet_alias_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+
+INSERT INTO snippet_alias_test (content) VALUES
+('These certificates are issued annually to all members'),
+('Die Zertifikate werden jaehrlich an alle Mitglieder ausgestellt');
+
+CREATE INDEX snippet_alias_idx ON snippet_alias_test
+USING bm25 (id, content)
+WITH (
+    text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
+);
+
+-- The alias only stems in German, so this match is reachable through it alone.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+-- The other snippet functions read the same terms.
+SELECT id, pdb.snippets(content), pdb.snippet_positions(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+-- Matching the column directly keeps using the column's own field.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content ||| 'certificates' ORDER BY id;
+
+-- A query that addresses the column and the alias at once keeps a generator for each,
+-- so rows reached through either one are highlighted.
+SELECT id, pdb.snippet(content) FROM snippet_alias_test
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' OR content ||| 'certificates' ORDER BY id;
+
+DROP TABLE snippet_alias_test;
+
+-- A column indexed only through an aliased expression has no field of its own, and is
+-- still resolvable for highlighting.
+DROP TABLE IF EXISTS snippet_alias_only;
+CREATE TABLE snippet_alias_only (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+
+INSERT INTO snippet_alias_only (content) VALUES
+('Die Zertifikate werden jaehrlich ausgestellt');
+
+CREATE INDEX snippet_alias_only_idx ON snippet_alias_only
+USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+
+SELECT id, pdb.snippet(content) FROM snippet_alias_only
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+DROP TABLE snippet_alias_only;
+
+-- An empty index carries no segment terms, so resolving the fields of a column cannot be
+-- driven by which of them the query is seen to address.
+DROP TABLE IF EXISTS snippet_alias_empty;
+CREATE TABLE snippet_alias_empty (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+
+CREATE INDEX snippet_alias_empty_idx ON snippet_alias_empty
+USING bm25 (id, ((content)::pdb.simple('stemmer=german', 'alias=content_de')));
+
+SELECT id, pdb.snippet(content) FROM snippet_alias_empty
+WHERE content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+DROP TABLE snippet_alias_empty;
+
+-- One document can hold matches for the column and for its alias at once. Positions come
+-- from an unbounded fragment, so both sets are reported against the same text.
+DROP TABLE IF EXISTS snippet_alias_both;
+CREATE TABLE snippet_alias_both (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+
+INSERT INTO snippet_alias_both (content) VALUES
+('Certificates in English and Zertifikate in German sit in one document');
+
+CREATE INDEX snippet_alias_both_idx ON snippet_alias_both
+USING bm25 (id, content)
+WITH (
+    text_fields = '{"content_de": {"tokenizer": {"type": "default", "stemmer": "German"}, "column": "content"}}'
+);
+
+SELECT id, pdb.snippet_positions(content) FROM snippet_alias_both
+WHERE content ||| 'certificates' OR content::pdb.alias(content_de) ||| 'Zertifikat' ORDER BY id;
+
+DROP TABLE snippet_alias_both;

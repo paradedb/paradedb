@@ -19,6 +19,7 @@ pub mod crossrelgen;
 pub mod distinctgen;
 pub mod groupbygen;
 pub mod joingen;
+pub mod mutationgen;
 pub mod numericgen;
 pub mod opexprgen;
 pub mod orderbygen;
@@ -29,7 +30,7 @@ pub mod windowgen;
 
 use std::fmt::{Debug, Write};
 use std::num::NonZeroUsize;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use futures::executor::block_on;
@@ -166,6 +167,8 @@ impl Column {
 
 #[derive(Debug, Clone)]
 pub struct SetupScript {
+    /// The schema, its rows, and the churn the run applied on top of them. Every case queries
+    /// this one heap, so the script replays a failure whole.
     pub sql: String,
     pub tables: Vec<String>,
     pub qgen_seed: Option<u64>,
@@ -380,6 +383,9 @@ fn generated_queries_setup_inner(
 CREATE TABLE {tname} (
     {column_definitions}
 );
+-- Churn picks rows in heap order, so a background vacuum between a run and its replay would
+-- hand the replay other rows.
+ALTER TABLE {tname} SET (autovacuum_enabled = off);
 {index_before_data}
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
@@ -695,7 +701,19 @@ impl PgGucs {
         }
     }
 
+    /// Session-level, for the two sides of a case: each one sets every GUC it cares about, so
+    /// neither inherits the other's.
     pub fn set(&self) -> String {
+        self.set_with("SET")
+    }
+
+    /// Transaction-local, for the churn: a fixture must leave nothing behind on the pooled
+    /// session for the next case to inherit.
+    pub fn set_local(&self) -> String {
+        self.set_with("SET LOCAL")
+    }
+
+    fn set_with(&self, verb: &str) -> String {
         let PgGucs {
             aggregate_custom_scan,
             custom_scan,
@@ -716,58 +734,67 @@ impl PgGucs {
         let mut gucs = String::with_capacity(512);
         writeln!(
             gucs,
-            "SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
+            "{verb} paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};"
         )
         .unwrap();
-        writeln!(gucs, "SET paradedb.enable_custom_scan TO {custom_scan};").unwrap();
+        writeln!(gucs, "{verb} paradedb.enable_custom_scan TO {custom_scan};").unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};"
-        )
-        .unwrap();
-        writeln!(
-            gucs,
-            "SET paradedb.enable_filter_pushdown TO {filter_pushdown};"
+            "{verb} paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_join_custom_scan TO {join_custom_scan};"
-        )
-        .unwrap();
-        writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
-        writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
-        writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
-        writeln!(
-            gucs,
-            "SET max_parallel_workers_per_gather TO {max_parallel_workers_per_gather};"
+            "{verb} paradedb.enable_filter_pushdown TO {filter_pushdown};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET parallel_leader_participation TO {parallel_leader_participation};"
+            "{verb} paradedb.enable_join_custom_scan TO {join_custom_scan};"
         )
         .unwrap();
-        writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(gucs, "{verb} enable_seqscan TO {seqscan};").unwrap();
+        writeln!(gucs, "{verb} enable_indexscan TO {indexscan};").unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_columnar_exec TO {columnar_exec};"
+            "{verb} max_parallel_workers TO {max_parallel_workers};"
         )
         .unwrap();
         writeln!(
             gucs,
-            "SET paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
+            "{verb} max_parallel_workers_per_gather TO {max_parallel_workers_per_gather};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "{verb} parallel_leader_participation TO {parallel_leader_participation};"
+        )
+        .unwrap();
+        writeln!(gucs, "{verb} paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(
+            gucs,
+            "{verb} paradedb.enable_columnar_exec TO {columnar_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
         // Pin `min_rows_per_worker` low when we want parallel workers to be used.
         if *parallel_workers {
-            writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
         } else {
-            writeln!(gucs, "RESET paradedb.min_rows_per_worker;").unwrap();
+            writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
         }
-        writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
+        writeln!(
+            gucs,
+            "{verb} statement_timeout TO {};",
+            statement_timeout_ms()
+        )
+        .unwrap();
         if force_parallel() {
-            writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
+            writeln!(gucs, "{verb} debug_parallel_query TO on;").unwrap();
         }
         gucs
     }
@@ -870,6 +897,8 @@ where
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compare_outcome_inner(sides, pg_query, bm25_query, gucs, conn, setup, run_query)
     }));
+    // Rendered before the frame closes, since closing appends the case's churn to the log and
+    // the script carries it inline.
     match outcome {
         Ok(o) => o,
         Err(panic) => {
@@ -964,6 +993,7 @@ pub fn compare_plan_retrying(
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
     let fail = |msg: String| {
+        // The plan check runs on its own pooled session, outside the case's transaction.
         CaseOutcome::Failure(handle_compare_error(
             TestCaseError::fail(msg),
             pg_query,
@@ -1133,6 +1163,65 @@ where
     }
 }
 
+/// The seeds a reproduction script replays under.
+fn repro_seeds(setup: &SetupScript) -> (String, String) {
+    let qgen_seed = setup
+        .qgen_seed
+        .map(|s| s.to_string())
+        .or_else(|| {
+            setup
+                .sql
+                .lines()
+                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "<unknown>".to_string());
+    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
+        .ok()
+        .unwrap_or_else(|| "<from proptest output above>".to_string());
+    (qgen_seed, proptest_seed)
+}
+
+/// A reproduction script for a failure in the fixture rather than in a query under test: the
+/// schema, the churn that landed before it, and the statement that failed. No oracle ran, so
+/// there is no pair of queries to print.
+pub fn handle_setup_error(
+    setup: &SetupScript,
+    what: &str,
+    detail: &str,
+    sql: &str,
+) -> TestCaseError {
+    let (qgen_seed, proptest_seed) = repro_seeds(setup);
+    TestCaseError::fail(format!(
+        r#"{what} failed: {detail}
+
+-- ==== FIXTURE FAILURE REPRODUCTION SCRIPT ====
+-- Copy and paste this entire block to reproduce the issue
+--
+-- Prerequisites: Ensure pg_search extension is available
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+--
+-- Table and index setup
+{setup_sql}
+--
+-- The statement that failed:
+{sql}
+--
+-- Cleanup:
+{drop_tables_sql}
+--
+-- ==== END REPRODUCTION SCRIPT ====
+
+Replay this proptest case end-to-end:
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+    cargo test --package tests --test qgen <test_fn_name>
+"#,
+        setup_sql = setup.sql,
+        drop_tables_sql = setup.drop_tables_sql(),
+    ))
+}
+
 /// Helper function to handle comparison errors and generate reproduction scripts
 pub fn handle_compare_error(
     error: TestCaseError,
@@ -1157,20 +1246,7 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
-    let qgen_seed = setup
-        .qgen_seed
-        .map(|s| s.to_string())
-        .or_else(|| {
-            setup
-                .sql
-                .lines()
-                .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "<unknown>".to_string());
-    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
-        .ok()
-        .unwrap_or_else(|| "<from proptest output above>".to_string());
+    let (qgen_seed, proptest_seed) = repro_seeds(setup);
 
     let drop_tables_sql = setup.drop_tables_sql();
 
@@ -1234,4 +1310,34 @@ Original error:
             _ => "Results differ between PostgreSQL and ParadeDB",
         }
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The churn lands in the fixture's own SQL, so every failure script rebuilds the heap the
+    /// run queried without a second source of truth to keep in step.
+    #[test]
+    fn a_failure_script_carries_the_churn_and_the_seed() {
+        let mut setup = SetupScript::new(
+            "CREATE TABLE t (id int);\n-- churn\nBEGIN;\nDELETE FROM t WHERE id = 1;\nCOMMIT;"
+                .to_string(),
+            vec!["t".to_string()],
+        );
+        setup.qgen_seed = Some(42);
+
+        let script = handle_compare_error(
+            TestCaseError::fail("Results differ"),
+            "SELECT 1",
+            "SELECT 1",
+            &PgGucs::pg_search_disabled(),
+            &setup,
+        )
+        .to_string();
+
+        assert!(script.contains("DELETE FROM t WHERE id = 1;"), "{script}");
+        assert!(script.contains("PARADEDB_QGEN_SEED=42"), "{script}");
+        assert!(script.contains("DROP TABLE t;"), "{script}");
+    }
 }

@@ -197,10 +197,10 @@ await dbContext
 ## Sorting by Text
 
 If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/reference/tokenizers/available-tokenizers/literal) or
-[literal normalized](/reference/tokenizers/available-tokenizers/literal-normalized) tokenizer.
+[keyword](/reference/tokenizers/available-tokenizers/keyword) tokenizer.
 
 Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
-with either the literal or literal normalized tokenizer. See [indexing expressions](/reference/indexing/indexing-expressions) for more information.
+with either the literal or keyword tokenizer. See [indexing expressions](/reference/indexing/indexing-expressions) for more information.
 
 ```sql
 CREATE INDEX search_idx ON mock_items

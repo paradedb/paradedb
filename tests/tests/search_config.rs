@@ -306,13 +306,18 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn raw_tokenizer_config(mut conn: PgConnection) {
-    r#"
+#[case("keyword")]
+#[case("keyword('search_tokenizer=keyword')")]
+#[case("literal_normalized")]
+fn keyword_tokenizer_config(mut conn: PgConnection, #[case] tokenizer: &str) {
+    format!(
+        r#"
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING paradedb (id, (description::pdb.literal_normalized));
+        USING paradedb (id, (description::pdb.{tokenizer}));
     "#
+    )
     .execute(&mut conn);
 
     let count: (i64,) = r#"
@@ -332,6 +337,23 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
         WHERE description ### 'Generic shoes'"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
+}
+
+#[rstest]
+#[case("'Running Shoes.  olé'::text")]
+#[case("'Running Shoes.  olé'::varchar")]
+#[case("'[\"Running Shoes.  olé\"]'::json")]
+#[case("'[\"Running Shoes.  olé\"]'::jsonb")]
+#[case("ARRAY['Running Shoes.  olé']::text[]")]
+#[case("ARRAY['Running Shoes.  olé']::varchar[]")]
+#[case("'550e8400-e29b-41d4-a716-446655440000'::uuid")]
+fn keyword_cast_compatibility(mut conn: PgConnection, #[case] input: &str) {
+    let (same,): (bool,) = format!(
+        "SELECT ({input})::pdb.keyword::text[] = \
+         ({input})::pdb.literal_normalized::text[]"
+    )
+    .fetch_one(&mut conn);
+    assert!(same);
 }
 
 #[rstest]

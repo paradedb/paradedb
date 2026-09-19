@@ -83,7 +83,7 @@
                         "pages": [
                           "reference/tokenizers/available-tokenizers/unicode",
                           "reference/tokenizers/available-tokenizers/literal",
-                          "reference/tokenizers/available-tokenizers/literal-normalized",
+                          "reference/tokenizers/available-tokenizers/keyword",
                           "reference/tokenizers/available-tokenizers/whitespace",
                           "reference/tokenizers/available-tokenizers/ngrams",
                           "reference/tokenizers/available-tokenizers/edge-ngrams",

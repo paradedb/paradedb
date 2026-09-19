@@ -106,9 +106,9 @@ SELECT 'Running Shoes.  olé'::pdb.source_code::text[];
 SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized::text[];
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false')::text[];
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.keyword::text[];
+SELECT 'Running Shoes.  olé'::pdb.keyword('lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.keyword('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
 -- Invalid configurations
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];

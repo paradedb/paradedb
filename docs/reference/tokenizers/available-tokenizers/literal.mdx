@@ -21,7 +21,7 @@ The literal tokenizer applies no tokenization to the text, preserving it as-is. 
 exact UUID matching is a common use case), and is useful for doing exact string matching over text fields.
 
 Text fields used as a sort field in a [Top K](/reference/full-text/top-k) query, or as part of an [aggregate](/reference/aggregates/overview),
-must use either this tokenizer or [`literal_normalized`](/reference/tokenizers/available-tokenizers/literal-normalized).
+must use either this tokenizer or [`keyword`](/reference/tokenizers/available-tokenizers/keyword).
 
 ```sql
 CREATE INDEX search_idx ON mock_items

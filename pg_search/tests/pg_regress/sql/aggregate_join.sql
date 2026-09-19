@@ -855,6 +855,29 @@ WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
+-- NULL delimiter regression. Identical inputs make the result independent of
+-- aggregation order.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT STRING_AGG(t.tag_name, NULL) AS null_delimiter
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop'
+  AND t.tag_name = 'tech';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)

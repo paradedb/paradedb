@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789772444190,
+  "lastUpdate": 1789780115841,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4839,6 +4839,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.203,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a5c7553734f74951d919eb1a7396ba8a848f5ad",
+          "message": "fix: replay the published segment view in a parallel scan's leader (#6393)\n\n## Ticket(s) Closed\n\n- Closes #6384\n\n## What\n\nThis PR makes a parallel Base Scan's leader resolve the same segments it\npublished for its workers.\n\n## Why\n\n`init_search_reader` chose `MvccSatisfies::Snapshot` whenever\n`ParallelWorkerNumber == -1`. That assumed the leader opens its reader\nonly before publishing. It doesn't. A `Gather`/`Gather Merge` sets the\nrescan param on its child, so the first `ExecProcNode` runs `ExecReScan`\nand `rescan_custom_scan` opens a second reader, after the publish and\nafter the workers launch. An instrumented run of the reported shape:\n\n```text\ninit_search_reader   worker=-1 parallel_attached=false nsegs=2   <- publishes from this reader\ninitialize_dsm       published_nsegs=2\nrescan_custom_scan   worker=-1 parallel_attached=true had_reader=true\ninit_search_reader   worker=-1 parallel_attached=true nsegs=2    <- second open, ::Snapshot\ninit_search_reader   worker=0  parallel_attached=true nsegs=2    <- worker, replays the view\n```\n\n`::Snapshot` isn't snapshot-stable for segments.\n`SegmentMetaEntry::visible()` is `xmax != FrozenTransactionId`, so it\nlists whatever is undeleted right then. A merge committing between the\ntwo opens retires a published segment, and the first claim for it trips\n`segment ... should exist`. Only the leader can get there. A worker\nbuilds its reader from the view itself.\n\nReplaying the view isn't enough on its own. A merge marks its inputs\ndeleted and leaves the blocks in place, and `recyclable()` reports them\nrecyclable once nothing pins them. A replaying reader drops a recyclable\nsegment. So the leader's pins are what keep them readable.\n`TopKScanExecState` clones the reader in `reset_exec_results` and held\nthose pins by accident. `NormalScanExecState` and `ColumnarExecState`\ndon't, so they released them before the replacement reader took its own.\n\n## How\n\n- A scan's segment visibility now follows whether the scan is\nparallel-aware, not which process it runs in. Every participant replays\nthe published view, the leader included.\n- A scan that replaces its reader keeps the outgoing reader's segment\npins until the new reader holds its own. A retired segment stays\nreadable for the whole scan.\n- The `segment ... should exist` panic mentions the reader's visibility\nstyle.\n\n## Tests\n\n`parallel_topk_leader_segment_view` and\n`test_segment_view_replays_retired_segments`",
+          "timestamp": "2026-09-18T17:48:43-07:00",
+          "tree_id": "ec181f1887f3aa7249b9db8f1e4a33db25656eb7",
+          "url": "https://github.com/paradedb/paradedb/commit/4a5c7553734f74951d919eb1a7396ba8a848f5ad"
+        },
+        "date": 1789780111121,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6544060606060587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.59,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.906,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.986,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.147,
             "unit": "ms"
           }
         ]

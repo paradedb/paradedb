@@ -60,7 +60,7 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// add/remove log these two counts bound, so two opens agree on the segment's `DocId` space
 /// only if they use the same pair. Distinct from [`SegmentMetaEntry::mutable_snapshot`], which
 /// returns the ctid set a bound selects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MutableSegmentBound {
     pub max_doc: u32,
     pub num_deleted_docs: u32,
@@ -74,7 +74,7 @@ impl MutableSegmentBound {
 }
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SegmentViewEntry {
     pub id: SegmentId,
     pub docs: SegmentViewDocs,
@@ -83,7 +83,7 @@ pub struct SegmentViewEntry {
 /// What the origin reader knew about the segment's documents. Mirrors the
 /// [`SegmentMetaEntryContent`] split: immutable content is fixed on disk, mutable content is
 /// materialized per open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SegmentViewDocs {
     /// Fixed on disk, so a replaying reader gets the same documents from the segment id alone.
     /// The counts ride along only because `EXPLAIN ANALYZE` renders per-segment doc counts out

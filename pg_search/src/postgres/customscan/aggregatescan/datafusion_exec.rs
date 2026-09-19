@@ -105,7 +105,7 @@ pub async fn build_join_aggregate_plan(
     ctx: &SessionContext,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&[SearchIndexManifest]>,
+    source_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<JoinAggregatePlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -116,7 +116,7 @@ pub async fn build_join_aggregate_plan(
         custom_scan_tlist,
         expr_context,
         planstate,
-        mpp_manifests,
+        source_manifests,
     )
     .await?;
 
@@ -746,7 +746,7 @@ fn build_relnode_df<'a>(
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&'a [SearchIndexManifest]>,
+    source_manifests: Option<&'a [SearchIndexManifest]>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -759,7 +759,7 @@ fn build_relnode_df<'a>(
                     plan_position,
                     expr_context,
                     planstate,
-                    mpp_manifests,
+                    source_manifests,
                 )
                 .await?;
                 let alias =
@@ -775,7 +775,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_manifests,
+                    source_manifests,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -786,7 +786,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_manifests,
+                    source_manifests,
                 )
                 .await?;
 
@@ -803,7 +803,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_manifests,
+                    source_manifests,
                 )
                 .await?;
 
@@ -856,7 +856,7 @@ fn build_relnode_df<'a>(
                     custom_scan_tlist,
                     expr_context,
                     planstate,
-                    mpp_manifests,
+                    source_manifests,
                 )
                 .await?;
                 apply_relnode_unnest(df, unnest)
@@ -1031,7 +1031,7 @@ async fn build_source_df(
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&[SearchIndexManifest]>,
+    source_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
     let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
@@ -1073,15 +1073,16 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let is_mpp = mpp_manifests.is_some()
-        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
-            && ctx.state().config().target_partitions() > 1);
+    // Captured views survive a failed MPP launch; the session decides whether this plan
+    // is distributed. A serial rebuild must not regain MPP source metadata just by reusing them.
+    let is_mpp = crate::postgres::customscan::mpp::glue::mpp_is_active()
+        && ctx.state().config().target_partitions() > 1;
     let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own
     // reader is built from the source's manifest. This plan never crosses the codec that
     // injects the manifest for JoinScan, so do it here.
-    if let Some(manifests) = mpp_manifests {
+    if let Some(manifests) = source_manifests {
         let manifest = manifests.get(plan_position).unwrap_or_else(|| {
             panic!(
                 "missing captured manifest for aggregate source at plan_position {plan_position}"

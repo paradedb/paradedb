@@ -218,22 +218,33 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        if let Some(plan_position) = provider.source_idx() {
-            // MPP sources also call `checkout_segment_for_source` against
-            // `parallel_state`, so inject the pointer for them too.
+        if provider.source_idx().is_some() {
             provider.set_parallel_state(self.parallel_state);
-
-            // An empty list means this decode has no manifests to offer (plain EXPLAIN), but
-            // a short list is a bug, and falling back to a snapshot open would silently break
-            // the address exchange with the workers.
-            if !self.source_manifests.is_empty() {
-                let manifest = self.source_manifests.get(plan_position).ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "missing captured manifest for plan_position {plan_position}"
-                    ))
-                })?;
-                provider.set_manifest(manifest.clone());
+        }
+        if !self.source_manifests.is_empty() {
+            let manifest = match provider.source_idx() {
+                // MPP addresses and segment claims are tied to the source position.
+                Some(position) => self.source_manifests.get(position),
+                // A failed launch rebuilds serial providers without source positions. The
+                // statement captured one shared view per index, so reuse it on this path too.
+                None => self
+                    .source_manifests
+                    .iter()
+                    .find(|manifest| manifest.indexrelid() == provider.scan_info.indexrelid),
             }
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "missing captured manifest for index {} (source {:?})",
+                    provider.scan_info.indexrelid,
+                    provider.source_idx(),
+                ))
+            })?;
+            if manifest.indexrelid() != provider.scan_info.indexrelid {
+                return Err(DataFusionError::Internal(
+                    "captured manifest belongs to a different index".into(),
+                ));
+            }
+            provider.set_manifest(manifest.clone());
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
@@ -363,57 +374,59 @@ mod tests {
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
             .expect("manifest capture");
 
-        let fields = vec![WhichFastField::Named(
-            "id".to_string(),
-            SearchFieldType::I64(pg_sys::INT8OID),
-        )];
-        let provider = PgSearchTableProvider::new(
-            ScanInfo::new(1, heap_oid, index_rel.oid(), crate::scan::ScanMode::all()),
-            fields,
-            Some(0),
-        );
-        let plan = LogicalPlanBuilder::scan(
-            "codec_manifest_test",
-            Arc::new(DefaultTableSource::new(Arc::new(provider))),
-            None,
-        )
-        .expect("scan builder")
-        .build()
-        .expect("logical plan");
-        let bytes = serialize_logical_plan(&plan).expect("serialize");
-
-        let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
-        let task_ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(
-            &bytes,
-            &task_ctx,
-            None,
-            None,
-            None,
-            vec![manifest],
-        )
-        .expect("deserialize with manifest");
-
-        let session = datafusion::prelude::SessionContext::new();
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        for source_idx in [Some(0), None] {
+            let fields = vec![WhichFastField::Named(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::INT8OID),
+            )];
+            let provider = PgSearchTableProvider::new(
+                ScanInfo::new(1, heap_oid, index_rel.oid(), crate::scan::ScanMode::all()),
+                fields,
+                source_idx,
+            );
+            let plan = LogicalPlanBuilder::scan(
+                "codec_manifest_test",
+                Arc::new(DefaultTableSource::new(Arc::new(provider))),
+                None,
+            )
+            .expect("scan builder")
             .build()
-            .unwrap();
-        let physical = runtime
-            .block_on(session.state().create_physical_plan(&decoded))
-            .expect("physical plan (runs the provider's scan)");
-        assert_eq!(
-            INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
-            opens_before,
-            "a decoded provider with an injected manifest must not open the index again"
-        );
+            .expect("logical plan");
+            let bytes = serialize_logical_plan(&plan).expect("serialize");
 
-        let stream = physical
-            .execute(0, Arc::new(TaskContext::default()))
-            .expect("execute");
-        let batches = runtime
-            .block_on(stream.try_collect::<Vec<_>>())
-            .expect("stream");
-        assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 20);
+            let opens_before = INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed);
+            let task_ctx = TaskContext::default();
+            let decoded = deserialize_logical_plan_with_runtime(
+                &bytes,
+                &task_ctx,
+                None,
+                None,
+                None,
+                vec![manifest.clone()],
+            )
+            .expect("deserialize with manifest");
+
+            let session = datafusion::prelude::SessionContext::new();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let physical = runtime
+                .block_on(session.state().create_physical_plan(&decoded))
+                .expect("physical plan (runs the provider's scan)");
+            assert_eq!(
+                INDEX_COMPONENT_OPENS.load(std::sync::atomic::Ordering::Relaxed),
+                opens_before,
+                "a decoded provider with an injected manifest must not open the index again"
+            );
+
+            let stream = physical
+                .execute(0, Arc::new(TaskContext::default()))
+                .expect("execute");
+            let batches = runtime
+                .block_on(stream.try_collect::<Vec<_>>())
+                .expect("stream");
+            assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 20);
+        }
 
         unsafe { pg_sys::PopActiveSnapshot() };
     }

@@ -1049,8 +1049,16 @@ mod tests {
             Precision::Inexact(25)
         );
 
+        use crate::index::segment_pruning::STATS_OPENS;
+        use std::sync::atomic::Ordering::Relaxed;
+        STATS_OPENS.store(0, Relaxed);
+        let variants: Vec<_> = (0..4)
+            .map(|partition| plan.with_assigned_partition(partition))
+            .collect();
+        let opened = STATS_OPENS.load(Relaxed);
+        assert_eq!(opened, reader.searcher().segment_readers().len());
         // As one of four task variants: this one owns partition 1 alone.
-        let plan = plan.with_assigned_partition(1);
+        let plan = Arc::clone(&variants[1]);
 
         assert!(plan.repartition(2).is_err());
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
@@ -1072,6 +1080,17 @@ mod tests {
         // variant advertises one local partition to DataFusion.
         let proto_converter = DefaultPhysicalProtoConverter {};
         let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        // A later open can see another segment. Dispatch must replay the encoded view,
+        // not open its statistics or include its matching row in the old task.
+        Spi::run("INSERT INTO t (id, data) VALUES (30, 'appended after dispatch')").unwrap();
+        let fresh = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        assert_ne!(fresh.segment_view(), reader.segment_view());
         let task_context = TaskContext::default();
         let plan = PgSearchScanPlan::decode_for_dispatch(
             &encoded,
@@ -1081,6 +1100,11 @@ mod tests {
             &proto_converter,
         )
         .unwrap();
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            opened,
+            "physical-plan decoding must reuse captured statistics"
+        );
 
         assert_eq!(plan.properties().output_partitioning().partition_count(), 1);
         assert!(matches!(

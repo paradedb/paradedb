@@ -165,7 +165,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
-use crate::index::mvcc::{MvccSatisfies, SegmentView};
+use crate::index::mvcc::SegmentView;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -834,22 +834,16 @@ impl JoinScan {
             return;
         }
 
-        let manifests = state
-            .custom_state()
-            .join_clause
-            .plan
-            .sources()
-            .iter()
-            .map(|source| {
-                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to capture source manifest for indexrelid {}: {e}",
-                        source.scan_info.indexrelid
-                    )
-                })
-            })
-            .collect();
+        let manifests = SearchIndexManifest::capture_sources(
+            state
+                .custom_state()
+                .join_clause
+                .plan
+                .sources()
+                .iter()
+                .map(|source| source.scan_info.indexrelid),
+        )
+        .expect("Failed to capture join source manifests");
 
         state.custom_state_mut().source_manifests = manifests;
     }
@@ -1442,6 +1436,16 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let manifests = SearchIndexManifest::capture_sources(
+                state
+                    .custom_state()
+                    .join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .map(|source| source.scan_info.indexrelid),
+            )
+            .expect("Failed to capture EXPLAIN source manifests");
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     bytes,
@@ -1449,7 +1453,7 @@ impl CustomScan for JoinScan {
                     None,
                     Some(expr_context.as_ptr()),
                     None,
-                    vec![],
+                    manifests.clone(),
                 )
                 .expect("Failed to deserialize logical plan");
                 runtime

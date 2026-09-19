@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::io;
 use std::sync::{Arc, OnceLock};
+
+use tantivy::directory::{FileSlice, OwnedBytes};
 
 use crate::api::HashMap;
 use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentInclusion, SegmentStats};
@@ -37,7 +40,8 @@ struct CapturedSegment {
 ///
 /// The retained searcher fixes segment membership and order for this snapshot's lifetime.
 /// Readers created from the same manifest share the snapshot, so a segment's `.stats` component
-/// is opened at most once. Individual field entries are decoded when requested.
+/// is opened at most once. Dispatch carries already opened component bytes to worker and
+/// display readers over the same segment view. Individual field entries are decoded on request.
 ///
 /// Missing statistics cannot exclude a segment. Errors opening or decoding existing statistics
 /// abort the query rather than concealing an unreadable index component.
@@ -68,6 +72,74 @@ impl SegmentStatsSnapshot {
             segments,
             ordinal_by_id,
         })
+    }
+
+    /// Carry only components already requested by this query. An entry with no bytes is a
+    /// known absent component; an omitted segment has not needed statistics yet.
+    pub(crate) fn dispatch_stats(&self) -> io::Result<Vec<(SegmentId, Option<Vec<u8>>)>> {
+        self.segments
+            .iter()
+            .filter_map(|segment| {
+                segment.stats.get().map(|stats| {
+                    stats
+                        .as_ref()
+                        .map(SegmentStats::dispatch_bytes)
+                        .transpose()
+                        .map(|bytes| (segment.id, bytes))
+                })
+            })
+            .collect()
+    }
+
+    /// Seed a fresh execution reader before any query proof or partition classification.
+    /// Segment IDs identify immutable components; a mutable segment only carries absence.
+    pub(crate) fn restore_stats(
+        &self,
+        captured: Vec<(SegmentId, Option<Vec<u8>>)>,
+    ) -> io::Result<()> {
+        for (id, bytes) in captured {
+            let ord = self.segment_index(id).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("statistics segment {id:?} is absent from the receiving view"),
+                )
+            })?;
+            let stats = bytes
+                .map(|bytes| SegmentStats::open(FileSlice::new(Arc::new(OwnedBytes::new(bytes)))))
+                .transpose()?;
+            self.segments[ord].stats.set(stats).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("statistics for segment {id:?} were already initialized"),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Join range selection shares the execution snapshot instead of opening another index.
+    pub(crate) fn split_points(
+        &self,
+        field: tantivy::schema::Field,
+    ) -> io::Result<Option<Vec<crate::postgres::pdb_owned_value::PdbOwnedValue>>> {
+        use std::ops::Bound;
+        let mut points = Vec::new();
+        for ord in 0..self.segments.len() {
+            let Some(stats) = self.stats(ord) else {
+                continue;
+            };
+            let Some(bounds) = stats.logical(field)? else {
+                continue;
+            };
+            for bound in [bounds.lower, bounds.upper] {
+                if let Bound::Included(value) | Bound::Excluded(value) = bound {
+                    points.push(value);
+                }
+            }
+        }
+        points.sort_unstable_by(crate::postgres::pdb_owned_value::PdbOwnedValue::total_cmp);
+        points.dedup_by(|a, b| a.total_cmp(b).is_eq());
+        Ok((!points.is_empty()).then_some(points))
     }
 
     #[cfg(any(test, feature = "pg_test"))]

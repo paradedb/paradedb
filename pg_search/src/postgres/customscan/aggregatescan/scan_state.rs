@@ -155,8 +155,8 @@ pub struct AggregateScanState {
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
 
-    /// MPP-only: captured source manifests held by the leader. Serves two
-    /// purposes (mirrors JoinScan):
+    /// Captured source views shared by aliases and retained through serial fallback.
+    /// Under MPP these also serve two purposes (mirrors JoinScan):
     /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan`
     ///    and segment readers for DSM population in `initialize_dsm_custom_scan`.
     /// 2. Keeps Tantivy buffer pins alive through `exec_custom_scan` so

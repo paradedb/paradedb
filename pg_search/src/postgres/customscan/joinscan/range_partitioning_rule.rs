@@ -33,9 +33,7 @@ use pgrx::pg_sys;
 
 use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::rel::PgSearchRelation;
 use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -569,8 +567,8 @@ fn side_split_points(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
-    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    persisted_split_points(&index_rel, partition_by.as_ref())
+    provider
+        .persisted_split_points(partition_by.as_ref())
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 

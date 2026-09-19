@@ -281,24 +281,11 @@ jobs:
       actions: read
       checks: read
     steps:
-      # RunsOn retries after this attempt finishes. Do not wait inside the workflow.
-      # Attempts 1 and 2 may retry; attempt 3 and API lookup errors must still alert.
-      - name: Detect Retryable Spot Interruption
-        id: spot-retry
-        continue-on-error: true
-        uses: runs-on/spot-retry-gate/.github/actions/detect@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run_id: ${{ github.run_id }}
-          run_attempt: ${{ github.run_attempt }}
-          job_results: ${{ toJSON(needs) }}
-          check_name: slack-alert
-
       - name: Notify Slack on Failure
-        if: always() && steps.spot-retry.outputs.spot_interrupted != 'true'
         uses: paradedb/actions/slack-alert@v14
         with:
+          suppress_spot_retries: "true"
+          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

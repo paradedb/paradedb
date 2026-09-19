@@ -518,14 +518,11 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     let mut physical_rules =
         datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
     let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
-    if let Some(pos) = physical_rules
+    let pos = physical_rules
         .iter()
         .position(|r| r.name() == "EnsureRequirements")
-    {
-        physical_rules.insert(pos, co_partitioned_rule);
-    } else {
-        physical_rules.push(co_partitioned_rule);
-    }
+        .expect("EnsureRequirements physical optimizer rule not found");
+    physical_rules.insert(pos, co_partitioned_rule);
     builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning
@@ -546,10 +543,6 @@ pub fn create_datafusion_session_context() -> SessionContext {
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
     let mut config = SessionConfig::new().with_target_partitions(1);
-    config
-        .options_mut()
-        .optimizer
-        .enable_round_robin_repartition = false;
 
     // Configure dynamic filter pushdown thresholds from our GUCs
     config

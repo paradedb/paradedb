@@ -61,7 +61,9 @@ pub fn all_pg_search_udfs() -> Vec<Arc<ScalarUDF>> {
 
 /// Resolve a pg_search aggregate UDAF by name, for the plan codecs.
 pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    numeric_agg::udaf_by_name(name).or_else(|| cardinality_agg::udaf_by_name(name))
+    all_pg_search_udafs()
+        .into_iter()
+        .find(|udaf| udaf.name() == name)
 }
 
 /// The literal argument at `index` of a UDAF call. A per-call setting travels

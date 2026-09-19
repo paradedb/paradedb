@@ -11,12 +11,13 @@
 -- 3. Three-table aggregation over range-partitioned tables.
 -- 4. Asymmetric join where only the larger table is range partitioned (1 shuffle).
 -- 5. Asymmetric join where the smaller table is NOT stamped to avoid shuffling the larger table.
+-- 6. Asymmetric join with split points > workers (down-sampling).
 --
 -- Note on hash_join_single_partition_threshold[_rows] GUCs:
 -- In production, DataFusion defaults to broadcasting (CollectLeft) tables below
 -- 131,072 rows / 1MB. For physical co-partitioning (Scenario 1), RangeCoPartitionedJoinRule
 -- flips CollectLeft to Partitioned automatically because a 0-shuffle local join beats
--- broadcast. For non-co-partitioned or asymmetric joins (Scenarios 2, 4, 5), setting these
+-- broadcast. For non-co-partitioned or asymmetric joins (Scenarios 2, 4, 5, 6), setting these
 -- thresholds to 0 simulates large tables exceeding the broadcast threshold, forcing
 -- PartitionMode::Partitioned to exercise range-partitioning adaptation under DataFusion
 -- PR #24600 and PR #24766.
@@ -94,42 +95,30 @@ ANALYZE mpp_rp_topics;
 ANALYZE mpp_rp_categories;
 
 CREATE INDEX mpp_rp_users_idx ON mpp_rp_users
-USING paradedb (id, user_id, user_name)
+USING paradedb (id, user_id, (user_name::pdb.unicode_words('columnar=true')))
 WITH (
-    key_field = 'id',
     target_segment_count = 3,
-    partition_by = 'user_id',
-    numeric_fields = '{"user_id": {"fast": true}}',
-    text_fields = '{"user_name": {"fast": true}}'
+    partition_by = 'user_id'
 );
 
 CREATE INDEX mpp_rp_posts_idx ON mpp_rp_posts
-USING paradedb (id, post_id, user_id, topic_id, title)
+USING paradedb (id, post_id, user_id, topic_id, (title::pdb.unicode_words('columnar=true')))
 WITH (
-    key_field = 'id',
     target_segment_count = 3,
-    partition_by = 'user_id,topic_id',
-    numeric_fields = '{"user_id": {"fast": true}, "topic_id": {"fast": true}, "post_id": {"fast": true}}',
-    text_fields = '{"title": {"fast": true}}'
+    partition_by = 'user_id,topic_id'
 );
 
 CREATE INDEX mpp_rp_topics_idx ON mpp_rp_topics
-USING paradedb (id, topic_id, topic_name)
+USING paradedb (id, topic_id, (topic_name::pdb.unicode_words('columnar=true')))
 WITH (
-    key_field = 'id',
     target_segment_count = 3,
-    partition_by = 'topic_id',
-    numeric_fields = '{"topic_id": {"fast": true}}',
-    text_fields = '{"topic_name": {"fast": true}}'
+    partition_by = 'topic_id'
 );
 
 CREATE INDEX mpp_rp_categories_idx ON mpp_rp_categories
-USING paradedb (id, category_id, category_name)
+USING paradedb (id, category_id, (category_name::pdb.unicode_words('columnar=true')))
 WITH (
-    key_field = 'id',
-    target_segment_count = 3,
-    numeric_fields = '{"category_id": {"fast": true}}',
-    text_fields = '{"category_name": {"fast": true}}'
+    target_segment_count = 3
 );
 
 -- =====================================================================
@@ -145,19 +134,6 @@ WITH (
 -- and flips the join mode from CollectLeft (broadcast) back to Partitioned. A
 -- 0-shuffle task-local join is always cheaper than broadcasting across tasks.
 -- =====================================================================
-
--- Baseline
-SET max_parallel_workers_per_gather TO 0;
-
-SELECT u.user_name, p.title
-FROM mpp_rp_users u
-JOIN mpp_rp_posts p ON u.user_id = p.user_id
-WHERE p.title @@@ 'post'
-ORDER BY u.user_id, p.post_id
-LIMIT 5;
-
--- MPP
-SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT u.user_name, p.title
@@ -197,19 +173,6 @@ LIMIT 5;
 -- in Stage 2 (only 1 network shuffle instead of 2).
 -- =====================================================================
 
--- Baseline
-SET max_parallel_workers_per_gather TO 0;
-
-SELECT u.user_name, p.title, t.topic_name
-FROM mpp_rp_users u
-JOIN mpp_rp_posts p ON u.user_id = p.user_id
-JOIN mpp_rp_topics t ON p.topic_id = t.topic_id
-WHERE p.title @@@ 'post'
-ORDER BY u.user_id, p.post_id
-LIMIT 5;
-
--- MPP
-SET max_parallel_workers_per_gather TO 3;
 SET paradedb.hash_join_single_partition_threshold_rows = 0;
 SET paradedb.hash_join_single_partition_threshold = 0;
 
@@ -242,20 +205,6 @@ RESET paradedb.hash_join_single_partition_threshold;
 -- (CollectLeft) via Stage 1 because broadcast thresholds are left at default,
 -- broadcasting the 10-row topics table across the 2 consumer tasks.
 -- =====================================================================
-
--- Baseline
-SET max_parallel_workers_per_gather TO 0;
-
-SELECT t.topic_name, count(*)
-FROM mpp_rp_users u
-JOIN mpp_rp_posts p ON u.user_id = p.user_id
-JOIN mpp_rp_topics t ON p.topic_id = t.topic_id
-WHERE p.title @@@ 'post'
-GROUP BY t.topic_name
-ORDER BY t.topic_name;
-
--- MPP
-SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.topic_name, count(*)
@@ -299,18 +248,6 @@ ORDER BY t.topic_name;
 --    table remains completely local (0 shuffles).
 -- =====================================================================
 
--- Baseline
-SET max_parallel_workers_per_gather TO 0;
-
-SELECT p.title, c.category_name
-FROM mpp_rp_posts p
-JOIN mpp_rp_categories c ON p.topic_id = c.category_id
-WHERE p.title @@@ 'post'
-ORDER BY p.post_id, c.category_id
-LIMIT 5;
-
--- MPP
-SET max_parallel_workers_per_gather TO 3;
 SET paradedb.hash_join_single_partition_threshold_rows = 0;
 SET paradedb.hash_join_single_partition_threshold = 0;
 
@@ -355,18 +292,6 @@ RESET paradedb.hash_join_single_partition_threshold;
 -- table in favor of symmetric hash partitioning.
 -- =====================================================================
 
--- Baseline
-SET max_parallel_workers_per_gather TO 0;
-
-SELECT p.title, t.topic_name
-FROM mpp_rp_posts p
-JOIN mpp_rp_topics t ON p.post_id = t.topic_id
-WHERE p.title @@@ 'post'
-ORDER BY p.post_id, t.topic_id
-LIMIT 5;
-
--- MPP
-SET max_parallel_workers_per_gather TO 3;
 SET paradedb.hash_join_single_partition_threshold_rows = 0;
 SET paradedb.hash_join_single_partition_threshold = 0;
 
@@ -389,9 +314,91 @@ RESET paradedb.hash_join_single_partition_threshold_rows;
 RESET paradedb.hash_join_single_partition_threshold;
 
 -- =====================================================================
+-- Scenario 6: Asymmetric join with split points > workers (down-sampling)
+--
+-- mpp_rp_orders (400 rows, 8 segments) joins mpp_rp_customers (50 rows, unpartitioned)
+-- on orders.customer_id = customers.customer_id with max_parallel_workers_per_gather = 3.
+--
+-- orders has 8 segments (7 split points) on customer_id, exceeding the 3 workers.
+-- RangeSplitPoints::to_datafusion down-samples the 7 split points to 2 split points
+-- (3 target partitions). The asymmetric partner (customers) receives the down-sampled
+-- split points from the anchor.
+--
+-- Setting threshold GUCs to 0 forces PartitionMode::Partitioned. DataFusion range-shuffles
+-- the smaller customers table to match orders's down-sampled 3 partitions.
+-- =====================================================================
+
+CREATE TABLE mpp_rp_customers (
+    id SERIAL PRIMARY KEY,
+    customer_id INT,
+    customer_name TEXT
+);
+
+CREATE TABLE mpp_rp_orders (
+    id SERIAL PRIMARY KEY,
+    order_id INT,
+    customer_id INT,
+    order_title TEXT
+);
+
+SET paradedb.global_mutable_segment_rows = 0;
+
+INSERT INTO mpp_rp_customers (customer_id, customer_name)
+SELECT g, 'customer_' || g
+FROM generate_series(1, 50) AS g;
+
+INSERT INTO mpp_rp_orders (order_id, customer_id, order_title)
+SELECT g,
+       ((g * 3) % 50) + 1,
+       'order ' || g || ' item'
+FROM generate_series(1, 400) AS g;
+
+RESET paradedb.global_mutable_segment_rows;
+
+ANALYZE mpp_rp_customers;
+ANALYZE mpp_rp_orders;
+
+CREATE INDEX mpp_rp_customers_idx ON mpp_rp_customers
+USING paradedb (id, customer_id, (customer_name::pdb.unicode_words('columnar=true')))
+WITH (
+    target_segment_count = 3
+);
+
+CREATE INDEX mpp_rp_orders_idx ON mpp_rp_orders
+USING paradedb (id, order_id, customer_id, (order_title::pdb.unicode_words('columnar=true')))
+WITH (
+    target_segment_count = 8,
+    partition_by = 'customer_id'
+);
+
+SET max_parallel_workers_per_gather TO 3;
+SET paradedb.hash_join_single_partition_threshold_rows = 0;
+SET paradedb.hash_join_single_partition_threshold = 0;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.order_title, c.customer_name
+FROM mpp_rp_orders o
+JOIN mpp_rp_customers c ON o.customer_id = c.customer_id
+WHERE o.order_title @@@ 'order'
+ORDER BY o.order_id, c.customer_id
+LIMIT 5;
+
+SELECT o.order_title, c.customer_name
+FROM mpp_rp_orders o
+JOIN mpp_rp_customers c ON o.customer_id = c.customer_id
+WHERE o.order_title @@@ 'order'
+ORDER BY o.order_id, c.customer_id
+LIMIT 5;
+
+RESET paradedb.hash_join_single_partition_threshold_rows;
+RESET paradedb.hash_join_single_partition_threshold;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 
+DROP TABLE mpp_rp_orders;
+DROP TABLE mpp_rp_customers;
 DROP TABLE mpp_rp_categories;
 DROP TABLE mpp_rp_topics;
 DROP TABLE mpp_rp_posts;

@@ -26,9 +26,7 @@ use datafusion::common::{Column, DataFusionError, JoinType, Result};
 use datafusion::logical_expr::{Expr, LogicalPlan, TableScan};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule, optimizer::ApplyOrder};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
-use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
 
 use pgrx::pg_sys;
@@ -477,7 +475,12 @@ impl OptimizerRule for RangePartitioningRule {
         //    will inevitably be repartitioned/shuffled across the network. Stamping the anchor
         //    allows the anchor to stay local in its native range partitions (0 shuffles) while the
         //    partner's stream adapts to it (1 shuffle total), avoiding a 2-sided hash shuffle.
-        asymmetric_candidates.sort_by_key(|c| std::cmp::Reverse(c.anchor_rows));
+        asymmetric_candidates.sort_by_key(|c| {
+            (
+                std::cmp::Reverse(c.anchor_rows),
+                std::cmp::Reverse(c.partner_rows),
+            )
+        });
         for cand in asymmetric_candidates {
             let partner_committed_elsewhere = assigned
                 .get(&cand.partner_rti)
@@ -571,26 +574,6 @@ fn side_split_points(
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 
-/// The input of a round-robin or hash `RepartitionExec` over a range-partitioned plan, or `plan`
-/// itself.
-fn peel_range_repartition(plan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
-    let Some(repartition) = plan.downcast_ref::<RepartitionExec>() else {
-        return plan;
-    };
-    let lifts_range = matches!(
-        repartition.partitioning(),
-        Partitioning::RoundRobinBatch(_) | Partitioning::Hash(_, _)
-    ) && matches!(
-        repartition.input().output_partitioning(),
-        Partitioning::Range(_)
-    );
-    if lifts_range {
-        Arc::clone(repartition.input())
-    } else {
-        plan
-    }
-}
-
 /// Physical optimizer rule that converts a `CollectLeft` inner hash join to
 /// `Partitioned` mode when both inputs declare compatible `Partitioning::Range`
 /// layouts on the join keys.
@@ -648,23 +631,7 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 return Ok(Transformed::no(node));
             }
 
-            // EnforceDistribution collapses the build side to a single partition for
-            // CollectLeft; peel that off to recover the source's declared partitioning.
-            let left = match join.left().downcast_ref::<CoalescePartitionsExec>() {
-                Some(coalesce) if coalesce.fetch().is_none() => Arc::clone(coalesce.input()),
-                _ => Arc::clone(join.left()),
-            };
-            // A range-partitioned scan seats only as many partitions as it has split points.
-            // When the session asks for more, EnforceDistribution lifts the scan with a
-            // round-robin or hash repartition, which throws the range layout away. Peel it too:
-            // a co-partitioned join on fewer tasks beats a repartition / broadcast on more.
-            let left = peel_range_repartition(left);
-            let right = peel_range_repartition(Arc::clone(join.right()));
-
-            if join.partition_mode() == &PartitionMode::Partitioned
-                && Arc::ptr_eq(&left, join.left())
-                && Arc::ptr_eq(&right, join.right())
-            {
+            if join.partition_mode() == &PartitionMode::Partitioned {
                 return Ok(Transformed::no(node));
             }
 
@@ -672,7 +639,7 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
                 matches!(input.output_partitioning(), Partitioning::Range(_))
                     && input.output_partitioning().partition_count() > 1
             };
-            if !range_partitioned(&left) || !range_partitioned(&right) {
+            if !range_partitioned(join.left()) || !range_partitioned(join.right()) {
                 return Ok(Transformed::no(node));
             }
 
@@ -682,7 +649,6 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
             // mode invalidates the cached properties on its own.
             let candidate = join
                 .builder()
-                .with_new_children(vec![left, right])?
                 .with_partition_mode(PartitionMode::Partitioned)
                 .build_exec()?;
 

@@ -76,17 +76,6 @@ pub struct PgSearchPhysicalExtensionCodec {
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
-impl PgSearchPhysicalExtensionCodec {
-    /// Attaches an `ExprContext` pointer used by workers to evaluate heap filters during plan deserialization.
-    pub fn with_expr_context(
-        mut self,
-        expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
-    ) -> Self {
-        self.expr_context = expr_context;
-        self
-    }
-}
-
 // Same justification as the logical `PgSearchExtensionCodec`: Postgres extensions run
 // single-threaded, so the raw `ParallelScanState` pointer never crosses a real thread boundary.
 unsafe impl Send for PgSearchPhysicalExtensionCodec {}

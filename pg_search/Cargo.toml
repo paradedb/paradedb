@@ -93,9 +93,9 @@ tokio-util = "0.7"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
-datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "stuhood.branch-55-range-scaling", default-features = false }
-datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "stuhood.branch-55-range-scaling", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", branch = "stuhood.three-way-range", default-features = false }
+datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
+datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-09-19-045947", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

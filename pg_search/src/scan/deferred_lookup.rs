@@ -99,20 +99,21 @@ pub(crate) struct LookupRebuildContext {
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
 }
 
-/// Resolve the segment view a rebuilt helper opens for one deferred column's index.
-///
-/// In parallel / MPP worker decode, when a `source_idx` is assigned and `parallel_state` is
-/// available, reads the slice allocated to that worker; otherwise (e.g. during coordinator
-/// local execution, roundtrips, or serial plans) falls back to the current active transaction snapshot.
 pub(crate) fn rebuild_mvcc(
     context: LookupRebuildContext,
     rebuild: &DeferredLookupRebuild,
 ) -> Result<MvccSatisfies> {
-    match (rebuild.source_idx, context.parallel_state) {
-        (Some(source_idx), Some(ps)) => Ok(MvccSatisfies::ParallelWorker(unsafe {
+    if let Some(source_idx) = rebuild.source_idx {
+        let ps = context.parallel_state.ok_or_else(|| {
+            DataFusionError::Internal(
+                "ffhelper rebuild: parallel scan requires a ParallelScanState".into(),
+            )
+        })?;
+        Ok(MvccSatisfies::ParallelWorker(unsafe {
             (*ps).segment_view_for_source(source_idx)
-        })),
-        _ => Ok(MvccSatisfies::Snapshot),
+        }))
+    } else {
+        Ok(MvccSatisfies::Snapshot)
     }
 }
 

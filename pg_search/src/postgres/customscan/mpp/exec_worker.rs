@@ -90,12 +90,9 @@ pub(crate) struct MppWorkerInputs {
 ///
 /// `seed` is the customscan's serial session context (`create_datafusion_session_context()`).
 /// The function copies its config and layers the distributed-planner knobs on top.
-/// `expr_context` is the active Postgres expression context for evaluating heap filters on
-/// decoded scan nodes; when present, it is attached to the distributed user codec.
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
     mesh: Option<Arc<MppMesh>>,
-    expr_context: Option<*mut pg_sys::ExprContext>,
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
     // n_procs >= 3 always holds: for mesh = Some, the launch clamps the spawned width to
@@ -126,10 +123,7 @@ pub(crate) fn build_mpp_session_context(
     //      `_distribute_plan` elides every shuffle.
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
-    let mut cfg = seed.copied_config().with_target_partitions(n_workers);
-    // Disable round-robin repartitioning: workers execute tasks single-threaded; partitioning
-    // is used exclusively for MPP task distribution across worker processes.
-    cfg.options_mut().optimizer.enable_round_robin_repartition = false;
+    let cfg = seed.copied_config().with_target_partitions(n_workers);
 
     // Start from the seed's existing state so the customscan's query planner
     // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.
@@ -171,9 +165,7 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
-        .with_distributed_user_codec(
-            PgSearchPhysicalExtensionCodec::default().with_expr_context(expr_context),
-        )
+        .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
         .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
         .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
         .with_distributed_desired_task_count_handler(n_workers)
@@ -346,7 +338,6 @@ pub(crate) fn run_mpp_worker(
         Arc::clone(worker_mesh),
         this_proc,
         n_workers,
-        Some(expr_context_guard.as_ptr()),
     ) {
         Ok(v) => v,
         Err(e) => {

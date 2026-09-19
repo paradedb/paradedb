@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.2.0",
@@ -1915,7 +1915,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1939,7 +1939,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1962,7 +1962,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -1986,7 +1986,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "futures",
  "log",
@@ -1996,7 +1996,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2026,7 +2026,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2050,7 +2050,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2073,7 +2073,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2096,7 +2096,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?branch=stuhood.three-way-range#f35a8e5451899c844f03d46e8992e38065cbd79d"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-09-19-045947#3e711f71eeb266824619f27aef7d1a60b6a704ee"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2129,12 +2129,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 
 [[package]]
 name = "datafusion-execution"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.2.0",
@@ -2159,7 +2159,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.2.0",
@@ -2182,7 +2182,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2193,7 +2193,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.2.0",
@@ -2220,7 +2220,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2240,7 +2240,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2251,7 +2251,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ord 59.2.0",
@@ -2275,7 +2275,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2290,7 +2290,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2306,7 +2306,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2315,7 +2315,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -2325,7 +2325,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2343,7 +2343,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.2.0",
@@ -2365,7 +2365,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2379,7 +2379,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2396,7 +2396,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2414,7 +2414,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "arrow-data 59.2.0",
@@ -2450,7 +2450,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-catalog",
@@ -2475,7 +2475,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2485,7 +2485,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-models"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "datafusion-common",
  "datafusion-proto-common",
@@ -2495,7 +2495,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2510,7 +2510,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow-schema 59.2.0",
  "async-trait",
@@ -2524,7 +2524,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.branch-55-range-scaling#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
 dependencies = [
  "arrow 59.2.0",
  "bigdecimal",

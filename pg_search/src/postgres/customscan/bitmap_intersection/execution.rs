@@ -92,8 +92,13 @@ impl BitmapExec {
                             out.push(CStr::from_ptr(name).to_string_lossy().into_owned());
                         }
                     }
-                    pg_sys::NodeTag::T_BitmapAnd => {
-                        let subplans = (*plan.cast::<pg_sys::BitmapAnd>()).bitmapplans;
+                    tag @ (pg_sys::NodeTag::T_BitmapAnd | pg_sys::NodeTag::T_BitmapOr) => {
+                        // Both carry their children in `bitmapplans` at the same offset.
+                        let subplans = if tag == pg_sys::NodeTag::T_BitmapAnd {
+                            (*plan.cast::<pg_sys::BitmapAnd>()).bitmapplans
+                        } else {
+                            (*plan.cast::<pg_sys::BitmapOr>()).bitmapplans
+                        };
                         for sub in PgList::<pg_sys::Plan>::from_pg(subplans).iter_ptr() {
                             collect(sub, out);
                         }

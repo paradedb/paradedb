@@ -9,17 +9,8 @@
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  push:
-    branches:
-      - main # Track history on pushes to main that could move performance
-    paths:
-      - "**/*.rs"
-      - "**/*.toml"
-      - ".github/workflows/benchmark-benchmarker.yml"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - "docker/Dockerfile.benchmarker"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled] # Opt in on a PR with the `benchmark-benchmarker` label
   workflow_dispatch:
@@ -49,12 +40,12 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
+      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker')
     env:
@@ -79,7 +70,7 @@ jobs:
         id: determine-ref
         run: |
           # workflow_dispatch `commit` wins; otherwise github.sha (the PR merge
-          # commit, or the pushed commit).
+          # commit, or the current main commit for nightly runs).
           if [ -n "${{ inputs.commit }}" ]; then
             echo "ref=${{ inputs.commit }}" >> "$GITHUB_OUTPUT"
           else
@@ -331,8 +322,8 @@ jobs:
             exit 1
           fi
 
-      - name: Notify Slack on Failure (push only)
-        if: failure() && github.event_name == 'push'
+      - name: Notify Slack on Failure (nightly only)
+        if: failure() && github.event_name == 'schedule'
         uses: paradedb/actions/slack-alert@v13
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

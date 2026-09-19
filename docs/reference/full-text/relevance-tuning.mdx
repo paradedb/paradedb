@@ -393,7 +393,9 @@ BM25 uses two parameters, `k1` and `b`, to control how term frequency and field 
 
 Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `title` field uses lower values to reduce the influence of repeated terms and field length. The `body` field gives repeated terms more weight while keeping the default length normalization.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 CREATE TABLE articles (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   title TEXT,
@@ -408,5 +410,88 @@ USING paradedb (
 )
 WITH (key_field='id');
 ```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("articles_idx")
+  .on(
+    articles.id,
+    indexing.paradedbField(
+      articles.title,
+      tokenizer.simple({ k1: 0.9, b: 0.3 }),
+    ),
+    indexing.paradedbField(
+      articles.body,
+      tokenizer.simple({ k1: 1.5, b: 0.75 }),
+    ),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        Article,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "title": {"tokenizer": Tokenizer.simple(options={"k1": 0.9, "b": 0.3})},
+                "body": {"tokenizer": Tokenizer.simple(options={"k1": 1.5, "b": 0.75})},
+            },
+            key_field="id",
+            name="articles_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "articles_idx",
+    indexing.ParadeDBField(Article.id),
+    indexing.ParadeDBField(
+        Article.title,
+        tokenizer=tokenizer.simple(options={"k1": 0.9, "b": 0.3}),
+    ),
+    indexing.ParadeDBField(
+        Article.body,
+        tokenizer=tokenizer.simple(options={"k1": 1.5, "b": 0.75}),
+    ),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :articles,
+  fields: {
+    id: {},
+    title: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 0.9, b: 0.3 }) },
+    body: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 1.5, b: 0.75 }) }
+  },
+  key_field: :id,
+  name: :articles_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<Article>()
+    .HasParadeDbIndex("articles_idx", e => e.Id)
+    .HasField(e => e.Title, Tokenizer.Simple(new() { ["k1"] = 0.9f, ["b"] = 0.3f }))
+    .HasField(e => e.Body, Tokenizer.Simple(new() { ["k1"] = 1.5f, ["b"] = 0.75f }));
+```
+
+</CodeGroup>
 
 You can set either parameter on its own or both together. Omitted parameters keep their defaults, and queries automatically use the values configured in the index.

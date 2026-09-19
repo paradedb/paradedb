@@ -1,0 +1,193 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan = off;
+CREATE TABLE segment_pruning_items (
+    id bigint PRIMARY KEY,
+    body text NOT NULL,
+    price bigint NOT NULL,
+    nullable_price bigint
+);
+CREATE INDEX segment_pruning_items_idx ON segment_pruning_items
+USING paradedb (id, body, price, nullable_price)
+WITH (partition_by = 'price,nullable_price', target_segment_count = 8, background_layer_sizes = '0');
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO segment_pruning_items
+SELECT g, 'common alpha ' || g, g, CASE WHEN g % 5 = 0 THEN NULL ELSE g END
+FROM generate_series(1, 16) g;
+INSERT INTO segment_pruning_items
+SELECT g, 'common beta ' || g, g, CASE WHEN g % 5 = 0 THEN NULL ELSE g END
+FROM generate_series(101, 116) g;
+INSERT INTO segment_pruning_items
+SELECT g, 'common alpha ' || g, g, CASE WHEN g % 5 = 0 THEN NULL ELSE g END
+FROM generate_series(201, 216) g;
+INSERT INTO segment_pruning_items
+SELECT g, 'common gamma ' || g, g, CASE WHEN g % 5 = 0 THEN NULL ELSE g END
+FROM generate_series(301, 316) g;
+RESET paradedb.global_mutable_segment_rows;
+CREATE FUNCTION segment_pruning_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+SELECT count(*) = 4 AS has_four_segments,
+       sum(num_docs) = 64 AS has_all_docs
+FROM paradedb.index_info('segment_pruning_items_idx');
+ has_four_segments | has_all_docs 
+-------------------+--------------
+ t                 | t
+(1 row)
+
+-- A narrow range intersects one segment; a gap between segment bounds intersects none.
+SELECT array_agg(id ORDER BY id) AS one_segment
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106;
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: segment_pruning_items)
+  one_segment  
+---------------
+ {104,105,106}
+(1 row)
+
+SELECT count(*) AS gap_count
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price = 150;
+ gap_count 
+-----------
+         0
+(1 row)
+
+-- NULL prevents a matches-all guarantee but must not change SQL semantics.
+SELECT array_agg(id ORDER BY id) AS nullable_range
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND nullable_price BETWEEN 101 AND 106;
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: segment_pruning_items)
+    nullable_range     
+-----------------------
+ {101,102,103,104,106}
+(1 row)
+
+-- Prove the parallel execution mode independently from result parity: the plan must be a Gather
+-- and EXPLAIN ANALYZE must report at least one launched worker.
+SET paradedb.planner_warnings = off;
+CREATE TEMP TABLE segment_pruning_serial_base AS
+SELECT id
+FROM segment_pruning_items
+WHERE body @@@ 'common' AND price < 250;
+SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers = 8;
+SET min_parallel_table_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET paradedb.min_rows_per_worker = 0;
+CREATE TEMP TABLE segment_pruning_parallel_base_plan AS
+SELECT line
+FROM segment_pruning_explain_analyze_lines(
+    $$SELECT id
+      FROM segment_pruning_items
+      WHERE body @@@ 'common' AND price < 250$$
+) AS line;
+COPY (
+    SELECT format(
+        'parallel_base_plan used_gather=%s workers_launched=%s',
+        EXISTS (
+            SELECT 1 FROM segment_pruning_parallel_base_plan WHERE line LIKE '%Gather%'
+        ),
+        EXISTS (
+            SELECT 1 FROM segment_pruning_parallel_base_plan
+            WHERE line ~ 'Workers Launched: [1-9][0-9]*'
+        )
+    )
+) TO STDOUT;
+parallel_base_plan used_gather=t workers_launched=t
+CREATE TEMP TABLE segment_pruning_parallel_base AS
+SELECT id
+FROM segment_pruning_items
+WHERE body @@@ 'common' AND price < 250;
+COPY (
+    SELECT format(
+        'parallel_base_rows_match=%s',
+        NOT EXISTS (
+            (SELECT id FROM segment_pruning_serial_base
+             EXCEPT ALL
+             SELECT id FROM segment_pruning_parallel_base)
+            UNION ALL
+            (SELECT id FROM segment_pruning_parallel_base
+             EXCEPT ALL
+             SELECT id FROM segment_pruning_serial_base)
+        )
+    )
+) TO STDOUT;
+parallel_base_rows_match=t
+RESET paradedb.min_rows_per_worker;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET max_parallel_workers;
+SET max_parallel_workers_per_gather = 0;
+RESET paradedb.planner_warnings;
+-- A generic prepared plan cannot carry planner-time SegmentIds. Execution resolves the bounds
+-- and rebuilds the proof after a new segment appears.
+SET plan_cache_mode = force_generic_plan;
+PREPARE segment_pruning_range(bigint, bigint) AS
+SELECT array_agg(id ORDER BY id)
+FROM segment_pruning_items
+WHERE id @@@ pdb.all() AND price BETWEEN $1 AND $2;
+EXECUTE segment_pruning_range(104, 106);
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: segment_pruning_items)
+   array_agg   
+---------------
+ {104,105,106}
+(1 row)
+
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO segment_pruning_items
+SELECT g, 'late common ' || g, g, g FROM generate_series(401, 404) g;
+RESET paradedb.global_mutable_segment_rows;
+EXECUTE segment_pruning_range(401, 404);
+     array_agg     
+-------------------
+ {401,402,403,404}
+(1 row)
+
+-- A segment without persisted stats must fail open, and later UPDATE/DELETE generations must be
+-- resolved by each execution rather than by the generic plan's original manifest.
+SET paradedb.planner_warnings = off;
+SET paradedb.global_mutable_segment_rows = 10000;
+INSERT INTO segment_pruning_items
+SELECT g, 'mutable common ' || g, g, g FROM generate_series(501, 504) g;
+RESET paradedb.global_mutable_segment_rows;
+EXECUTE segment_pruning_range(501, 504) \gset
+\echo :array_agg
+{501,502,503,504}
+UPDATE segment_pruning_items SET price = 550 WHERE id = 501;
+EXECUTE segment_pruning_range(501, 504) \gset
+\echo :array_agg
+{502,503,504}
+EXECUTE segment_pruning_range(550, 550) \gset
+\echo :array_agg
+{501}
+DELETE FROM segment_pruning_items WHERE id = 502;
+EXECUTE segment_pruning_range(501, 504) \gset
+\echo :array_agg
+{503,504}
+-- One parameterized BaseScan is rescanned for disjoint outer values. Every rescan must rebuild
+-- its candidate decisions instead of accumulating or reusing the preceding outer row's candidates.
+COPY (
+    SELECT array_agg(format('%s:%s', wanted.lo, hit.ids) ORDER BY wanted.lo)
+    FROM (VALUES (104::bigint), (204::bigint), (304::bigint)) AS wanted(lo)
+    CROSS JOIN LATERAL (
+        SELECT array_agg(id ORDER BY id) AS ids
+        FROM segment_pruning_items
+        WHERE id @@@ pdb.all() AND price BETWEEN wanted.lo AND wanted.lo + 2
+        OFFSET 0
+    ) AS hit
+) TO STDOUT;
+{"104:{104,105,106}","204:{204,205,206}","304:{304,305,306}"}
+RESET paradedb.planner_warnings;
+DEALLOCATE segment_pruning_range;
+DROP FUNCTION segment_pruning_explain_analyze_lines(text);
+RESET plan_cache_mode;
+RESET enable_indexscan;
+RESET max_parallel_workers_per_gather;
+DROP TABLE segment_pruning_items CASCADE;

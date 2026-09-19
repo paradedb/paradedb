@@ -1,0 +1,37 @@
+---
+title: Keyword
+description: Treat the whole value as one token and apply normalization
+canonical: https://www.paradedb.com/docs/reference/tokenizers/available-tokenizers/keyword
+---
+
+`pdb.keyword` replaces `pdb.literal_normalized`, which remains supported for compatibility.
+
+Fields using this tokenizer are columnar by default, so they support
+[aggregates](/reference/aggregates/overview) and [Top K queries](/reference/full-text/top-k).
+
+The keyword tokenizer is similar to the [literal](/reference/tokenizers/available-tokenizers/literal) tokenizer in that it does not split the source text.
+All text is treated as a single token, regardless of how many words are contained.
+
+However, unlike the literal tokenizer, this tokenizer allows [token filters](/reference/token-filters/overview) to be applied. By default, the keyword tokenizer
+also [lowercases](/reference/token-filters/lowercase) the text.
+
+Use [literal](/reference/tokenizers/available-tokenizers/literal) when indexed terms must preserve the original text for SQL equality and comparison pushdown.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, (description::pdb.keyword))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Tokenize me!'::pdb.keyword::text[];
+```
+
+```ini Expected Response
+       text
+------------------
+ {"tokenize me!"}
+(1 row)
+```

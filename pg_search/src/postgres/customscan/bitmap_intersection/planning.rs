@@ -81,6 +81,9 @@ struct HarvestedClause {
     clause: *mut pg_sys::Node,
     lossy: bool,
     matched_heap_expr: bool,
+    /// The coverable this clause belongs to, for messages: the clause itself, or
+    /// the whole OR when the clause is one arm of a covered disjunction.
+    described: *mut pg_sys::Node,
 }
 
 /// One index whose bitmap can feed the intersection, carrying what the combination
@@ -104,6 +107,8 @@ pub struct HarvestedBitmap {
     /// probe-able set; the owning scan should surface it as startup cost.
     pub build_cost: f64,
     covered: Vec<(*mut pg_sys::Node, bool)>,
+    /// Each covered coverable once, for messages.
+    described: Vec<*mut pg_sys::Node>,
 }
 
 impl HarvestedBitmap {
@@ -314,9 +319,9 @@ impl BitmapPlanner {
             let bm25 = PgSearchRelation::open(self.bm25_oid);
             if !bm25.is_ctid_sorted_asc() {
                 let covered = harvested
-                    .covered
+                    .described
                     .iter()
-                    .map(|(clause, _)| {
+                    .map(|clause| {
                         deparse_expr(
                             Some(&PlannerContext::from_planner(self.root)),
                             &bm25,
@@ -358,9 +363,22 @@ impl BitmapPlanner {
             return None;
         }
         let mut clauses = Vec::new();
-        let mut pending = vec![unsafe { (*bhp).bitmapqual }];
+        let root = unsafe { (*bhp).bitmapqual };
+        let mut pending = vec![root];
         unsafe {
             while let Some(path) = pending.pop() {
+                // A `BitmapOr` is only driven when it is the whole bitmapqual.
+                // `BitmapExec` makes a `BitmapAnd`'s first leaf the accumulator by
+                // seeding it, and `MultiExecBitmapOr` allocates its own bitmap
+                // rather than honouring that seed, so an OR nested under an AND
+                // would accumulate into a bitmap this node does not own. The
+                // combination is declined instead; each shape still works alone.
+                if path != root && (*path).type_ == pg_sys::NodeTag::T_BitmapOrPath {
+                    pgrx::debug1!(
+                        "[bitmap_intersection] skipping BitmapHeapPath: BitmapOr nested under BitmapAnd"
+                    );
+                    return None;
+                }
                 match (*path).type_ {
                     pg_sys::NodeTag::T_BitmapAndPath => {
                         let and_path: *mut pg_sys::BitmapAndPath = path.cast();
@@ -387,8 +405,14 @@ impl BitmapPlanner {
                                 clause,
                                 lossy: (*iclause).lossy,
                                 matched_heap_expr: self.matches_heap_expr(clause),
+                                described: clause,
                             });
                         }
+                    }
+                    pg_sys::NodeTag::T_BitmapOrPath => {
+                        let or_path: *mut pg_sys::BitmapOrPath = path.cast();
+                        let arms = PgList::<pg_sys::Path>::from_pg((*or_path).bitmapquals);
+                        clauses.extend(self.accept_disjunction(&arms)?);
                     }
                     unsupported => {
                         pgrx::debug1!(
@@ -422,6 +446,12 @@ impl BitmapPlanner {
             clauses.iter().filter(|c| c.matched_heap_expr).count(),
             unsafe { (*bhp).path.rows },
         );
+        let mut described: Vec<*mut pg_sys::Node> = Vec::new();
+        for clause in clauses.iter().filter(|c| c.matched_heap_expr) {
+            if !described.contains(&clause.described) {
+                described.push(clause.described);
+            }
+        }
         Some(HarvestedBitmap {
             path: bhp.cast(),
             build_cost,
@@ -430,7 +460,67 @@ impl BitmapPlanner {
                 .filter(|c| c.matched_heap_expr)
                 .map(|c| (c.clause, c.lossy))
                 .collect(),
+            described,
         })
+    }
+
+    /// The harvested clauses of a `BitmapOr` whose leaves are one `IndexPath` per
+    /// arm of a collected disjunction. `None` for any other shape, or when the arms
+    /// match no disjunction.
+    ///
+    /// Like the rest of [`Self::accept`], this re-derives everything from the path
+    /// tree rather than trusting how it was built, so the shape rules hold wherever
+    /// the tree came from.
+    ///
+    /// Every arm is recorded as lossy on purpose. The union proves the disjunction,
+    /// not the arm a given row satisfies, and each arm is still its own HeapFilter
+    /// in the built query (one `should` clause each), so a row found in the union
+    /// must still evaluate the arm it reached. What the bitmap buys is the miss: a
+    /// row in no arm's bitmap is rejected without touching the heap.
+    unsafe fn accept_disjunction(
+        &self,
+        arms: &PgList<pg_sys::Path>,
+    ) -> Option<Vec<HarvestedClause>> {
+        unsafe {
+            let mut leaves = Vec::new();
+            for arm in arms.iter_ptr() {
+                let ip = nodecast!(IndexPath, T_IndexPath, arm)?;
+                let indexoid = (*(*ip).indexinfo).indexoid;
+                if indexoid == self.bm25_oid {
+                    return None;
+                }
+                let iclauses = PgList::<pg_sys::IndexClause>::from_pg((*ip).indexclauses);
+                if iclauses.len() != 1 {
+                    return None;
+                }
+                let clause = (*(*iclauses.get_ptr(0)?).rinfo)
+                    .clause
+                    .cast::<pg_sys::Node>();
+                leaves.push((clause, PgSearchRelation::open(indexoid).name().to_string()));
+            }
+            let disjunction = self.heap_exprs.iter().find(|c| match c {
+                Coverable::Disjunction { arms, .. } => {
+                    arms.len() == leaves.len()
+                        && leaves.iter().all(|(clause, _)| {
+                            arms.iter()
+                                .any(|a| pg_sys::equal(clause.cast(), (*a).cast()))
+                        })
+                }
+                Coverable::Clause(_) => false,
+            })?;
+            Some(
+                leaves
+                    .into_iter()
+                    .map(|(clause, index_name)| HarvestedClause {
+                        index_name,
+                        clause,
+                        lossy: true,
+                        matched_heap_expr: true,
+                        described: disjunction.node(),
+                    })
+                    .collect(),
+            )
+        }
     }
 
     /// Build a `BitmapHeapPath` over the non-ParadeDB indexes whose bitmaps are worth

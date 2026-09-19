@@ -391,14 +391,13 @@ LIMIT 10;
      :     │     t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :     └──────────────────────────────────────────────────
      :     ┌───── Stage 2 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
-     :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-     :     │     DistributedLeafExec:
-     :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
-     :     │       t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
-     :     │       t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
+     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
-(35 rows)
+(34 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
@@ -458,14 +457,13 @@ LIMIT 10;
      :     │     t2: PgSearchScan: table=f, segments=3, partition=id[134..∞), fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :     └──────────────────────────────────────────────────
      :     ┌───── Stage 2 ── tasks=3, partitions=12
-     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=4
-     :     │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-     :     │     DistributedLeafExec:
-     :     │       t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
-     :     │       t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
-     :     │       t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
+     :     │ RepartitionExec: partitioning=Hash([file_id@1], 12), input_partitions=1
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=p, segments=3, partition=file_id[-∞..68), dynamic_filters=1, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=p, segments=3, partition=file_id[68..134), dynamic_filters=1, visibility=eager, query="all"
+     :     │     t2: PgSearchScan: table=p, segments=3, partition=file_id[134..∞), dynamic_filters=1, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
-(35 rows)
+(34 rows)
 
 SELECT f.title, p.size_bytes
 FROM mpp_join_files f LEFT JOIN mpp_join_pages p ON f.id = p.file_id
@@ -942,8 +940,8 @@ FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
 WHERE f.content ||| 'Section'
 ORDER BY f.title, p.size_bytes
 LIMIT 10;
-                                                                                                                               QUERY PLAN                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.title, p.size_bytes
    Relation Tree: f INNER p
@@ -956,9 +954,9 @@ LIMIT 10;
      :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST, size_bytes@3 ASC NULLS LAST], k=10, visibility_checks=[f, p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[ctid_0@0, title@2, ctid_1@3, size_bytes@5]
      :         CooperativeExec
-     :           PgSearchScan: table=f, segments=3, partition_by=id, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=f, segments=3, fetch=[title], query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=3, partition_by=file_id, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=p, segments=3, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT f.title, p.size_bytes

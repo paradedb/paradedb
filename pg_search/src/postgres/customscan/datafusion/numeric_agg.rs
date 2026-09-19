@@ -85,19 +85,6 @@ pub fn numeric_bytes_avg_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&NUMERIC_BYTES_AVG)
 }
 
-/// Resolve a numeric aggregate UDAF by name, for the plan codecs. These
-/// functions are not in any session registry, so serialized plans (parallel
-/// and MPP dispatch) decode them through here.
-pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    match name {
-        NUMERIC64_SUM_NAME => Some(numeric64_sum_udaf()),
-        NUMERIC64_AVG_NAME => Some(numeric64_avg_udaf()),
-        NUMERIC_BYTES_SUM_NAME => Some(numeric_bytes_sum_udaf()),
-        NUMERIC_BYTES_AVG_NAME => Some(numeric_bytes_avg_udaf()),
-        _ => None,
-    }
-}
-
 /// Split an AVG result blob into `(count, decimal-bytes sum)`.
 pub fn decode_avg_blob(blob: &[u8]) -> Result<(u64, &[u8])> {
     if blob.len() < 8 {

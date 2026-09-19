@@ -169,6 +169,7 @@ impl RangePartitioning {
     /// - a split point is NULL (`partition_bounds` gives NULL split points bespoke
     ///   empty-range semantics that DataFusion's model does not express), or
     /// - a split point cannot be represented as a `ScalarValue` of the column's type.
+    #[cfg(any(test, feature = "pg_test"))]
     pub fn to_datafusion(&self, schema: &SchemaRef) -> Option<Partitioning> {
         let (col_idx, field) = schema.column_with_name(self.partition_by.as_ref())?;
 
@@ -263,5 +264,49 @@ impl RangeSplitPoints {
             partition_by: self.partition_by.clone(),
             split_points: new_split_points,
         }
+    }
+
+    /// Converts these points into a DataFusion [`Partitioning::Range`] bounding `partition_count`
+    /// partitions, using all `self.points` as samples so DataFusion stage scaling (`scale`)
+    /// and anchor execution down-sample from the identical base.
+    ///
+    /// Returns `None` if:
+    /// - `partition_count <= 1` or `partition_count > self.points.len() + 1`,
+    /// - `self.partition_by` is not present in `schema`,
+    /// - any split point cannot be represented as a `ScalarValue` of the column's type, or
+    /// - DataFusion validation fails (e.g. non-strictly ordered points).
+    pub fn to_datafusion(
+        &self,
+        schema: &SchemaRef,
+        partition_count: usize,
+    ) -> Option<Partitioning> {
+        if partition_count <= 1 || partition_count > self.points.len() + 1 {
+            return None;
+        }
+
+        let (col_idx, field) = schema.column_with_name(self.partition_by.as_ref())?;
+
+        let samples = self
+            .points
+            .iter()
+            .map(|value| {
+                value
+                    .to_scalar(field.data_type())
+                    .map(|sv| SplitPoint::new(vec![sv]))
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        let sort_expr = PhysicalSortExpr {
+            expr: Arc::new(Column::new(self.partition_by.as_ref(), col_idx)),
+            options: SortOptions {
+                descending: false,
+                nulls_first: true,
+            },
+        };
+        let ordering = LexOrdering::new([sort_expr])?;
+
+        DataFusionRangePartitioning::try_new_with_samples(ordering, samples, partition_count)
+            .ok()
+            .map(Partitioning::Range)
     }
 }

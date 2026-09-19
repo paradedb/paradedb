@@ -813,6 +813,60 @@ mod tests {
         assert!(missing.to_datafusion(&schema).is_none());
     }
 
+    #[test]
+    fn test_range_split_points_to_datafusion_and_scaling() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::scan::range_partitioning::RangeSplitPoints;
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::common::ScalarValue;
+        use datafusion::physical_plan::Partitioning;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(CTID_FIELD_NAME, DataType::UInt64, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        // 5 persisted points: 10, 20, 30, 40, 50
+        let points = RangeSplitPoints {
+            partition_by: FieldName::from("id"),
+            points: vec![
+                PdbOwnedValue::I64(10),
+                PdbOwnedValue::I64(20),
+                PdbOwnedValue::I64(30),
+                PdbOwnedValue::I64(40),
+                PdbOwnedValue::I64(50),
+            ],
+        };
+
+        // Target partition count 3
+        let partitioning = points.to_datafusion(&schema, 3).unwrap();
+        assert_eq!(partitioning.partition_count(), 3);
+        let Partitioning::Range(df_range) = &partitioning else {
+            panic!("expected range partitioning, got {partitioning:?}");
+        };
+        // Samples retain all 5 persisted points
+        assert_eq!(df_range.samples().len(), 5);
+        assert_eq!(df_range.split_points().len(), 2);
+
+        // Scaling DataFusion partitioning to T=2 must produce split points identical
+        // to RangeSplitPoints::build(2)
+        let scaled = df_range.scale(2).unwrap();
+        let built = points.build(2);
+        assert_eq!(scaled.split_points().len(), 1);
+        assert_eq!(built.split_points.len(), 1);
+        assert_eq!(
+            scaled.split_points()[0].values(),
+            &[ScalarValue::Int64(Some(30))]
+        );
+        assert_eq!(built.split_points[0], PdbOwnedValue::I64(30));
+
+        // Invalid partition count (<= 1 or > points.len() + 1) returns None
+        assert!(points.to_datafusion(&schema, 1).is_none());
+        assert!(points.to_datafusion(&schema, 0).is_none());
+        assert!(points.to_datafusion(&schema, 7).is_none());
+    }
+
     #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioned_assigned_execution() {

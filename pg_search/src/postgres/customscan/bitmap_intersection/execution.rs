@@ -244,16 +244,23 @@ impl BitmapExec {
         }
     }
 
-    /// Run the planned child once, pre-seeding its first leaf with a TIDBitmap this
-    /// node creates and owns — the parent-node contract documented in
-    /// `MultiExecBitmapIndexScan`. A `BitmapAnd` child keeps its first leaf's bitmap
-    /// as the intersection accumulator, so the seed lands there.
+    /// Run the planned child once into a TIDBitmap this node creates and owns, so
+    /// the bitmap lands in `area`. A `BitmapIndexScan` or `BitmapAnd` child is
+    /// pre-seeded through its first leaf, the parent-node contract documented in
+    /// `MultiExecBitmapIndexScan`; a `BitmapAnd` keeps that leaf's bitmap as its
+    /// accumulator. A `BitmapOr` child is driven here instead, because
+    /// `MultiExecBitmapOr` allocates its own bitmap and overwrites every leaf's seed.
     unsafe fn run_child(&mut self, area: *mut pg_sys::dsa_area) {
         unsafe {
             let work_mem_bytes = (*std::ptr::addr_of!(pg_sys::work_mem)) as i64 * 1024;
             let tbm = pg_sys::tbm_create(work_mem_bytes as _, area);
-            seed_first_leaf(self.child, tbm);
-            let result = pg_sys::MultiExecProcNode(self.child);
+            let result = if (*self.child).type_ == pg_sys::NodeTag::T_BitmapOrState {
+                union_into(self.child.cast(), tbm);
+                tbm.cast::<pg_sys::Node>()
+            } else {
+                seed_first_leaf(self.child, tbm);
+                pg_sys::MultiExecProcNode(self.child)
+            };
             if result.is_null() {
                 pg_sys::tbm_free(tbm);
                 return;
@@ -270,6 +277,49 @@ impl BitmapExec {
             );
             self.tbm = result.cast();
             self.built_in = area;
+        }
+    }
+}
+
+/// `MultiExecBitmapOr` with the caller's bitmap as the accumulator: each
+/// `BitmapIndexScan` leaf ORs straight into `tbm` through its seed, and any other
+/// subplan's bitmap is unioned in and freed, as core does. Instrumented like the
+/// node it stands in for, so EXPLAIN ANALYZE still times the `BitmapOr`.
+unsafe fn union_into(or: *mut pg_sys::BitmapOrState, tbm: *mut pg_sys::TIDBitmap) {
+    unsafe {
+        // An empty union would leave `tbm` matching nothing, which rejects every
+        // row instead of none; core raises on this for the same reason.
+        assert!((*or).nplans > 0, "BitmapOr must have subplans");
+        let instrument = (*or).ps.instrument;
+        if !instrument.is_null() {
+            pg_sys::InstrStartNode(instrument);
+        }
+        for i in 0..(*or).nplans as usize {
+            let subplan = *(*or).bitmapplans.add(i);
+            match (*subplan).type_ {
+                pg_sys::NodeTag::T_BitmapIndexScanState => {
+                    (*subplan.cast::<pg_sys::BitmapIndexScanState>()).biss_result = tbm;
+                    let filled = pg_sys::MultiExecProcNode(subplan);
+                    assert_eq!(
+                        filled.cast::<pg_sys::TIDBitmap>(),
+                        tbm,
+                        "BitmapIndexScan must fill the seeded bitmap"
+                    );
+                }
+                pg_sys::NodeTag::T_BitmapOrState => union_into(subplan.cast(), tbm),
+                _ => {
+                    let sub = pg_sys::MultiExecProcNode(subplan);
+                    assert!(
+                        !sub.is_null() && (*sub).type_ == pg_sys::NodeTag::T_TIDBitmap,
+                        "bitmap subplan must return a TIDBitmap"
+                    );
+                    pg_sys::tbm_union(tbm, sub.cast());
+                    pg_sys::tbm_free(sub.cast());
+                }
+            }
+        }
+        if !instrument.is_null() {
+            pg_sys::InstrStopNode(instrument, 0.0);
         }
     }
 }

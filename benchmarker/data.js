@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789780115841,
+  "lastUpdate": 1789806673308,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4888,6 +4888,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.147,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44544cdcf5305ae3f3ebdad6f087ddd7652269d2",
+          "message": "perf: Optimize range partitioning across multi-key and asymmetric joins (#6342)\n\n## What\n\nCoordinates range partitioning across MPP joins, prioritizing large\nrelations and multi-key bridge tables, enables 1-sided asymmetric range\nadaptation, and incorporates upstream DataFusion improvements.\n\n## Why\n\n- Tables declaring multiple partition keys (e.g. `user_id,topic_id`)\ncould previously be claimed by small dimension joins during bottom-up\ntraversal, locking them out of 0-shuffle co-partitioning with large fact\ntables.\n- Joining partitioned tables with unpartitioned ones can keep the larger\ntable local (0 shuffles) and adapt only the smaller partner (1 shuffle),\nrather than forcing a 2-sided hash shuffle.\n- Tracked upstream as https://github.com/apache/datafusion/issues/25302\n- `JoinSelection` converts partitioned joins to `CollectLeft`\n(broadcast) based on row/byte thresholds alone, ignoring that physically\nco-partitioned inputs run task-locally with zero network cost.\n- Tracked upstream as https://github.com/apache/datafusion/issues/25301\n- Round-robin repartitioning added redundant partitions and stages in\nour single-threaded task model.\n\n## How\n\n- `RangePartitioningRule`: Ranks candidate join edges globally by data\nvolume (`min(left_rows, right_rows)`). Stamps asymmetric anchors only\nwhen strictly larger than their partner or when the partner is already\ncommitted to another key.\n- `RangeCoPartitionedJoinRule`: Placed before `EnsureRequirements` to\nflip `CollectLeft` back to `Partitioned` for range co-partitioned inputs\nand peel unnecessary repartition nodes.\n- Session config: Disabled `optimizer.enable_round_robin_repartition` in\nplanner and worker sessions.\n\n## Tests\n\n- Added `pg_search/tests/pg_regress/sql/mpp_range_partitioning.sql`\nexercising 2-table co-partitioning, multi-key bridge joins,\naggregations, and asymmetric joins.\n- Benchmarks show up to 70% improvement on some range partitioned joins.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-19T01:08:38-07:00",
+          "tree_id": "dca5da50ecd0d8231949565cf7069a2017112234",
+          "url": "https://github.com/paradedb/paradedb/commit/44544cdcf5305ae3f3ebdad6f087ddd7652269d2"
+        },
+        "date": 1789806668319,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6588264287705596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.599,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.941,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.131,
             "unit": "ms"
           }
         ]

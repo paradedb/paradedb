@@ -110,7 +110,7 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         "literal" => SearchTokenizer::Keyword,
-        "literal_normalized" => {
+        "keyword" | "literal_normalized" => {
             SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default())
         }
         "chinese_compatible" => {
@@ -318,16 +318,18 @@ pub fn search_field_config_from_type(
     let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
     // columnar=true/false is our renaming of Tantivy's `fast` option
     // fast is default to true for any field that's not text or JSON
-    // if it is text or JSON, it also default to true for literal and literal_normalized
+    // if it is text or JSON, it also default to true for literal and keyword
     // otherwise the user needs to explicitly set it to true
     let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
 
-    let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
-    {
-        // literal and literal_normalized default to fast=true (columnar=true)
+    let (fast, fieldnorms, record) = if matches!(
+        type_name.as_str(),
+        "literal" | "keyword" | "literal_normalized"
+    ) {
+        // literal and keyword default to fast=true (columnar=true)
         let fast = columnar_explicit.unwrap_or(true);
 
-        // literal and literal_normalized default to fieldnorms=false
+        // literal and keyword default to fieldnorms=false
         let fieldnorms = parsed_fieldnorms.unwrap_or(false);
         (fast, fieldnorms, IndexRecordOption::Basic)
     } else {

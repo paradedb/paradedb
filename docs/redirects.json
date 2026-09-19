@@ -1,5 +1,9 @@
 [
   {
+    "source": "/reference/tokenizers/available-tokenizers/literal-normalized",
+    "destination": "/reference/tokenizers/available-tokenizers/keyword"
+  },
+  {
     "source": "/welcome/introduction",
     "destination": "/start/introduction"
   },
@@ -101,7 +105,7 @@
   },
   {
     "source": "/documentation/tokenizers/available-tokenizers/literal-normalized",
-    "destination": "/reference/tokenizers/available-tokenizers/literal-normalized"
+    "destination": "/reference/tokenizers/available-tokenizers/keyword"
   },
   {
     "source": "/documentation/tokenizers/available-tokenizers/whitespace",

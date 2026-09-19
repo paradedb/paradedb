@@ -166,20 +166,20 @@ Tokenizer configuration is usually expressed through casts when creating an inde
 
 | Cast or typmod             | Use                                                                         | Reference                                                                           |
 | -------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `::pdb.simple(...)`        | Default configurable tokenizer with filters such as stemming and stopwords. | [Simple](/reference/tokenizers/available-tokenizers/simple)                         |
-| `::pdb.icu(...)`           | ICU tokenizer for multilingual text.                                        | [ICU](/reference/tokenizers/available-tokenizers/icu)                               |
-| `::pdb.ngram(...)`         | N-gram tokenization.                                                        | [Ngrams](/reference/tokenizers/available-tokenizers/ngrams)                         |
+| `::pdb.alias(...)`         | Assign an indexed expression a queryable field name.                        | [Indexing Expressions](/reference/indexing/indexing-expressions)                    |
+| `::pdb.chinese_compatible` | Chinese-compatible tokenizer.                                               | [Chinese Compatible](/reference/tokenizers/available-tokenizers/chinese-compatible) |
 | `::pdb.edge_ngram(...)`    | Prefix-oriented n-gram tokenization.                                        | [Edge Ngrams](/reference/tokenizers/available-tokenizers/edge-ngrams)               |
-| `::pdb.whitespace`         | Whitespace tokenization.                                                    | [Whitespace](/reference/tokenizers/available-tokenizers/whitespace)                 |
+| `::pdb.icu(...)`           | ICU tokenizer for multilingual text.                                        | [ICU](/reference/tokenizers/available-tokenizers/icu)                               |
+| `::pdb.jieba(...)`         | Chinese tokenization with Jieba.                                            | [Jieba](/reference/tokenizers/available-tokenizers/jieba)                           |
+| `::pdb.keyword`            | Whole-value tokenization with normalization.                                | [Keyword](/reference/tokenizers/available-tokenizers/keyword)                       |
+| `::pdb.lindera(...)`       | Japanese/Korean tokenization with Lindera.                                  | [Lindera](/reference/tokenizers/available-tokenizers/lindera)                       |
 | `::pdb.literal`            | Treat the whole text value as one token.                                    | [Literal](/reference/tokenizers/available-tokenizers/literal)                       |
-| `::pdb.literal_normalized` | Literal tokenization with normalization.                                    | [Literal Normalized](/reference/tokenizers/available-tokenizers/literal-normalized) |
+| `::pdb.ngram(...)`         | N-gram tokenization.                                                        | [Ngrams](/reference/tokenizers/available-tokenizers/ngrams)                         |
 | `::pdb.regex_pattern(...)` | Regex-based tokenization.                                                   | [Regex Tokenizer](/reference/tokenizers/available-tokenizers/regex)                 |
+| `::pdb.simple(...)`        | Default configurable tokenizer with filters such as stemming and stopwords. | [Simple](/reference/tokenizers/available-tokenizers/simple)                         |
 | `::pdb.source_code`        | Source-code tokenization.                                                   | [Source Code](/reference/tokenizers/available-tokenizers/source-code)               |
 | `::pdb.unicode_words`      | Unicode word tokenization.                                                  | [Unicode](/reference/tokenizers/available-tokenizers/unicode)                       |
-| `::pdb.jieba(...)`         | Chinese tokenization with Jieba.                                            | [Jieba](/reference/tokenizers/available-tokenizers/jieba)                           |
-| `::pdb.lindera(...)`       | Japanese/Korean tokenization with Lindera.                                  | [Lindera](/reference/tokenizers/available-tokenizers/lindera)                       |
-| `::pdb.chinese_compatible` | Chinese-compatible tokenizer.                                               | [Chinese Compatible](/reference/tokenizers/available-tokenizers/chinese-compatible) |
-| `::pdb.alias(...)`         | Assign an indexed expression a queryable field name.                        | [Indexing Expressions](/reference/indexing/indexing-expressions)                    |
+| `::pdb.whitespace`         | Whitespace tokenization.                                                    | [Whitespace](/reference/tokenizers/available-tokenizers/whitespace)                 |
 
 ## Compatibility and Internal Functions
 

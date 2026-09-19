@@ -81,19 +81,19 @@
                       {
                         "group": "Tokenizers",
                         "pages": [
-                          "reference/tokenizers/available-tokenizers/unicode",
-                          "reference/tokenizers/available-tokenizers/literal",
-                          "reference/tokenizers/available-tokenizers/literal-normalized",
-                          "reference/tokenizers/available-tokenizers/whitespace",
-                          "reference/tokenizers/available-tokenizers/ngrams",
-                          "reference/tokenizers/available-tokenizers/edge-ngrams",
-                          "reference/tokenizers/available-tokenizers/simple",
-                          "reference/tokenizers/available-tokenizers/regex",
                           "reference/tokenizers/available-tokenizers/chinese-compatible",
-                          "reference/tokenizers/available-tokenizers/lindera",
+                          "reference/tokenizers/available-tokenizers/edge-ngrams",
                           "reference/tokenizers/available-tokenizers/icu",
                           "reference/tokenizers/available-tokenizers/jieba",
-                          "reference/tokenizers/available-tokenizers/source-code"
+                          "reference/tokenizers/available-tokenizers/keyword",
+                          "reference/tokenizers/available-tokenizers/lindera",
+                          "reference/tokenizers/available-tokenizers/literal",
+                          "reference/tokenizers/available-tokenizers/ngrams",
+                          "reference/tokenizers/available-tokenizers/regex",
+                          "reference/tokenizers/available-tokenizers/simple",
+                          "reference/tokenizers/available-tokenizers/source-code",
+                          "reference/tokenizers/available-tokenizers/unicode",
+                          "reference/tokenizers/available-tokenizers/whitespace"
                         ]
                       },
                       {

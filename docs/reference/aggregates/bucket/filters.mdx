@@ -103,8 +103,8 @@ await dbContext
 <Note>
   `===` matches indexed terms exactly, so the casing depends on `category`'s
   tokenizer. With the default tokenizer or
-  [`literal_normalized`](/reference/tokenizers/available-tokenizers/literal-normalized),
-  terms are lowercased: use `electronics`. With the
+  [`keyword`](/reference/tokenizers/available-tokenizers/keyword), terms are
+  lowercased: use `electronics`. With the
   [`literal`](/reference/tokenizers/available-tokenizers/literal) tokenizer,
   which preserves the original casing, use `Electronics`.
 </Note>

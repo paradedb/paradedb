@@ -45,7 +45,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::{QueryError, SearchQueryInput, pdb_query::pdb};
 use anyhow::Result;
-use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
+use decimal_bytes::{MAX_DECIMAL64_NO_SCALE_PRECISION, MAX_DECIMAL64_NO_SCALE_SCALE};
 use pgrx::{PgBuiltInOids, PgOid, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::{Field, FieldEntry, FieldType, Schema};
@@ -315,14 +315,22 @@ impl SearchFieldType {
                     Ok(SearchFieldType::F64((*builtin).into()))
                 }
                 PgBuiltInOids::NUMERICOID => {
-                    // Route NUMERIC based on precision:
-                    // - precision <= 18 with defined scale -> Numeric64 (I64 fixed-point)
-                    // - precision > 18 or unlimited -> NumericBytes (lexicographic bytes)
+                    // Route NUMERIC based on what `Decimal64NoScale` can actually encode:
+                    // - precision <= 18 and |scale| <= 18 -> Numeric64 (I64 fixed-point)
+                    // - anything else, or unlimited        -> NumericBytes (lexicographic bytes)
                     //
-                    // The 18-digit threshold comes from decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION,
-                    // which is the maximum number of decimal digits that can be stored in an i64
-                    // without overflow (i64::MAX = 9,223,372,036,854,775,807, which has 19 digits,
-                    // but we need headroom for the scaled representation).
+                    // The 18-digit precision threshold comes from
+                    // decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION, the maximum number of
+                    // decimal digits that fit in an i64 without overflow (i64::MAX =
+                    // 9,223,372,036,854,775,807, which has 19 digits, but we need headroom for
+                    // the scaled representation).
+                    //
+                    // The scale is bounded separately by MAX_DECIMAL64_NO_SCALE_SCALE. PostgreSQL
+                    // accepts a much wider scale range than the encoder does, so checking only the
+                    // precision let types such as `numeric(3,20)` select Numeric64 and then fail
+                    // at index time — `CREATE INDEX` on a populated table, or the first search
+                    // after an empty index was populated. This mirrors the encoder's own check so
+                    // the two cannot drift apart.
                     //
                     // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
                     // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
@@ -330,6 +338,7 @@ impl SearchFieldType {
                     if let Some(scale) = scale
                         && precision > 0
                         && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16
+                        && i32::from(scale).abs() <= MAX_DECIMAL64_NO_SCALE_SCALE
                     {
                         return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
                     }

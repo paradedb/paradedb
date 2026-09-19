@@ -460,10 +460,10 @@ modelBuilder.Entity<MockItem>()
 
 BM25 uses two parameters, `k1` and `b`, to control how term frequency and field length affect relevance scores. You can configure them independently for each field when creating an index.
 
-| Parameter | Default | Accepted Range          | Effect                                                                                                                                                                                                  |
-| --------- | ------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation. Lower values reduce the benefit of repeated query terms; higher values give them more weight. At `0`, term frequency and field length do not affect a term's score. |
-| `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the field's average length. Higher values penalize longer fields more strongly. At `0`, normalization is disabled; at `1`, it is fully applied.         |
+| Parameter | Default | Accepted Range          | Effect                                                                                                                                                                                               |
+| --------- | ------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation. Lower values reduce the benefit of repeated query terms; higher values give them more weight. At `0`, repeated occurrences add no weight, and `b` has no effect. |
+| `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the field's average length. Higher values penalize longer fields more strongly. At `0`, normalization is disabled; at `1`, it is fully applied.      |
 
 Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `description` field uses lower values to reduce the influence of repeated terms and field length. The `category` field gives repeated terms more weight while keeping the default length normalization.
 

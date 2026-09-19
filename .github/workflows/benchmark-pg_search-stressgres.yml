@@ -9,7 +9,7 @@ name: Benchmark pg_search (Stressgres)
 # Run Stressgres nightly on main, on labeled PRs, or manually.
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily at 07:30 UTC
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:

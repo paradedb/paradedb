@@ -22,6 +22,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 };
 use crate::postgres::customscan::datafusion::timestamp_to_date::TIMESTAMP_TO_DATE_UDF_NAME;
 use crate::postgres::customscan::joinscan::build::{RelNode, RelationAlias};
+use datafusion::common::Column;
 use pgrx::PgList;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -113,18 +114,15 @@ impl TopKSortTarget {
     /// Resolve the DataFusion column reference for the sort target.
     ///
     /// Aggregate targets use the `agg_{idx}` alias assigned during aggregate
-    /// expression building.
-    /// Group targets first resolve their underlying qualified
-    /// source column through the join plan. An identity transform keeps that name.
-    /// A timestamp-to-date transform instead uses the UDF output schema name,
-    /// quoted so DataFusion treats it as one field.
-    pub fn resolve_sort_col_name(
+    /// expression building. Group targets use either the qualified source column
+    /// or the unqualified UDF output name, without parsing SQL identifiers.
+    pub fn resolve_sort_column(
         &self,
         targetlist: &JoinAggregateTargetList,
         plan: &RelNode,
-    ) -> String {
+    ) -> Column {
         match self {
-            TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
+            TopKSortTarget::Aggregate(idx) => Column::new_unqualified(format!("agg_{idx}")),
             TopKSortTarget::GroupColumn(idx) => {
                 let gc = &targetlist.group_columns[*idx];
                 let source = plan.source_at_plan_position(gc.plan_position);
@@ -134,12 +132,12 @@ impl TopKSortTarget {
                     format!("unknown_plan_position_{}", gc.plan_position)
                 };
 
-                let column_name = format!("{}.{}", alias, gc.field_name);
                 match gc.transform {
-                    GroupingTransform::Identity => column_name,
-                    GroupingTransform::TimestampToDate => {
-                        format!(r#""{TIMESTAMP_TO_DATE_UDF_NAME}({column_name})""#)
-                    }
+                    GroupingTransform::Identity => Column::new(Some(alias), &gc.field_name),
+                    GroupingTransform::TimestampToDate => Column::new_unqualified(format!(
+                        "{TIMESTAMP_TO_DATE_UDF_NAME}({alias}.{})",
+                        gc.field_name
+                    )),
                 }
             }
         }

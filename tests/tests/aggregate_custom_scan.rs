@@ -359,6 +359,40 @@ fn test_group_by_date_function(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_group_by_date_topk_quoted_column(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE quoted_date_events (id INT PRIMARY KEY, "created""at" TIMESTAMP);
+    INSERT INTO quoted_date_events VALUES
+        (1, '2024-01-01 08:00:00'),
+        (2, '2024-01-01 12:00:00'),
+        (3, '2024-01-02 09:00:00'),
+        (4, '2024-01-03 10:00:00');
+    CREATE INDEX quoted_date_events_idx ON quoted_date_events
+        USING paradedb (id, "created""at");
+    SET paradedb.enable_aggregate_custom_scan TO on;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"SELECT DATE("created""at") AS day, COUNT(*)
+                   FROM quoted_date_events WHERE id @@@ pdb.all()
+                   GROUP BY DATE("created""at") ORDER BY day DESC LIMIT 2"#;
+    let plan: Vec<String> = format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    assert!(
+        plan.join("\n").contains("SortExec: TopK(fetch=2)"),
+        "expected DataFusion TopK for the quoted column: {plan:?}"
+    );
+    let rows = query.fetch::<(Date, i64)>(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(date!(2024 - 01 - 03), 1), (date!(2024 - 01 - 02), 1)]
+    );
+
+    "SET paradedb.enable_aggregate_custom_scan TO off;".execute(&mut conn);
+    let fallback = format!("{query} -- fallback").fetch::<(Date, i64)>(&mut conn);
+    assert_eq!(rows, fallback);
+}
+
+#[rstest]
 fn test_group_by_date_null_group_metrics(mut conn: PgConnection) {
     // DataFusion groups the NULL result of DATE(created_at) natively. Verify
     // that the NULL group carries every aggregate value, not only COUNT(*).

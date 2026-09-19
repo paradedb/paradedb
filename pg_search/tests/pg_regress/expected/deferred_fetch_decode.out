@@ -606,26 +606,25 @@ LIMIT 5;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], fetch=5
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=6
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ LocalLimitExec: fetch=5
      :   │   TantivyDecodeExec: decode=[title]
      :   │     SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], k=5, visibility_checks=[d, f]
      :   │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
-     :   │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │           DistributedLeafExec:
-     :   │             t0: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
-     :   │             t1: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
+     :   │           t1: PgSearchScan: table=f, segments=2, fetch=[title], dynamic_filters=2, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=2
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :     └──────────────────────────────────────────────────
-(29 rows)
+(28 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id
@@ -660,9 +659,9 @@ LIMIT 5;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
      : │   SortPreservingMergeExec: [title@2 ASC NULLS LAST, id@3 ASC NULLS LAST], fetch=5
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=6
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ LocalLimitExec: fetch=5
      :   │   TantivyDecodeExec: decode=[title]
      :   │     TantivyFetchExec: fetch=[title]
@@ -670,17 +669,16 @@ LIMIT 5;
      :   │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
      :   │           CoalescePartitionsExec
      :   │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=1
-     :   │           RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :   │             DistributedLeafExec:
-     :   │               t0: PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
-     :   │               t1: PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
+     :   │           DistributedLeafExec:
+     :   │             t0: PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
+     :   │             t1: PgSearchScan: table=f, segments=2, dynamic_filters=2, query="all"
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=1, partitions=2
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
      :     │     t0: PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
      :     └──────────────────────────────────────────────────
-(30 rows)
+(29 rows)
 
 SELECT f.id, f.title
 FROM dfd_documents d JOIN dfd_files f ON f.document_id = d.id

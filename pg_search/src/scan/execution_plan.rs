@@ -69,6 +69,7 @@ use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
@@ -201,6 +202,10 @@ pub struct PgSearchScanPlan {
     pub(crate) assigned_partition: Option<usize>,
     pub(crate) partition_segments: Option<PartitionSegments>,
     pub(crate) scan_mode: crate::scan::ScanMode,
+    /// Fallback ExprContext guard created during dispatch decode when heap filters are present
+    /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
+    /// the underlying ExprContext remains valid across execution.
+    _expr_context_guard: Option<Arc<ExprContextGuard>>,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -227,6 +232,7 @@ impl Clone for PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
+            _expr_context_guard: self._expr_context_guard.clone(),
         }
     }
 }
@@ -281,7 +287,7 @@ impl PgSearchScanPlan {
             .as_ref()
             .map(|s| s.build(partition_count));
         let partitioning =
-            declared_partitioning(&schema, partition_count, range_boundaries.as_ref());
+            declared_partitioning(&schema, partition_count, range_split_points.as_ref());
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = Arc::new(PlanProperties::new(
@@ -354,6 +360,7 @@ impl PgSearchScanPlan {
             assigned_partition: None,
             partition_segments: None,
             scan_mode,
+            _expr_context_guard: None,
         }
     }
 
@@ -384,7 +391,7 @@ impl PgSearchScanPlan {
                 points.partitions_for(target_partitions)
             });
 
-        let (new_state, range_boundaries) = {
+        let new_state = {
             let state_guard = self.state.lock().unwrap();
             let new_state = match &*state_guard {
                 ExecutionState::Shared {
@@ -412,18 +419,14 @@ impl PgSearchScanPlan {
                 }
             };
 
-            let range_boundaries = match &new_state {
-                ExecutionState::RangePartitioned {
-                    range_boundaries, ..
-                } => Some(range_boundaries.clone()),
-                _ => None,
-            };
-            (new_state, range_boundaries)
+            new_state
         };
 
-        let partitioning =
-            declared_partitioning(&self.schema(), target_partitions, range_boundaries.as_ref());
-
+        let partitioning = declared_partitioning(
+            &self.schema(),
+            target_partitions,
+            self.range_split_points.as_ref(),
+        );
         let new_properties = Arc::new(PlanProperties::new(
             self.properties.eq_properties.clone(),
             partitioning,
@@ -466,6 +469,7 @@ impl PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
+            _expr_context_guard: self._expr_context_guard.clone(),
         })
     }
 
@@ -755,12 +759,22 @@ impl PgSearchScanPlan {
 
         let query = descriptor.scan_mode.query().clone();
         let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
+        // If heap filters are present but no ExprContext was threaded through the codec
+        // (e.g. during internal plan roundtrips or standalone deserialization), allocate a fallback
+        // ExprContextGuard and retain it on the plan so the context lives for the duration of execution.
+        let fallback_guard = if expr_context.is_none() && query.has_heap_filters() {
+            Some(Arc::new(ExprContextGuard::new()))
+        } else {
+            None
+        };
+        let effective_expr_context =
+            expr_context.or_else(|| fallback_guard.as_ref().map(|g| g.as_ptr()));
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             descriptor.score_needed,
             mvcc,
-            expr_context.and_then(std::ptr::NonNull::new),
+            effective_expr_context.and_then(std::ptr::NonNull::new),
             // TODO: MPP is currently disabled when a scan requires parameter solving: see
             // https://github.com/paradedb/paradedb/issues/5445.
             None,
@@ -832,6 +846,7 @@ impl PgSearchScanPlan {
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
         plan.eager_fields = descriptor.eager_fields;
+        plan._expr_context_guard = fallback_guard;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
         } else {
@@ -880,18 +895,17 @@ struct ScanDispatchDescriptor {
 
 /// The output partitioning a scan declares to DataFusion.
 ///
-/// `Partitioning::Range` is declared only when the boundaries cover exactly
-/// `partition_count` partitions and translate faithfully to DataFusion's model.
-/// Otherwise `UnknownPartitioning` preserves the requested count.
+/// `Partitioning::Range` is declared only when the points translate faithfully to
+/// DataFusion's sample-backed range model. Otherwise `UnknownPartitioning` preserves
+/// the requested count.
 fn declared_partitioning(
     schema: &SchemaRef,
     partition_count: usize,
-    range_boundaries: Option<&RangePartitioning>,
+    range_split_points: Option<&RangeSplitPoints>,
 ) -> Partitioning {
     if partition_count > 1
-        && let Some(boundaries) = range_boundaries
-        && boundaries.split_points.len() + 1 == partition_count
-        && let Some(partitioning) = boundaries.to_datafusion(schema)
+        && let Some(points) = range_split_points
+        && let Some(partitioning) = points.to_datafusion(schema, partition_count)
     {
         return partitioning;
     }

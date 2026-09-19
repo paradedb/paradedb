@@ -748,6 +748,7 @@ mod tests {
         }
     }
 
+    #[cfg(test)]
     fn summary(out_of_order: bool, expansion: Expansion) -> PathSummary {
         PathSummary {
             out_of_order,

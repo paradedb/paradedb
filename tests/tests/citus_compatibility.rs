@@ -105,7 +105,7 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     // This is the exact pattern that broke with Citus when hooks weren't chained
     let rows: Vec<(i32, String)> = r#"
         SELECT id, name FROM products 
-        WHERE description @@@ 'laptop OR keyboard'
+        WHERE (description ||| 'laptop' OR description ||| 'keyboard')
           AND id IN (SELECT product_id FROM reviews LIMIT 3)
         ORDER BY id
     "#
@@ -117,7 +117,7 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (VERBOSE, FORMAT JSON)
         SELECT id, name FROM products 
-        WHERE description @@@ 'laptop OR keyboard'
+        WHERE (description ||| 'laptop' OR description ||| 'keyboard')
           AND id IN (SELECT product_id FROM reviews LIMIT 3)
         ORDER BY id
     "#
@@ -147,10 +147,10 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     // Test 2: Subquery with LIMIT and search on both tables
     let rows: Vec<(i32, String)> = r#"
         SELECT id, name FROM products 
-        WHERE description @@@ 'monitor OR desk'
+        WHERE (description ||| 'monitor' OR description ||| 'desk')
           AND id IN (
             SELECT product_id FROM reviews 
-            WHERE content @@@ 'quality'
+            WHERE content ||| 'quality'
             LIMIT 2
           )
         ORDER BY id
@@ -163,10 +163,10 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (VERBOSE, FORMAT JSON)
         SELECT id, name FROM products 
-        WHERE description @@@ 'monitor OR desk'
+        WHERE (description ||| 'monitor' OR description ||| 'desk')
           AND id IN (
             SELECT product_id FROM reviews 
-            WHERE content @@@ 'quality'
+            WHERE content ||| 'quality'
             LIMIT 2
           )
         ORDER BY id
@@ -196,12 +196,12 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
         WITH top_rated AS (
           SELECT product_id FROM reviews 
-          WHERE content @@@ 'best OR amazing' 
+          WHERE (content ||| 'best' OR content ||| 'amazing')
           ORDER BY rating DESC 
           LIMIT 2
         )
         SELECT id, name FROM products 
-        WHERE description @@@ 'keyboard OR monitor'
+        WHERE (description ||| 'keyboard' OR description ||| 'monitor')
           AND id IN (SELECT product_id FROM top_rated)
         ORDER BY id
     "#
@@ -330,7 +330,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     // Test that search works on the sharded BM25 index
     let rows: Vec<(i32, String)> = r#"
         SELECT id, title FROM articles
-        WHERE body @@@ 'PostgreSQL OR sharding'
+        WHERE (body ||| 'PostgreSQL' OR body ||| 'sharding')
         ORDER BY id
     "#
     .fetch(&mut conn);
@@ -349,7 +349,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (VERBOSE, FORMAT JSON)
         SELECT id, title FROM articles
-        WHERE body @@@ 'PostgreSQL OR sharding'
+        WHERE (body ||| 'PostgreSQL' OR body ||| 'sharding')
         ORDER BY id
     "#
     .fetch_one(&mut conn);
@@ -391,7 +391,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
         SELECT a.name, ar.title
         FROM authors a
         JOIN articles ar ON a.id = ar.author_id
-        WHERE ar.body @@@ 'PostgreSQL'
+        WHERE ar.body ||| 'PostgreSQL'
         ORDER BY a.name, ar.title
     "#
     .fetch(&mut conn);
@@ -411,7 +411,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
         SELECT a.name, ar.title
         FROM authors a
         JOIN articles ar ON a.id = ar.author_id
-        WHERE ar.body @@@ 'PostgreSQL'
+        WHERE ar.body ||| 'PostgreSQL'
         ORDER BY a.name, ar.title
     "#
     .fetch_one(&mut conn);
@@ -498,7 +498,7 @@ fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
     // Test search on distributed table
     let rows: Vec<(i32, String)> = r#"
         SELECT event_id, event_type FROM events
-        WHERE event_data @@@ 'PostgreSQL'
+        WHERE event_data ||| 'PostgreSQL'
         ORDER BY event_id
     "#
     .fetch(&mut conn);
@@ -512,7 +512,7 @@ fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (VERBOSE, FORMAT JSON)
         SELECT event_id, event_type FROM events
-        WHERE event_data @@@ 'PostgreSQL'
+        WHERE event_data ||| 'PostgreSQL'
         ORDER BY event_id
     "#
     .fetch_one(&mut conn);

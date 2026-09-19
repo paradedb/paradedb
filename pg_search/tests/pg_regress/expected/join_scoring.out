@@ -44,8 +44,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
@@ -59,11 +58,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -77,7 +76,7 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -85,7 +84,7 @@ LIMIT 5;
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
  id  |      name      | supplier_name |   score    
@@ -107,11 +106,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -125,7 +124,7 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -133,7 +132,7 @@ LIMIT 5;
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
  id  |      name      | supplier_name |   score    
@@ -149,20 +148,20 @@ LIMIT 5;
 -- This test verifies that paradedb.score() works correctly when it references
 -- the BUILD side (the side without the driving predicate), not the driving side.
 -- In this query:
--- - p.description @@@ 'wireless' makes products the driving side (streams from Tantivy)
--- - s.contact_info @@@ 'technology' filters the build side (suppliers)
+-- - p.description ||| 'wireless' makes products the driving side (streams from Tantivy)
+-- - s.contact_info ||| 'technology' filters the build side (suppliers)
 -- - paradedb.score(s.id) requests the score from the build side
 -- The build side's score is stored during materialization and returned correctly.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(s.id))
    Relation Tree: p INNER s
@@ -176,16 +175,16 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name | supplier_score 
@@ -208,12 +207,12 @@ SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
    Relation Tree: p INNER s
@@ -227,9 +226,9 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[pdb.score()@3, ctid_0@4, id@6, pdb.score()@0, ctid_1@1]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
@@ -237,8 +236,8 @@ SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name | product_score | supplier_score 
@@ -262,13 +261,13 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE
-    p.description @@@ 'wireless'
-    AND s.contact_info @@@ 'technology'
+    p.description ||| 'wireless'
+    AND s.contact_info ||| 'technology'
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -282,9 +281,9 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[pdb.score()@2, ctid_0@3, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT
@@ -294,8 +293,8 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE
-    p.description @@@ 'wireless'
-    AND s.contact_info @@@ 'technology'
+    p.description ||| 'wireless'
+    AND s.contact_info ||| 'technology'
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -314,12 +313,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                    QUERY PLAN                                                                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                          QUERY PLAN                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    Relation Tree: p INNER s
@@ -333,7 +332,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@2, id@1)], projection=[pdb.score()@0, ctid_0@1, id@3, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -341,7 +340,7 @@ LIMIT 10;
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -366,12 +365,12 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100
-  AND s.contact_info @@@ 'technology'
+  AND s.contact_info ||| 'technology'
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.id, s.name, (paradedb.score(s.id))
    Relation Tree: p INNER s
@@ -385,7 +384,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[ctid_0@3, id@5, pdb.score()@0, ctid_1@1, id@2]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}}}
+     :             PgSearchScan: table=s, segments=1, query={"score_filter":{"bounds":[[{"Excluded":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}}}
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}}
 (16 rows)
@@ -399,7 +398,7 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100
-  AND s.contact_info @@@ 'technology'
+  AND s.contact_info ||| 'technology'
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;

@@ -72,7 +72,7 @@ DROP TABLE IF EXISTS edge_ngram_e2e;
 CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
 INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
 CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING paradedb (id, (name::pdb.edge_ngram(2, 10)));
-SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
+SELECT name FROM edge_ngram_e2e WHERE name ||| 'par' ORDER BY name;
 DROP TABLE edge_ngram_e2e;
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];

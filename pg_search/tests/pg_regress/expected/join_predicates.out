@@ -44,8 +44,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
@@ -57,11 +56,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -75,15 +74,15 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -97,30 +96,30 @@ LIMIT 10;
 -- =============================================================================
 -- This test shows a query where both sides have side-level predicates AND
 -- there's a join-level predicate spanning both tables.
--- Side-level inner: p.description @@@ 'wireless' matches 201,206,207
--- Side-level outer: s.contact_info @@@ 'technology' matches 151
+-- Side-level inner: p.description ||| 'wireless' matches 201,206,207
+-- Side-level outer: s.contact_info ||| 'technology' matches 151
 -- Join candidates after side filters: (201,151), (206,151)
--- Join-level: p.name @@@ 'headphones' OR s.name @@@ 'TechCorp'
---   - p.name @@@ 'headphones': matches 206
---   - s.name @@@ 'TechCorp': matches 151
+-- Join-level: p.name ||| 'headphones' OR s.name ||| 'TechCorp'
+--   - p.name ||| 'headphones': matches 206
+--   - s.name ||| 'TechCorp': matches 151
 -- Since supplier 151 matches 'TechCorp', both (201,151) and (206,151) pass
 -- Expected: 2 rows (201 and 206)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
-  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
+  AND (p.name ||| 'headphones' OR s.name ||| 'TechCorp')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                          QUERY PLAN                                                                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (p:{"with_index":{"query":{"match":{"field":"name","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"name","value":"TechCorp","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -130,17 +129,17 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"contact_info","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"TechCorp","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
-  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
+  AND (p.name ||| 'headphones' OR s.name ||| 'TechCorp')
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -160,11 +159,11 @@ LIMIT 10;
 -- SELECT p.id, p.name, s.name AS supplier_name
 -- FROM products p
 -- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
+-- WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless';
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
  id  |      name      | supplier_name 
@@ -187,16 +186,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                QUERY PLAN                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (p:{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR s:{"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -206,15 +205,15 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -228,7 +227,7 @@ LIMIT 10;
 -- =============================================================================
 -- TEST 5: Complex join-level predicate with NOT and OR
 -- =============================================================================
--- Complex condition: (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+-- Complex condition: (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 -- This tests:
 -- 1. Negation within a search predicate
 -- 2. OR combining predicates across tables
@@ -239,16 +238,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+WHERE (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}]}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}} OR s:{"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -258,15 +257,15 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}]}}}}]}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+WHERE (p.description ||| 'wireless' AND NOT p.description ||| 'mouse') OR s.contact_info ||| 'shipping'
 ORDER BY p.id
 LIMIT 10;
  id  |    name    | supplier_name 
@@ -276,17 +275,17 @@ LIMIT 10;
  207 | Mouse Pad  | GlobalSupply
 (3 rows)
 
--- Another complex pattern: NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+-- Another complex pattern: NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 -- Products that do NOT contain 'cable' AND do NOT contain 'stand'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+WHERE NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -302,13 +301,13 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}]}}}}]}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"stand","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}
 (16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+WHERE NOT (p.description ||| 'cable' OR p.description ||| 'stand')
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -325,25 +324,25 @@ LIMIT 10;
 -- =============================================================================
 -- Deeply nested: (p_cond1 OR (p_cond2 OR (s_cond AND NOT p_cond3)))
 -- This tests the recursive expression tree building
--- p_cond1: p.description @@@ 'keyboard'
--- p_cond2: p.description @@@ 'headphones'  
--- s_cond: s.contact_info @@@ 'shipping'
--- p_cond3: p.description @@@ 'wireless'
+-- p_cond1: p.description ||| 'keyboard'
+-- p_cond2: p.description ||| 'headphones'
+-- s_cond: s.contact_info ||| 'shipping'
+-- p_cond3: p.description ||| 'wireless'
 -- EXPECTED: Products with 'keyboard' OR 'headphones' OR (supplier has 'shipping' AND product NOT 'wireless')
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.contact_info ||| 'shipping' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}))
+   Join Predicate: (p:{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR p:{"with_index":{"query":{"match":{"field":"description","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR (s:{"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} AND p:{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}))
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -354,15 +353,15 @@ LIMIT 10;
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __s_1_tag_0@3 AND __p_0_tag_2@2, projection=[ctid_0@0, id@2, ctid_1@6]
      :           FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4 OR __p_0_tag_2@5
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}, tag_2={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}]}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}, tag_0={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"description","value":"headphones","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_2={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.contact_info ||| 'shipping' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
  id  |    name    | supplier_name 
@@ -373,21 +372,21 @@ LIMIT 10;
 (3 rows)
 
 -- AND of multiple single-table predicates combined with OR across tables
--- ((p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK'))
+-- ((p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK'))
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+WHERE (p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
+   Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"UK","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}})
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -397,15 +396,15 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@0 OR __s_1_tag_0@1, projection=[ctid_0@3, id@5, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}}
+     :             PgSearchScan: table=s, segments=1, tag_0={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"contact_info","value":"shipping","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"country","value":"UK","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, tag_0={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"mouse","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+WHERE (p.description ||| 'wireless' AND p.description ||| 'mouse') OR (s.contact_info ||| 'shipping' AND s.country ||| 'UK')
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -415,17 +414,17 @@ LIMIT 10;
  207 | Mouse Pad      | GlobalSupply
 (3 rows)
 
--- Triple-nested NOT: NOT (NOT (NOT p.description @@@ 'cable'))
--- Equivalent to: NOT p.description @@@ 'cable'
+-- Triple-nested NOT: NOT (NOT (NOT p.description ||| 'cable'))
+-- Equivalent to: NOT p.description ||| 'cable'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+WHERE NOT (NOT (NOT p.description ||| 'cable'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
@@ -441,13 +440,13 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}]}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
 (16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+WHERE NOT (NOT (NOT p.description ||| 'cable'))
 ORDER BY p.id
 LIMIT 10;
  id  |      name      | supplier_name 
@@ -495,14 +494,8 @@ CREATE TABLE qgen_products (
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
 -- Note: age must be columnar for the join key
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, name, age) WITH (
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true } }'
-);
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, name, age) WITH (
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
-    numeric_fields = '{ "age": { "fast": true } }'
-);
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING paradedb (id, (name::pdb.literal), age);
 -- Insert sample value first
 INSERT INTO qgen_users (uuid, name, color, age, quantity, price, rating) 
 VALUES ('550e8400-e29b-41d4-a716-446655440000', 'bob', 'blue', 20, 7, 99.99, 4);
@@ -543,11 +536,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE qgen_users.name @@@ 'bob' 
+WHERE qgen_users.name ||| 'bob'
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: qgen_users.id, qgen_users.name
    Relation Tree: qgen_users INNER qgen_products
@@ -561,7 +554,7 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :           CooperativeExec
-     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -569,7 +562,7 @@ LIMIT 5;
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE qgen_users.name @@@ 'bob' 
+WHERE qgen_users.name ||| 'bob'
 ORDER BY qgen_users.id 
 LIMIT 5;
  id | name 
@@ -587,11 +580,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE NOT (qgen_users.name @@@ 'bob') 
+WHERE NOT (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: qgen_users.id, qgen_users.name
    Relation Tree: qgen_users INNER qgen_products
@@ -605,7 +598,7 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@0, id@2, ctid_1@3]
      :           CooperativeExec
-     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}
+     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, query={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
      :           CooperativeExec
      :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -613,7 +606,7 @@ LIMIT 5;
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE NOT (qgen_users.name @@@ 'bob') 
+WHERE NOT (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
  id |  name   
@@ -630,16 +623,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
+WHERE (qgen_products.name ||| 'alice') OR (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                                                               QUERY PLAN                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: qgen_users.id, qgen_users.name
    Relation Tree: qgen_users INNER qgen_products
    Join Cond: qgen_users.age = qgen_products.age
-   Join Predicate: (qgen_products:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}} OR qgen_users:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: (qgen_products:{"with_index":{"query":{"match":{"field":"name","value":"alice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR qgen_users:{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 5
    Order By: qgen_users.id asc
    DataFusion Physical Plan: 
@@ -649,15 +642,15 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], filter=__qgen_products_1_tag_0@1 OR __qgen_users_0_tag_0@0, projection=[ctid_0@0, id@2, ctid_1@4]
      :           CooperativeExec
-     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=qgen_users, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=qgen_products, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"alice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
 JOIN qgen_products ON qgen_users.age = qgen_products.age 
-WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
+WHERE (qgen_products.name ||| 'alice') OR (qgen_users.name ||| 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
  id | name 
@@ -688,10 +681,8 @@ UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
 -- Recreate indexes with price, min_order_value, and join key columns as fast fields
 DROP INDEX IF EXISTS products_bm25_idx;
 DROP INDEX IF EXISTS suppliers_bm25_idx;
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value)
-WITH (numeric_fields = '{"min_order_value": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country, min_order_value);
 -- Test case: Search predicate AND multi-table predicate (both columns are fast fields)
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because price and min_order_value are fast fields
@@ -699,12 +690,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name, s.min_order_value
    Relation Tree: p INNER s
@@ -719,7 +710,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=min_order_value@1 <= price@0, projection=[ctid_0@0, price@2, id@3, ctid_1@4, min_order_value@6]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -731,16 +722,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
+WHERE p.description ||| 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name, s.min_order_value
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:(p.price >= s.min_order_value))
+   Join Predicate: (p:{"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR heap:(p.price >= s.min_order_value))
    Limit: 10
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, min_order_value@6 as col_5, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
@@ -751,14 +742,14 @@ LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"description","value":"cable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 -- Verify correct results
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
+WHERE p.description ||| 'cable'
    OR p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
@@ -781,12 +772,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name as supplier
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
 WARNING:  JoinScan not used: join predicates must reference columnar indexed fields (tables: p, s)
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Hash Join
@@ -804,7 +795,7 @@ WARNING:  JoinScan not used: join predicates must reference columnar indexed fie
                      Worker Selection: Cost model
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 -- =============================================================================
@@ -820,12 +811,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.supplier_id, s.id
    Relation Tree: p INNER s
@@ -840,7 +831,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@0 - id@1) >= 0
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -848,7 +839,7 @@ LIMIT 10;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -863,7 +854,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id - s.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -888,12 +879,12 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.supplier_id, s.id
    Relation Tree: p INNER s
@@ -908,7 +899,7 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@0) <= CAST(character_length(pdb_eval_expr_funcexpr_34e97bf1(id@1)) AS Int64)
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
 (17 rows)
@@ -916,7 +907,7 @@ LIMIT 10;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
@@ -928,7 +919,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
@@ -967,17 +958,17 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
-   OR (NOT (p.name @@@ 'Keyboard'))
+WHERE ((s.country ||| 'USA') AND (p.name ||| 'Keyboard'))
+   OR (NOT (p.name ||| 'Keyboard'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, s.name
    Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
-   Join Predicate: ((s:{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}} AND p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}}}) OR p:{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}]}}}})
+   Join Predicate: ((s:{"with_index":{"query":{"match":{"field":"country","value":"USA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} AND p:{"with_index":{"query":{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}) OR p:{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}})
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
@@ -988,16 +979,16 @@ LIMIT 10;
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=__s_1_tag_0@2 AND __p_0_tag_0@0 OR __p_0_tag_1@1, projection=[ctid_0@0, id@2, ctid_1@5]
      :           FilterExec: __p_0_tag_0@3 OR __p_0_tag_1@4
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}]}}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"name","query_string":"Keyboard","lenient":null,"conjunction_mode":null}}]}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"name","value":"Keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}
      :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"country","value":"USA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((s.country @@@ 'USA') AND (p.name @@@ 'Keyboard'))
-   OR (NOT (p.name @@@ 'Keyboard'))
+WHERE ((s.country ||| 'USA') AND (p.name ||| 'Keyboard'))
+   OR (NOT (p.name ||| 'Keyboard'))
 ORDER BY p.id
 LIMIT 10;
  id  |      name       | supplier_name 

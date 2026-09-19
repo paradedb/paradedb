@@ -22,7 +22,7 @@ USING paradedb (id, description, rating, category, in_stock, metadata, created_a
 --
 -- pdb.fuzzy -> pdb.boost (pre-existing)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
@@ -30,7 +30,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
 --
 -- pdb.fuzzy -> pdb.const
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.const(3);

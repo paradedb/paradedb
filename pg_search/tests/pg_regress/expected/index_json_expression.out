@@ -20,18 +20,18 @@ SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' ||| 'white';
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: search_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"metadata","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
-SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' ||| 'white';
  count 
 -------
      3
@@ -48,11 +48,11 @@ WITH (sort_by='rating DESC NULLS LAST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, (metadata->>'rating')::int AS rating
 FROM json_topk_test
-WHERE name @@@ 'foo'
+WHERE name ||| 'foo'
 ORDER BY (metadata->>'rating')::int DESC NULLS LAST
 LIMIT 2;
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, (((metadata ->> 'rating'::text))::integer)
    ->  Custom Scan (ParadeDB Base Scan) on public.json_topk_test
@@ -64,13 +64,13 @@ LIMIT 2;
          Scores: false
             TopK Order By: rating desc nulls last
             TopK Limit: 2
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"foo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- Verify results
 SELECT id, (metadata->>'rating')::int AS rating
 FROM json_topk_test
-WHERE name @@@ 'foo'
+WHERE name ||| 'foo'
 ORDER BY (metadata->>'rating')::int DESC NULLS LAST
 LIMIT 2;
  id | rating 

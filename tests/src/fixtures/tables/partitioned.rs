@@ -50,9 +50,6 @@ BEGIN;
       FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
 
     CREATE INDEX sales_index ON sales
-      USING paradedb (id, description, sale_date, amount)
-      WITH (
-        numeric_fields='{"amount": {"fast": true}}'
-      );
+      USING paradedb (id, description, sale_date, amount);
 COMMIT;
 "#;

@@ -53,8 +53,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 
 -- Make sure the GUC is enabled
@@ -71,14 +70,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
@@ -95,14 +94,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 
@@ -113,24 +112,24 @@ LIMIT 5;
 -- This test verifies that paradedb.score() works correctly when it references
 -- the BUILD side (the side without the driving predicate), not the driving side.
 -- In this query:
--- - p.description @@@ 'wireless' makes products the driving side (streams from Tantivy)
--- - s.contact_info @@@ 'technology' filters the build side (suppliers)
+-- - p.description ||| 'wireless' makes products the driving side (streams from Tantivy)
+-- - s.contact_info ||| 'technology' filters the build side (suppliers)
 -- - paradedb.score(s.id) requests the score from the build side
 -- The build side's score is stored during materialization and returned correctly.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
@@ -149,8 +148,8 @@ SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
@@ -159,8 +158,8 @@ SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(s.id) AS supplier_score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless'
+  AND s.contact_info ||| 'technology'
 ORDER BY p.id
 LIMIT 10;
 
@@ -180,8 +179,8 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE
-    p.description @@@ 'wireless'
-    AND s.contact_info @@@ 'technology'
+    p.description ||| 'wireless'
+    AND s.contact_info ||| 'technology'
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -193,8 +192,8 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE
-    p.description @@@ 'wireless'
-    AND s.contact_info @@@ 'technology'
+    p.description ||| 'wireless'
+    AND s.contact_info ||| 'technology'
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -209,7 +208,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -217,7 +216,7 @@ LIMIT 10;
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
   AND paradedb.score(p.id) >= 0
 ORDER BY p.id
 LIMIT 10;
@@ -237,7 +236,7 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100
-  AND s.contact_info @@@ 'technology'
+  AND s.contact_info ||| 'technology'
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;
@@ -251,7 +250,7 @@ SELECT
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price < 100
-  AND s.contact_info @@@ 'technology'
+  AND s.contact_info ||| 'technology'
   AND paradedb.score(s.id) > 0
 ORDER BY score DESC, p.id
 LIMIT 10;

@@ -77,9 +77,7 @@ mod tests {
             FROM generate_series(1, 5000) i;
             SET max_parallel_maintenance_workers = 0;
             CREATE INDEX stats_src_idx ON stats_src
-                USING paradedb (id, tenant_id, name, seen, score, flag)
-                WITH (target_segment_count = 1,
-                      text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+                USING paradedb (id, tenant_id, (name::pdb.literal), seen, score, flag) WITH (target_segment_count = 1);
             "#,
         )
         .unwrap();
@@ -597,9 +595,7 @@ mod tests {
                    repeat('padding word here ', 50)
             FROM generate_series(1, 20000) i;
             SET max_parallel_maintenance_workers = 0;
-            CREATE INDEX {index} ON {table} USING paradedb (id, name)
-                WITH (partition_by = 'name', target_segment_count = 4,
-                      text_fields = '{{"name": {{"tokenizer": {{"type": "keyword"}}, "fast": true, "normalizer": "{normalizer}"}}}}');
+            CREATE INDEX {index} ON {table} USING paradedb (id, (name::pdb.literal_normalized('lowercase=false', 'normalizer={normalizer}'))) WITH (partition_by = 'name', target_segment_count = 4);
             "#
         ))
         .unwrap();

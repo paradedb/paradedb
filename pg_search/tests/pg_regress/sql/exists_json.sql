@@ -13,11 +13,10 @@ INSERT INTO exists_json (description, data) VALUES ('Engineer', '{"last_name": "
 INSERT INTO exists_json (description, data) VALUES ('CEO', NULL);
 INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
 
-CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, data)
-WITH (json_fields = '{"data": {"fast": true}}');
+CREATE INDEX idx_exists_json_data ON exists_json USING paradedb (id, description, (data::pdb.unicode_words('columnar=true')));
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
-SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description @@@ 'CEO';
+SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description ||| 'CEO';
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data');
 
 DROP TABLE IF EXISTS exists_json;

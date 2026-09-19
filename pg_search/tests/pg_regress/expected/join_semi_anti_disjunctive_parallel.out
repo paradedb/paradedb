@@ -42,25 +42,9 @@ CREATE TABLE jsd_par_exclusions (
 -- keeps background merges from collapsing segments back together.
 SET paradedb.global_mutable_segment_rows = 0;
 CREATE INDEX jsd_par_items_idx ON jsd_par_items
-USING paradedb (id, name, alt_name, category)
-WITH (
-    text_fields = '{
-        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }',
-    target_segment_count = 64,
-    background_layer_sizes = '0'
-);
+USING paradedb (id, (name::pdb.literal), (alt_name::pdb.literal), (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase'))) WITH (target_segment_count = 64, background_layer_sizes = '0');
 CREATE INDEX jsd_par_exclusions_idx ON jsd_par_exclusions
-USING paradedb (id, pattern)
-WITH (
-    text_fields = '{
-        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }',
-    target_segment_count = 64,
-    background_layer_sizes = '0'
-);
+USING paradedb (id, (pattern::pdb.literal)) WITH (target_segment_count = 64, background_layer_sizes = '0');
 -- Batched inserts → multiple segments on the partitioning side. Each
 -- 1000-row batch triggers a segment flush under
 -- `global_mutable_segment_rows = 0`.
@@ -106,11 +90,11 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i ANTI e
@@ -131,10 +115,10 @@ LIMIT 5000;
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
      :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+     :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
@@ -152,7 +136,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
 SET paradedb.enable_join_custom_scan = off;
@@ -164,7 +148,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
 SET paradedb.enable_join_custom_scan = on;
@@ -231,11 +215,11 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: i.id
    Relation Tree: i SEMI e
@@ -256,10 +240,10 @@ LIMIT 5000;
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=4, input_tasks=2
      :   │         DistributedLeafExec:
-     :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-     :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+     :   │           t0: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t1: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t2: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
+     :   │           t3: PgSearchScan: table=i, segments=4, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target","slop":null}}}}
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=8
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=4, output_partitions=4
@@ -281,7 +265,7 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
 SET paradedb.enable_join_custom_scan = off;
@@ -297,7 +281,7 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
 SET paradedb.enable_join_custom_scan = on;

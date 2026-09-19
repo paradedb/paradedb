@@ -61,12 +61,9 @@ CREATE TABLE jnns_exclude_set (
 INSERT INTO jnns_exclude_set (val) SELECT s FROM generate_series(50, 60) s;
 INSERT INTO jnns_exclude_set (val) VALUES (NULL);
 
-CREATE INDEX jnns_items_idx       ON jnns_items       USING paradedb (id, txt)
-  WITH (text_fields='{"txt":{"fast":true}}');
-CREATE INDEX jnns_include_set_idx ON jnns_include_set USING paradedb (id, val)
-  WITH (numeric_fields='{"val":{"fast":true}}');
-CREATE INDEX jnns_exclude_set_idx ON jnns_exclude_set USING paradedb (id, val)
-  WITH (numeric_fields='{"val":{"fast":true}}');
+CREATE INDEX jnns_items_idx       ON jnns_items       USING paradedb (id, (txt::pdb.unicode_words('columnar=true')));
+CREATE INDEX jnns_include_set_idx ON jnns_include_set USING paradedb (id, val);
+CREATE INDEX jnns_exclude_set_idx ON jnns_exclude_set USING paradedb (id, val);
 
 ANALYZE jnns_items; ANALYZE jnns_include_set; ANALYZE jnns_exclude_set;
 
@@ -82,7 +79,7 @@ SELECT COUNT(*) AS expected_zero
 FROM jnns_items
 WHERE id IN     (SELECT val FROM jnns_include_set)
   AND id NOT IN (SELECT val FROM jnns_exclude_set)
-  AND txt @@@ 'match';
+  AND txt ||| 'match';
 
 -- =====================================================================
 -- Test 2 — JoinScan enabled. After the fix, should also return 0.
@@ -98,7 +95,7 @@ SELECT COUNT(*) AS joinscan_result FROM (
   SELECT jnns_items.id FROM jnns_items
   WHERE id IN     (SELECT val FROM jnns_include_set)
     AND id NOT IN (SELECT val FROM jnns_exclude_set)
-    AND txt @@@ 'match'
+    AND txt ||| 'match'
   ORDER BY jnns_items.id LIMIT 1000
 ) sub;
 
@@ -112,7 +109,7 @@ SELECT COUNT(*) AS notexists_result FROM (
   SELECT jnns_items.id FROM jnns_items
   WHERE EXISTS     (SELECT 1 FROM jnns_include_set i WHERE i.val = jnns_items.id)
     AND NOT EXISTS (SELECT 1 FROM jnns_exclude_set e WHERE e.val = jnns_items.id)
-    AND txt @@@ 'match'
+    AND txt ||| 'match'
   ORDER BY jnns_items.id LIMIT 1000
 ) sub;
 

@@ -30,7 +30,7 @@ SELECT i,
 FROM generate_series(0, 9999) i;
 
 CREATE INDEX providers_paradedb ON providers
-    USING bm25 (id, description, gender, provider_type);
+    USING paradedb (id, description, gender, provider_type);
 CREATE INDEX providers_location ON providers USING gist (location);
 CREATE INDEX providers_service_area ON providers USING gist (service_area);
 CREATE INDEX providers_specialty ON providers (specialty text_pattern_ops);
@@ -246,7 +246,7 @@ INSERT INTO wide_providers
 SELECT i, 'cardiology notes ' || i, 'a' || (i % 10), 'b' || (i % 10), repeat('x', 1400)
 FROM generate_series(0, 4999) i;
 CREATE INDEX wide_paradedb ON wide_providers
-    USING bm25 (id, description);
+    USING paradedb (id, description);
 CREATE INDEX wide_cat_a ON wide_providers (cat_a);
 CREATE INDEX wide_cat_b ON wide_providers (cat_b);
 VACUUM ANALYZE wide_providers;
@@ -286,7 +286,7 @@ SELECT i, 'cardiology notes ' || i, 'a' || (i % 4), 'b' || ((i / 4) % 2),
        'c' || ((i / 8) % 2), repeat('x', 1400)
 FROM generate_series(0, 4999) i;
 CREATE INDEX overlap_paradedb ON overlap_providers
-    USING bm25 (id, description);
+    USING paradedb (id, description);
 CREATE INDEX overlap_ab ON overlap_providers (cat_a, cat_b);
 CREATE INDEX overlap_bc ON overlap_providers (cat_b, cat_c);
 VACUUM ANALYZE overlap_providers;
@@ -396,7 +396,7 @@ INSERT INTO unsorted_providers
 SELECT i, 'cardiology notes ' || i, point(i % 100, i / 100)
 FROM generate_series(0, 999) i;
 CREATE INDEX unsorted_paradedb ON unsorted_providers
-    USING bm25 (id, description) WITH (sort_by = 'none');
+    USING paradedb (id, description) WITH (sort_by = 'none');
 CREATE INDEX unsorted_location ON unsorted_providers USING gist (location);
 VACUUM ANALYZE unsorted_providers;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

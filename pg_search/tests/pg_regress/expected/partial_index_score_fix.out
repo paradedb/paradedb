@@ -28,10 +28,10 @@ WHERE category = 'Electronics';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics'
+WHERE description ||| 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on partial_test
@@ -39,12 +39,12 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics'
+WHERE description ||| 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
  id | description  |  category   |   score    
 ----+--------------+-------------+------------
@@ -60,10 +60,10 @@ ORDER BY score DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
+WHERE description ||| 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on partial_test
@@ -71,12 +71,12 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
 (8 rows)
 
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
+WHERE description ||| 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
  id | description  |  category   | rating |   score    
 ----+--------------+-------------+--------+------------
@@ -129,20 +129,13 @@ DROP TABLE partial_test;
 CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
 -- Create partial index with predicate WHERE category = 'Electronics'
 CREATE INDEX partial_idx ON paradedb.test_partial_index
-USING paradedb (id, description, category, rating)
-WITH (
-    text_fields = '{
-        "description": {
-            "tokenizer": {"type": "default"}
-        }
-    }'
-) WHERE category = 'Electronics';
+USING paradedb (id, (description::pdb.simple), category, rating) WHERE category = 'Electronics';
 -- Test 1: Query WITH category = 'Electronics' predicate
 -- This should use the partial index and return only Electronics items with rating > 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
@@ -159,7 +152,7 @@ ORDER BY rating LIMIT 20;
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -179,7 +172,7 @@ INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock
 -- Product 3 (Footwear) is NOT in partial index and NOT in query results
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -195,7 +188,7 @@ ORDER BY rating LIMIT 20;
 UPDATE paradedb.test_partial_index SET category = 'Footwear' WHERE description = 'Product 1';
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -211,7 +204,7 @@ UPDATE paradedb.test_partial_index SET category = 'Electronics' WHERE descriptio
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
@@ -228,7 +221,7 @@ ORDER BY rating LIMIT 20;
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -245,7 +238,7 @@ ORDER BY rating LIMIT 20;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('category:Footwear AND rating:>1')
 ORDER BY rating LIMIT 20;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -262,7 +255,7 @@ ORDER BY rating LIMIT 20;
 
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('category:Footwear AND rating:>1')
 ORDER BY rating LIMIT 20;
  description | category 
 -------------+----------
@@ -295,18 +288,18 @@ SET paradedb.enable_aggregate_custom_scan = true;
 -- Test: COUNT(*) with partial index predicate should use Aggregate Scan
 -- and should NOT have heap_filter for deleted_at IS NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT COUNT(*) FROM profiles WHERE headline ||| 'Engineer' AND deleted_at IS NULL;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.profiles
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: profiles_search_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"headline","query_string":"Engineer","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"headline","value":"Engineer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
-SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+SELECT COUNT(*) FROM profiles WHERE headline ||| 'Engineer' AND deleted_at IS NULL;
  count 
 -------
      2

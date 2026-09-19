@@ -8,7 +8,7 @@
 # Unlike Dockerfile.paradedb-18 (which downloads a *released* pg_search .deb),
 # this overlays a pg_search that was compiled from the working tree onto a
 # released ParadeDB image. The compile happens on the runner via the
-# .github/actions/build-pg_search-source composite action (a plain native build,
+# paradedb/actions/build-pg_search-source composite action (a plain native build,
 # so cargo caching actually works); this Dockerfile just swaps in the result.
 # Everything else (Postgres, tuning, bootstrap, other extensions) matches the
 # published image, so only pg_search differs from the release.

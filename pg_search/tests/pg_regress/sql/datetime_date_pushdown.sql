@@ -85,8 +85,7 @@ INSERT INTO events_nullable (created_at, region, amount) VALUES
     (NULL, 'west', 200);
 
 CREATE INDEX events_nullable_idx ON events_nullable
-USING paradedb (id, created_at, region, amount)
-WITH (text_fields = '{"region": {"fast": true}}');
+USING paradedb (id, created_at, (region::pdb.unicode_words('columnar=true')), amount);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(created_at), COUNT(*), SUM(amount)

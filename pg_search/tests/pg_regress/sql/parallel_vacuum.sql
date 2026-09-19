@@ -57,7 +57,7 @@ SELECT
   )
 FROM generate_series(1, 100000) s(id);
 
-CREATE INDEX benchmark_logs_idx ON benchmark_logs USING paradedb (id, message, country, severity, timestamp, metadata) WITH (text_fields = '{"country": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true} }}', json_fields = '{"metadata": { "fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+CREATE INDEX benchmark_logs_idx ON benchmark_logs USING paradedb (id, message, (country::pdb.literal_normalized('lowercase=true')), severity, timestamp, (metadata::pdb.literal_normalized('lowercase=true')));
 CREATE INDEX ON benchmark_logs USING btree (severity);
 CREATE INDEX ON benchmark_logs USING btree (timestamp);
 

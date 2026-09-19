@@ -1214,7 +1214,8 @@ struct CtidCheckerEntry {
 }
 
 /// Runs visibility check for a single relation's ctid column.
-/// Returns HOT-resolved ctids (None for invisible rows).
+/// Returns the ctids `check_batch` resolved, which stay at the HOT root on an all-visible
+/// page. `None` marks an invisible row.
 fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Array) -> ArrayRef {
     if ctid_array.null_count() != 0 {
         panic!(
@@ -1246,7 +1247,7 @@ fn filter_batch(
     let num_rows = batch.num_rows();
 
     // The ctid columns arrive already resolved to real ctids from the TantivyFetchExec below
-    // this node, so this only checks visibility and HOT-corrects them.
+    // this node, so this only checks visibility.
     let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
 
     let mut visible_mask = None;

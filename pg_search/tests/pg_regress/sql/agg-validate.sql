@@ -40,11 +40,7 @@ INSERT INTO mock_items (description, rating, created_at) VALUES
 
 -- Create index with specific fields
 CREATE INDEX mock_items_idx ON mock_items
-USING paradedb (id, description, rating, created_at)
-WITH (
-    text_fields = '{"description": {}}',
-    numeric_fields = '{"rating": {"fast": true}}'
-);
+USING paradedb (id, description, rating, created_at);
 
 -- =====================================================================
 -- SECTION 1: Valid field references (should succeed)
@@ -218,4 +214,3 @@ SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(),
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);
-

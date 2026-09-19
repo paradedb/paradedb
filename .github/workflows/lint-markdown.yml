@@ -31,6 +31,6 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint Markdown
-        uses: paradedb/actions/lint-markdown@v12
+        uses: paradedb/actions/lint-markdown@v13
         with:
           ignore-path: .prettierignore

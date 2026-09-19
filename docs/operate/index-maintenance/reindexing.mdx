@@ -154,3 +154,4 @@ sessions after a certain idle timeout is reached.
 
 If `REINDEX CONCURRENTLY` fails or is cancelled, an invalid transient index will be left behind that must be dropped manually.
 To check for invalid indexes in `psql`, run `\d <table_name>` and look for `INVALID` indexes.
+Invalid indexes should be dropped to free up storage.

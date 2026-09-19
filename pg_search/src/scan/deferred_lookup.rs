@@ -99,7 +99,6 @@ pub(crate) struct LookupRebuildContext {
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
 }
 
-/// Resolve the segment view a rebuilt helper opens for one deferred column's index.
 pub(crate) fn rebuild_mvcc(
     context: LookupRebuildContext,
     rebuild: &DeferredLookupRebuild,

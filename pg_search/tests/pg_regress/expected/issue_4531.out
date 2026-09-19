@@ -23,8 +23,7 @@ INSERT INTO products_4531 VALUES
     (3, 'Gizmo',   'A neat gizmo',   NULL),
     (4, 'Doohicky','Another widget',  2),
     (5, 'Thingamajig', 'Yet another widget', 999);
-CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id)
-    WITH (numeric_fields='{"supplier_id": {"fast": true}}');
+CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id);
 CREATE INDEX ON suppliers_4531 USING paradedb (id, name);
 -- ============================================================
 -- Test 1: The original failing pattern — OR IS NULL
@@ -34,11 +33,11 @@ CREATE INDEX ON suppliers_4531 USING paradedb (id, name);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -56,13 +55,13 @@ ORDER BY p.id DESC LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: table=s, segments=1, visibility=eager, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 -- Actual query execution
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
  id 
@@ -78,11 +77,11 @@ ORDER BY p.id DESC LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id
    Relation Tree: p SEMI s
@@ -98,12 +97,12 @@ ORDER BY p.id DESC LIMIT 10;
      :           CooperativeExec
      :             PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
  id 
@@ -119,7 +118,7 @@ ORDER BY p.id DESC LIMIT 10;
 UPDATE products_4531 SET supplier_id = NULL;
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
  id 
@@ -140,7 +139,7 @@ UPDATE products_4531 SET supplier_id = 999 WHERE id = 5;
 DELETE FROM suppliers_4531;
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
  id 
@@ -157,11 +156,11 @@ INSERT INTO products_4531 VALUES (6, 'NullWidget', 'A null widget', NULL);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -179,12 +178,12 @@ ORDER BY p.id DESC LIMIT 10;
            :         CooperativeExec
            :           PgSearchScan: table=s, segments=2, visibility=eager, query="all"
            :         CooperativeExec
-           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
  id 
@@ -200,7 +199,7 @@ ORDER BY p.id DESC LIMIT 10;
 SET paradedb.enable_join_custom_scan = off;
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
  id 

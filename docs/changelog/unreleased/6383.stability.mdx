@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed wrong results for `SUM`, `AVG`, `MIN` and `MAX` over `COALESCE(field, default)` when the column can't hold the default exactly, such as a fraction on an integer column, a negative value on a JSON sub-field, or `NaN`. Postgres now runs these aggregates, also as window aggregates in top K queries. `COUNT(COALESCE(field, default))` now counts every row, also over string columns (#6353).

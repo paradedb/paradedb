@@ -46,7 +46,7 @@ USING paradedb (
 );
 SELECT id, title, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY valid_period
 LIMIT 10;
  id |   title    |                          valid_period                           
@@ -66,11 +66,11 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY valid_period
 LIMIT 10;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
@@ -79,12 +79,12 @@ LIMIT 10;
          Scores: false
             TopK Order By: valid_period asc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, title, quantity_range
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range
 LIMIT 10;
  id |   title    | quantity_range 
@@ -104,11 +104,11 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, quantity_range
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range
 LIMIT 10;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
@@ -117,12 +117,12 @@ LIMIT 10;
          Scores: false
             TopK Order By: quantity_range asc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, title, quantity_range, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
 WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
@@ -143,12 +143,12 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, quantity_range, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
 WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: quantity_range, valid_period
@@ -157,12 +157,12 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, title, price, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
 WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
@@ -183,12 +183,12 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, price, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
 WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: data_records)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: price, valid_period
@@ -197,7 +197,7 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 DROP TABLE data_records;

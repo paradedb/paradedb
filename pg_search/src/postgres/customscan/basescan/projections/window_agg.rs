@@ -70,7 +70,6 @@
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{is_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::aggregatescan::aggregate_type::{
     AggregateType, ParsedAggregateField,
 };
@@ -79,6 +78,7 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
 use crate::postgres::var::VarContext;
+use crate::postgres::{PgSearchRelation, rel_get_bm25_index};
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
@@ -334,9 +334,18 @@ unsafe fn convert_window_func_to_aggregate_type(
 
     let first_arg = args.get_ptr(0)?;
 
-    let aggregate_field =
-        ParsedAggregateField::from_query(first_arg, VarContext::from_query(parse)).ok()?;
-    let missing = aggregate_field.missing().ok()?;
+    let context = VarContext::from_query(parse);
+    let aggregate_field = ParsedAggregateField::from_query(first_arg, context).ok()?;
+    let missing = aggregate_field
+        .missing_for(aggfnoid, || {
+            let (_, bm25_index) = rel_get_bm25_index(aggregate_field.heaprelid(context)?)?;
+            // A partitioned index has no storage to read the schema from.
+            if get_rel_relkind(bm25_index.oid()) as u8 == RELKIND_PARTITIONED_INDEX {
+                return None;
+            }
+            bm25_index.schema().ok()
+        })
+        .ok()?;
 
     let agg_type = AggregateType::from_oid(
         aggfnoid,

@@ -35,18 +35,13 @@ FROM generate_series(1, 100) i;
 -- Create search index with multiple fast fields
 DROP INDEX IF EXISTS limit_topk_idx;
 CREATE INDEX limit_topk_idx ON limit_topk_test
-USING paradedb (id, title, description, rating, price, category, is_available)
-WITH (
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}, "category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_available": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), rating, price, (category::pdb.literal), is_available);
 
 -- Test basic LIMIT with mixed fields (should use Top K)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topk_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 ORDER BY rating DESC
 LIMIT 10;
 
@@ -54,13 +49,13 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topk_test
-WHERE category @@@ 'Electronics'
+WHERE category ||| 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
 
 SELECT title, category, rating, price
 FROM limit_topk_test
-WHERE category @@@ 'Electronics'
+WHERE category ||| 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
 
@@ -68,13 +63,13 @@ LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
 FROM limit_topk_test
-WHERE category @@@ 'Books OR Electronics'
+WHERE (category ||| 'Books' OR category ||| 'Electronics')
 ORDER BY title
 LIMIT 15;
 
 SELECT title, category
 FROM limit_topk_test
-WHERE category @@@ 'Books OR Electronics'
+WHERE (category ||| 'Books' OR category ||| 'Electronics')
 ORDER BY title
 LIMIT 15;
 
@@ -110,20 +105,20 @@ LIMIT 12;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
 FROM limit_topk_test
-WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
+WHERE (rating BETWEEN 2.5 AND 4.5) AND (category ||| 'Toys' OR category ||| 'Clothing')
 ORDER BY price DESC
 LIMIT 8;
 
 SELECT title, category, rating, price
 FROM limit_topk_test
-WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
+WHERE (rating BETWEEN 2.5 AND 4.5) AND (category ||| 'Toys' OR category ||| 'Clothing')
 ORDER BY price DESC
 LIMIT 8;
 
 -- Verify actual results of LIMIT queries (not just execution path)
 SELECT title, rating, price, category
 FROM limit_topk_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 ORDER BY rating DESC
 LIMIT 5;
 

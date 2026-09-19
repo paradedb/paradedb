@@ -29,6 +29,7 @@ use pgrx::{
     PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_extern,
     pg_sys,
 };
+use tantivy::IndexSettings;
 
 /// The metadata stored on the `Metadata` page
 #[derive(Debug, Copy, Clone)]
@@ -359,6 +360,11 @@ impl MetaPage {
             self.data.settings_start
         };
         LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub fn settings(&self) -> tantivy::Result<IndexSettings> {
+        let bytes = unsafe { self.settings_bytes().read_all() };
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {

@@ -38,37 +38,13 @@ CREATE TABLE js_parallel_distinct_orders (
 );
 CREATE INDEX js_parallel_distinct_users_idx
 ON js_parallel_distinct_users
-USING paradedb (id, uuid, name, age)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 CREATE INDEX js_parallel_distinct_products_idx
 ON js_parallel_distinct_products
-USING paradedb (id, uuid, name, age)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 CREATE INDEX js_parallel_distinct_orders_idx
 ON js_parallel_distinct_orders
-USING paradedb (id, uuid, name, age)
-WITH (
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO js_parallel_distinct_users (uuid, name, age)
 SELECT
@@ -126,12 +102,12 @@ SELECT DISTINCT u.id, u.name, p.id, o.id
 FROM js_parallel_distinct_users u
 JOIN js_parallel_distinct_products p ON u.id = p.id
 JOIN js_parallel_distinct_orders o ON p.age = o.age
-WHERE u.name @@@ 'bob'
-  AND p.name @@@ 'bob'
+WHERE u.name ||| 'bob'
+  AND p.name ||| 'bob'
 ORDER BY u.id, p.id, o.id
 LIMIT 48;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (u INNER p) INNER o
    Join Cond: p.age = o.age, u.id = p.id
@@ -166,14 +142,14 @@ LIMIT 48;
      :       │     CoalescePartitionsExec
      :       │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
      :       │     DistributedLeafExec:
-     :       │       t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-     :       │       t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :       │       t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │       t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       └──────────────────────────────────────────────────
      :         ┌───── Stage 1 ── tasks=2, partitions=4
      :         │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :         │   DistributedLeafExec:
-     :         │     t0: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-     :         │     t1: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :         │     t0: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         │     t1: PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         └──────────────────────────────────────────────────
 (43 rows)
 
@@ -184,8 +160,8 @@ FROM (
     FROM js_parallel_distinct_users u
     JOIN js_parallel_distinct_products p ON u.id = p.id
     JOIN js_parallel_distinct_orders o ON p.age = o.age
-    WHERE u.name @@@ 'bob'
-      AND p.name @@@ 'bob'
+    WHERE u.name ||| 'bob'
+      AND p.name ||| 'bob'
     ORDER BY u.id, p.id, o.id
     LIMIT 48
 ) q;

@@ -409,7 +409,7 @@ DEALLOCATE citext_term;
 
 -- @@@ with citext parameter
 PREPARE citext_parse(citext) AS
-SELECT id FROM citext_prepared WHERE content @@@ $1 ORDER BY id;
+SELECT id FROM citext_prepared WHERE content ||| $1 ORDER BY id;
 EXECUTE citext_parse('hello');
 DEALLOCATE citext_parse;
 

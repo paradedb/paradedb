@@ -17,7 +17,6 @@
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashSet};
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::{index_settings, setup_tokenizers};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
@@ -35,7 +34,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use tantivy::TantivyError;
 use tantivy::directory::RamDirectory;
-use tantivy::index::{Index, Order};
+use tantivy::index::{Index, IndexSettings, Order};
 
 type NeedClose = bool;
 
@@ -501,6 +500,10 @@ impl PgSearchRelation {
         }
     }
 
+    pub fn settings(&self) -> tantivy::Result<IndexSettings> {
+        MetaPage::open(self).settings()
+    }
+
     pub(crate) fn create_in_memory_index(&self, directory: RamDirectory) -> anyhow::Result<Index> {
         let schema = self.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
@@ -519,12 +522,11 @@ impl PgSearchRelation {
     /// the current `sort_by` index option, which can be altered after segments
     /// exist.
     pub fn is_ctid_sorted_asc(&self) -> bool {
-        let directory = MvccSatisfies::Snapshot.directory(self);
-        let Ok(underlying) = Index::open(directory) else {
+        let Ok(settings) = self.settings() else {
             return false;
         };
         matches!(
-            underlying.settings().sort_by_field.as_ref(),
+            settings.sort_by_field.as_ref(),
             Some(sort) if sort.field == CTID_FIELD_NAME && sort.order == Order::Asc
         )
     }

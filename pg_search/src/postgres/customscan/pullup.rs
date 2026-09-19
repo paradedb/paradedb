@@ -171,8 +171,9 @@ pub struct ResolvedIndexField {
 /// has no such fast field, `Err` when it has one the scan cannot read, so the
 /// caller can say why rather than that the field does not exist. Resolution goes
 /// through the index schema because a field name can be an alias of a column.
-/// The gates match [`resolve_fast_field`]: an expression-indexed column
-/// is turned down, and a JSON column is only reachable through a sub-field.
+/// The gates match [`resolve_fast_field`]: a tokenizer cast reads back as its
+/// column, a computed expression is turned down, and a JSON column is only
+/// reachable through a sub-field.
 pub fn resolve_index_field_by_name(
     index: &PgSearchRelation,
     field: &str,
@@ -188,7 +189,7 @@ pub fn resolve_index_field_by_name(
     else {
         return Ok(None);
     };
-    let FieldSource::Heap { attno } = data.source else {
+    let Some(attno) = data.source.heap_attno(index) else {
         return Err(format!(
             "Field '{field}' is an expression index, which cannot be read back as a column"
         ));

@@ -21,7 +21,7 @@ However, this means that all columns must be defined up front at index creation 
 
 ## DDL Replication
 
-A commonly known limitation of Postgres logical replication is that DDL (Data Definition Language) statements are not replicated. This includes operations like `CREATE TABLE` or `CREATE INDEX`.
+A well-known limitation of Postgres logical replication is that DDL (Data Definition Language) statements are not replicated. This includes operations like `CREATE TABLE` or `CREATE INDEX`.
 
 If ParadeDB is running as a logical replica of a primary Postgres, DDL statements from the primary must be executed manually on the replica.
 We recommend version-controlling your schema changes and applying them in a coordinated, repeatable way — either through a migration tool or deployment automation — to keep source and target databases in sync. See the [logical replication guide](/operate/deploy/logical-replication/getting-started) for more details.

@@ -47,16 +47,10 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 ALTER TABLE companies ADD COLUMN big_id BIGINT;
 UPDATE companies SET big_id = id;
 
-CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id)
-WITH (
-    numeric_fields = '{"big_id": {"fast": true}}'
-);
+CREATE INDEX companies_bm25_idx ON companies USING paradedb (id, name, description, big_id);
 
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
-USING paradedb (id, company_id, amount, (round_type::pdb.literal))
-WITH (
-    numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
-);
+USING paradedb (id, company_id, amount, (round_type::pdb.literal));
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -70,9 +64,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
 
@@ -81,9 +75,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
 
@@ -97,9 +91,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -108,9 +102,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -124,9 +118,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id DESC
 LIMIT 10;
 
@@ -136,9 +130,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -152,9 +146,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
 
@@ -163,9 +157,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
 
@@ -179,9 +173,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
 
@@ -190,9 +184,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
 
@@ -206,9 +200,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
 
@@ -217,9 +211,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
 
@@ -233,9 +227,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
 
@@ -244,9 +238,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
 
@@ -261,9 +255,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
 
@@ -274,9 +268,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.big_id * 1::bigint DESC
 LIMIT 10;
 
@@ -287,9 +281,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
 
@@ -300,9 +294,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 1 * c.id DESC
 LIMIT 10;
 
@@ -314,7 +308,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -322,7 +316,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
 
@@ -330,7 +324,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY c.big_id + 0::bigint DESC
 LIMIT 10;
 
@@ -338,7 +332,7 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.name
 FROM companies c
-WHERE c.description @@@ 'technology'
+WHERE c.description ||| 'technology'
 ORDER BY 0 + c.id DESC
 LIMIT 10;
 
@@ -353,9 +347,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 1 DESC
 LIMIT 10;
 
@@ -369,9 +363,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY 0 - c.id DESC
 LIMIT 10;
 
@@ -385,9 +379,9 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + c.id DESC
 LIMIT 10;
 
@@ -403,7 +397,7 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -414,7 +408,7 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 
@@ -431,7 +425,7 @@ WHERE c.id IN (
     FROM funding_rounds fr
     WHERE fr.round_type === 'seed'
 )
-AND c.description @@@ 'technology'
+AND c.description ||| 'technology'
 ORDER BY c.id + 0::bigint DESC
 LIMIT 10;
 
@@ -455,10 +449,7 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (204, 3, 'completed', 8000),
 (205, 4, 'completed', 2000);
 
-CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total)
-WITH (
-    numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'
-);
+CREATE INDEX orders_bm25_idx ON orders USING paradedb (id, company_id, (status::pdb.literal), total);
 
 -- Complex query with multiple IN subqueries and NOT EXISTS
 -- Result correctness: bare column vs expression form must match.
@@ -468,14 +459,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
     AND NOT EXISTS (
         SELECT 1 FROM orders o
         WHERE o.company_id = fr.company_id
-        AND o.status @@@ 'cancelled'
+        AND o.status ||| 'cancelled'
     )
 )
-AND c.description @@@ 'technology OR intelligence'
+AND (c.description ||| 'technology' OR c.description ||| 'intelligence')
 ORDER BY c.id DESC
 LIMIT 10;
 
@@ -484,14 +475,14 @@ FROM companies c
 WHERE c.id IN (
     SELECT fr.company_id
     FROM funding_rounds fr
-    WHERE fr.round_type @@@ 'seed'
+    WHERE fr.round_type ||| 'seed'
     AND NOT EXISTS (
         SELECT 1 FROM orders o
         WHERE o.company_id = fr.company_id
-        AND o.status @@@ 'cancelled'
+        AND o.status ||| 'cancelled'
     )
 )
-AND c.description @@@ 'technology OR intelligence'
+AND (c.description ||| 'technology' OR c.description ||| 'intelligence')
 ORDER BY c.id + 0 DESC
 LIMIT 10;
 

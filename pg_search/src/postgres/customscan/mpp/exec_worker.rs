@@ -61,7 +61,9 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
 };
-use crate::scan::physical_codec::deserialize_physical_plan_with_runtime;
+use crate::scan::physical_codec::{
+    PgSearchPhysicalExtensionCodec, deserialize_physical_plan_with_runtime,
+};
 use datafusion_distributed::shm::SetPlanFrame;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan
@@ -163,6 +165,7 @@ pub(crate) fn build_mpp_session_context(
             state_builder.with_distributed_channel_resolver(ShmChannelResolver::new(mesh));
     }
     let state_builder = state_builder
+        .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
         .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
         .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
         .with_distributed_desired_task_count_handler(n_workers)
@@ -328,6 +331,7 @@ pub(crate) fn run_mpp_worker(
     // `worker_mesh.n_procs >= MIN_TOTAL_WORKER_COUNT` is guaranteed by the launch's clamp
     // (it spawns at least 2 producers), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
+    let expr_context_guard = ExprContextGuard::new();
     let (fragments, session) = match fragments_for_worker(
         plan_bytes,
         seed_ctx,
@@ -370,7 +374,6 @@ pub(crate) fn run_mpp_worker(
     };
     let decode_ctx = session.task_ctx();
     let mut plans = Vec::with_capacity(frames.len());
-    let expr_context_guard = ExprContextGuard::new();
 
     // Deserialize under the decode ctx, not the run ctx. The run ctx limits
     // allocations aggressively; decode builds the plan graph and can spike memory.
@@ -504,13 +507,13 @@ pub(crate) fn run_mpp_worker(
                 create_memory_pool(frag_plan, work_mem_bytes, hash_mem_multiplier);
             let spill_state = SpillNotifier(parallel_state);
             let task_ctx = Arc::new(
-                TaskContext::default()
+                TaskContext::from(session_arc.as_ref())
                     .with_session_config(cfg)
                     .with_runtime(build_runtime_env(
                         memory_pool,
                         Arc::new(move || spill_state.mark_spilled()),
                     )),
-                );
+            );
 
             // The fragment arrives ready-to-run: the leader serialized it with nested stages
             // already `Remote`, so its boundary leaves read the mesh through the session's

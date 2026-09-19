@@ -92,12 +92,7 @@ INSERT INTO tags (article_id, tag_name) VALUES
     (14, 'encryption'), (14, 'security'), (14, 'technology'),
     (15, 'graphql'), (15, 'api'), (15, 'technology');
 -- Create BM25 indexes with fast field for sorting
-CREATE INDEX articles_bm25_idx ON articles USING paradedb (id, title, content, created_at) WITH (
-    text_fields = '{
-        "title": { "fast": true, "tokenizer": {"type": "default"} },
-        "content": { "tokenizer": {"type": "default"} }
-    }'
-);
+CREATE INDEX articles_bm25_idx ON articles USING paradedb (id, (title::pdb.simple('columnar=true')), (content::pdb.simple), created_at);
 CREATE INDEX comments_bm25_idx ON comments USING paradedb (id, content);
 CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, expertise);
 -- =============================================================================
@@ -120,11 +115,11 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -134,7 +129,7 @@ LIMIT 5;
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Limit
                ->  Sort
                      Sort Key: c.created_at DESC
@@ -158,7 +153,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
  id |              title               | comment_id |     comment_content      
@@ -185,10 +180,10 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(a.id)) DESC
    ->  Nested Loop Left Join
@@ -197,7 +192,7 @@ ORDER BY paradedb.score(a.id) DESC;
                Index: articles_bm25_idx
                Exec Method: NormalScanExecState
                Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Limit
                ->  Sort
                      Sort Key: c.created_at DESC
@@ -219,7 +214,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC;
  id |            title             |   score   | comment_id 
 ----+------------------------------+-----------+------------
@@ -241,13 +236,13 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) c ON true
-WHERE a.content @@@ 'database' 
+WHERE a.content ||| 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (paradedb.score(a.id)) DESC
@@ -257,7 +252,7 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
                      Index: articles_bm25_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Aggregate
                      Filter: (count(*) > 5)
                      ->  Seq Scan on comments c
@@ -276,7 +271,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) c ON true
-WHERE a.content @@@ 'database' 
+WHERE a.content ||| 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -299,12 +294,12 @@ SELECT
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, au)
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (paradedb.score(a.id)) DESC
@@ -315,7 +310,7 @@ WARNING:  JoinScan not used: join conditions must reference columnar indexed fie
                      Index: articles_bm25_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Seq Scan on authors au
 (12 rows)
 
@@ -327,7 +322,7 @@ SELECT
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, au)
@@ -356,12 +351,12 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'machine learning'
+WHERE a.content ||| 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
 WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -371,7 +366,7 @@ WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pus
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"machine learning","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)
@@ -391,7 +386,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'machine learning'
+WHERE a.content ||| 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
 WARNING:  Aggregate Scan not used: field 'rating' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
@@ -416,12 +411,12 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) latest ON true
-WHERE a.content @@@ 'cloud'
+WHERE a.content ||| 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -431,7 +426,7 @@ WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate
                Scores: false
                   TopK Order By: created_at desc
                   TopK Limit: 5
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"cloud","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"cloud","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)
@@ -449,7 +444,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) latest ON true
-WHERE a.content @@@ 'cloud'
+WHERE a.content ||| 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
@@ -479,11 +474,11 @@ LEFT JOIN LATERAL (
     FROM tags t
     WHERE t.article_id = a.id
 ) tag_list ON true
-WHERE a.content @@@ 'database security'
+WHERE a.content ||| 'database security'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Nested Loop Left Join
@@ -494,7 +489,7 @@ LIMIT 3;
                      Scores: true
                         TopK Order By: pdb.score() desc
                         TopK Limit: 3
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database security","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database security","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Aggregate
                      ->  Seq Scan on comments c
                            Filter: (article_id = a.id)
@@ -520,7 +515,7 @@ LEFT JOIN LATERAL (
     FROM tags t
     WHERE t.article_id = a.id
 ) tag_list ON true
-WHERE a.content @@@ 'database security'
+WHERE a.content ||| 'database security'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
  id |              title               | comment_count |               tags                
@@ -546,13 +541,13 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) recent_activity ON true
-WHERE a.content @@@ 'machine learning' 
+WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate pushdown. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
-                                                                                                                                                             QUERY PLAN                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -562,7 +557,7 @@ WARNING:  Aggregate Scan not used: field 'created_at' does not support aggregate
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"machine learning","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)
@@ -581,7 +576,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) recent_activity ON true
-WHERE a.content @@@ 'machine learning' 
+WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -611,12 +606,12 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
     HAVING COUNT(*) > 0
 ) comment_info ON true
-WHERE a.content @@@ 'encryption'
+WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -626,7 +621,7 @@ WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"encryption","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"encryption","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Aggregate
                Filter: (count(*) > 0)
                ->  Seq Scan on comments c
@@ -648,7 +643,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
     HAVING COUNT(*) > 0
 ) comment_info ON true
-WHERE a.content @@@ 'encryption'
+WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: comments)
@@ -674,11 +669,11 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -688,7 +683,7 @@ LIMIT 5;
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)
@@ -706,7 +701,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
  id |            title             | relevance_score | comment_count 
@@ -739,13 +734,13 @@ LEFT JOIN (
         )
     ) comment_stats ON true
 ) ON a.author_id = au.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
 WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources (tables: a, au)
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          Join Filter: (a.author_id = au.id)
@@ -756,7 +751,7 @@ WARNING:  JoinScan not used: relation 'comment_stats' not found in join sources 
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Materialize
                ->  Nested Loop
                      ->  Seq Scan on authors au
@@ -787,7 +782,7 @@ LEFT JOIN (
         )
     ) comment_stats ON true
 ) ON a.author_id = au.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 WARNING:  Aggregate Scan (DataFusion) not used: join key (plan_position=0, attno=2) is not columnar (table: join)
@@ -830,12 +825,12 @@ LEFT JOIN LATERAL (
         WHERE c.author_name = au.name
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          Join Filter: (a.author_id = au.id)
@@ -846,7 +841,7 @@ WARNING:  JoinScan not used: relation 'article_stats' not found in join sources 
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 3
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Materialize
                ->  Nested Loop Left Join
                      ->  Nested Loop
@@ -883,7 +878,7 @@ LEFT JOIN LATERAL (
         WHERE c.author_name = au.name
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 WARNING:  JoinScan not used: relation 'article_stats' not found in join sources (tables: a, au)
@@ -913,11 +908,11 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -927,7 +922,7 @@ LIMIT 3;
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 3
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"database","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          ->  Limit
                ->  Sort
                      Sort Key: c.created_at DESC
@@ -950,7 +945,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
  id |              title               |                            content_snippet                             |     comment_content      

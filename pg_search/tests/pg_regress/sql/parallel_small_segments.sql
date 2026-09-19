@@ -58,19 +58,19 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 SET paradedb.min_rows_per_worker = 2000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
 -- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
 SET paradedb.min_rows_per_worker = 500;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
 -- Test 3: min_rows_per_worker=0 -> no cap -> parallel by segment count
 SET paradedb.min_rows_per_worker = 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
 
 -- Test 4: TopK sorted scan bypasses min_rows_per_worker
 -- Even with a high min_rows_per_worker threshold, TopK queries that declare sorted
@@ -94,7 +94,7 @@ LIMIT 10;
 -- TopK with ORDER BY id (not score) also declares sorted output and must visit
 -- all segments, so parallel should be enabled despite high threshold.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+SELECT id, name FROM items WHERE name ||| 'item' ORDER BY id LIMIT 10;
 
 -- Test 6: Verify unanalyzed table behavior
 -- When reltuples is unknown (-1), parallel should still be allowed
@@ -121,7 +121,7 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 SET paradedb.min_rows_per_worker = 300000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
+SELECT id, name FROM items WHERE name ||| 'item';
 
 -- Clean up
 DROP TABLE items;

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed `pdb.agg()` over a join rejecting a field indexed through a tokenizer cast, such as `(name::pdb.literal)`, as an expression index. On a single table, a `pdb.agg()` with such a field and a NUMERIC metric no longer fails on the NUMERIC field (#6411).

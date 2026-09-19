@@ -20,28 +20,8 @@ CREATE TABLE orders
 );
 
 -- Note: Create the indexes before inserting rows to encourage multiple segments being created.
-CREATE INDEX idxproducts ON products USING paradedb (id, uuid, name, color, age)
-    WITH (
-    target_segment_count = 2,
-    text_fields = '
-            {
-                "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-    );
-CREATE INDEX idxorders ON orders USING paradedb (id, uuid, name, color, age)
-    WITH (
-    target_segment_count = 2,
-    text_fields = '
-            {
-                "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-    );
+CREATE INDEX idxproducts ON products USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), (age::pdb.literal)) WITH (target_segment_count = 2);
+CREATE INDEX idxorders ON orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), (color::pdb.literal), (age::pdb.literal)) WITH (target_segment_count = 2);
 
 --
 -- this INSERT pattern ensures we have 2 segments, which seems to be important in triggering the bug
@@ -88,4 +68,4 @@ ANALYZE;
 --
 -- these two queries should return the same count:  3
 SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age  =  '20') ORDER BY orders.id LIMIT 9) AND (products.name  =  'bob') AND (products.name  =  'bob');
-SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age @@@ '20') ORDER BY orders.id LIMIT 9) AND (products.name @@@ 'bob') AND (products.name @@@ 'bob');
+SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age ||| '20') ORDER BY orders.id LIMIT 9) AND (products.name ||| 'bob') AND (products.name ||| 'bob');

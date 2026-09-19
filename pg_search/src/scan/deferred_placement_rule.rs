@@ -748,6 +748,7 @@ mod tests {
         }
     }
 
+    #[cfg(test)]
     fn summary(out_of_order: bool, expansion: Expansion) -> PathSummary {
         PathSummary {
             out_of_order,
@@ -937,11 +938,10 @@ mod tests {
             CREATE UNIQUE INDEX placement_partial ON placement_unique (partial) WHERE partial > 0;
             CREATE UNIQUE INDEX placement_include ON placement_unique (id) INCLUDE (title);
             CREATE UNIQUE INDEX placement_expression ON placement_unique (lower(title));
-            CREATE INDEX placement_search ON placement_unique USING bm25
-                (title, id, other, nullable, tags, deferred, partial, composite_a, composite_b, normalized)
-                WITH (text_fields = '{"title":{"fast":true},"normalized":{"fast":true,"normalizer":"lowercase"}}');
+            CREATE INDEX placement_search ON placement_unique USING paradedb
+                ((title::pdb.unicode_words('columnar=true')), id, other, nullable, tags, deferred, partial, composite_a, composite_b, (normalized::pdb.unicode_words('normalizer=lowercase', 'columnar=true')));
             CREATE TABLE placement_alias (key bigint PRIMARY KEY, id text UNIQUE NOT NULL);
-            CREATE INDEX placement_alias_search ON placement_alias USING bm25
+            CREATE INDEX placement_alias_search ON placement_alias USING paradedb
                 (key, (lower(id)::pdb.literal('alias=id')));
             "#,
         )

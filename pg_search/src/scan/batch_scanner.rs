@@ -610,6 +610,8 @@ impl Scanner {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
 
                     match ffhelper.column(segment_ord, ff_index) {
+                        // No column in this segment: `to_record_batch` fills typed NULLs.
+                        FFType::Junk => None,
                         FFType::Text(str_column) => {
                             let ords_array = col_array
                                 .as_any()
@@ -640,6 +642,7 @@ impl Scanner {
                 } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
+                        FFType::Junk => None,
                         FFType::Text(str_column) => {
                             let list_array = col_array
                                 .as_any()
@@ -697,6 +700,9 @@ impl Scanner {
                     delivery: FieldDelivery::Deferred,
                     ..
                 } => match &memoized_columns[ff_index] {
+                    Some(_) if matches!(ffhelper.column(segment_ord, ff_index), FFType::Junk) => {
+                        None
+                    }
                     Some(col_array) => {
                         let ordinals = col_array
                             .as_any()

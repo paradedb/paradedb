@@ -1,6 +1,6 @@
 # pg_search
 
-This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://www.paradedb.com/docs).
+This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [ParadeDB documentation](https://www.paradedb.com/docs/start/introduction).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 

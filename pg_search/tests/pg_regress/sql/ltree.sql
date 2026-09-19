@@ -29,15 +29,15 @@ INSERT INTO tbl_ltree (category) VALUES
     (NULL);
 
 -- Test equality query via BM25 index
-SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Astronomy') ORDER BY id;
 
 -- Test count aggregation with ltree filter
 -- ltree is indexed as a Tantivy Facet field, which stores ancestor terms at index time.
-SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+SELECT count(*) FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Biology');
 
 -- Explain to verify index usage
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+SELECT count(*) FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Biology');
 
 -- Test sorting by ltree column (lexicographic order)
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
@@ -54,11 +54,11 @@ INSERT INTO tbl_ltree_key (path, name) VALUES
     ('Root.Branch1', 'First Branch'),
     ('Root.Branch2', 'Second Branch');
 
-SELECT path, name FROM tbl_ltree_key WHERE name @@@ 'Branch' ORDER BY path;
+SELECT path, name FROM tbl_ltree_key WHERE name ||| 'Branch' ORDER BY path;
 
 -- Test columnar exec path (exercises arrow_array_to_datum ltree conversion)
 SET paradedb.enable_columnar_exec = true;
-SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Astronomy') ORDER BY id;
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
 RESET paradedb.enable_columnar_exec;
 

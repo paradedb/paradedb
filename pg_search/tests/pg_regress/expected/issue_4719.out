@@ -43,24 +43,13 @@ INSERT INTO issue_4719_companies (id, body) VALUES
     (10, 'co'), (20, 'co'), (30, 'co');
 CREATE INDEX issue_4719_people_idx
     ON issue_4719_people
-    USING paradedb (id, company_id, body)
-    WITH (
-        numeric_fields = '{"company_id": {"fast": true}}',
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, company_id, (body::pdb.unicode_words('columnar=true')));
 CREATE INDEX issue_4719_experiences_idx
     ON issue_4719_experiences
-    USING paradedb (id, person_id, company_id, body)
-    WITH (
-        numeric_fields = '{"person_id": {"fast": true}, "company_id": {"fast": true}}',
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, person_id, company_id, (body::pdb.unicode_words('columnar=true')));
 CREATE INDEX issue_4719_companies_idx
     ON issue_4719_companies
-    USING paradedb (id, body)
-    WITH (
-        text_fields = '{"body": {"fast": true}}'
-    );
+    USING paradedb (id, (body::pdb.unicode_words('columnar=true')));
 ANALYZE issue_4719_people;
 ANALYZE issue_4719_experiences;
 ANALYZE issue_4719_companies;

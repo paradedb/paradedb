@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed the join scan dropping rows after a HOT update and a `VACUUM`. The index keeps the HOT root, `VACUUM` prunes that root into a redirect line pointer, and the scan's final heap fetch stopped at the redirect instead of following the chain to the visible row (#6375).

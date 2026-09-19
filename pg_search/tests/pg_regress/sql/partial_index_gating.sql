@@ -40,32 +40,32 @@ END $$ LANGUAGE plpgsql;
 -- === Single-table aggregate (Tantivy path) ===
 -- Predicate missing: must decline.
 SELECT plan_uses(
-  $$SELECT count(*) FROM pig_left WHERE category @@@ 'a'$$,
+  $$SELECT count(*) FROM pig_left WHERE category ||| 'a'$$,
   'ParadeDB Aggregate Scan') AS agg_when_predicate_missing;
 -- Predicate present (AND active): used.
 SELECT plan_uses(
-  $$SELECT count(*) FROM pig_left WHERE category @@@ 'a' AND active$$,
+  $$SELECT count(*) FROM pig_left WHERE category ||| 'a' AND active$$,
   'ParadeDB Aggregate Scan') AS agg_when_predicate_present;
 -- The used aggregate must still count only the matching rows.
-SELECT count(*) AS agg_used_count FROM pig_left WHERE category @@@ 'a' AND active;
+SELECT count(*) AS agg_used_count FROM pig_left WHERE category ||| 'a' AND active;
 
 -- === Aggregate over a join (DataFusion path) ===
 -- Predicate missing: must decline.
 SELECT plan_uses(
   $$SELECT count(*) FROM pig_left l JOIN pig_right r ON r.left_id = l.id
-    WHERE l.category @@@ 'a'$$,
+    WHERE l.category ||| 'a'$$,
   'ParadeDB Aggregate Scan') AS agg_join_when_predicate_missing;
 
 -- === Pure join scan (no aggregate) ===
 -- Predicate missing: must decline.
 SELECT plan_uses(
   $$SELECT l.id FROM pig_left l JOIN pig_right r ON r.left_id = l.id
-    WHERE l.category @@@ 'a' ORDER BY l.id LIMIT 5$$,
+    WHERE l.category ||| 'a' ORDER BY l.id LIMIT 5$$,
   'ParadeDB Join Scan') AS join_when_predicate_missing;
 -- Predicate present (AND active): used.
 SELECT plan_uses(
   $$SELECT l.id FROM pig_left l JOIN pig_right r ON r.left_id = l.id
-    WHERE l.category @@@ 'a' AND l.active ORDER BY l.id LIMIT 5$$,
+    WHERE l.category ||| 'a' AND l.active ORDER BY l.id LIMIT 5$$,
   'ParadeDB Join Scan') AS join_when_predicate_present;
 
 DROP FUNCTION plan_uses(text, text);

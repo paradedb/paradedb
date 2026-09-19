@@ -72,7 +72,7 @@
 //! `survivors_s` bound above.
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFIndex, FFType};
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::postgres::customscan::joinscan::build::CtidColumn;
 use crate::postgres::customscan::joinscan::visibility_filter::{
@@ -106,6 +106,21 @@ use pgrx::pg_sys;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
+
+/// The Arrow type a deferred sort column materializes NULLs and values as.
+///
+/// Every segment of one index stores a column under the same type, but a segment whose
+/// documents never carry a JSON path has no column at all, and asking that one would pick
+/// a type the `RowConverter` then rejects for the segments that do have it.
+fn deferred_sort_data_type(ffhelper: &FFHelper, ff_index: FFIndex) -> arrow_schema::DataType {
+    (0..ffhelper.num_segments() as SegmentOrdinal)
+        .find_map(|segment_ord| match ffhelper.column(segment_ord, ff_index) {
+            FFType::Bytes(_) => Some(arrow_schema::DataType::BinaryView),
+            FFType::Junk => None,
+            _ => Some(arrow_schema::DataType::Utf8View),
+        })
+        .unwrap_or(arrow_schema::DataType::Utf8View)
+}
 
 /// Minimum per-segment buffer capacity on visibility plans. Visibility checking has a
 /// per-batch setup cost (snapshot acquisition, packed-DocAddress → ctid resolution, HOT
@@ -320,11 +335,7 @@ impl SegmentedTopKExec {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let data_type = if let Some(deferred) = is_deferred {
-                    let col = ffhelper.column(0, deferred.canonical.ff_index);
-                    match col {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
-                        _ => arrow_schema::DataType::Utf8View,
-                    }
+                    deferred_sort_data_type(ffhelper, deferred.canonical.ff_index)
                 } else {
                     expr.expr
                         .data_type(schema)
@@ -1187,6 +1198,8 @@ impl SegmentedTopKState {
                 FFType::Bytes(bytes_col) => {
                     bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
                 }
+                // No column in this segment: every row stays NULL.
+                FFType::Junk => {}
                 _ => {
                     panic!(
                         "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
@@ -1549,10 +1562,11 @@ impl SegmentedTopKState {
     ///
     /// Returns `(visible_mask, corrected_ctids_per_entry)`:
     /// - `visible_mask[i]` is `false` when the i-th row is invisible to any relation.
-    /// - `corrected_ctids_per_entry[e][i]` is the HOT-corrected real ctid for the i-th
-    ///   row as seen by entry `e`. `None` means invisible (or unresolvable) for that
-    ///   entry. These HOT-corrected values must be used in the final output so that
-    ///   `fetch_tuple_direct` (which does NOT follow HOT chains) receives the right ctid.
+    /// - `corrected_ctids_per_entry[e][i]` is the ctid `check_batch` resolved for the i-th
+    ///   row as seen by entry `e`, or `None` when the row is invisible or unresolvable.
+    ///   The final output carries these, since a HOT chain moves the row off the root the
+    ///   index holds. On an all-visible page `check_batch` returns that root untouched, so
+    ///   the consumer still has to follow the chain itself.
     ///
     /// Returns all-true / empty-corrected immediately when `visibility_entries` is empty.
     #[allow(clippy::type_complexity)]
@@ -1745,10 +1759,8 @@ impl SegmentedTopKState {
         // 2a. Visibility filter: remove invisible rows from candidates.
         //     pass_through_rows are checked here (they bypass the prune cycle).
         //
-        // corrected_lookup[entry_idx][(batch_idx, row_idx)] = HOT-corrected real ctid.
-        // Populated here and consumed in the final output column write below so that
-        // fetch_tuple_direct (which does NOT follow HOT chains) gets the right address.
-        // Declared outside the if block so it remains in scope for the output step.
+        // Declared outside the if block so it stays in scope for the output step below,
+        // which writes these resolved ctids in place of the raw index ones.
         let corrected_lookup: Vec<HashMap<(usize, usize), u64>>;
 
         if !self.visibility_entries.is_empty() && !candidates.is_empty() {
@@ -1806,10 +1818,7 @@ impl SegmentedTopKState {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let mat_type = if let Some(deferred) = deferred {
-                    match self.ffhelper.column(0, deferred.canonical.ff_index) {
-                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
-                        _ => arrow_schema::DataType::Utf8View,
-                    }
+                    deferred_sort_data_type(&self.ffhelper, deferred.canonical.ff_index)
                 } else {
                     expr.expr
                         .data_type(&self.schema)
@@ -1947,12 +1956,8 @@ impl SegmentedTopKState {
         // DocAddresses in the ctid_N columns.  We must resolve them before emitting
         // so downstream JoinScanState can pass a real ctid to fetch_tuple_direct.
         //
-        // We use the HOT-corrected values from corrected_lookup (populated by
-        // check_rows_visible above via heap_hot_search_buffer) rather than calling
-        // materialize_deferred_ctid again.  materialize_deferred_ctid would return
-        // the raw index ctid, which is wrong for rows whose heap tuple has been
-        // moved by a HOT update: fetch_tuple_direct does NOT follow HOT chains, so
-        // it would silently return no data or stale data for those rows.
+        // corrected_lookup rather than materialize_deferred_ctid, which hands back the raw
+        // index ctid after a HOT update has already moved the row off that root.
         if !corrected_lookup.is_empty() {
             let mut columns: Vec<ArrayRef> = result.columns().to_vec();
             for (entry_idx, entry) in self.visibility_entries.iter().enumerate() {
@@ -2043,11 +2048,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
-            USING paradedb (id, name, sort_col) 
-            WITH (
-                target_segment_count = 4, 
-                text_fields = '{"sort_col": {"fast": true}}'
-            );
+            USING paradedb (id, name, (sort_col::pdb.unicode_words('columnar=true'))) WITH (target_segment_count = 4);
             "#,
         )
         .unwrap();

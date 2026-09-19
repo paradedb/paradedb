@@ -51,9 +51,9 @@ fn setup(conn: &mut PgConnection) {
     SELECT g, ((g - 1) % 1000) + 1, g FROM generate_series(1, 2000) g;
 
     CREATE INDEX wj_products_bm25 ON wj_products
-    USING paradedb (id, (description::pdb.unicode_words)) WITH (key_field = 'id');
+    USING paradedb (id, (description::pdb.unicode_words));
     CREATE INDEX wj_reviews_bm25 ON wj_reviews
-    USING paradedb (id, product_id, score) WITH (key_field = 'id');
+    USING paradedb (id, product_id, score);
     ANALYZE wj_products;
     ANALYZE wj_reviews;
     "#
@@ -99,7 +99,7 @@ fn global_window_aggregates_over_join(
                        MAX(r.score) OVER () AS max_score
                 FROM wj_products p
                 JOIN wj_reviews r ON p.id = r.product_id
-                WHERE p.description @@@ 'laptop'
+                WHERE p.description ||| 'laptop'
                 ORDER BY r.score DESC
                 LIMIT 3
             "#;
@@ -136,7 +136,7 @@ fn global_window_aggregates_over_join(
                        COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
                 FROM wj_products p
                 JOIN wj_reviews r ON p.id = r.product_id
-                WHERE p.description @@@ 'laptop'
+                WHERE p.description ||| 'laptop'
                 ORDER BY r.score DESC
                 LIMIT 3
             "#;
@@ -190,9 +190,9 @@ fn setup_numeric(conn: &mut PgConnection) {
     FROM generate_series(1, 2000) g;
 
     CREATE INDEX wjn_products_bm25 ON wjn_products
-    USING paradedb (id, (description::pdb.unicode_words)) WITH (key_field = 'id');
+    USING paradedb (id, (description::pdb.unicode_words));
     CREATE INDEX wjn_reviews_bm25 ON wjn_reviews
-    USING paradedb (id, product_id, price) WITH (key_field = 'id');
+    USING paradedb (id, product_id, price);
     ANALYZE wjn_products;
     ANALYZE wjn_reviews;
     "#
@@ -235,7 +235,7 @@ fn global_window_aggregates_over_join_numeric(
                        MAX(r.price) OVER ()::float8 AS max_price
                 FROM wjn_products p
                 JOIN wjn_reviews r ON p.id = r.product_id
-                WHERE p.description @@@ 'laptop'
+                WHERE p.description ||| 'laptop'
                 ORDER BY r.id DESC
                 LIMIT 3
             "#;
@@ -264,7 +264,7 @@ fn global_window_aggregates_over_join_numeric(
                 SELECT p.id, SUM(r.price) OVER () * 2 AS doubled_total
                 FROM wjn_products p
                 JOIN wjn_reviews r ON p.id = r.product_id
-                WHERE p.description @@@ 'laptop'
+                WHERE p.description ||| 'laptop'
                 ORDER BY r.id DESC
                 LIMIT 3
             "#;
@@ -313,9 +313,9 @@ fn setup_anti_join(conn: &mut PgConnection) {
     INSERT INTO wja_orders VALUES (1, 1, 11.50), (2, 2, 22.50);
 
     CREATE INDEX wja_products_bm25 ON wja_products
-    USING paradedb (id, age, (description::pdb.unicode_words)) WITH (key_field = 'id');
+    USING paradedb (id, age, (description::pdb.unicode_words));
     CREATE INDEX wja_orders_bm25 ON wja_orders
-    USING paradedb (id, age, price) WITH (key_field = 'id');
+    USING paradedb (id, age, price);
     ANALYZE wja_products;
     ANALYZE wja_orders;
     "#
@@ -336,7 +336,7 @@ fn global_window_aggregates_over_pruned_anti_join(
                SUM(o.price) OVER () AS total_price
         FROM wja_products p
         LEFT JOIN wja_orders o ON p.age = o.age
-        WHERE p.description @@@ 'laptop' AND o.age IS NULL
+        WHERE p.description ||| 'laptop' AND o.age IS NULL
         ORDER BY p.id
         LIMIT 10
     "#;

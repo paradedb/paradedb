@@ -48,16 +48,13 @@ CREATE TABLE js_rti_excluded (
 SET paradedb.global_mutable_segment_rows = 0;
 
 CREATE INDEX js_rti_items_bm25 ON js_rti_items
-USING paradedb (id, category_id, overview)
-WITH (numeric_fields = '{"category_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+USING paradedb (id, category_id, overview) WITH (target_segment_count = 64, background_layer_sizes = '0');
 
 CREATE INDEX js_rti_people_bm25 ON js_rti_people
-USING paradedb (id, company_id)
-WITH (numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+USING paradedb (id, company_id) WITH (target_segment_count = 64, background_layer_sizes = '0');
 
 CREATE INDEX js_rti_excluded_bm25 ON js_rti_excluded
-USING paradedb (id, company_id, technology_name)
-WITH (numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+USING paradedb (id, company_id, technology_name) WITH (target_segment_count = 64, background_layer_sizes = '0');
 
 -- Insert in batches to create multiple segments for parallel execution.
 INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(1, 10000) i;
@@ -96,7 +93,7 @@ ANALYZE;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id
 FROM js_rti_items i
-WHERE i.overview @@@ 'software'
+WHERE i.overview ||| 'software'
   AND i.id NOT IN (
       SELECT DISTINCT e.company_id
       FROM js_rti_excluded e
@@ -113,7 +110,7 @@ LIMIT 10;
 
 SELECT i.id
 FROM js_rti_items i
-WHERE i.overview @@@ 'software'
+WHERE i.overview ||| 'software'
   AND i.id NOT IN (
       SELECT DISTINCT e.company_id
       FROM js_rti_excluded e

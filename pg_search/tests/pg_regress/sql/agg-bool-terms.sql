@@ -57,7 +57,7 @@ INSERT INTO docs_nullable (body, category, has_flag) VALUES
     ('another true',    'x', true);
 
 CREATE INDEX docs_nullable_idx ON docs_nullable
-USING paradedb (id, body, (category::pdb.unicode_words('columnar=true')), has_flag);
+USING paradedb (id, body, (category::pdb.literal), has_flag);
 
 -- 4a: EXPLAIN to confirm aggregate custom scan is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

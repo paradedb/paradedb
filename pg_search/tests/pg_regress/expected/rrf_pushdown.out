@@ -25,10 +25,10 @@ CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp);
 -- ============================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  WindowAgg
          Window: w1 AS (ORDER BY n ROWS UNBOUNDED PRECEDING)
@@ -39,18 +39,18 @@ ORDER BY n DESC LIMIT 10;
                Scores: false
                   TopK Order By: n desc
                   TopK Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 -- row_number, rank, dense_rank all match the full-corpus computation.
 -- `mismatches` must be 0 for each.
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 10)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 10)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 10)
 ) d;
  mismatches 
@@ -60,11 +60,11 @@ SELECT count(*) AS mismatches FROM (
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, RANK() OVER (ORDER BY grp DESC, id) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY grp DESC, id LIMIT 25)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY grp DESC, id LIMIT 25)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, RANK() OVER (ORDER BY grp DESC, id) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 25)
 ) d;
  mismatches 
@@ -74,11 +74,11 @@ SELECT count(*) AS mismatches FROM (
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, DENSE_RANK() OVER (ORDER BY grp DESC, id) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY grp DESC, id LIMIT 25)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY grp DESC, id LIMIT 25)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, DENSE_RANK() OVER (ORDER BY grp DESC, id) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 25)
 ) d;
  mismatches 
@@ -89,10 +89,10 @@ SELECT count(*) AS mismatches FROM (
 -- score ordering, which is what the RRF text branch uses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  WindowAgg
          Window: w1 AS (ORDER BY paradedb.score(id), id ROWS UNBOUNDED PRECEDING)
@@ -103,7 +103,7 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
                Scores: true
                   TopK Order By: pdb.score() desc, id asc
                   TopK Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 -- ============================================================
@@ -112,10 +112,10 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 -- ============================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 20 OFFSET 30;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  WindowAgg
          Window: w1 AS (ORDER BY n ROWS UNBOUNDED PRECEDING)
@@ -126,16 +126,16 @@ ORDER BY n DESC LIMIT 20 OFFSET 30;
                Scores: false
                   TopK Order By: n desc
                   TopK Limit: 50
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 20 OFFSET 30)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 20 OFFSET 30)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 20 OFFSET 30)
 ) d;
  mismatches 
@@ -149,10 +149,10 @@ SELECT count(*) AS mismatches FROM (
 -- PARTITION BY draws rows from outside the top N
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: n DESC
@@ -165,16 +165,16 @@ ORDER BY n DESC LIMIT 10;
                            Index: wlp_idx
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (13 rows)
 
 -- window ordering differs from the query's ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: n DESC
@@ -187,16 +187,16 @@ ORDER BY n DESC LIMIT 10;
                            Index: wlp_idx
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (13 rows)
 
 -- percent_rank needs the total row count
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, PERCENT_RANK() OVER (ORDER BY n DESC) AS pr
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  WindowAgg
          Window: w1 AS (ORDER BY n ROWS UNBOUNDED PRECEDING)
@@ -208,17 +208,17 @@ ORDER BY n DESC LIMIT 10;
                      Exec Method: ColumnarExecState
                      Columnar: id, n
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- and their values stay correct
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 10)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 10)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, n, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY n DESC LIMIT 10)
 ) d;
  mismatches 
@@ -232,10 +232,10 @@ SELECT count(*) AS mismatches FROM (
 -- DISTINCT: 4 distinct grp values, so LIMIT 3 must return 3 rows
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY grp DESC LIMIT 3;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Incremental Sort
@@ -251,11 +251,11 @@ ORDER BY grp DESC LIMIT 3;
                                  Exec Method: ColumnarExecState
                                  Columnar: grp
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY grp DESC LIMIT 3;
  grp | rank 
 -----+------
@@ -268,10 +268,10 @@ ORDER BY grp DESC LIMIT 3;
 SET paradedb.planner_warnings = 'off';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  WindowAgg
          Window: w1 AS (ORDER BY ((grp + 0)) ROWS UNBOUNDED PRECEDING)
@@ -284,11 +284,11 @@ GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
                            Index: wlp_idx
                            Exec Method: NormalScanExecState
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (13 rows)
 
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
  g | rank 
 ---+------
@@ -298,7 +298,7 @@ GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
 (3 rows)
 
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 HAVING count(*) > 0 ORDER BY grp + 0 DESC LIMIT 3;
  g | rank 
 ---+------
@@ -314,20 +314,20 @@ RESET paradedb.planner_warnings;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH a AS (
     SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
-    FROM wlp WHERE label @@@ 'shoes'
+    FROM wlp WHERE label ||| 'shoes'
     ORDER BY paradedb.score(id) DESC, id LIMIT 20
 ),
 b AS (
     SELECT id, RANK() OVER (ORDER BY n DESC) AS rank
-    FROM wlp WHERE label @@@ 'item'
+    FROM wlp WHERE label ||| 'item'
     ORDER BY n DESC LIMIT 20
 )
 SELECT COALESCE(a.id, b.id) AS id,
        COALESCE(1.0/(60 + a.rank), 0.0) + COALESCE(1.0/(60 + b.rank), 0.0) AS rrf
 FROM a FULL OUTER JOIN b ON a.id = b.id
 ORDER BY rrf DESC, id LIMIT 5;
-                                                                                        QUERY PLAN                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((COALESCE((1.0 / ((60 + a.rank))::numeric), 0.0) + COALESCE((1.0 / ((60 + (rank() OVER w1)))::numeric), 0.0))) DESC, (COALESCE(a.id, wlp.id))
@@ -343,7 +343,7 @@ ORDER BY rrf DESC, id LIMIT 5;
                                  Scores: false
                                     TopK Order By: n desc
                                     TopK Limit: 20
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
                ->  Hash
                      ->  Subquery Scan on a
                            ->  Limit
@@ -356,7 +356,7 @@ ORDER BY rrf DESC, id LIMIT 5;
                                              Scores: true
                                                 TopK Order By: pdb.score() desc, id asc
                                                 TopK Limit: 20
-                                             Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+                                             Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (29 rows)
 
 DROP TABLE wlp;

@@ -33,16 +33,10 @@ INSERT INTO products_2024 (product_name, amount, sale_date) VALUES
 
 -- Create BM25 indexes on both tables
 CREATE INDEX idx_products_2023_bm25 ON products_2023
-USING paradedb (id, product_name, amount, sale_date)
-WITH (
-    text_fields = '{"product_name": {}}'
-);
+USING paradedb (id, product_name, amount, sale_date);
 
 CREATE INDEX idx_products_2024_bm25 ON products_2024
-USING paradedb (id, product_name, amount, sale_date)
-WITH (
-    text_fields = '{"product_name": {}}'
-);
+USING paradedb (id, product_name, amount, sale_date);
 
 -- Create view that combines both tables
 CREATE VIEW products_view AS
@@ -51,28 +45,28 @@ UNION ALL
 SELECT * FROM products_2024;
 
 -- Test individual table searches work correctly
-SELECT id, product_name FROM products_2023 WHERE product_name @@@ 'laptop' ORDER BY id;
+SELECT id, product_name FROM products_2023 WHERE product_name ||| 'laptop' ORDER BY id;
 
-SELECT id, product_name FROM products_2024 WHERE product_name @@@ 'tablet' ORDER BY id;
+SELECT id, product_name FROM products_2024 WHERE product_name ||| 'tablet' ORDER BY id;
 
 -- Test that the view query works without the @@@ operator
 SELECT id, product_name FROM products_view WHERE product_name LIKE '%Laptop%' ORDER BY id;
 
 -- The main test: This should work without throwing "Cannot open relation with oid=Oid(0)"
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tablet' ORDER BY id;
+SELECT id, product_name FROM products_view WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet') ORDER BY id;
 
-SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tablet' ORDER BY id;
+SELECT id, product_name FROM products_view WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet') ORDER BY id;
 
 -- Test with more complex query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, product_name, amount FROM products_view 
-WHERE product_name @@@ 'laptop OR tablet OR computer' 
+WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet' OR product_name ||| 'computer')
 AND amount > 100 
 ORDER BY amount DESC;
 
 SELECT id, product_name, amount FROM products_view 
-WHERE product_name @@@ 'laptop OR tablet OR computer' 
+WHERE (product_name ||| 'laptop' OR product_name ||| 'tablet' OR product_name ||| 'computer')
 AND amount > 100 
 ORDER BY amount DESC;
 

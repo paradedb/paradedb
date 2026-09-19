@@ -64,18 +64,18 @@ FROM products_op p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies_op c
-    WHERE c.name @@@ 'Acme OR Globex OR Initech'
+    WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex' OR c.name ||| 'Initech')
 )
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
     WHERE pt.tag === 'niche'
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (p ANTI pt) SEMI c
    Join Cond: p.company_id = c.id, p.id = pt.product_id
@@ -88,10 +88,10 @@ LIMIT 10;
      :       TantivyFetchExec: fetch=[ctid_0]
      :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
      :           CooperativeExec
-     :             PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=c, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"Globex","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"Initech","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :           HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, product_id@0)], null_aware
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :             CooperativeExec
      :               PgSearchScan: table=pt, segments=1, visibility=eager, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
 (18 rows)
@@ -101,14 +101,14 @@ FROM products_op p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies_op c
-    WHERE c.name @@@ 'Acme OR Globex OR Initech'
+    WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex' OR c.name ||| 'Initech')
 )
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
     WHERE pt.tag === 'niche'
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
  id  |  description  
@@ -132,18 +132,25 @@ SELECT p.id, p.description, cat.category_name
 FROM products_op p
 JOIN companies_op c ON c.id = p.company_id
 JOIN categories_op cat ON cat.product_id = p.id
-WHERE c.name @@@ 'Acme OR Globex'
-AND p.description @@@ 'widget OR gadget OR gizmo'
+WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex')
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY cat.category_name, p.id
 LIMIT 5;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, cat, p)
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: cat.category_name, p.id
          ->  Nested Loop
                Join Filter: (p.company_id = c.id)
+               ->  Custom Scan (ParadeDB Base Scan) on companies_op c
+                     Table: companies_op
+                     Index: companies_op_idx
+                     Exec Method: ColumnarExecState
+                     Columnar: id
+                     Scores: false
+                     Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"name","value":"Globex","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
                ->  Hash Join
                      Hash Cond: (cat.product_id = p.id)
                      ->  Seq Scan on categories_op cat
@@ -153,23 +160,15 @@ WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (table
                                  Index: products_op_idx
                                  Exec Method: NormalScanExecState
                                  Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Custom Scan (ParadeDB Base Scan) on companies_op c
-                           Table: companies_op
-                           Index: companies_op_idx
-                           Exec Method: ColumnarExecState
-                           Columnar: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+                                 Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(22 rows)
 
 SELECT p.id, p.description, cat.category_name
 FROM products_op p
 JOIN companies_op c ON c.id = p.company_id
 JOIN categories_op cat ON cat.product_id = p.id
-WHERE c.name @@@ 'Acme OR Globex'
-AND p.description @@@ 'widget OR gadget OR gizmo'
+WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex')
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY cat.category_name, p.id
 LIMIT 5;
 WARNING:  JoinScan not used: at least one relation lacks a ParadeDB index (tables: c, cat, p)
@@ -195,13 +194,13 @@ FROM products_op p
 WHERE p.id IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.tag @@@ 'popular'
+    WHERE pt.tag ||| 'popular'
 )
-AND p.description @@@ 'widget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p SEMI pt
    Join Cond: p.id = pt.product_id
@@ -214,9 +213,9 @@ LIMIT 5;
      :       TantivyFetchExec: fetch=[ctid_0]
      :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, product_id@0)]
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gizmo","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :           CooperativeExec
-     :             PgSearchScan: table=pt, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"tag","query_string":"popular","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=pt, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"tag","value":"popular","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT p.id, p.description
@@ -224,9 +223,9 @@ FROM products_op p
 WHERE p.id IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.tag @@@ 'popular'
+    WHERE pt.tag ||| 'popular'
 )
-AND p.description @@@ 'widget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 5;
  id  |  description  

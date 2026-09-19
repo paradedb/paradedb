@@ -72,14 +72,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 
@@ -91,14 +91,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 
@@ -138,14 +138,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test_small t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 
 SELECT t.id, t.message, c.name
 FROM mpp_mut_test_small t
 JOIN mpp_mut_categories c ON t.category_id = c.id
-WHERE t.message @@@ 'beer'
+WHERE t.message ||| 'beer'
 ORDER BY t.id
 LIMIT 25;
 

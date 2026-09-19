@@ -44,7 +44,7 @@ INSERT INTO csa_not_exists (company_id, speciality)
 
 -- v2 BM25 index syntax: numeric columns are fast by default; the speciality
 -- text column uses pdb.literal (raw tokenizer + fast field) for equality
--- matching without a text_fields JSON.
+-- matching with a tokenizer cast.
 CREATE INDEX cccf_idx ON cccf
   USING paradedb (contact_id, company_id, revenue_rank);
 CREATE INDEX csa_exists_idx ON csa_exists

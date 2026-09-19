@@ -33,9 +33,9 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, restrict_info};
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
-use crate::postgres::utils::sort_json_keys;
+use crate::postgres::utils::{missing_partial_index_predicate, sort_json_keys};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -481,6 +481,14 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
+        // A query that doesn't imply a partial index's predicate can't use this
+        // index at all, whatever the targetlist holds, so this decides before the
+        // clauses below report a narrower reason for the same decline.
+        let (restrict_info, _) = restrict_info(args.input_rel());
+        if unsafe { missing_partial_index_predicate(index.rd_indpred, &restrict_info) } {
+            return Err("query does not imply the partial index predicate".into());
+        }
+
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists

@@ -99,6 +99,42 @@ impl Expr {
         }
     }
 
+    /// Check if a search operator is still in the qual after the Postgres planner simplifies it.
+    ///
+    /// `A OR (A AND B)` has one, but the planner reduces it to `A`. If `B` is the only search
+    /// operator, a custom scan has nothing to plan on.
+    pub fn planner_keeps_search_operator(&self) -> bool {
+        self.to_qual(false).canonicalize().has_search_operator()
+    }
+
+    /// The qual after `eval_const_expressions`, which pushes each `NOT` down to a leaf.
+    fn to_qual(&self, negated: bool) -> Qual {
+        match self {
+            Expr::Not(e) => e.to_qual(!negated),
+            Expr::And(l, r) if !negated => Qual::and(vec![l.to_qual(false), r.to_qual(false)]),
+            Expr::And(l, r) => Qual::or(vec![l.to_qual(true), r.to_qual(true)]),
+            Expr::Or(l, r) if !negated => Qual::or(vec![l.to_qual(false), r.to_qual(false)]),
+            Expr::Or(l, r) => Qual::and(vec![l.to_qual(true), r.to_qual(true)]),
+            // The planner turns `NOT (x IS NULL)` into `x IS NOT NULL`, so the two must compare
+            // equal when it looks for clauses that `OR` arms share.
+            Expr::IsNull(name) => Qual::Leaf {
+                sql: format!("{name} IS NULL"),
+                negated,
+                is_search: false,
+            },
+            Expr::IsNotNull(name) => Qual::Leaf {
+                sql: format!("{name} IS NULL"),
+                negated: !negated,
+                is_search: false,
+            },
+            Expr::Atom { .. } | Expr::All { .. } => Qual::Leaf {
+                sql: self.to_sql("@@@"),
+                negated,
+                is_search: self.has_search_operator(),
+            },
+        }
+    }
+
     /// Check if this expression contains at least one ParadeDB search operator.
     pub fn has_search_operator(&self) -> bool {
         match self {
@@ -141,6 +177,131 @@ impl Expr {
             Expr::IsNull(_) | Expr::IsNotNull(_) => true,
             Expr::Not(e) => e.has_null_predicate(),
             Expr::And(l, r) | Expr::Or(l, r) => l.has_null_predicate() || r.has_null_predicate(),
+        }
+    }
+}
+
+/// A qual in the shape the Postgres planner keeps it: `NOT` only on leaves, and no `AND` directly
+/// under an `AND` or `OR` directly under an `OR`.
+#[derive(Clone, Debug, PartialEq)]
+enum Qual {
+    Leaf {
+        sql: String,
+        negated: bool,
+        is_search: bool,
+    },
+    And(Vec<Qual>),
+    Or(Vec<Qual>),
+}
+
+impl Qual {
+    fn and(args: Vec<Qual>) -> Qual {
+        let mut args = args
+            .into_iter()
+            .flat_map(Qual::into_conjuncts)
+            .collect::<Vec<_>>();
+        if args.len() == 1 {
+            args.remove(0)
+        } else {
+            Qual::And(args)
+        }
+    }
+
+    fn or(args: Vec<Qual>) -> Qual {
+        let mut args = args
+            .into_iter()
+            .flat_map(Qual::into_disjuncts)
+            .collect::<Vec<_>>();
+        if args.len() == 1 {
+            args.remove(0)
+        } else {
+            Qual::Or(args)
+        }
+    }
+
+    fn into_conjuncts(self) -> Vec<Qual> {
+        match self {
+            Qual::And(args) => args,
+            other => vec![other],
+        }
+    }
+
+    fn into_disjuncts(self) -> Vec<Qual> {
+        match self {
+            Qual::Or(args) => args,
+            other => vec![other],
+        }
+    }
+
+    /// The clauses of an `AND`, or the qual itself as a one-clause `AND`.
+    fn conjuncts(&self) -> &[Qual] {
+        match self {
+            Qual::And(args) => args,
+            other => std::slice::from_ref(other),
+        }
+    }
+
+    /// Follows `find_duplicate_ors` in the planner's `prepqual.c`.
+    fn canonicalize(self) -> Qual {
+        match self {
+            Qual::And(args) => Qual::and(args.into_iter().map(Qual::canonicalize).collect()),
+            Qual::Or(arms) => Qual::factor_or(
+                arms.into_iter()
+                    .map(Qual::canonicalize)
+                    .flat_map(Qual::into_disjuncts)
+                    .collect(),
+            ),
+            leaf => leaf,
+        }
+    }
+
+    /// Follows `process_duplicate_ors` in `prepqual.c`: `(A AND B) OR (A AND C)` becomes
+    /// `A AND (B OR C)`, and `A OR (A AND B)` becomes `A`, which drops `B`.
+    fn factor_or(arms: Vec<Qual>) -> Qual {
+        if arms.len() == 1 {
+            return arms.into_iter().next().unwrap();
+        }
+
+        // The planner compares clauses in the order of the shortest arm, and the order decides
+        // whether this result is equal to a clause of an outer `OR`.
+        let reference = arms
+            .iter()
+            .map(Qual::conjuncts)
+            .min_by_key(|conjuncts| conjuncts.len())
+            .unwrap();
+        let mut winners: Vec<Qual> = Vec::new();
+        for clause in reference {
+            if !winners.contains(clause) && arms.iter().all(|arm| arm.conjuncts().contains(clause))
+            {
+                winners.push(clause.clone());
+            }
+        }
+        if winners.is_empty() {
+            return Qual::Or(arms);
+        }
+
+        let mut rest_of_arms = Vec::new();
+        for arm in &arms {
+            let rest = arm
+                .conjuncts()
+                .iter()
+                .filter(|clause| !winners.contains(clause))
+                .cloned()
+                .collect::<Vec<_>>();
+            if rest.is_empty() {
+                // This arm is true whenever the winners are, so the other arms add nothing.
+                return Qual::and(winners);
+            }
+            rest_of_arms.push(Qual::and(rest));
+        }
+        winners.push(Qual::or(rest_of_arms));
+        Qual::and(winners)
+    }
+
+    fn has_search_operator(&self) -> bool {
+        match self {
+            Qual::Leaf { is_search, .. } => *is_search,
+            Qual::And(args) | Qual::Or(args) => args.iter().any(Qual::has_search_operator),
         }
     }
 }
@@ -205,7 +366,8 @@ pub fn arb_wheres<S: AsRef<str>>(
             },
         );
 
-    // inner nodes, wrapped so every expression is guaranteed to have at least one search operator
+    // inner nodes, wrapped so that at least one search operator survives the planner. Without
+    // one, a custom scan declines the query, and the plan checks would fail.
     atom.prop_recursive(
         5, // target depth
         8, // target total size
@@ -221,7 +383,7 @@ pub fn arb_wheres<S: AsRef<str>>(
         },
     )
     .prop_map(move |expr| {
-        if !expr.has_search_operator() {
+        if !expr.planner_keeps_search_operator() {
             Expr::And(
                 Box::new(expr),
                 Box::new(Expr::All {
@@ -305,7 +467,108 @@ mod tests {
         assert!(and_expr.has_null_predicate());
     }
 
+    fn atom(name: &str, value: &str, sql_type: &str) -> Expr {
+        Expr::Atom {
+            name: name.to_string(),
+            value: value.to_string(),
+            sql_type: sql_type.to_string(),
+            is_indexed: true,
+        }
+    }
+
+    fn and(l: Expr, r: Expr) -> Expr {
+        Expr::And(Box::new(l), Box::new(r))
+    }
+
+    fn or(l: Expr, r: Expr) -> Expr {
+        Expr::Or(Box::new(l), Box::new(r))
+    }
+
+    fn not(e: Expr) -> Expr {
+        Expr::Not(Box::new(e))
+    }
+
+    #[test]
+    fn test_planner_drops_an_absorbed_search_operator() {
+        let uuid = atom(
+            "users.uuid",
+            "'550e8400-e29b-41d4-a716-446655440000'",
+            "UUID",
+        );
+        let id = atom("users.id", "'4'", "SERIAL8");
+        let name = atom("users.name", "'bob'", "TEXT");
+
+        // A OR (A AND B)
+        let absorbed = or(
+            uuid.clone(),
+            and(uuid.clone(), or(id.clone(), name.clone())),
+        );
+        assert!(absorbed.has_search_operator());
+        assert!(!absorbed.planner_keeps_search_operator());
+
+        // (C AND B AND A) OR (A OR A): the nested OR is flattened into its parent first.
+        let flattened = or(
+            and(id.clone(), and(name.clone(), uuid.clone())),
+            or(uuid.clone(), uuid.clone()),
+        );
+        assert!(!flattened.planner_keeps_search_operator());
+
+        // NOT (NOT A AND NOT (A AND B)) is A OR (A AND B) once the planner pushes the NOTs down.
+        let negated = not(and(not(uuid.clone()), not(and(uuid.clone(), name.clone()))));
+        assert!(!negated.planner_keeps_search_operator());
+
+        // NOT (x IS NOT NULL) is the same clause as x IS NULL.
+        let color_is_null = Expr::IsNull("users.color".to_string());
+        let color_is_not_null = Expr::IsNotNull("users.color".to_string());
+        let null_tests = or(color_is_null, and(not(color_is_not_null), name));
+        assert!(!null_tests.planner_keeps_search_operator());
+    }
+
+    #[test]
+    fn test_planner_keeps_a_factored_search_operator() {
+        let uuid = atom(
+            "users.uuid",
+            "'550e8400-e29b-41d4-a716-446655440000'",
+            "UUID",
+        );
+        let id = atom("users.id", "'4'", "SERIAL8");
+        let name = atom("users.name", "'bob'", "TEXT");
+
+        // (A AND B) OR (A AND C) becomes A AND (B OR C).
+        let factored = or(
+            and(uuid.clone(), name.clone()),
+            and(uuid.clone(), id.clone()),
+        );
+        assert!(factored.planner_keeps_search_operator());
+
+        // A OR (B AND A) keeps nothing but A, which is itself a search operator here.
+        let absorbed_into_search = or(name.clone(), and(uuid.clone(), name.clone()));
+        assert!(absorbed_into_search.planner_keeps_search_operator());
+
+        // x IS NULL and x IS NOT NULL are different clauses, so nothing is factored out.
+        let opposite_null_tests = or(
+            Expr::IsNull("users.color".to_string()),
+            and(Expr::IsNotNull("users.color".to_string()), name.clone()),
+        );
+        assert!(opposite_null_tests.planner_keeps_search_operator());
+
+        let no_shared_clause = or(uuid, name);
+        assert!(no_shared_clause.planner_keeps_search_operator());
+    }
+
     proptest! {
+        #[test]
+        fn test_arb_wheres_keeps_a_search_operator_through_the_planner(
+            expr in arb_wheres(vec!["users", "products"], &[
+                Column::new("name", "TEXT", "'bob'").whereable(true),
+                Column::new("color", "VARCHAR", "'blue'").whereable(true),
+                Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
+                    .whereable(true),
+            ])
+        ) {
+            prop_assert!(expr.planner_keeps_search_operator(), "{}", expr.to_sql("@@@"));
+        }
+
         #[test]
         fn test_arb_wheres_generates_null_checks(
             expr in arb_wheres(vec!["users", "products"], &[

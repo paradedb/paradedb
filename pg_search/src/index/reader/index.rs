@@ -27,7 +27,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentView};
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
@@ -702,6 +702,12 @@ impl SearchIndexReader {
         SegmentView::capture(self.searcher.segment_readers(), &self.directory)
     }
 
+    /// Take over this reader's pins on its segments, so they outlive the reader. See
+    /// [`SegmentPins`].
+    pub fn segment_pins(&self) -> SegmentPins {
+        self.directory.segment_pins()
+    }
+
     pub fn need_scores(&self) -> bool {
         self.need_scores
     }
@@ -1025,6 +1031,7 @@ impl SearchIndexReader {
             source_idx,
         };
         let searcher = self.searcher.clone();
+        let directory = self.directory.clone();
         let weight = Arc::new(LazyWeight::new(
             self.query.box_clone(),
             self.need_scores,
@@ -1037,7 +1044,13 @@ impl SearchIndexReader {
                 .iter()
                 .enumerate()
                 .find(|(_, reader)| reader.segment_id() == segment_id)
-                .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "segment {segment_id} should exist in this {} reader's {} segments",
+                        directory.mvcc_style_name(),
+                        searcher.segment_readers().len()
+                    )
+                });
             let segment_ord = segment_ord as SegmentOrdinal;
 
             ScorerIter::new(
@@ -1938,9 +1951,13 @@ impl SearchIndexReader {
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
         segment_ids.map(|segment_id| {
-            let ord = self
-                .segment_ordinal_by_id(&segment_id)
-                .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+            let ord = self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
+                panic!(
+                    "segment {segment_id} should exist in this {} reader's {} segments",
+                    self.directory.mvcc_style_name(),
+                    self.segment_ordinal_by_id.len()
+                )
+            });
             (ord, self.searcher.segment_reader(ord))
         })
     }

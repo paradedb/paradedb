@@ -47,22 +47,11 @@ INSERT INTO ec_suppliers (category, supplier_name) VALUES
     ('Clothing', 'FashionInc'),
     ('Clothing', 'StyleHouse');
 CREATE INDEX ec_products_idx ON ec_products
-USING paradedb (id, description, category, price, (metadata::pdb.literal_normalized))
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, (metadata::pdb.literal_normalized));
 CREATE INDEX ec_reviews_idx ON ec_reviews
-USING paradedb (id, category, rating, reviewer)
-WITH (
-    text_fields='{"category": {"fast": true}, "reviewer": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), rating, (reviewer::pdb.unicode_words('columnar=true')));
 CREATE INDEX ec_suppliers_idx ON ec_suppliers
-USING paradedb (id, category, supplier_name)
-WITH (
-    text_fields='{"category": {"fast": true}, "supplier_name": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), (supplier_name::pdb.unicode_words('columnar=true')));
 -- =====================================================================
 -- Test 1: Non-unique join key — JOIN on category (many-to-many)
 -- Expected: fan-out produces more rows than either table alone
@@ -76,11 +65,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text)
+   Output: (count(*))
    Backend: DataFusion
    Indexes: ec_products_idx (p), ec_reviews_idx (r)
    Aggregates: COUNT(*)
@@ -88,7 +77,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[]
      :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      :     CooperativeExec
      :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (12 rows)
@@ -96,7 +85,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
 SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
  count 
 -------
     12
@@ -107,11 +96,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                        QUERY PLAN                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating))
    Sort Key: p.category
@@ -125,7 +114,7 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2]
            :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :     CooperativeExec
            :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
@@ -133,7 +122,7 @@ ORDER BY p.category;
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | sum | avg 
@@ -148,7 +137,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | sum |        avg         
@@ -163,7 +152,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, MIN(r.rating), MAX(r.rating), MIN(p.price), MAX(p.price)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | min | max |  min   |  max   
@@ -182,11 +171,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (count(r.rating))
    Sort Key: p.category
@@ -200,7 +189,7 @@ ORDER BY p.category;
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1]
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :     CooperativeExec
            :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
@@ -208,7 +197,7 @@ ORDER BY p.category;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count 
@@ -224,7 +213,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count 
@@ -246,11 +235,11 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -260,10 +249,10 @@ ORDER BY p.category;
          Aggregates: COUNT(*), SUM(rating)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0), (category@2, category@0)], projection=[category@0, rating@1]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
@@ -274,7 +263,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | sum 
@@ -290,7 +279,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | sum 
@@ -309,11 +298,11 @@ SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -326,18 +315,18 @@ ORDER BY p.category;
            :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1, supplier_name@2]
            :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
            :       CooperativeExec
-           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            :       CooperativeExec
            :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
            :     CooperativeExec
-           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :       PgSearchScan: table=s, segments=1, eager=[supplier_name], dynamic_filters=1, visibility=eager, query="all"
 (17 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count | count 
@@ -354,7 +343,7 @@ SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count | count 
@@ -372,7 +361,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count 
@@ -388,7 +377,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
   category   | count | count 
@@ -407,11 +396,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata -> 'brand'::text))
@@ -422,17 +411,18 @@ ORDER BY 1;
          Group By: metadata.brand
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
-           :     CooperativeExec
-           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
-           :     CooperativeExec
-           :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
-(15 rows)
+           :   TantivyDecodeExec: decode=[metadata.brand]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, fetch=[metadata.brand], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
 
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
   ?column?   
@@ -449,7 +439,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
   ?column?   
@@ -471,11 +461,11 @@ SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata ->> 'brand'::text))
@@ -487,14 +477,14 @@ ORDER BY brand_text;
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
            :   CooperativeExec
-           :     PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :     PgSearchScan: table=p, segments=2, eager=[metadata.brand], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
  brand_text | brand_json 
@@ -508,7 +498,7 @@ SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
  brand_text | brand_json 

@@ -107,10 +107,11 @@ pub fn arb_distinct_mode<S: AsRef<str>>(
                             table: table.clone(),
                             column: col.name.to_string(),
                         });
+                        continue;
                     }
-                    IndexExpression::LiteralNormalized => {}
+                    IndexExpression::LiteralNormalized => continue,
+                    IndexExpression::Literal | IndexExpression::UnicodeWordsColumnar => {}
                 }
-                continue;
             }
 
             // Null test is valid on any groupable indexed column

@@ -58,8 +58,6 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true)
 /// Allows the user to toggle range co-partitioning for joins.
 static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-static ENABLE_AGGREGATE_LATE_MATERIALIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
-
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -251,6 +249,15 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(20_000);
 
+/// Row count threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
+    GucSetting::<i32>::new(128 * 1024);
+
+/// Byte size threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
+
 /// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
 /// sorted segments. When `false`, the planner never returns the gallop
 /// strategy regardless of density, and pushed-down InList filters fall
@@ -382,15 +389,6 @@ pub fn init() {
         c"Allows the user to enable or disable range co-partitioned joins",
         c"When enabled, DataFusion optimizer rules co-partition inner joins across tables on the split points a partitioned build recorded. Both tables must define partition_by on the join key. An index created empty records no split points until it is reindexed. Default is false.",
         &ENABLE_RANGE_PARTITIONED_JOIN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_aggregate_late_materialization",
-        c"Defer visibility checks above aggregate-on-join plans",
-        c"When enabled, an aggregate over a join may defer a source's visibility check to a VisibilityFilter below the aggregate instead of checking eagerly in the scan. The placement rule for deferred string columns does not cover this trade, so it stays off. Default is false.",
-        &ENABLE_AGGREGATE_LATE_MATERIALIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -695,6 +693,28 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold_rows",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // TermSet strategy density thresholds (issue #4895). The kill-switch
     // (paradedb.term_set_gallop_enabled) is the safety override if the
     // gallop optimization regresses unexpectedly; the three density
@@ -849,10 +869,6 @@ pub fn enable_join_custom_scan() -> bool {
 
 pub fn enable_range_partitioned_join() -> bool {
     ENABLE_RANGE_PARTITIONED_JOIN.get()
-}
-
-pub fn enable_aggregate_late_materialization() -> bool {
-    ENABLE_AGGREGATE_LATE_MATERIALIZATION.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -1069,6 +1085,14 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn hash_join_single_partition_threshold_rows() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS.get()
+}
+
+pub fn hash_join_single_partition_threshold() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD.get()
 }
 
 pub fn term_set_gallop_enabled() -> bool {

@@ -29,13 +29,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (
-        text_fields = '{"description": {}, "category": {}}',
-        numeric_fields = '{"rating": {}}',
-        boolean_fields = '{"in_stock": {}}',
-        json_fields = '{"metadata": {}}'
-    );
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
 
     CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -54,7 +48,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
-        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+        FROM mock_items WHERE description ||| 'keyboard' LIMIT 20
     )
     SELECT
         COALESCE(semantic_search.id, bm25_search.id) AS id,
@@ -100,7 +94,7 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     ),
     bm25 AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' LIMIT 20
+        FROM paradedb.bm25_search WHERE description ||| 'keyboard' LIMIT 20
     )
     SELECT
         COALESCE(semantic.id, bm25.id) AS id,

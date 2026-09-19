@@ -1,0 +1,650 @@
+---
+title: Connect Your App
+sidebarTitle: Connect Your App
+description: Connect your preferred SQL or application tool to ParadeDB
+canonical: https://www.paradedb.com/docs/start/connect-your-app
+---
+
+Connect your preferred SQL or application tool to the ParadeDB database you
+started in the previous step. This page creates the `mock_items` demo table used
+by the rest of the Start tutorial.
+
+<Note>
+  The next page creates the ParadeDB index. Keep the database, project, shell,
+  or REPL you configure here open.
+</Note>
+
+<Tabs>
+<Tab title="SQL">
+
+ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
+you get started. Run the following command to create this table.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+```
+
+Then, inspect the first 3 rows:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+LIMIT 3;
+```
+
+```ini Expected Response
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
+
+You're connected. Next, [create your first
+index](/start/create-your-first-index).
+
+</Tab>
+
+<Tab title="Drizzle">
+To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.team/), [postgres.js](https://github.com/porsager/postgres), and [@paradedb/drizzle-paradedb](https://www.npmjs.com/package/@paradedb/drizzle-paradedb) installed.
+
+```bash
+npm init -y
+npm pkg set type=module
+npm install drizzle-orm@1.0.0-rc.4 postgres @paradedb/drizzle-paradedb@0.5.0 tsx
+```
+
+Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
+
+```ts db.ts
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import {
+  boolean,
+  customType,
+  date,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  time,
+  timestamp,
+  varchar,
+  vector,
+} from "drizzle-orm/pg-core";
+
+export const client = postgres(
+  "postgres://myuser:mypassword@localhost:5432/mydatabase",
+);
+export const db = drizzle({ client });
+
+export const mockItems = pgTable("mock_items", {
+  id: serial("id").primaryKey(),
+  description: text("description"),
+  rating: integer("rating"),
+  category: varchar("category", { length: 255 }),
+  inStock: boolean("in_stock"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at"),
+  lastUpdatedDate: date("last_updated_date"),
+  latestAvailableTime: time("latest_available_time"),
+  weightRange: customType<{ data: string }>({
+    dataType: () => "int4range",
+  })("weight_range"),
+  embedding: vector("embedding", { dimensions: 8 }),
+});
+```
+
+Open a TypeScript REPL:
+
+```bash
+node --import tsx
+```
+
+Import your database connection, schema, and any helpers used by the setup and query snippets. The Node REPL does not support static `import` statements, so use dynamic imports here:
+
+```ts
+const { client, db, mockItems } = await import("./db.ts");
+const { and, desc, gt, sql } = await import("drizzle-orm");
+const { search } = await import("@paradedb/drizzle-paradedb");
+```
+
+Create and populate `mock_items`:
+
+```ts
+await db.execute(sql`
+  CALL paradedb.create_bm25_test_table(
+    schema_name => 'public',
+    table_name => 'mock_items'
+  )
+`);
+```
+
+To paste a formatted query snippet, enter editor mode:
+
+```text
+.editor
+```
+
+Paste the query body without its `import` lines. The helpers from those imports are already available from the dynamic imports above. Press `Ctrl+D` to run the pasted query.
+
+You're connected. Next, [create your first
+index](/start/create-your-first-index) from the REPL.
+
+</Tab>
+
+<Tab title="Django">
+To start you'll need a [Django](https://www.djangoproject.com/) project with [Psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django psycopg django-paradedb==0.13.0
+python3 -m django startproject myproject .
+python3 manage.py startapp myapp
+```
+
+In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`. Then, configure `DATABASES["default"]` to point to Postgres:
+
+```python myproject/settings.py
+INSTALLED_APPS = [
+    ...,
+    'django.contrib.postgres',
+    'myapp',
+]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "mydatabase",
+        "USER": "myuser",
+        "PASSWORD": "mypassword",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+```
+
+We can now add a model for ParadeDB's built-in test table:
+
+```python models.py
+from django.db import models
+
+from django.contrib.postgres.fields import IntegerRangeField
+from paradedb.queryset import ParadeDBManager
+from paradedb.vector import VectorField
+
+
+class MockItem(models.Model):
+    description = models.TextField(null=True, blank=True)
+    rating = models.IntegerField(null=True, blank=True)
+    category = models.CharField(max_length=255, null=True, blank=True)
+    in_stock = models.BooleanField(null=True, blank=True)
+    metadata = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    last_updated_date = models.DateField(null=True, blank=True)
+    latest_available_time = models.TimeField(null=True, blank=True)
+    weight_range = IntegerRangeField(null=True, blank=True)
+    embedding = VectorField(dimensions=8, null=True, blank=True)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        db_table = "mock_items"
+```
+
+Run the migrations to create the table:
+
+```bash
+python3 manage.py makemigrations
+python3 manage.py migrate
+```
+
+Now, open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
+
+```python
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name  => 'mock_items_tmp'
+        );
+        INSERT INTO public.mock_items
+        SELECT * FROM public.mock_items_tmp;
+        DROP TABLE public.mock_items_tmp;
+    """)
+```
+
+You're connected. Next, [create your first
+index](/start/create-your-first-index) in your Python shell.
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/), [Psycopg](https://www.psycopg.org/), and [sqlalchemy-paradedb](https://pypi.org/project/sqlalchemy-paradedb/).
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.11.0
+```
+
+Initialize Alembic:
+
+```bash
+alembic init migrations
+```
+
+Then update the Alembic configuration to point to your database:
+
+```ini alembic.ini
+sqlalchemy.url = postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase
+```
+
+ParadeDB comes with a built-in test table that we'll run our queries against. Create a `models.py` file with a model for that table:
+
+```python
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from typing import Any
+
+from sqlalchemy import Boolean, Date, DateTime, Integer, String, Text, Time
+from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB, Range
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from paradedb.sqlalchemy.vector import Vector
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class MockItem(Base):
+    __tablename__ = "mock_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    in_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_updated_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latest_available_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    weight_range: Mapped[Range[int] | None] = mapped_column(INT4RANGE, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(8), nullable=True)
+```
+
+Copy this configuration into your `migrations/env.py`:
+
+```python migrations/env.py
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config, text
+from sqlalchemy import pool
+
+from alembic import context
+from models import Base
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+# The ParadeDB Docker image comes pre-bundled with some popular
+# extensions like PostGIS. PostGIS automatically creates a table
+# called `spatial_ref_sys`. This tells Alembic not to drop it even
+# though it isn't tracked in Alembic's metadata.
+IGNORED_TABLES = {"spatial_ref_sys"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and reflected and name in IGNORED_TABLES:
+        return False
+    return True
+
+
+def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        # This prevents Alembic from modifying tables outside
+        # of the `public` schema.
+        connection.execute(text("SET search_path TO public"))
+        connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+```
+
+Next, add a migration to create the `mock_items` test table. Create a blank migration in `0001_create_mock_items_table.py` by running the following command:
+
+```bash
+alembic revision --rev-id 0001 -m "Create mock_items table"
+```
+
+Update the generated migration to create the table:
+
+```python
+def upgrade() -> None:
+    """Upgrade schema."""
+    op.execute(
+        """
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'mock_items'
+        )
+        """
+    )
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.execute("DROP TABLE IF EXISTS public.mock_items")
+```
+
+Then, run it with:
+
+```bash
+alembic upgrade head
+```
+
+Finally, run `python` and execute the following:
+
+```python
+from models import MockItem
+from sqlalchemy import create_engine
+engine = create_engine('postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase')
+```
+
+You're connected. Next, [create your first
+index](/start/create-your-first-index) in your shell.
+
+</Tab>
+
+<Tab title="Rails">
+To get started, create a [Rails](https://rubyonrails.org/) app that uses Postgres.
+
+```bash
+rails new paradedb -d postgresql
+cd paradedb
+```
+
+Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
+
+```ruby Gemfile
+gem "rails-paradedb", "0.12.0", require: "parade_db"
+```
+
+Then install it:
+
+```bash
+bundle install
+```
+
+Update `config/database.yml` to point to your ParadeDB database:
+
+```yml config/database.yml
+development:
+  adapter: postgresql
+  encoding: unicode
+  database: mydatabase
+  username: myuser
+  password: mypassword
+  host: localhost
+  port: 5432
+```
+
+ParadeDB comes with a built-in test table that we'll run our queries against. Generate a migration to create it:
+
+```bash
+rails generate migration CreateMockItemsTable
+```
+
+Update the generated migration to create `mock_items`:
+
+```ruby db/migrate/*_create_mock_items_table.rb
+def up
+  execute <<~SQL
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+  SQL
+end
+
+def down
+  drop_table :mock_items, if_exists: true
+end
+```
+
+Next, create a model for the `mock_items` table in `app/models/mock_item.rb`:
+
+```ruby app/models/mock_item.rb
+class MockItem < ApplicationRecord
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+```
+
+Run the migrations:
+
+```bash
+rails db:migrate
+```
+
+You're connected. Open the Rails console, then [create your first
+index](/start/create-your-first-index).
+
+```bash
+rails console
+```
+
+</Tab>
+
+<Tab title="EF Core">
+To get started, create a .NET project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/npgsql.entityframeworkcore.postgresql), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
+
+```bash
+dotnet new console --framework net10.0
+dotnet new tool-manifest
+dotnet tool install dotnet-ef
+dotnet add package Microsoft.EntityFrameworkCore.Design
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+dotnet add package ParadeDB.EntityFrameworkCore --version 0.3.0
+```
+
+<Note>
+  This console app uses `OnConfiguring` to keep the example self-contained. In
+  ASP.NET Core or another app with dependency injection, register ParadeDB
+  through `UseNpgsql` in `Program.cs`:
+
+```cs
+builder.Services.AddDbContextPool<AppDbContext>(opt =>
+{
+    opt.UseNpgsql(
+        builder.Configuration.GetConnectionString("AppDatabase"),
+        o => o.UseParadeDb()
+    );
+});
+```
+
+</Note>
+
+Replace `Program.cs` with a DbContext, model, and query scratchpad for ParadeDB's built-in test table:
+
+```cs Program.cs
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using NpgsqlTypes;
+using ParadeDB.EntityFrameworkCore;
+using ParadeDB.EntityFrameworkCore.Extensions;
+
+await using var dbContext = new AppDbContext();
+
+// Replace this with the query you want to run.
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+
+PrintResults(results);
+
+static void PrintResults<T>(IReadOnlyList<T> rows)
+{
+  var properties = typeof(T).GetProperties();
+
+  foreach (var property in properties)
+  {
+      Console.Write($"{property.Name,-24}");
+  }
+
+  Console.WriteLine();
+  Console.WriteLine(new string('-', properties.Length * 24));
+
+  foreach (var row in rows)
+  {
+      foreach (var property in properties)
+      {
+          var value = property.GetValue(row)?.ToString() ?? "";
+          value = value.Length > 21 ? value[..21] + "..." : value;
+
+          Console.Write($"{value,-24}");
+      }
+
+      Console.WriteLine();
+  }
+}
+
+public sealed class AppDbContext : DbContext
+{
+    public DbSet<MockItem> MockItems => Set<MockItem>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options) =>
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mydatabase;Username=myuser;Password=mypassword", npgsql => npgsql.UseParadeDb());
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MockItem>(entity =>
+        {
+            entity.ToTable("mock_items");
+            entity.HasKey(item => item.Id);
+
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.Description).HasColumnName("description");
+            entity.Property(item => item.Rating).HasColumnName("rating");
+            entity.Property(item => item.Category).HasColumnName("category").HasColumnType("varchar(255)");
+            entity.Property(item => item.InStock).HasColumnName("in_stock");
+            entity.Property(item => item.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
+            entity.Property(item => item.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp");
+            entity.Property(item => item.LastUpdatedDate).HasColumnName("last_updated_date").HasColumnType("date");
+            entity.Property(item => item.LatestAvailableTime).HasColumnName("latest_available_time").HasColumnType("time");
+            entity.Property(item => item.WeightRange).HasColumnName("weight_range").HasColumnType("int4range");
+            entity.Property(item => item.Embedding).HasColumnName("embedding").HasColumnType("vector(8)");
+        });
+    }
+}
+
+public sealed class MockItem
+{
+    public int Id { get; set; }
+    public string? Description { get; set; }
+    public int? Rating { get; set; }
+    public string? Category { get; set; }
+    public bool? InStock { get; set; }
+    public JsonDocument? Metadata { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateOnly? LastUpdatedDate { get; set; }
+    public TimeOnly? LatestAvailableTime { get; set; }
+    public NpgsqlRange<int>? WeightRange { get; set; }
+    public float[]? Embedding { get; set; }
+}
+```
+
+Create the EF Core migration:
+
+```bash
+dotnet ef migrations add CreateMockItems
+```
+
+Open the generated migration in `Migrations/*_CreateMockItems.cs` and add this seed step to the end of the `Up` method:
+
+```cs
+migrationBuilder.Sql("""
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name  => 'mock_items_tmp'
+    );
+
+    INSERT INTO public.mock_items
+    SELECT * FROM public.mock_items_tmp;
+
+    DROP TABLE public.mock_items_tmp;
+    """);
+```
+
+Then apply the migration:
+
+```bash
+dotnet ef database update
+```
+
+This creates `mock_items` and loads the mock data.
+
+You're connected. Next, [create your first
+index](/start/create-your-first-index). You can then run the query included in
+`Program.cs`:
+
+```bash
+dotnet run
+```
+
+After the index is created, try [running some
+queries](/start/run-queries) by adding them to `Program.cs`.
+
+</Tab>
+</Tabs>

@@ -974,12 +974,12 @@ impl JoinScan {
     /// Re-bake with `mpp_source_idx` forced to `None` on every source after a short-launch
     /// decline. Physical replanning does not rewrite provider metadata already serialized in
     /// the logical plan, so the serial fallback needs its own logical shape.
-    unsafe fn rebake_for_mpp_fallback(state: &mut CustomScanStateWrapper<Self>) -> Vec<u8> {
+    unsafe fn rebake_for_mpp_fallback(state: &CustomScanStateWrapper<Self>) -> Vec<u8> {
         Self::rebake_from_custom_exprs_string(state, true)
     }
 
     unsafe fn rebake_from_custom_exprs_string(
-        state: &mut CustomScanStateWrapper<Self>,
+        state: &CustomScanStateWrapper<Self>,
         force_serial: bool,
     ) -> Vec<u8> {
         let custom_exprs: *mut pg_sys::List = match &state.custom_state().custom_exprs_string {
@@ -1442,9 +1442,9 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let build_with = |ctx: &datafusion::prelude::SessionContext| {
+            let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_with_runtime(
-                    logical_plan,
+                    bytes,
                     &ctx.task_ctx(),
                     None,
                     Some(expr_context.as_ptr()),
@@ -1460,14 +1460,15 @@ impl CustomScan for JoinScan {
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,
             ) {
-                let mpp_plan = build_with(&Self::build_mpp_session_context(None));
+                let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
                     mpp_plan
                 } else {
-                    build_with(&create_datafusion_session_context())
+                    let fallback_bytes = unsafe { Self::rebake_for_mpp_fallback(state) };
+                    build_with(&create_datafusion_session_context(), &fallback_bytes)
                 }
             } else {
-                build_with(&create_datafusion_session_context())
+                build_with(&create_datafusion_session_context(), logical_plan)
             };
             explain_physical_plan(&physical_plan, explainer);
         }
@@ -2145,14 +2146,18 @@ unsafe fn build_output_projection(
 /// `force_serial`: when `true`, every source is baked with `mpp_source_idx = None`
 /// regardless of the global `mpp_is_active()` budget check. A short-launch decline must rebuild
 /// this logical metadata because choosing a serial physical planner does not rewrite it. A
-/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) is baked serially
-/// regardless of this flag.
+/// parallel-unsafe statement (`private_data.parallel_mode_ok == false`, #6157) or a query
+/// ineligible for MPP (`!mpp_eligible`, #5784) is baked serially regardless of this flag.
 fn bake_logical_plan(
     private_data: &mut PrivateData,
     custom_exprs: *mut pg_sys::List,
     force_serial: bool,
 ) {
-    let force_serial = force_serial || !private_data.parallel_mode_ok;
+    let force_serial = force_serial
+        || !mpp_eligible(
+            private_data.parallel_mode_ok,
+            &private_data.join_clause.plan,
+        );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("Failed to create tokio runtime");
@@ -2258,12 +2263,12 @@ impl JoinScan {
             return Err(JoinPathDecline::Quiet);
         }
 
-        let join_rel = planning::find_final_rel(root);
-        let lower_rel = if !join_rel.is_null() {
-            &*join_rel
-        } else {
-            input_rel
+        // `input_rel` is the last upper rel below FINAL, so its own paths are
+        // still live; the join rel's `cheapest_total_path` may not be.
+        let Some(lower_path) = planning::find_live_lower_path(root, input_rel) else {
+            return Err(JoinPathDecline::Quiet);
         };
+        let lower_rel = &*(*lower_path).parent;
 
         let sources = datafusion_build::collect_join_agg_sources(root, lower_rel);
         if sources.is_empty() {
@@ -2308,7 +2313,7 @@ impl JoinScan {
 
         // Inspect lower join path predicates
         let path_info = match datafusion_build::check_join_path_predicates(
-            root, lower_rel, &sources,
+            root, lower_path, &sources,
         ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
@@ -2430,10 +2435,32 @@ impl JoinScan {
                     ctid_array.value(row_idx)
                 };
                 let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
-                if !rel_state
+                // The ctid arrives in one of two shapes. On a page that is not all-visible the
+                // visibility check resolves it to the chain member, and a member is heap-only,
+                // which the index fetch rejects at chain start. On an all-visible page it stays
+                // the root the index holds, and a pruned root is a redirect the direct fetch
+                // cannot follow.
+                let fetched = rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
-                {
+                    || rel_state
+                        .visibility_checker
+                        .exec_if_visible(ctid, rel_state.fetch_slot, |_| ())
+                        .is_some();
+                // A miss means the two fetches do not cover some ctid shape, not that the
+                // row is gone. Skipping it drops the row, and on an outer join that takes
+                // the preserved side's columns with it, so the loss is silent and far from
+                // its cause. Fail loudly where tests and DST can see it, and fix the fetch.
+                //
+                // Null-extending instead would be worse: the source did match, so blanking
+                // its columns claims a no-match row that never existed.
+                debug_assert!(
+                    fetched,
+                    "JoinScan: no heap tuple for source {plan_position} at ctid ({}, {})",
+                    ctid >> 16,
+                    ctid & 0xffff
+                );
+                if !fetched {
                     return None;
                 }
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);

@@ -26,7 +26,7 @@ INSERT INTO test_items (description) VALUES
 -- Create BM25 index
 CREATE INDEX test_items_idx ON test_items USING paradedb (id, description);
 -- Test 1: Simple self-join with AND condition and score on both sides
--- a.description @@@ 'bear' AND b.description @@@ 'teddy bear'
+-- a.description ||| 'bear' AND b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -34,9 +34,9 @@ SELECT a.id,
        paradedb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
-WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_items b
    Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
    Table: test_items
@@ -44,7 +44,7 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (8 rows)
 
 SELECT a.id,
@@ -53,7 +53,7 @@ SELECT a.id,
        paradedb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
-WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
  id |  a_score   | id |  b_score   
 ----+------------+----+------------
   1 |  1.3877531 |  1 |  1.3877531
@@ -63,7 +63,7 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
 (4 rows)
 
 -- Test 2: Simple self-join with OR condition and score on both sides
--- a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+-- a.description ||| 'bear' OR b.description ||| 'teddy bear'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -71,11 +71,11 @@ SELECT a.id,
        paradedb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
-WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: b.id, (paradedb.score(b.id)), b.id, (paradedb.score(b.id))
    ->  Custom Scan (ParadeDB Base Scan) on public.test_items b
@@ -87,7 +87,7 @@ LIMIT 1;
          Scores: true
             TopK Order By: id asc
             TopK Limit: 1
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (12 rows)
 
 SELECT a.id,
@@ -96,7 +96,7 @@ SELECT a.id,
        paradedb.score(b.id) as b_score
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
-WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
  id |  a_score  | id |  b_score  
@@ -109,9 +109,9 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
 INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
-WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_items
    Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
    Table: test_items
@@ -119,13 +119,13 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (8 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
 INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
-WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
+WHERE a.description ||| 'bear' AND b.description ||| 'teddy bear';
  id |   score    | id |   score    
 ----+------------+----+------------
   1 |  1.3877531 |  1 |  1.3877531
@@ -139,11 +139,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
 INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
-WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_items.id, (paradedb.score(test_items.id)), test_items.id, (paradedb.score(test_items.id))
    ->  Custom Scan (ParadeDB Base Scan) on public.test_items
@@ -155,13 +155,13 @@ LIMIT 1;
          Scores: true
             TopK Order By: id asc
             TopK Limit: 1
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (12 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
 INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
-WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
+WHERE a.description ||| 'bear' OR b.description ||| 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
  id |   score   | id |   score   
@@ -188,10 +188,10 @@ SELECT i.id,
        paradedb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
-WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i, o)
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Hash Join
    Output: i.id, (paradedb.score(i.id)), o.order_id, (paradedb.score(o.order_id))
    Hash Cond: (i.id = o.item_id)
@@ -202,7 +202,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
          Worker Selection: Cost model
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"teddy bear","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
    ->  Hash
          Output: o.order_id, o.item_id, (paradedb.score(o.order_id)), (paradedb.score(o.order_id))
          ->  Custom Scan (ParadeDB Base Scan) on public.test_orders o
@@ -212,7 +212,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i,
                Worker Selection: Cost model
                Exec Method: NormalScanExecState
                Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"customer","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"customer","value":"alice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (21 rows)
 
 SELECT i.id,
@@ -221,7 +221,7 @@ SELECT i.id,
        paradedb.score(o.order_id) as order_score
 FROM test_items i
 INNER JOIN test_orders o ON i.id = o.item_id
-WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
+WHERE i.description ||| 'teddy bear' AND o.customer ||| 'alice';
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: i, o)
  id | item_score | order_id | order_score 
 ----+------------+----------+-------------

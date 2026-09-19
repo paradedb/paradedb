@@ -19,7 +19,7 @@ SET LOCAL enable_indexonlyscan = off;
 SET LOCAL enable_bitmapscan = off;
 
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body === 'alpha';
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'body:alpha';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE body ||| 'alpha';
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ paradedb.parse('body:alpha');
 
@@ -27,9 +27,9 @@ INSERT INTO required_fields VALUES (3, 'beta', 0), (4, NULL, 0);
 
 -- Required expressions retain their original positions after skipping danger.
 SELECT array_agg(id ORDER BY id) FROM required_fields WHERE lower(body) === 'alpha';
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'upper_body:ALPHA';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('upper_body:ALPHA');
 SELECT array_agg(id ORDER BY id) FROM required_fields
-WHERE body @@@ 'alpha OR lower_body:beta';
+WHERE body @@@ pdb.parse_with_field('alpha OR lower_body:beta');
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ paradedb.parse('body:alpha OR lower_body:beta', lenient => true);
 SELECT array_agg(id ORDER BY id) FROM required_fields
@@ -55,7 +55,7 @@ WHERE id @@@ pdb.more_like_this(1, fields => ARRAY['body'], min_doc_frequency =>
 
 SET LOCAL plan_cache_mode = force_generic_plan;
 PREPARE required_fields_parse(text) AS
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ $1;
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse($1);
 EXECUTE required_fields_parse('body:alpha');
 EXECUTE required_fields_parse('lower_body:beta');
 EXECUTE required_fields_parse('upper_body:ALPHA');
@@ -66,7 +66,7 @@ EXECUTE required_fields_parse('*');
 DEALLOCATE required_fields_parse;
 
 SAVEPOINT required_danger;
-SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ 'danger:alpha';
+SELECT array_agg(id ORDER BY id) FROM required_fields WHERE id @@@ pdb.parse('danger:alpha');
 ROLLBACK TO required_danger;
 SELECT array_agg(id ORDER BY id) FROM required_fields
 WHERE id @@@ paradedb.parse('alpha', lenient => true);

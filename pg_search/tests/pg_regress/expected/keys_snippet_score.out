@@ -23,8 +23,7 @@ INSERT INTO bigint_test (id, value) VALUES (7, 'yellowtooth');
 INSERT INTO bigint_test (id, value) VALUES (8, 'great white');
 INSERT INTO bigint_test (id, value) VALUES (9, 'blue skies');
 INSERT INTO bigint_test (id, value) VALUES (10, 'rainbow');
-CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, value)
-WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+CREATE INDEX bigint_test_idx ON bigint_test USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for BIGINT key'
 Query with ORDER BY score DESC for BIGINT key
@@ -58,9 +57,9 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 -- Test snippet function
 \echo 'Testing pdb.snippet with BIGINT key'
 Testing pdb.snippet with BIGINT key
-SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'blue'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value ||| 'blue'
 UNION
-SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, pdb.snippet(value), pdb.score(id) FROM bigint_test WHERE value ||| 'tooth'
 ORDER BY id;
  id |         snippet          |   score    
 ----+--------------------------+------------
@@ -91,8 +90,7 @@ INSERT INTO uuid_test (id, value) VALUES ('f6e85626-298e-4112-9abb-3856f8aa046a'
 INSERT INTO uuid_test (id, value) VALUES ('88345d21-7b89-4fd6-87e4-83a4f68dbc3c', 'great white');
 INSERT INTO uuid_test (id, value) VALUES ('40bc9216-66d0-4ae8-87ee-ddb02e3e1b33', 'blue skies');
 INSERT INTO uuid_test (id, value) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'rainbow');
-CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, value)
-WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+CREATE INDEX uuid_test_idx ON uuid_test USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for UUID key'
 Query with ORDER BY score DESC for UUID key
@@ -126,9 +124,9 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 -- Test snippet function
 \echo 'Testing pdb.snippet with UUID key'
 Testing pdb.snippet with UUID key
-SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'blue'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value ||| 'blue'
 UNION
-SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM uuid_test WHERE value ||| 'tooth'
 ORDER BY id;
                   id                  |         snippet          
 --------------------------------------+--------------------------
@@ -159,8 +157,7 @@ INSERT INTO timestamp_test (id, value) VALUES ('2023-05-09 14:15:16 MST', 'yello
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-10 15:16:17 CST', 'great white');
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-11 16:17:18 EST', 'blue skies');
 INSERT INTO timestamp_test (id, value) VALUES ('2023-05-12 17:18:19 PST', 'rainbow');
-CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, value)
-WITH (text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
+CREATE INDEX timestamp_test_idx ON timestamp_test USING paradedb (id, (value::pdb.ngram(4, 4, 'prefix_only=false')));
 -- Test stable sort (sorted by score)
 \echo 'Query with ORDER BY score DESC for TIMESTAMPTZ key'
 Query with ORDER BY score DESC for TIMESTAMPTZ key
@@ -194,9 +191,9 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 -- Test snippet function
 \echo 'Testing pdb.snippet with TIMESTAMPTZ key'
 Testing pdb.snippet with TIMESTAMPTZ key
-SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'blue'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value ||| 'blue'
 UNION
-SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
+SELECT CAST(id AS TEXT), pdb.snippet(value) FROM timestamp_test WHERE value ||| 'tooth'
 ORDER BY id;
               id              |         snippet          
 ------------------------------+--------------------------
@@ -213,4 +210,4 @@ ORDER BY id;
 -- Clean up
 DROP TABLE IF EXISTS bigint_test;
 DROP TABLE IF EXISTS uuid_test;
-DROP TABLE IF EXISTS timestamp_test; 
+DROP TABLE IF EXISTS timestamp_test;

@@ -51,18 +51,10 @@ INSERT INTO topk_tags (product_id, tag_name) VALUES
     (10, 'cooking');
 
 CREATE INDEX topk_products_idx ON topk_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 CREATE INDEX topk_tags_idx ON topk_tags
-USING paradedb (id, product_id, tag_name)
-WITH (
-    numeric_fields='{"product_id": {"fast": true}}',
-    text_fields='{"tag_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 
 -- =====================================================================
 -- Test 1: GROUP BY on join (requires custom_scan_tlist fix)
@@ -71,13 +63,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category;
 
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category;
 
 -- =====================================================================
@@ -87,7 +79,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -95,7 +87,7 @@ LIMIT 3;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -107,7 +99,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
@@ -115,7 +107,7 @@ LIMIT 2;
 SELECT p.category, SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
@@ -126,7 +118,7 @@ LIMIT 2;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
@@ -137,7 +129,7 @@ LIMIT 2;
 SELECT p.category, COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 3;
@@ -149,15 +141,15 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
-ORDER BY COUNT(*) DESC;
+ORDER BY COUNT(*) DESC, p.category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -168,7 +160,7 @@ LIMIT 3;
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- =====================================================================
 -- Test 8: LIMIT 1 (smallest possible K)
@@ -177,7 +169,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
@@ -185,7 +177,7 @@ LIMIT 1;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
@@ -196,7 +188,7 @@ LIMIT 1;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 100;
@@ -207,7 +199,7 @@ LIMIT 100;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
@@ -219,16 +211,16 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
-ORDER BY COUNT(*) DESC
+ORDER BY COUNT(*) DESC, p.category
 LIMIT 3;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
@@ -239,7 +231,7 @@ LIMIT 3;
 SELECT p.category, SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY SUM(p.price) ASC
 LIMIT 2;
@@ -254,7 +246,7 @@ LIMIT 2;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR mouse'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'mouse')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -265,7 +257,7 @@ DELETE FROM topk_products WHERE id = 3;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR mouse'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'mouse')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -287,7 +279,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
@@ -295,7 +287,7 @@ LIMIT 3;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
@@ -305,7 +297,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
@@ -317,7 +309,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY p.category DESC
 LIMIT 2;
@@ -327,7 +319,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY p.category DESC
 LIMIT 2;
@@ -346,7 +338,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, MIN(p.price), MAX(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
@@ -354,7 +346,7 @@ LIMIT 3;
 SELECT p.category, MIN(p.price), MAX(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
@@ -364,7 +356,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, MIN(p.price), MAX(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'dress' OR p.description ||| 'toy' OR p.description ||| 'puzzle' OR p.description ||| 'cookbook')
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;

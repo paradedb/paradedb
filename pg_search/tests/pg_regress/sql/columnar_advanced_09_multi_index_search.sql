@@ -115,27 +115,13 @@ DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;
 
 CREATE INDEX products_idx ON products
-USING paradedb (id, name, description, price, stock_count, is_available)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"price": {"fast": true}, "stock_count": {"fast": true}}',
-    boolean_fields = '{"is_available": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple), price, stock_count, is_available);
 
 CREATE INDEX categories_idx ON categories
-USING paradedb (id, name, description, product_count, is_active)
-WITH (
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"product_count": {"fast": true}}',
-    boolean_fields = '{"is_active": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), product_count, is_active);
 
 CREATE INDEX reviews_idx ON reviews
-USING paradedb (id, reviewer_name, content, rating, helpful_votes)
-WITH (
-    text_fields = '{"reviewer_name": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"rating": {"fast": true}, "helpful_votes": {"fast": true}}'
-);
+USING paradedb (id, (reviewer_name::pdb.simple('columnar=true')), (content::pdb.simple), rating, helpful_votes);
 
 -- Test 1: Join between products and categories with search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -143,7 +129,7 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product' AND c.is_active = true
+WHERE p.name ||| 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 
@@ -151,7 +137,7 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product' AND c.is_active = true
+WHERE p.name ||| 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
 
@@ -160,14 +146,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'product' AND r.rating >= 4
+WHERE p.description ||| 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
 
 SELECT p.name, r.rating, r.content
 FROM products p
 JOIN reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'product' AND r.rating >= 4
+WHERE p.description ||| 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
 
@@ -178,7 +164,7 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
+WHERE p.price < 500 AND c.product_count > 10 AND p.name ||| 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, pdb.score(p.id) DESC;
@@ -188,7 +174,7 @@ FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 JOIN reviews r ON p.id = r.product_id
-WHERE p.price < 500 AND c.product_count > 10 AND p.name @@@ 'Product'
+WHERE p.price < 500 AND c.product_count > 10 AND p.name ||| 'Product'
 GROUP BY p.name, c.name
 HAVING AVG(r.rating) > 3
 ORDER BY avg_rating, pdb.score(p.id) DESC;
@@ -200,7 +186,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
-      AND p.name @@@ 'Product'
+      AND p.name ||| 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -224,7 +210,7 @@ WITH top_products AS (
     FROM products p
     WHERE p.price BETWEEN 100 AND 800
       AND p.is_available = true
-      AND p.name @@@ 'Product'
+      AND p.name ||| 'Product'
     ORDER BY p.price DESC
     LIMIT 50
 ),
@@ -247,28 +233,28 @@ ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name @@@ '10' OR description @@@ 'feature'
+WHERE name ||| '10' OR description ||| 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name @@@ 'e'
+WHERE name ||| 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content @@@ 'great'
+WHERE content ||| 'great'
 ORDER BY type, item_name;
 
 SELECT 'Product' as type, name as item_name, description as content
 FROM products
-WHERE name @@@ '10' OR description @@@ 'feature'
+WHERE name ||| '10' OR description ||| 'feature'
 UNION ALL
 SELECT 'Category' as type, name as item_name, description as content
 FROM categories
-WHERE name @@@ 'e'
+WHERE name ||| 'e'
 UNION ALL
 SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
-WHERE content @@@ 'great'
+WHERE content ||| 'great'
 ORDER BY type, item_name;
 
 -- Test 6: Subquery with both numeric and text field filtering
@@ -279,7 +265,7 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name @@@ 'electronics OR clothing'
+    WHERE (c.name ||| 'electronics' OR c.name ||| 'clothing')
 )
 AND p.stock_count > 50
 AND p.price < 500
@@ -291,7 +277,7 @@ WHERE p.id IN (
     SELECT pc.product_id
     FROM product_categories pc
     JOIN categories c ON pc.category_id = c.id
-    WHERE c.name @@@ 'electronics OR clothing'
+    WHERE (c.name ||| 'electronics' OR c.name ||| 'clothing')
 )
 AND p.stock_count > 50
 AND p.price < 500
@@ -316,7 +302,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
+  AND p.name ||| 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
@@ -342,7 +328,7 @@ LEFT JOIN (
 ) r ON p.id = r.product_id
 WHERE p.is_available = true
   AND p.price BETWEEN 200 AND 600
-  AND p.name @@@ 'Product'
+  AND p.name ||| 'Product'
 ORDER BY 
     CASE 
         WHEN r.rating IS NULL THEN 0
@@ -358,7 +344,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product'
+WHERE p.name ||| 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
@@ -369,7 +355,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product'
+WHERE p.name ||| 'Product'
   AND r.rating > 3
   AND c.name = 'Electronics'
   AND p.is_available = true
@@ -380,7 +366,7 @@ SELECT p.name, p.price, c.name as category
 FROM products p
 JOIN product_categories pc ON p.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
-WHERE p.name @@@ 'Product 1'
+WHERE p.name ||| 'Product 1'
   AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
@@ -394,4 +380,4 @@ DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories; 
 
-\i common/columnar_advanced_cleanup.sql 
+\i common/columnar_advanced_cleanup.sql

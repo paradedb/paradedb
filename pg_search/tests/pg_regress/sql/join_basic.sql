@@ -53,8 +53,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
 CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 
 -- =============================================================================
@@ -69,7 +68,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id;
 
 -- =============================================================================
@@ -82,14 +81,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -102,14 +101,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard'
+WHERE p.description ||| 'keyboard'
 ORDER BY p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard'
+WHERE p.description ||| 'keyboard'
 ORDER BY p.id
 LIMIT 5;
 
@@ -119,14 +118,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY s.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY s.id
 LIMIT 5;
 
@@ -139,7 +138,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 LEFT JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -154,7 +153,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -170,13 +169,13 @@ SET paradedb.enable_join_custom_scan = on;
 -- SELECT p.id, p.name, s.name AS supplier_name
 -- FROM products p
 -- JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
--- WHERE p.description @@@ 'wireless'
+-- WHERE p.description ||| 'wireless'
 -- LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id, s.name
 LIMIT 10;
 
@@ -189,14 +188,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
+WHERE p.description ||| 'mouse'
 ORDER BY p.id
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
+WHERE p.description ||| 'mouse'
 ORDER BY p.id
 LIMIT 3;
 
@@ -205,14 +204,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
+WHERE p.description ||| 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
+WHERE p.description ||| 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
 
@@ -255,7 +254,7 @@ CREATE INDEX sizes_bm25_idx ON sizes USING paradedb (id, name, description);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
-WHERE c.description @@@ 'color' AND s.description @@@ 'size'
+WHERE c.description ||| 'color' AND s.description ||| 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
 
@@ -275,21 +274,20 @@ CREATE TABLE "MixedCaseTable" (
 INSERT INTO "MixedCaseTable" ("ID", "Content", "JoinKey") VALUES (1, 'wireless', 151);
 
 -- Note: "JoinKey" must be columnar
-CREATE INDEX mixed_case_bm25_idx ON "MixedCaseTable" USING paradedb ("ID", "Content", "JoinKey")
-WITH (numeric_fields = '{"JoinKey": {"fast": true}}');
+CREATE INDEX mixed_case_bm25_idx ON "MixedCaseTable" USING paradedb ("ID", "Content", "JoinKey");
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT m."Content", s.name
 FROM "MixedCaseTable" m
 JOIN suppliers s ON m."JoinKey" = s.id
-WHERE m."Content" @@@ 'wireless'
+WHERE m."Content" ||| 'wireless'
 ORDER BY m."ID"
 LIMIT 5;
 
 SELECT m."Content", s.name
 FROM "MixedCaseTable" m
 JOIN suppliers s ON m."JoinKey" = s.id
-WHERE m."Content" @@@ 'wireless'
+WHERE m."Content" ||| 'wireless'
 ORDER BY m."ID"
 LIMIT 5;
 

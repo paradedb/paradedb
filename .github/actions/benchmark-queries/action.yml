@@ -94,13 +94,20 @@ runs:
       shell: bash
       run: cat ~/.pgrx/${{ env.pg_version }}.log
 
+    - name: Print Crashdump Stacktrace
+      if: always()
+      shell: bash
+      env:
+        PG_VERSION: ${{ env.pg_version }}
+      run: ./.github/scripts/render_crashdump.sh
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
     - name: Publish Benchmark Metrics
-      uses: paradedb/github-action-benchmark@v1
+      uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}

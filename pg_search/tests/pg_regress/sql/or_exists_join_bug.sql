@@ -74,7 +74,7 @@ CREATE INDEX ON users USING paradedb (id, org_id, name);
 CREATE INDEX ON tasks USING paradedb (id, user_id, status, priority);
 CREATE INDEX ON task_items USING paradedb (id, task_id, item_type);
 CREATE INDEX ON item_details USING paradedb (id, task_item_id, detail_id);
-CREATE INDEX ON details USING paradedb (id, content, metadata) WITH (json_fields = '{"metadata": {"fast": true}}');
+CREATE INDEX ON details USING paradedb (id, content, (metadata::pdb.unicode_words('columnar=true')));
 
 -- Test 1: Simple query without EXISTS - should work
 SELECT u.id, u.name

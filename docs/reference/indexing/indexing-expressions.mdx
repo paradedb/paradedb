@@ -1,0 +1,228 @@
+---
+title: Indexing Expressions
+description: Add Postgres expressions to the index
+canonical: https://www.paradedb.com/docs/reference/indexing/indexing-expressions
+---
+
+In addition to indexing columns, Postgres expressions can also be indexed.
+
+## Indexing Text/JSON Expressions
+
+The following statement indexes an expression which concatenates `description` and `category`, which are both text fields:
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')))
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(
+      sql`${mockItems.description} || ' ' || ${mockItems.category}`,
+      tokenizer.simple({ alias: "description_concat" }),
+    ),
+  );
+```
+
+```python Django
+from django.db import connection, models
+from django.db.models import F, Func, Value
+from paradedb.indexes import ParadeDBIndex, IndexExpression
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={"id": {}},
+            expressions=[
+                IndexExpression(
+                    Func(
+                        F("description"),
+                        Value(" "),
+                        F("category"),
+                        template="(%(expressions)s)",
+                        arg_joiner=" || ",
+                        output_field=models.TextField(),
+                    ),
+                    alias="description_concat",
+                    tokenizer=Tokenizer.simple(
+                        options={"alias": "description_concat"}
+                    ),
+                ),
+            ],
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
+        MockItem.description + " " + MockItem.category,
+        tokenizer=tokenizer.simple(options={"alias": "description_concat"}),
+    ),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    "(description || ' ' || category)" => {
+      tokenizer: ParadeDB::Tokenizer.simple(options: { alias: "description_concat" })
+    }
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(
+        "description || ' ' || category",
+        Tokenizer.Simple(new() { ["alias"] = "description_concat" })
+    );
+```
+
+</CodeGroup>
+
+To index a text/JSON expression:
+
+1. Add the expression to the column list. In this example, the expression is `description || ' ' || category`.
+2. Cast it to a [tokenizer](/reference/tokenizers/overview), in this example `pdb.simple`.
+3. ParadeDB will try and infer a field name based on the field used in the expression. However,
+   if the field name cannot be inferred (e.g. because the expression involves more than one field), you will be required
+   to add an `alias=<alias_name>` to the tokenizer.
+
+Querying against the expression is the same as querying a regular field:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE (description || ' ' || category) &&& 'running shoes';
+```
+
+<Note>
+  The expression on the left-hand side of the operator must exactly match the
+  expression that was indexed.
+</Note>
+
+## Indexing Non-Text Expressions
+
+To index a non-text expression, cast the expression to `pdb.alias`. For example, the following statement indexes
+the expression `rating + 1`, which returns an integer:
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, ((rating + 1)::pdb.alias('rating')))
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { indexing, search } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    search.alias(sql`${mockItems.rating} + 1`, "rating"),
+  );
+```
+
+```python Django
+from django.db import connection
+from django.db.models import F
+from paradedb.indexes import ParadeDBIndex, IndexExpression
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={"id": {}, "description": {}},
+            expressions=[
+                IndexExpression(
+                    F("rating") + 1,
+                    alias="rating",
+                ),
+            ],
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, pdb
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.ParadeDBField(
+        pdb.alias(MockItem.rating + 1, "rating"),
+    ),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    "(rating + 1)" => { alias: "rating" }
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField("rating + 1", new FieldAlias("rating"));
+```
+
+</CodeGroup>
+
+With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes'
+AND rating + 1 > 3;
+```

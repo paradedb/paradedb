@@ -42,7 +42,7 @@ SELECT id, description, rating FROM q2 ORDER BY id;
 
 -- Test 6: CTE with other operators
 WITH q AS (
-  SELECT * FROM mock_items WHERE description @@@ 'shoes'
+  SELECT * FROM mock_items WHERE description ||| 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
 
@@ -58,4 +58,3 @@ SELECT id, description FROM q ORDER BY id;
 
 -- Clean up
 DROP TABLE mock_items CASCADE;
-

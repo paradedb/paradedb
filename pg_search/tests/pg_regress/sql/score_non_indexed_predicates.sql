@@ -57,7 +57,7 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+WHERE name ||| 'Apple' OR description ||| 'smartphone'
 ORDER BY score DESC;
 
 SELECT 
@@ -65,7 +65,7 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+WHERE name ||| 'Apple' OR description ||| 'smartphone'
 ORDER BY score DESC;
 
 -- Test Case 1.5: Test if All query works at all
@@ -96,7 +96,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -106,7 +106,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -117,7 +117,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -127,28 +127,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
-  OR category_name = 'Electronics'
-ORDER BY score DESC;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT 
-    id,
-    name,
-    category_name,
-    pdb.score(id) as score
-FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
-  OR category_name = 'Electronics'
-ORDER BY score DESC;
-
-SELECT 
-    id,
-    name,
-    category_name,
-    pdb.score(id) as score
-FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -159,7 +138,28 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    pdb.score(id) as score
+FROM products 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    pdb.score(id) as score
+FROM products 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -169,7 +169,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -182,7 +182,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running' 
+WHERE description ||| 'running'
   AND price < 200.00
 ORDER BY score DESC;
 
@@ -192,7 +192,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running' 
+WHERE description ||| 'running'
   AND price < 200.00
 ORDER BY score DESC;
 
@@ -204,7 +204,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology' 
+WHERE description ||| 'technology'
   AND in_stock = true
 ORDER BY score DESC;
 
@@ -214,7 +214,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology' 
+WHERE description ||| 'technology'
   AND in_stock = true
 ORDER BY score DESC;
 
@@ -226,8 +226,8 @@ SELECT
     description,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'MacBook' 
-  AND description @@@ 'laptop'
+WHERE name ||| 'MacBook'
+  AND description ||| 'laptop'
 ORDER BY score DESC;
 
 SELECT 
@@ -236,8 +236,8 @@ SELECT
     description,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'MacBook' 
-  AND description @@@ 'laptop'
+WHERE name ||| 'MacBook'
+  AND description ||| 'laptop'
 ORDER BY score DESC;
 
 -- Test Case 5: Complex query with multiple non-indexed predicates
@@ -250,7 +250,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'shoes' OR description @@@ 'running')
+WHERE (name ||| 'shoes' OR description ||| 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC;
@@ -262,7 +262,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'shoes' OR description @@@ 'running')
+WHERE (name ||| 'shoes' OR description ||| 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC; 
@@ -278,7 +278,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_id = 1
   AND price > 500.00
   AND category_name = 'Electronics'
@@ -292,7 +292,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_id = 1
   AND price > 500.00
   AND category_name = 'Electronics'
@@ -308,7 +308,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'smartphone'
+WHERE description ||| 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')
@@ -322,7 +322,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'smartphone'
+WHERE description ||| 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')
@@ -338,7 +338,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
 
@@ -348,7 +348,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
 
@@ -361,7 +361,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
 
@@ -371,7 +371,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
 
@@ -382,7 +382,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
 
@@ -392,7 +392,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
 
@@ -405,7 +405,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
 
@@ -415,7 +415,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
 
@@ -429,7 +429,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND (
     price < 100.00 OR 
     category_name = 'Electronics' OR
@@ -444,7 +444,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND (
     price < 100.00 OR 
     category_name = 'Electronics' OR
@@ -461,7 +461,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
 
@@ -471,7 +471,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
 
@@ -509,7 +509,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
 
@@ -519,7 +519,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
 
@@ -532,7 +532,7 @@ SELECT
     created_at,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple'
+WHERE name ||| 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
 
@@ -542,7 +542,7 @@ SELECT
     created_at,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple'
+WHERE name ||| 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
 
@@ -557,7 +557,7 @@ SELECT
     category_id,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
   AND price <= 200.00
   AND rating > 4.0
   AND category_id = 2
@@ -571,7 +571,7 @@ SELECT
     category_id,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
   AND price <= 200.00
   AND rating > 4.0
   AND category_id = 2
@@ -586,7 +586,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
 
@@ -596,7 +596,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
 
@@ -611,7 +611,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND (
     (price > 500.00 AND in_stock = true) OR
     (price < 300.00 AND rating >= 4.0) OR
@@ -627,7 +627,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND (
     (price > 500.00 AND in_stock = true) OR
     (price < 300.00 AND rating >= 4.0) OR
@@ -652,7 +652,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -662,7 +662,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -678,7 +678,7 @@ SET paradedb.enable_filter_pushdown = false;
 --     category_name,
 --     pdb.score(id) as score
 -- FROM products 
--- WHERE description @@@ 'Apple'
+-- WHERE description ||| 'Apple'
 --   AND category_name = 'Electronics'
 -- ORDER BY score DESC;
 
@@ -688,7 +688,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
 
@@ -699,7 +699,7 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
 ORDER BY score DESC;
 
 SELECT 
@@ -707,7 +707,7 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
 ORDER BY score DESC;
 
 -- Test edge case: Query with only non-indexed predicates when GUC is disabled

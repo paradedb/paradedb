@@ -218,3 +218,10 @@ runs:
       if: always()
       shell: bash
       run: cat ~/.pgrx/${{ inputs.pg_version }}.log
+
+    - name: Print Crashdump Stacktrace
+      if: always()
+      shell: bash
+      env:
+        PG_VERSION: ${{ inputs.pg_version }}
+      run: ./.github/scripts/render_crashdump.sh

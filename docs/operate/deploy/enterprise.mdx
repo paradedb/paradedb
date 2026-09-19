@@ -1,0 +1,74 @@
+---
+title: ParadeDB Enterprise
+description: Feature comparison between ParadeDB Community and Enterprise
+canonical: https://www.paradedb.com/docs/operate/deploy/enterprise
+---
+
+<Note>
+  If you're a non-profit or a non-commercial open source project and are
+  interested in ParadeDB Enterprise, please [contact
+  sales](mailto:sales@paradedb.com). We provide complimentary access on a
+  case-by-case basis.
+</Note>
+
+ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
+Both editions expose the same SQL APIs for search, filtering, sorting, joins,
+and analytics.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) is the AGPL-3.0 open
+source product. It supports single-node deployments.
+
+ParadeDB Enterprise adds commercial licensing, support, and physical replication
+for ParadeDB indexes. Use Enterprise when the ParadeDB index itself needs high
+availability, failover, or read replicas that can serve ParadeDB queries.
+
+For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
+
+## Feature Comparison
+
+|                                           | ParadeDB Community | ParadeDB Enterprise |
+| ----------------------------------------- | ------------------ | ------------------- |
+| **Index Configuration**                   |                    |
+| Support for most Postgres types           | ✅                 | ✅                  |
+| Custom tokenizers and filters             | ✅                 | ✅                  |
+| Multiple tokenizers per field             | ✅                 | ✅                  |
+| **Search**                                |                    |
+| Full-text search with BM25                | ✅                 | ✅                  |
+| Vector search                             | ✅                 | ✅                  |
+| Hybrid search                             | ✅                 | ✅                  |
+| Sorting and Top K                         | ✅                 | ✅                  |
+| Filtering                                 | ✅                 | ✅                  |
+| Join pushdown                             | ✅                 | ✅                  |
+| Aggregates and facets                     | ✅                 | ✅                  |
+| **Concurrency and Consistency**           |                    |
+| Postgres MVCC-safe<sup>1</sup>            | ✅                 | ✅                  |
+| Concurrent, non-blocking writes           | ✅                 | ✅                  |
+| Block storage integration                 | ✅                 | ✅                  |
+| Buffer cache integration<sup>2</sup>      | ✅                 | ✅                  |
+| **Deployment** <sup>3</sup>               |                    |
+| Maximum ParadeDB index nodes <sup>4</sup> | 1                  | Unlimited           |
+| Crash Recovery                            | ✅                 | ✅                  |
+| Point in Time Recovery                    | ✅                 | ✅                  |
+| High Availability for ParadeDB indexes    | ❌                 | ✅                  |
+| Read replicas for ParadeDB queries        | ❌                 | ✅                  |
+
+<Info>
+**Footnotes**
+
+<p className="text-sm">
+  1. The ParadeDB index supports Postgres' multi-version concurrency control (MVCC)
+  rules. The index reflects the current state of the underlying table at all
+  times, changes to the index are atomic, and queries are transactionally
+  consistent with the table.
+  2. The ParadeDB index is built on block storage, Postgres' native storage API.
+  This means that it leverages the Postgres buffer cache, which minimizes disk
+  I/O.
+  3. Deployment features and limitations are specific to the ParadeDB index.
+  ParadeDB Community can still use standard Postgres replication, crash recovery,
+  and point-in-time recovery for heap tables and other Postgres indexes like
+  B-tree indexes.
+  4. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are
+  only available on the primary because Community does not physically replicate
+  the ParadeDB index.
+</p>
+</Info>

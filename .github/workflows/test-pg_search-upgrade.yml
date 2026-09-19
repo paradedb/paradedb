@@ -107,9 +107,12 @@ jobs:
           install_cargo_pgrx: "false"
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v12
+        uses: paradedb/actions/apt-install@v13
         with:
-          packages: lsof libopenblas-dev lld
+          packages: lsof libopenblas-dev lld gdb
+
+      - name: Enable Crash Dumps
+        run: ./.github/scripts/setup_crashdumps.sh
 
       - name: Install & Configure Supported PostgreSQL Version
         uses: ./.github/actions/setup-postgres

@@ -560,12 +560,12 @@ WHERE name = 'priority';
 -- and NO Sort node because sorted path is available
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM columnar_comp_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority DESC NULLS LAST;
 
 -- Verify correct sorted results
 SELECT id, priority FROM columnar_comp_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority DESC NULLS LAST;
 
 DROP TABLE columnar_comp_test CASCADE;
@@ -591,7 +591,7 @@ USING paradedb (id, name, ((a + b)::pdb.alias('sum_val')));
 
 -- Currently uses NormalScanExecState because a + b is not in the scan target list.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
+SELECT id, a + b FROM expr_test WHERE name ||| 'foo';
 
 -- Test 2: Simple aliased expression - SELECT + ORDER BY (sorted index)
 DROP INDEX expr_test_idx;
@@ -601,7 +601,7 @@ WITH (sort_by = 'sum_val DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
+SELECT id, a + b FROM expr_test WHERE name ||| 'foo' ORDER BY a + b DESC NULLS LAST;
 
 DROP TABLE expr_test CASCADE;
 
@@ -618,7 +618,7 @@ WITH (sort_by = 'priority DESC NULLS LAST');
 
 -- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
+SELECT id, priority FROM comp_test WHERE name ||| 'foo' ORDER BY priority DESC NULLS LAST;
 
 DROP TABLE comp_test CASCADE;
 DROP TYPE my_comp CASCADE;
@@ -636,7 +636,7 @@ WITH (sort_by = 'sum_val DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, a + b FROM comp_expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
+SELECT id, a + b FROM comp_expr_test WHERE name ||| 'foo' ORDER BY a + b DESC NULLS LAST;
 
 DROP TABLE comp_expr_test CASCADE;
 DROP TYPE comp_expr CASCADE;
@@ -654,7 +654,7 @@ WITH (sort_by = 'priority DESC NULLS LAST');
 
 -- Currently uses NormalScanExecState; a + b is not matched, so a Sort remains.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT a + b, priority FROM comp_mixed_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
+SELECT a + b, priority FROM comp_mixed_test WHERE name ||| 'foo' ORDER BY priority DESC NULLS LAST;
 
 DROP TABLE comp_mixed_test CASCADE;
 DROP TYPE comp_mixed CASCADE;
@@ -670,7 +670,7 @@ WITH (sort_by = 'abs_val DESC NULLS LAST');
 
 -- ColumnarExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
+SELECT id, ABS(val) FROM func_expr_test WHERE name ||| 'foo' ORDER BY ABS(val) DESC NULLS LAST;
 
 DROP TABLE func_expr_test CASCADE;
 

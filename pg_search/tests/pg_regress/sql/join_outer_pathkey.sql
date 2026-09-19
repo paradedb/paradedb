@@ -78,14 +78,14 @@ FROM products_op p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies_op c
-    WHERE c.name @@@ 'Acme OR Globex OR Initech'
+    WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex' OR c.name ||| 'Initech')
 )
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
     WHERE pt.tag === 'niche'
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
 
@@ -94,14 +94,14 @@ FROM products_op p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies_op c
-    WHERE c.name @@@ 'Acme OR Globex OR Initech'
+    WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex' OR c.name ||| 'Initech')
 )
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
     WHERE pt.tag === 'niche'
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
 
@@ -119,8 +119,8 @@ SELECT p.id, p.description, cat.category_name
 FROM products_op p
 JOIN companies_op c ON c.id = p.company_id
 JOIN categories_op cat ON cat.product_id = p.id
-WHERE c.name @@@ 'Acme OR Globex'
-AND p.description @@@ 'widget OR gadget OR gizmo'
+WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex')
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY cat.category_name, p.id
 LIMIT 5;
 
@@ -128,8 +128,8 @@ SELECT p.id, p.description, cat.category_name
 FROM products_op p
 JOIN companies_op c ON c.id = p.company_id
 JOIN categories_op cat ON cat.product_id = p.id
-WHERE c.name @@@ 'Acme OR Globex'
-AND p.description @@@ 'widget OR gadget OR gizmo'
+WHERE (c.name ||| 'Acme' OR c.name ||| 'Globex')
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY cat.category_name, p.id
 LIMIT 5;
 
@@ -148,9 +148,9 @@ FROM products_op p
 WHERE p.id IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.tag @@@ 'popular'
+    WHERE pt.tag ||| 'popular'
 )
-AND p.description @@@ 'widget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 5;
 
@@ -159,9 +159,9 @@ FROM products_op p
 WHERE p.id IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.tag @@@ 'popular'
+    WHERE pt.tag ||| 'popular'
 )
-AND p.description @@@ 'widget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 5;
 

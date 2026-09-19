@@ -39,7 +39,7 @@ fn json_datatype(mut conn: PgConnection) {
     // if we don't segfault postgres here, we're good
     r#"
     CREATE INDEX test_index ON test_table
-    USING paradedb (id, value) WITH (json_fields='{"value": {"indexed": true, "fast": true}}');
+    USING paradedb (id, (value::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 }
@@ -59,7 +59,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     INSERT INTO crash (j) SELECT '["one-element-string-array"]' FROM generate_series(1, 10000);
     
     CREATE INDEX crash_idx ON crash
-    USING paradedb (id, j) WITH (json_fields='{"j": {"indexed": true, "fast": true}}');
+    USING paradedb (id, (j::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 }

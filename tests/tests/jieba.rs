@@ -92,3 +92,41 @@ fn test_jieba_tokenizer_indexing(mut conn: PgConnection) {
         r#"SELECT id FROM chinese_texts WHERE content ||| '就业' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row, (3,), "Failed on 'content:就业'");
 }
+
+#[rstest]
+fn test_jieba_query_search_mode(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE jieba_search_mode (id INT PRIMARY KEY, content TEXT);
+    INSERT INTO jieba_search_mode VALUES
+        (1, '南京市长江大桥'),
+        (2, '南京'),
+        (3, '你好');
+    CREATE INDEX jieba_search_mode_idx ON jieba_search_mode
+        USING paradedb (id, (content::pdb.jieba));
+    "#
+    .execute(&mut conn);
+
+    // The default query tokenizer matches both the compound and its parts.
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM jieba_search_mode
+        WHERE content ||| '南京市长江大桥' ORDER BY id
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
+
+    for (tokenizer, expected) in [
+        (r#"{"type":"jieba"}"#, vec![(1,), (2,)]),
+        (r#"{"type":"jieba","search_mode":true}"#, vec![(1,), (2,)]),
+        (r#"{"type":"jieba","search_mode":false}"#, vec![(1,)]),
+    ] {
+        // Disabling query decomposition excludes the document containing only 南京.
+        let rows: Vec<(i32,)> = format!(
+            r#"SELECT id FROM jieba_search_mode
+               WHERE id @@@ paradedb.match(
+                   'content', '南京市长江大桥', tokenizer => '{tokenizer}'::jsonb
+               ) ORDER BY id"#
+        )
+        .fetch(&mut conn);
+        assert_eq!(rows, expected, "query tokenizer: {tokenizer}");
+    }
+}

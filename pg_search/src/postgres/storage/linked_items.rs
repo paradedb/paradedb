@@ -753,6 +753,21 @@ mod tests {
         SegmentId::generate_random()
     }
 
+    /// Runs `garbage_collect` until a pass removes nothing.
+    ///
+    /// One pass is not guaranteed to collect every dead entry. `recyclable()` takes a
+    /// conditional cleanup lock on the entry's pintest block, which fails whenever another
+    /// backend holds a pin, and the bgwriter or checkpointer routinely holds one while writing
+    /// out a page these tests just dirtied. Deferring that entry to a later pass is the intended
+    /// behavior, so a test that wants everything collected has to keep passing.
+    /// See https://github.com/paradedb/paradedb/issues/6334.
+    unsafe fn garbage_collect_fully(
+        list: &mut LinkedItemList<SegmentMetaEntry>,
+        when_recyclable: pg_sys::FullTransactionId,
+    ) {
+        while !list.garbage_collect(when_recyclable).is_empty() {}
+    }
+
     fn linked_list_block_numbers(
         list: &LinkedItemList<SegmentMetaEntry>,
     ) -> HashSet<pg_sys::BlockNumber> {
@@ -797,9 +812,12 @@ mod tests {
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
-        list.garbage_collect(pg_sys::FullTransactionId {
-            value: delete_xid.into_inner() as u64,
-        });
+        garbage_collect_fully(
+            &mut list,
+            pg_sys::FullTransactionId {
+                value: delete_xid.into_inner() as u64,
+            },
+        );
 
         assert!(
             list.lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
@@ -841,9 +859,12 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(&entries, None);
-            list.garbage_collect(pg_sys::FullTransactionId {
-                value: deleted_xid.into_inner() as u64,
-            });
+            garbage_collect_fully(
+                &mut list,
+                pg_sys::FullTransactionId {
+                    value: deleted_xid.into_inner() as u64,
+                },
+            );
 
             for entry in entries {
                 if entry.xmax() == not_deleted_xid {
@@ -909,9 +930,12 @@ mod tests {
             list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect(pg_sys::FullTransactionId {
-                value: deleted_xid.into_inner() as u64,
-            });
+            garbage_collect_fully(
+                &mut list,
+                pg_sys::FullTransactionId {
+                    value: deleted_xid.into_inner() as u64,
+                },
+            );
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
@@ -933,6 +957,69 @@ mod tests {
             let post_gc_blocks = linked_list_block_numbers(&list);
             assert!(pre_gc_blocks.len() > post_gc_blocks.len());
         }
+    }
+
+    /// A pin on a dead entry's pintest block must defer that entry to a later
+    /// `garbage_collect` pass: never drop it, and never hold up the entries around it.
+    ///
+    /// The pin is what makes this deterministic. In the wild the pin comes from the bgwriter or
+    /// the checkpointer, which is why #6334 only ever reproduced as an intermittent failure.
+    #[pg_test]
+    unsafe fn test_linked_items_garbage_collect_defers_pinned_entry() {
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let deleted_xid = pg_sys::FrozenTransactionId;
+        let when_recyclable = pg_sys::FullTransactionId {
+            value: deleted_xid.into_inner() as u64,
+        };
+
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
+        let entries = (0..3)
+            .map(|_| {
+                SegmentMetaEntry::new_immutable(
+                    random_segment_id(),
+                    0,
+                    deleted_xid,
+                    SegmentMetaEntryImmutable {
+                        postings: Some(make_fake_postings(&indexrel)),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        list.add_items(&entries, None);
+
+        // Hold the first entry's pintest block pinned but unlocked, which is the state another
+        // backend leaves it in while writing the page out. `recyclable()` takes a *conditional*
+        // cleanup lock, and that fails on any pin other than its own.
+        let pin = list
+            .bman()
+            .get_buffer(entries[0].pintest_blockno())
+            .into_immutable_page();
+
+        assert!(!list.garbage_collect(when_recyclable).is_empty());
+
+        // The pinned entry is still there, deferred rather than collected.
+        assert!(
+            list.lookup(|el| el.segment_id() == entries[0].segment_id())
+                .is_ok()
+        );
+        // The entries that were not pinned went in the same pass.
+        for entry in &entries[1..] {
+            assert!(
+                list.lookup(|el| el.segment_id() == entry.segment_id())
+                    .is_err()
+            );
+        }
+
+        // Dropping the pin releases it, and the next pass collects the entry.
+        drop(pin);
+        garbage_collect_fully(&mut list, when_recyclable);
+        assert!(
+            list.lookup(|el| el.segment_id() == entries[0].segment_id())
+                .is_err()
+        );
     }
 
     #[pg_test]

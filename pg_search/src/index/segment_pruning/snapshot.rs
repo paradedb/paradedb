@@ -132,13 +132,9 @@ impl SegmentStatsSnapshot {
         field: &SearchField,
         range: &PartitionRange,
     ) -> SegmentInclusion {
-        let Some((lower, upper)) = range.values() else {
-            return if range.includes_nulls() {
-                SegmentInclusion::FullyIncluded
-            } else {
-                SegmentInclusion::Excluded
-            };
-        };
+        if !range.includes_nulls() && range.values().is_none() {
+            return SegmentInclusion::Excluded;
+        }
         let segment_id = self.segments[ord].id;
         let Some(stats) = self.stats(ord) else {
             return SegmentInclusion::PartiallyIncluded;
@@ -157,6 +153,15 @@ impl SegmentStatsSnapshot {
                 field.field()
             )
         });
+        let Some((lower, upper)) = range.values() else {
+            if logical.is_some_and(|b| !b.may_hold_nulls()) {
+                return SegmentInclusion::Excluded;
+            }
+            if empirical.is_some_and(|e| !e.nullable) {
+                return SegmentInclusion::Excluded;
+            }
+            return SegmentInclusion::PartiallyIncluded;
+        };
         match (logical, empirical) {
             (None, None) => SegmentInclusion::PartiallyIncluded,
             (Some(bounds), None) => {

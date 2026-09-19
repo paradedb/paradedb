@@ -260,9 +260,9 @@ impl<'a> SegmentPruner<'a> {
         }
     }
 
-    /// True proves every document satisfies the query. Used for negation and redundant internal
-    /// filters; ordinary user clauses still run through the original compiled query.
-    pub(crate) fn matches_all(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
+    /// True proves every document satisfies the query. Used for negation; ordinary user
+    /// clauses still run through the original compiled query.
+    fn matches_all(&self, segment: SegmentOrdinal, query: &SearchQueryInput) -> bool {
         match query {
             SearchQueryInput::All => true,
             SearchQueryInput::Empty => false,
@@ -331,7 +331,7 @@ fn bounds_comparable(
 }
 
 /// False only when the observed bounds exclude every possible matching value.
-pub(crate) fn range_can_match(
+fn range_can_match(
     stats: Option<&EmpiricalStats>,
     lower: &Bound<PdbOwnedValue>,
     upper: &Bound<PdbOwnedValue>,
@@ -342,7 +342,7 @@ pub(crate) fn range_can_match(
 }
 
 /// A range covers every document only when it covers both extrema and the field has no NULLs.
-pub(crate) fn range_matches_all(
+fn range_matches_all(
     stats: Option<&EmpiricalStats>,
     lower: &Bound<PdbOwnedValue>,
     upper: &Bound<PdbOwnedValue>,
@@ -356,7 +356,7 @@ pub(crate) fn range_matches_all(
 }
 
 /// False only when the observed bounds exclude the term.
-pub(crate) fn term_can_match(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> bool {
+fn term_can_match(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> bool {
     stats.is_none_or(|stats| {
         !(pruning_comparable(term, &stats.min) && pruning_comparable(term, &stats.max))
             || (term.total_cmp(&stats.min) != Ordering::Less
@@ -365,7 +365,7 @@ pub(crate) fn term_can_match(stats: Option<&EmpiricalStats>, term: &PdbOwnedValu
 }
 
 /// A term covers every document only when it equals both extrema and the field has no NULLs.
-pub(crate) fn term_matches_all(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> bool {
+fn term_matches_all(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> bool {
     stats.is_some_and(|stats| {
         !stats.nullable
             && pruning_comparable(term, &stats.min)
@@ -393,7 +393,7 @@ fn required_should_matches(
 
 /// Positive clauses supply can_match results; negative clauses supply matches_all results.
 /// Iterators are evaluated lazily, so an impossible conjunct stops further statistics reads.
-pub(crate) fn boolean_can_match(
+fn boolean_can_match(
     mut must: impl ExactSizeIterator<Item = bool>,
     should: impl ExactSizeIterator<Item = bool>,
     mut must_not: impl ExactSizeIterator<Item = bool>,
@@ -417,7 +417,7 @@ pub(crate) fn boolean_can_match(
 }
 
 /// Positive clauses supply matches_all results; negative clauses supply can_match results.
-pub(crate) fn boolean_matches_all(
+fn boolean_matches_all(
     mut must: impl ExactSizeIterator<Item = bool>,
     should: impl ExactSizeIterator<Item = bool>,
     mut must_not: impl ExactSizeIterator<Item = bool>,

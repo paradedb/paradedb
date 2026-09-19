@@ -62,7 +62,7 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::stats::segments_for_partition;
+use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::segment_view;
@@ -199,6 +199,7 @@ pub struct PgSearchScanPlan {
     /// Global partition selected for a task-specialized variant. When present, this plan
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
+    pub(crate) partition_segments: Option<PartitionSegments>,
     pub(crate) scan_mode: crate::scan::ScanMode,
 }
 
@@ -224,6 +225,7 @@ impl Clone for PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
         }
     }
@@ -350,6 +352,7 @@ impl PgSearchScanPlan {
             sort_order: sort_order.cloned(),
             range_split_points,
             assigned_partition: None,
+            partition_segments: None,
             scan_mode,
         }
     }
@@ -381,50 +384,52 @@ impl PgSearchScanPlan {
                 points.partitions_for(target_partitions)
             });
 
-        let state_guard = self
-            .state
-            .lock()
-            .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan state: {e}")))?;
-
-        let new_state = match &*state_guard {
-            ExecutionState::Shared {
-                parallel_state,
-                scan_state,
-            } => ExecutionState::Shared {
-                parallel_state: parallel_state.clone(),
-                scan_state: scan_state.clone(),
-            },
-            ExecutionState::RangePartitioned { scan_state, .. } => {
-                ExecutionState::RangePartitioned {
-                    range_boundaries: self
-                        .range_split_points
-                        .as_ref()
-                        .unwrap()
-                        .build(target_partitions),
-                    scan_state: Box::new(UnsafeSendSync(scan_state.0.clone())),
+        let (new_state, range_boundaries) = {
+            let state_guard = self.state.lock().unwrap();
+            let new_state = match &*state_guard {
+                ExecutionState::Shared {
+                    parallel_state,
+                    scan_state,
+                } => ExecutionState::Shared {
+                    parallel_state: parallel_state.clone(),
+                    scan_state: scan_state.clone(),
+                },
+                ExecutionState::RangePartitioned { scan_state, .. } => {
+                    ExecutionState::RangePartitioned {
+                        range_boundaries: self
+                            .range_split_points
+                            .as_ref()
+                            .unwrap()
+                            .build(target_partitions),
+                        scan_state: scan_state.clone(),
+                    }
                 }
-            }
-            _ => {
-                return Err(DataFusionError::Internal(
-                    "Cannot repartition uninitialized or consumed plan".into(),
-                ));
-            }
+                ExecutionState::Uninitialized => ExecutionState::Uninitialized,
+                ExecutionState::Consumed => {
+                    return Err(DataFusionError::Internal(
+                        "Cannot repartition a consumed PgSearchScanPlan".to_string(),
+                    ));
+                }
+            };
+
+            let range_boundaries = match &new_state {
+                ExecutionState::RangePartitioned {
+                    range_boundaries, ..
+                } => Some(range_boundaries.clone()),
+                _ => None,
+            };
+            (new_state, range_boundaries)
         };
 
-        let range_boundaries = match &new_state {
-            ExecutionState::RangePartitioned {
-                range_boundaries, ..
-            } => Some(range_boundaries),
-            _ => None,
-        };
-        let partitioning = declared_partitioning(
-            self.properties.eq_properties.schema(),
-            target_partitions,
-            range_boundaries,
-        );
-        let new_properties = Arc::new(
-            PlanProperties::clone(self.properties.as_ref()).with_partitioning(partitioning),
-        );
+        let partitioning =
+            declared_partitioning(&self.schema(), target_partitions, range_boundaries.as_ref());
+
+        let new_properties = Arc::new(PlanProperties::new(
+            self.properties.eq_properties.clone(),
+            partitioning,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
 
         Ok(self.with_overrides(
             new_state,
@@ -459,6 +464,7 @@ impl PgSearchScanPlan {
             sort_order: self.sort_order.clone(),
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
+            partition_segments: self.partition_segments.clone(),
             scan_mode: self.scan_mode.clone(),
         })
     }
@@ -485,6 +491,15 @@ impl PgSearchScanPlan {
                 .with_partitioning(Partitioning::UnknownPartitioning(1)),
         );
         variant.properties = new_properties;
+        if let Some(ref range_split_points) = self.range_split_points {
+            let boundaries = range_split_points.build(self.global_partition_count);
+            let state = self.state.lock().unwrap();
+            if let ExecutionState::RangePartitioned { scan_state, .. } = &*state {
+                let partition_segments =
+                    segments_for_partition(&scan_state.0.reader, &boundaries, assigned);
+                variant.partition_segments = Some(partition_segments);
+            }
+        }
         Arc::new(variant)
     }
 
@@ -935,11 +950,22 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
 
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "PgSearchScan: table={}, segments={}",
-            self.table_alias, self.segment_count
-        )?;
+        if let Some(ref partition_segments) = self.partition_segments {
+            write!(
+                f,
+                "PgSearchScan: table={}, segments={{partial={}, included={}, pruned={}}}",
+                self.table_alias,
+                partition_segments.partially_included.len(),
+                partition_segments.included.len(),
+                partition_segments.pruned_count
+            )?;
+        } else {
+            write!(
+                f,
+                "PgSearchScan: table={}, segments={}",
+                self.table_alias, self.segment_count
+            )?;
+        }
         if let Some(range_split_points) = &self.range_split_points {
             if let Some(assigned) = self.assigned_partition {
                 let partitioning = range_split_points.build(self.global_partition_count);
@@ -1179,6 +1205,8 @@ impl ExecutionPlan for PgSearchScanPlan {
             .map(|d| d.name.clone())
             .collect();
 
+        let assigned_partition_segments = self.partition_segments.clone();
+
         let stream_gen = async_stream::try_stream! {
             // Create a local copy of the reader if the query changed
             let mut reader = reader;
@@ -1203,15 +1231,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 // In range-partitioned mode, each partition searches segments classified by
                 // their bounds: fully included segments omit the partition RangeQuery,
                 // while partially included segments retain it.
-                let partition_segments =
-                    segments_for_partition(&reader, range_boundaries, target_partition);
-
-                MetricBuilder::new(&plan_metrics)
-                    .counter("segments_included", target_partition)
-                    .add(partition_segments.included.len());
-                MetricBuilder::new(&plan_metrics)
-                    .counter("segments_pruned", target_partition)
-                    .add(partition_segments.pruned_count);
+                let partition_segments = assigned_partition_segments
+                    .unwrap_or_else(|| segments_for_partition(&reader, range_boundaries, target_partition));
 
                 let constrained_reader =
                     reader.and_query_input(&range_boundaries.partition_bounds(target_partition));

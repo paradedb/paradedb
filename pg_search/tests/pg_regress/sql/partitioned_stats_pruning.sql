@@ -16,14 +16,6 @@ SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
 SET max_parallel_maintenance_workers TO 0;
 
-CREATE FUNCTION sp_explain_analyze_lines(q text) RETURNS SETOF text AS $$
-DECLARE r record;
-BEGIN
-  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF) ' || q LOOP
-    RETURN NEXT r."QUERY PLAN";
-  END LOOP;
-END $$ LANGUAGE plpgsql;
-
 CREATE TABLE sp_users (id bigserial PRIMARY KEY, display_name text, about_me text);
 CREATE TABLE sp_posts (id bigserial PRIMARY KEY, owner_user_id bigint, title text, body text);
 
@@ -97,48 +89,15 @@ SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
 
--- A range that reaches one of the four user segments: every task's scan of `u` reports one
--- candidate segment. Split points size this scan's partitions; the candidate count only sizes
--- them for scans without split points.
-SELECT count(*) > 0 AND count(*) = count(*) FILTER (WHERE line ~ 'segments=1[,\]]')
-       AS every_user_scan_reports_one_candidate_segment
-FROM sp_explain_analyze_lines(
-    $$SELECT count(*)
-      FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-      WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error'$$
-) AS line
-WHERE line ~ 'PgSearchScan: table=u,';
-
+-- A range that reaches one of the four user segments: candidate segments size this scan's partitions.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT count(*)
 FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
 WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
 
--- In a co-partitioned join where the two sides have different segment counts (4 vs 6),
--- segments can be fully included (RangeQuery omitted), pruned upfront, or partially
--- included (RangeQuery retained on boundary-straddling segments).
--- The active optimizations (pruning and filter omission) are recorded as metrics.
-CREATE TEMP TABLE sp_range_filter_plan AS
-SELECT line
-FROM sp_explain_analyze_lines(
-    $$SELECT count(*)
-      FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
-      WHERE u.id @@@ pdb.all() AND p.title @@@ 'error'$$
-) AS line;
-
-COPY (
-    SELECT format(
-        'has_segments_included=%s, has_segments_pruned=%s',
-        EXISTS (
-            SELECT 1 FROM sp_range_filter_plan
-            WHERE line ~ 'segments_included=([{][0-9]+:)?[1-9][0-9]*'
-        ),
-        EXISTS (
-            SELECT 1 FROM sp_range_filter_plan
-            WHERE line ~ 'segments_pruned=([{][0-9]+:)?[1-9][0-9]*'
-        )
-    )
-) TO STDOUT;
-DROP TABLE sp_range_filter_plan;
+SELECT count(*)
+FROM sp_users u JOIN sp_posts p ON u.id = p.owner_user_id
+WHERE u.id @@@ pdb.all() AND u.id BETWEEN 100 AND 200 AND p.title @@@ 'error';
 
 -- =====================================================================
 -- One side's split points are enough. `sp_votes` is indexed empty and
@@ -228,6 +187,5 @@ EXECUTE sp_cached_range_join;
 DEALLOCATE sp_cached_range_join;
 RESET plan_cache_mode;
 
-DROP FUNCTION sp_explain_analyze_lines(text);
 DROP TABLE sp_posts;
 DROP TABLE sp_users;

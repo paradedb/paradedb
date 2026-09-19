@@ -94,6 +94,7 @@ impl PartitionSegments {
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
 impl IntoIterator for PartitionSegments {
     type Item = SegmentId;
     type IntoIter = std::vec::IntoIter<SegmentId>;
@@ -105,6 +106,7 @@ impl IntoIterator for PartitionSegments {
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
 impl From<PartitionSegments> for Vec<SegmentId> {
     fn from(segments: PartitionSegments) -> Self {
         segments.into_iter().collect()

@@ -2608,7 +2608,8 @@ mod tests {
                             covered: bool| {
             let partition_segments = segments_for_partition(reader, partitioning, partition);
             assert_eq!(
-                partition_segments.partially_included.is_empty(),
+                !partition_segments.included.is_empty()
+                    && partition_segments.partially_included.is_empty(),
                 covered,
                 "{bounds:?}"
             );

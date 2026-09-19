@@ -26,7 +26,11 @@
 //! TIDBitmap through per-`(consumer, segment)` cursors
 //! (`crate::query::tid_bitmap_stream`) that the HeapFilter scorers probe.
 //!
-//! Scope: a single `BitmapIndexScan` or `BitmapAnd` tree over top-level AND clauses.
+//! Scope: over top-level AND clauses, a `BitmapIndexScan`, a `BitmapAnd` of them,
+//! or a `BitmapOr` covering one OR clause whose arms all match an index. The two
+//! combining shapes do not nest: a `BitmapAnd` carrying a `BitmapOr` is declined,
+//! because `BitmapExec` makes an AND's first leaf its accumulator by seeding it and
+//! `MultiExecBitmapOr` allocates its own bitmap instead.
 //! The owning scans keep deciding how heap expressions are extracted, where the
 //! harvested child is attached, how the build cost is surfaced, and when
 //! `BitmapExec` is initialized.

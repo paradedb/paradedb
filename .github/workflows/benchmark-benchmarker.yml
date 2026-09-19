@@ -49,7 +49,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=c8gd.metal-24xl # 96-core Graviton4 runner with 192 GiB RAM and local NVMe
+      - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.

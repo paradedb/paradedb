@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Prepared statements no longer fail on the `&&&`, `|||` and `###` operators when the right-hand side is a `pdb.query` value (for example `pdb.fuzzy`) and Postgres switches to a generic plan. A finished `pdb.query` on the right-hand side is now rejected the same way under generic and custom plans, and a `text[]` cast to `pdb.fuzzy` without a typmod no longer fails the match array assertion on `&&&` and `|||`.

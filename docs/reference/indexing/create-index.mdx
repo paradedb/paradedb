@@ -453,3 +453,113 @@ modelBuilder.Entity<MockItem>()
 ```
 
 </CodeGroup>
+
+## BM25 Parameters
+
+<Note>Tuning BM25 parameters is not necessary for most use cases.</Note>
+
+BM25 uses two parameters, `k1` and `b`, to control how term frequency and field length affect relevance scores. You can configure them independently for each field when creating an index.
+
+| Parameter | Default | Accepted Range          | Effect                                                                                                                                                                                               |
+| --------- | ------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation. Lower values reduce the benefit of repeated query terms; higher values give them more weight. At `0`, repeated occurrences add no weight, and `b` has no effect. |
+| `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the field's average length. Higher values penalize longer fields more strongly. At `0`, normalization is disabled; at `1`, it is fully applied.      |
+
+Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `description` field uses lower values to reduce the influence of repeated terms and field length. The `category` field gives repeated terms more weight while keeping the default length normalization.
+
+<CodeGroup>
+
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (
+  id,
+  (description::pdb.simple('k1=0.9', 'b=0.3')),
+  (category::pdb.simple('k1=1.5', 'b=0.75'))
+)
+WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx")
+  .on(
+    mockItems.id,
+    indexing.paradedbField(
+      mockItems.description,
+      tokenizer.simple({ k1: 0.9, b: 0.3 }),
+    ),
+    indexing.paradedbField(
+      mockItems.category,
+      tokenizer.simple({ k1: 1.5, b: 0.75 }),
+    ),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+from paradedb.search import Tokenizer
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        ParadeDBIndex(
+            fields={
+                "id": {},
+                "description": {"tokenizer": Tokenizer.simple(options={"k1": 0.9, "b": 0.3})},
+                "category": {"tokenizer": Tokenizer.simple(options={"k1": 1.5, "b": 0.75})},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing, tokenizer
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(
+        MockItem.description,
+        tokenizer=tokenizer.simple(options={"k1": 0.9, "b": 0.3}),
+    ),
+    indexing.ParadeDBField(
+        MockItem.category,
+        tokenizer=tokenizer.simple(options={"k1": 1.5, "b": 0.75}),
+    ),
+    postgresql_using="paradedb",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 0.9, b: 0.3 }) },
+    category: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 1.5, b: 0.75 }) }
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Simple(new() { ["k1"] = 0.9f, ["b"] = 0.3f }))
+    .HasField(e => e.Category, Tokenizer.Simple(new() { ["k1"] = 1.5f, ["b"] = 0.75f }));
+```
+
+</CodeGroup>
+
+You can set either parameter on its own or both together. Omitted parameters keep their defaults, and queries automatically use the values configured in the index.

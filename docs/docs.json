@@ -154,7 +154,7 @@
                     "group": "Relevance Tuning",
                     "pages": [
                       "reference/full-text/score",
-                      "reference/full-text/boost",
+                      "reference/full-text/relevance-tuning",
                       "reference/full-text/highlight"
                     ]
                   }

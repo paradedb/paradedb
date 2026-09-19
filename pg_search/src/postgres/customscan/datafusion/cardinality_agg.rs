@@ -46,11 +46,6 @@ pub fn tantivy_cardinality_udaf() -> Arc<AggregateUDF> {
     Arc::clone(&TANTIVY_CARDINALITY)
 }
 
-/// Resolve the UDAF by name, for the plan codecs.
-pub fn udaf_by_name(name: &str) -> Option<Arc<AggregateUDF>> {
-    (name == TANTIVY_CARDINALITY_NAME).then(tantivy_cardinality_udaf)
-}
-
 /// The sketch as it travels between accumulators and to the caller.
 pub fn decode_sketch(bytes: &[u8]) -> Result<CardinalityCollector> {
     postcard::from_bytes(bytes)

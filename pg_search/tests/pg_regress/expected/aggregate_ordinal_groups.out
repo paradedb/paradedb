@@ -532,15 +532,14 @@ ORDER BY p.category;
            : ┌───── DistributedExec
            : │ CoalescePartitionsExec
            : │   AggregateExec: mode=FinalPartitioned, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
-           : │     RepartitionExec: partitioning=Hash([category@0], 3), input_partitions=3
+           : │     RepartitionExec: partitioning=Hash([category@0], 3), input_partitions=1
            : │       TantivyDecodeExec: decode=[category]
            : │         AggregateExec: mode=Partial, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.stars) as agg_1]
            : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, stars@2]
            : │             CoalescePartitionsExec
            : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
-           : │             RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-           : │               DistributedLeafExec:
-           : │                 t0: PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           : │             DistributedLeafExec:
+           : │               t0: PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
            : └──────────────────────────────────────────────────
            :   ┌───── Stage 1 ── tasks=3, partitions=3
            :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
@@ -549,7 +548,7 @@ ORDER BY p.category;
            :   │     t1: PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :   │     t2: PgSearchScan: table=p, segments=3, fetch=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
            :   └──────────────────────────────────────────────────
-(30 rows)
+(29 rows)
 
 SELECT p.category, COUNT(*), SUM(r.stars)
 FROM aog_products p JOIN aog_reviews r ON r.product_id = p.id

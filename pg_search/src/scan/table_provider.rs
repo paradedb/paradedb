@@ -812,6 +812,16 @@ impl PgSearchTableProvider {
 
         let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
+        if self.range_split_points.is_some() {
+            debug_assert!(
+                target_partitions > 1,
+                "PgSearchTableProvider: range partitioning is configured but target_partitions <= 1; range partitioning requires MPP execution",
+            );
+            debug_assert!(
+                self.source_idx.is_some(),
+                "PgSearchTableProvider: range partitioning is configured but source_idx is None; range partitioning requires an MPP source",
+            );
+        }
         // The output partitions of the scan default to min(segments, target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.

@@ -39,6 +39,7 @@ pub struct GenericTypmod {
 // for pdb.jieba
 pub struct JiebaTypmod {
     pub chinese_convert: Option<ConvertMode>,
+    pub search_mode: bool,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -100,10 +101,13 @@ impl TypmodRules for GenericTypmod {
 
 impl TypmodRules for JiebaTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![rule!(
-            "chinese_convert",
-            ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
-        )]
+        vec![
+            rule!(
+                "chinese_convert",
+                ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+            ),
+            rule!("search_mode", ValueConstraint::Boolean),
+        ]
     }
 }
 
@@ -248,8 +252,13 @@ impl TryFrom<i32> for JiebaTypmod {
                     other => panic!("unknown chinese convert mode: {other}"),
                 }
             });
+        let search_mode = parsed
+            .get("search_mode")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(true);
         Ok(JiebaTypmod {
             chinese_convert,
+            search_mode,
             filters,
         })
     }

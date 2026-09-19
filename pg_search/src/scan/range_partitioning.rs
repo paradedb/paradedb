@@ -108,14 +108,20 @@ impl RangePartitioning {
         };
 
         if partition == Self::NULL_PARTITION {
-            let null_query = SearchQueryInput::Boolean {
-                must: vec![],
-                should: vec![],
-                must_not: vec![SearchQueryInput::FieldedQuery {
-                    field: self.partition_by.clone(),
-                    query: Query::Exists,
-                }],
-                minimum_should_match: None,
+            // Tantivy gives a Boolean with only `must_not` clauses no implicit match-all, so the
+            // NULL rows need an explicit `must: [All]`. The constant score matches the range
+            // query's, keeping NULL-keyed rows ranked like every other row of the partition.
+            let null_query = SearchQueryInput::ConstScore {
+                query: Box::new(SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::All],
+                    should: vec![],
+                    must_not: vec![SearchQueryInput::FieldedQuery {
+                        field: self.partition_by.clone(),
+                        query: Query::Exists,
+                    }],
+                    minimum_should_match: None,
+                }),
+                score: 1.0,
             };
 
             if is_empty_range {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789830472533,
+  "lastUpdate": 1789850986445,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4986,6 +4986,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.211,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "70322560+mehrdad3301@users.noreply.github.com",
+            "name": "Mehrdad Mahabadi",
+            "username": "mehrdad3301"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "663b10d57ec833d8d1f626a94debaf226f6765e0",
+          "message": "fix: Don't push ORDER BY col::text as a raw column sort (#5997) (#6037)\n\n# Ticket(s) Closed\n\n- Closes #5997\n\n## What\nStop pushing `ORDER BY col::text LIMIT k` as a TopK sort on the inner\ncolumn.\n\n## Why\n`find_one_var_and_fieldname` unwraps `CoerceViaIO`, so `n::text` was\nclassified as a raw sort on n. Numeric/range order is not text order (2,\n9, 10, 100 vs 10, 100, 2, 9). A collation gate does not catch this:\nCOLLATE \"C\" is still the wrong comparison.\n\n## How\nIn `analyze_sort_expression`, decline a type-changing `CoerceViaIO`\nbefore the Raw arm. `RelabelType` stays unwrapped. Indexed expressions\nthat are themselves a `CoerceViaIO` still match earlier.\n\n## Tests\n`bigint::text` and `int4range::text` stay off TopK (text order); `n` and\n`varchar::text` still use TopK.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-09-19T13:29:46-07:00",
+          "tree_id": "0b1da3b1f5c63f842024622688595856c0028a24",
+          "url": "https://github.com/paradedb/paradedb/commit/663b10d57ec833d8d1f626a94debaf226f6765e0"
+        },
+        "date": 1789850976238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6289413472070018,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.568,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.856,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.107,
             "unit": "ms"
           }
         ]

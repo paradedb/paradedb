@@ -404,11 +404,7 @@ pub enum SearchTokenizer {
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
         chinese_convert: Option<ConvertMode>,
-        /// jieba's search mode, which emits a compound's parts alongside the
-        /// whole. Wanted when indexing, so either can find a document; not
-        /// wanted when analysing a query, where the parts turn a search for one
-        /// identifier into a search for any of its pieces. Defaults to true,
-        /// which is the behaviour before this option existed.
+        /// Emit compound words and their parts. Defaults to true.
         search_mode: bool,
         filters: SearchTokenizerFilters,
     },
@@ -534,10 +530,10 @@ impl SearchTokenizer {
                         })?,
                     )
                 };
-                let search_mode: bool = if value["search_mode"].is_null() {
+                let search_mode = if value["search_mode"].is_null() {
                     true
                 } else {
-                    serde_json::from_value(value["search_mode"].clone()).map_err(|_| {
+                    value["search_mode"].as_bool().ok_or_else(|| {
                         anyhow::anyhow!("jieba tokenizer requires a boolean 'search_mode' field")
                     })?
                 };
@@ -920,10 +916,7 @@ impl SearchTokenizer {
                 search_mode,
                 filters: _,
             } => {
-                // The name identifies the registered analyser, so a
-                // non-default search mode has to appear in it: two fields
-                // differing only in the mode would otherwise share one
-                // analyser and silently get each other's tokenization.
+                // Keep existing names for the default mode and distinguish disabled mode.
                 let mode = if *search_mode { "" } else { "NoSearchMode" };
                 if let Some(chinese_convert) = chinese_convert {
                     format!("jieba{chinese_convert:?}{mode}{filters_suffix}")
@@ -1068,10 +1061,7 @@ mod tests {
             out
         }
 
-        // Search mode offers a compound's parts as well as the whole, which is
-        // what an index wants: either can find the document. A query wants the
-        // opposite, since the parts turn a search for one compound into a
-        // search for any of its pieces.
+        // Default search mode emits compound words and their parts.
         assert_eq!(
             tokens(r#"{"type": "jieba"}"#, "南京市长江大桥"),
             vec!["南京", "京市", "南京市", "长江", "大桥", "长江大桥"]
@@ -1091,15 +1081,15 @@ mod tests {
         );
 
         // The two configurations must not share a registered analyser.
-        let a = SearchTokenizer::from_json_value(
+        let default_mode = SearchTokenizer::from_json_value(
             &serde_json::from_str(r#"{"type": "jieba"}"#).unwrap(),
         )
         .unwrap();
-        let b = SearchTokenizer::from_json_value(
+        let disabled_mode = SearchTokenizer::from_json_value(
             &serde_json::from_str(r#"{"type": "jieba", "search_mode": false}"#).unwrap(),
         )
         .unwrap();
-        assert_ne!(a.name(), b.name());
+        assert_ne!(default_mode.name(), disabled_mode.name());
     }
 
     #[rstest]

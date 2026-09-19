@@ -690,8 +690,24 @@ impl PgSearchScanPlan {
             scan_mode: scanner_config.scan_mode,
             check_visibility: state.0.visibility.checks_visibility(),
         };
-        serde_json::to_vec(&descriptor).map_err(|e| {
-            DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
+        let payload = ScanDispatchPayload {
+            segment_view: state.0.reader.segment_view().entries().to_vec(),
+            descriptor: serde_json::to_vec(&descriptor).map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
+            })?,
+            segment_stats: state
+                .0
+                .reader
+                .segment_stats_snapshot()
+                .dispatch_stats()
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "PgSearchScan dispatch: statistics encode: {e}"
+                    ))
+                })?,
+        };
+        postcard::to_allocvec(&payload).map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: payload encode: {e}"))
         })
     }
 
@@ -710,9 +726,13 @@ impl PgSearchScanPlan {
         ctx: &TaskContext,
         proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
-            DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
+        let payload: ScanDispatchPayload = postcard::from_bytes(buf).map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: payload decode: {e}"))
         })?;
+        let descriptor: ScanDispatchDescriptor = serde_json::from_slice(&payload.descriptor)
+            .map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
+            })?;
 
         let schema_proto = <datafusion_proto::protobuf::Schema as prost::Message>::decode(
             descriptor.schema_proto.as_slice(),
@@ -746,16 +766,21 @@ impl PgSearchScanPlan {
         let index_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.indexrelid));
         let heap_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.heap_relid));
 
-        // MVCC view: an MPP source (source_idx Some) reads its per-source frozen segment
-        // list from `ParallelScanState`; a standard parallel scan (source_idx None) reads
-        // the worker's full segment list. Mirrors the MVCC dispatch in `scan_inner`.
-        let mvcc = match (descriptor.source_idx, parallel_state) {
-            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { segment_view(ps) }),
-            (Some(idx), Some(ps)) => {
-                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_view_for_source(idx) })
+        // Both workers and display copies replay the sender's view. A fresh MVCC lookup
+        // could select merged/appended segments that the transferred statistics do not cover.
+        let view = crate::index::mvcc::SegmentView::new(payload.segment_view);
+        if let Some(ps) = parallel_state {
+            let expected = match descriptor.source_idx {
+                None => unsafe { segment_view(ps) },
+                Some(idx) => unsafe { (*ps).segment_view_for_source(idx) },
+            };
+            if view != expected {
+                return Err(DataFusionError::Internal(
+                    "PgSearchScan dispatch: segment view differs from parallel state".into(),
+                ));
             }
-            (_, None) => MvccSatisfies::Snapshot,
-        };
+        }
+        let mvcc = MvccSatisfies::ParallelWorker(view);
 
         let query = descriptor.scan_mode.query().clone();
         let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
@@ -784,6 +809,12 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
+        reader
+            .segment_stats_snapshot()
+            .restore_stats(payload.segment_stats)
+            .map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: statistics decode: {e}"))
+            })?;
         let ffhelper = Arc::new(FFHelper::with_fields(
             &reader,
             &descriptor.which_fast_fields,
@@ -891,6 +922,16 @@ struct ScanDispatchDescriptor {
     check_visibility: bool,
     assigned_partition: Option<usize>,
     scan_mode: crate::scan::ScanMode,
+}
+
+/// Keep the query descriptor's JSON encoding, but send statistics as binary component bytes
+/// so dispatch does not expand and parse every byte as a JSON number.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ScanDispatchPayload {
+    segment_view: Vec<crate::index::mvcc::SegmentViewEntry>,
+    descriptor: Vec<u8>,
+    /// An empty list preserves the no-statistics path for unrelated predicates.
+    segment_stats: Vec<(tantivy::index::SegmentId, Option<Vec<u8>>)>,
 }
 
 /// The output partitioning a scan declares to DataFusion.

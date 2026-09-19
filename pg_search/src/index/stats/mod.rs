@@ -398,13 +398,20 @@ impl EmpiricalStats {
 /// A segment's `.stats` file, opened on its footer. Entries are decoded on request.
 pub(crate) struct SegmentStats {
     file: CompositeFile,
+    source: FileSlice,
 }
 
 impl SegmentStats {
     pub(crate) fn open(slice: FileSlice) -> io::Result<Self> {
         Ok(Self {
             file: CompositeFile::open(&slice)?,
+            source: slice,
         })
+    }
+
+    /// Copy the persisted representation for another process without reopening the component.
+    pub(crate) fn dispatch_bytes(&self) -> io::Result<Vec<u8>> {
+        Ok(self.source.read_bytes()?.as_slice().to_vec())
     }
 
     /// Open a segment's `.stats` component through its directory, reading only the footer.

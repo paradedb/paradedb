@@ -67,7 +67,7 @@ use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, RelNode};
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
-use crate::index::mvcc::{MvccSatisfies, SegmentView};
+use crate::index::mvcc::SegmentView;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
@@ -1048,6 +1048,9 @@ impl CustomScan for AggregateScan {
             }
         }
 
+        // Release captured readers after the plans and workers, including serial captures.
+        state.custom_state_mut().source_manifests.clear();
+
         // Clean up the reusable scan slot
         if let Some(slot) = state.custom_state().scan_slot {
             unsafe {
@@ -1138,20 +1141,14 @@ impl AggregateScan {
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        let manifests: Vec<SearchIndexManifest> = df_state
-            .plan
-            .sources()
-            .iter()
-            .map(|source| {
-                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to capture source manifest for indexrelid {}: {e}",
-                        source.scan_info.indexrelid
-                    )
-                })
-            })
-            .collect();
+        let manifests = SearchIndexManifest::capture_sources(
+            df_state
+                .plan
+                .sources()
+                .iter()
+                .map(|source| source.scan_info.indexrelid),
+        )
+        .expect("Failed to capture aggregate source manifests");
         state.custom_state_mut().source_manifests = manifests;
     }
 
@@ -1201,19 +1198,15 @@ impl AggregateScan {
         crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
     }
 
-    /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_manifests` marks that
-    /// parallel execution is being attempted and stamps each provider's per-source dispatch
-    /// metadata (`is_parallel`, `mpp_source_idx`); the worker-bound stage encodes carry that
-    /// metadata, so it must be present on the plan the dispatch payload is derived from. It also
-    /// carries the views the providers replay, which are the same manifests `launch_mpp` puts in
-    /// the DSM. The serial fallback plans without it. An associated fn (not a closure) so the
-    /// `df_state` borrow it takes ends at each call site, freeing `state` for the MPP launch in
-    /// between.
+    /// Build the aggregate's physical plan under `ctx`, reusing captured views for both
+    /// distributed execution and serial fallback. The session configuration determines the
+    /// execution mode; retaining manifests must not re-enable MPP after a failed launch.
+    /// An associated fn so the mutable `df_state` borrow ends before the launch attempt.
     fn build_agg_physical_plan(
         df_state: &mut scan_state::DataFusionAggState,
         runtime: &tokio::runtime::Runtime,
         ctx: &datafusion::prelude::SessionContext,
-        mpp_manifests: Option<&[SearchIndexManifest]>,
+        source_manifests: Option<&[SearchIndexManifest]>,
         runtime_expr_context: Option<*mut pg_sys::ExprContext>,
         runtime_planstate: Option<*mut pg_sys::PlanState>,
     ) -> Arc<dyn ExecutionPlan> {
@@ -1230,7 +1223,7 @@ impl AggregateScan {
                 ctx,
                 runtime_expr_context,
                 runtime_planstate,
-                mpp_manifests,
+                source_manifests,
             )
             .await?;
             df_state.group_df_indices = built.group_df_indices;
@@ -1969,15 +1962,10 @@ impl AggregateScan {
             } else {
                 create_aggregate_session_context()
             };
-            // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
-            // begin; the providers build their readers from them, and `launch_mpp` ships their
-            // views to the workers.
-            let mpp_manifests: Vec<SearchIndexManifest> = if is_mpp {
-                Self::ensure_source_manifests(state);
-                state.custom_state().source_manifests.to_vec()
-            } else {
-                Vec::new()
-            };
+            // Capture once for this execution, including serial self-joins. A failed launch
+            // retains these views when rebuilding the providers for serial execution.
+            Self::ensure_source_manifests(state);
+            let source_manifests = state.custom_state().source_manifests.to_vec();
 
             let t_plan = std::time::Instant::now();
             let physical_plan = {
@@ -1991,7 +1979,7 @@ impl AggregateScan {
                     df_state,
                     &runtime,
                     &plan_ctx,
-                    is_mpp.then_some(mpp_manifests.as_slice()),
+                    Some(source_manifests.as_slice()),
                     runtime_expr_context,
                     runtime_planstate,
                 )
@@ -2032,7 +2020,7 @@ impl AggregateScan {
                             df_state,
                             &runtime,
                             &serial_ctx,
-                            None,
+                            Some(source_manifests.as_slice()),
                             runtime_expr_context,
                             runtime_planstate,
                         );

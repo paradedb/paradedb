@@ -25,7 +25,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
-use crate::api::{FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::{FFType, resolve_ctid};
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -35,6 +35,7 @@ use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -401,6 +402,7 @@ pub struct SearchIndexReader {
 pub struct SearchIndexManifest(Rc<SearchIndexManifestInner>);
 
 struct SearchIndexManifestInner {
+    indexrelid: pgrx::pg_sys::Oid,
     components: IndexComponents,
 }
 
@@ -2144,8 +2146,6 @@ impl SearchIndexReader {
     }
 }
 
-/// Shape-only inspection — never reads segment contents. The planning-time
-/// gate relies on this to use a one-segment (`LargestSegment`) reader.
 impl SearchIndexManifest {
     fn components(&self) -> &IndexComponents {
         &self.0.components
@@ -2155,7 +2155,47 @@ impl SearchIndexManifest {
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
         let components =
             SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
-        Ok(Self(Rc::new(SearchIndexManifestInner { components })))
+        Ok(Self(Rc::new(SearchIndexManifestInner {
+            indexrelid: index_relation.oid(),
+            components,
+        })))
+    }
+
+    pub(crate) fn indexrelid(&self) -> pgrx::pg_sys::Oid {
+        self.0.indexrelid
+    }
+
+    /// Capture one statement view per index, retaining the caller's source order. Self-join
+    /// aliases share opened components while dispatch still addresses each source separately.
+    pub(crate) fn capture_sources(
+        indexes: impl IntoIterator<Item = pgrx::pg_sys::Oid>,
+    ) -> Result<Vec<Self>> {
+        let mut captured: HashMap<pgrx::pg_sys::Oid, Self> = HashMap::default();
+        indexes
+            .into_iter()
+            .map(|id| {
+                let manifest = match captured.entry(id) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
+                        Self::capture(&PgSearchRelation::open(id), MvccSatisfies::Snapshot)?,
+                    ),
+                };
+                Ok(manifest.clone())
+            })
+            .collect()
+    }
+
+    pub(crate) fn persisted_split_points(
+        &self,
+        partition_by: &str,
+    ) -> anyhow::Result<Option<Vec<PdbOwnedValue>>> {
+        let Ok(field) = self.components().index.schema().get_field(partition_by) else {
+            return Ok(None);
+        };
+        Ok(self
+            .components()
+            .segment_stats_snapshot
+            .split_points(field)?)
     }
 
     /// This manifest's segment view, for other readers to replay through
@@ -2389,6 +2429,93 @@ mod tests {
                 assert_pruning_matches_tantivy(&reader, expected);
             }
         }
+    }
+
+    #[pg_test]
+    fn dispatched_statistics_are_opened_once_for_the_frozen_view() {
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let (index_rel, _) = segmented_index_fixture("dispatch_stats_once", 2, true);
+        let manifests =
+            SearchIndexManifest::capture_sources([index_rel.oid(), index_rel.oid()]).unwrap();
+        let manifest = &manifests[0];
+        let leader = SearchIndexReader::from_manifest(
+            manifest,
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        STATS_OPENS.store(0, Relaxed);
+        assert!(
+            leader
+                .segment_stats_snapshot()
+                .dispatch_stats()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            0,
+            "dispatch must not load unused statistics"
+        );
+
+        // Choosing task ranges and proving query predicates share one set of opened components.
+        manifest.persisted_split_points("id").unwrap();
+        let segment_count = manifest.segment_view().len();
+        assert_eq!(STATS_OPENS.load(Relaxed), segment_count);
+        let filtered = SearchIndexReader::from_manifest(
+            &manifests[1],
+            &index_rel,
+            range_query("id", 1, 10),
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_pruning_matches_tantivy(&filtered, 10);
+        let payload = filtered.segment_stats_snapshot().dispatch_stats().unwrap();
+        assert_eq!(payload.len(), segment_count);
+        assert!(
+            payload.iter().any(|(_, stats)| stats.is_none()),
+            "mutable segment absence must travel too"
+        );
+        let encoded = serde_json::to_vec(&payload).unwrap();
+        for _ in 0..4 {
+            let receiver = SearchIndexReader::open(
+                &index_rel,
+                range_query("id", 1, 10),
+                false,
+                MvccSatisfies::ParallelWorker(manifest.segment_view()),
+            )
+            .unwrap();
+            receiver
+                .segment_stats_snapshot()
+                .restore_stats(serde_json::from_slice(&encoded).unwrap())
+                .unwrap();
+            assert_pruning_matches_tantivy(&receiver, 10);
+            assert_eq!(
+                receiver.segment_stats_snapshot().dispatch_stats().unwrap(),
+                payload
+            );
+            assert_eq!(
+                STATS_OPENS.load(Relaxed),
+                segment_count,
+                "reconstruction must not reopen statistics"
+            );
+        }
+
+        let snapshot = SegmentStatsSnapshot::capture(leader.searcher());
+        let unknown = tantivy::index::SegmentId::generate_random();
+        assert!(snapshot.restore_stats(vec![(unknown, None)]).is_err());
+        assert!(
+            snapshot
+                .restore_stats(vec![payload[0].clone(), payload[0].clone()])
+                .is_err(),
+            "duplicate segment entries must be rejected"
+        );
     }
 
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must

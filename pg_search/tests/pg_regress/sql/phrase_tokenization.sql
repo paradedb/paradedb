@@ -11,15 +11,7 @@ INSERT INTO test_phrase_table (flavour) VALUES
     ('apple, cherry, banana');
 
 
-CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, flavour)
-    WITH (
-    key_field = 'id',
-    text_fields = '{
-            "flavour": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );
+CREATE INDEX test_phrase_index ON test_phrase_table USING paradedb (id, (flavour::pdb.simple));
 
 SELECT flavour FROM test_phrase_table
 WHERE id @@@ '{
@@ -29,5 +21,18 @@ WHERE id @@@ '{
             "slop": 2
         }
     }'::jsonb ORDER BY id;
+
+-- Empty phrase_prefix terms must not construct PhrasePrefixQuery (Tantivy
+-- asserts at least one term). Match nothing instead of panicking (#6206).
+SELECT flavour FROM test_phrase_table
+WHERE id @@@ '{
+        "phrase_prefix": {
+            "field": "flavour",
+            "phrases": []
+        }
+    }'::jsonb ORDER BY id;
+
+SELECT flavour FROM test_phrase_table
+WHERE flavour @@@ pdb.phrase_prefix(ARRAY[]::text[]) ORDER BY id;
 
 drop table if exists test_phrase_table cascade;

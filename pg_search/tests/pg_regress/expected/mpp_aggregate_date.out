@@ -10,7 +10,6 @@ CREATE TABLE mpp_date_events (
 CREATE INDEX mpp_date_events_idx ON mpp_date_events
 USING paradedb (id, created_at, amount)
 WITH (
-    key_field = 'id',
     target_segment_count = 2
 );
 SET paradedb.global_mutable_segment_rows TO 0;
@@ -147,14 +146,13 @@ GROUP BY DATE(created_at);
      :   │   [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=6
-     :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=3
+     :     │ RepartitionExec: partitioning=Hash([pdb_timestamp_to_date(mpp_date_events_0.created_at)@0], 6), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[pdb_timestamp_to_date(created_at@0) as pdb_timestamp_to_date(mpp_date_events_0.created_at)], aggr=[count(1) as agg_0, sum(mpp_date_events_0.amount) as agg_1]
-     :     │     RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
-     :     │       DistributedLeafExec:
-     :     │         t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :     │         t1: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │     DistributedLeafExec:
+     :     │       t0: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :     │       t1: PgSearchScan: table=mpp_date_events, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :     └──────────────────────────────────────────────────
-(23 rows)
+(22 rows)
 
 CREATE TEMP TABLE mpp_date_distributed AS
 SELECT DATE(created_at) AS day,

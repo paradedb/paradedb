@@ -64,18 +64,12 @@ INSERT INTO test_multi_stopwords (content) VALUES
     ('the quick fox le renard and et lazy paresseux');  -- Mixed English/French
 -- Create index with multiple stopwords languages (English and French)
 CREATE INDEX idx_multi_stopwords_bm25 ON test_multi_stopwords
-    USING paradedb (id, content)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "content": {"tokenizer": {"type": "default", "stopwords_language": ["English", "French"]}}
-    }'
-);
+    USING paradedb (id, (content::pdb.simple('stopwords_language=english,french')));
 -- Test 1: Search for English stopword "the" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'the';
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -83,19 +77,19 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"the","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"the","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'the';
  id | content 
 ----+---------
 (0 rows)
 
 -- Test 2: Search for French stopword "le" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'le';
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -103,19 +97,19 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"le","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"le","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'le';
  id | content 
 ----+---------
 (0 rows)
 
 -- Test 3: Search for non-stopword "quick" - should return rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'quick';
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -123,10 +117,10 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"quick","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"quick","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'quick';
  id |                    content                    
 ----+-----------------------------------------------
   1 | the quick brown fox
@@ -136,9 +130,9 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
 
 -- Test 4: Search for non-stopword "renard" - should return rows  
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'renard';
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -146,10 +140,10 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"renard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"renard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'renard';
  id |                    content                    
 ----+-----------------------------------------------
   2 | le renard brun rapide
@@ -159,9 +153,9 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
 
 -- Test 5: Search for English stopword "and" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'and';
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -169,19 +163,19 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"and","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"and","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'and';
  id | content 
 ----+---------
 (0 rows)
 
 -- Test 6: Search for French stopword "et" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'et';
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
@@ -189,10 +183,10 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"et","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"et","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'et';
  id | content 
 ----+---------
 (0 rows)
@@ -209,18 +203,12 @@ INSERT INTO test_single_stopwords (content) VALUES
     ('the quick brown fox and the lazy dog');
 -- Single language as string (backwards compatible)
 CREATE INDEX idx_single_stopwords_bm25 ON test_single_stopwords
-    USING paradedb (id, content)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "content": {"tokenizer": {"type": "default", "stopwords_language": "English"}}
-    }'
-);
+    USING paradedb (id, (content::pdb.simple('stopwords_language=english')));
 -- Test: Search for "the" (English stopword) - should return 0 rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'the';
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_single_stopwords
    Output: id, content
    Table: test_single_stopwords
@@ -228,19 +216,19 @@ SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"the","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"the","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'the';
  id | content 
 ----+---------
 (0 rows)
 
 -- Test: Search for "quick" (not a stopword) - should return 1 row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'quick';
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.test_single_stopwords
    Output: id, content
    Table: test_single_stopwords
@@ -248,10 +236,10 @@ SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
    Worker Selection: Cost model
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"quick","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"quick","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'quick';
  id |               content                
 ----+--------------------------------------
   1 | the quick brown fox and the lazy dog

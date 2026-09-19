@@ -27,12 +27,10 @@ INSERT INTO sorted_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series
 
 -- Indexes sorted by join key
 -- t1 sorted by id
-CREATE INDEX sorted_t1_idx ON sorted_t1 USING paradedb (id, val)
-WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX sorted_t1_idx ON sorted_t1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST');
 
 -- t2 sorted by t1_id (the foreign key)
-CREATE INDEX sorted_t2_idx ON sorted_t2 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}');
+CREATE INDEX sorted_t2_idx ON sorted_t2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST');
 
 ANALYZE sorted_t1;
 ANALYZE sorted_t2;
@@ -43,14 +41,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
@@ -65,14 +63,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
 
@@ -87,7 +85,7 @@ PREPARE prep_join_offset(int) AS
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET $1;
 
@@ -108,14 +106,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
 
@@ -133,14 +131,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
 
 SELECT t1.val, t2.val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5 OFFSET 10;
 
@@ -156,7 +154,7 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, t2.id
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5
 FOR UPDATE OF t1;
@@ -171,7 +169,7 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
 
@@ -180,7 +178,7 @@ SELECT setseed(0.5);
 SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 5;
 
@@ -195,11 +193,9 @@ CREATE TABLE multi_seg_1 (id INTEGER PRIMARY KEY, val TEXT);
 CREATE TABLE multi_seg_2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 
 -- Force multiple segments using small mutable_segment_rows
-CREATE INDEX multi_seg_1_idx ON multi_seg_1 USING paradedb (id, val)
-WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10);
+CREATE INDEX multi_seg_1_idx ON multi_seg_1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10);
 
-CREATE INDEX multi_seg_2_idx ON multi_seg_2 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10);
+CREATE INDEX multi_seg_2_idx ON multi_seg_2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST', mutable_segment_rows = 10);
 
 -- Insert 100 rows, should create ~10 segments each
 INSERT INTO multi_seg_1 SELECT i, 'val ' || i FROM generate_series(1, 100) i;
@@ -214,14 +210,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM multi_seg_1 t1
 JOIN multi_seg_2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 SELECT t1.val, t2.val
 FROM multi_seg_1 t1
 JOIN multi_seg_2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
@@ -242,16 +238,13 @@ INSERT INTO recursive_smj_2 SELECT i, i, 'val ' || i FROM generate_series(1, 100
 INSERT INTO recursive_smj_3 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
 
 -- Index for t1 sorted by id
-CREATE INDEX recursive_smj_1_idx ON recursive_smj_1 USING paradedb (id, val)
-WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX recursive_smj_1_idx ON recursive_smj_1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST');
 
 -- Index for t2 sorted by t1_id
-CREATE INDEX recursive_smj_2_idx ON recursive_smj_2 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}');
+CREATE INDEX recursive_smj_2_idx ON recursive_smj_2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST');
 
 -- Index for t3 sorted by t1_id
-CREATE INDEX recursive_smj_3_idx ON recursive_smj_3 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}');
+CREATE INDEX recursive_smj_3_idx ON recursive_smj_3 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST');
 
 ANALYZE recursive_smj_1;
 ANALYZE recursive_smj_2;
@@ -266,7 +259,7 @@ SELECT t1.val, t2.val, t3.val
 FROM recursive_smj_1 t1
 JOIN recursive_smj_2 t2 ON t1.id = t2.t1_id
 JOIN recursive_smj_3 t3 ON t1.id = t3.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
@@ -274,7 +267,7 @@ SELECT t1.val, t2.val, t3.val
 FROM recursive_smj_1 t1
 JOIN recursive_smj_2 t2 ON t1.id = t2.t1_id
 JOIN recursive_smj_3 t3 ON t1.id = t3.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
@@ -294,11 +287,9 @@ CREATE TABLE dyn_filter_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 -- Create indexes BEFORE inserting data so inserts go through the mutable
 -- segment pathway, producing multiple segments (index-build on existing data
 -- merges everything into one segment).
-CREATE INDEX dyn_filter_t1_idx ON dyn_filter_t1 USING paradedb (id, val)
-WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX dyn_filter_t1_idx ON dyn_filter_t1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10000);
 
-CREATE INDEX dyn_filter_t2_idx ON dyn_filter_t2 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX dyn_filter_t2_idx ON dyn_filter_t2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST', mutable_segment_rows = 10000);
 
 INSERT INTO dyn_filter_t1 SELECT i, 'val ' || i FROM generate_series(1, 20000) i;
 INSERT INTO dyn_filter_t2 SELECT i, (i % 20000) + 1, 'val ' || i FROM generate_series(1, 20000) i;
@@ -311,7 +302,7 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.val, t2.val
 FROM dyn_filter_t1 t1
 JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
@@ -323,7 +314,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
 FROM dyn_filter_t1 t1
 JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
@@ -331,7 +322,7 @@ LIMIT 10;
 SELECT t1.val, t2.val
 FROM dyn_filter_t1 t1
 JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val'
+WHERE t1.val ||| 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
@@ -354,11 +345,9 @@ DROP TABLE IF EXISTS null_val_t2 CASCADE;
 CREATE TABLE null_val_t1 (id INTEGER PRIMARY KEY, val TEXT);
 CREATE TABLE null_val_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 
-CREATE INDEX null_val_t1_idx ON null_val_t1 USING paradedb (id, val)
-WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX null_val_t1_idx ON null_val_t1 USING paradedb (id, (val::pdb.unicode_words('columnar=true'))) WITH (sort_by = 'id ASC NULLS FIRST', mutable_segment_rows = 10000);
 
-CREATE INDEX null_val_t2_idx ON null_val_t2 USING paradedb (id, t1_id, val)
-WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX null_val_t2_idx ON null_val_t2 USING paradedb (id, t1_id, val) WITH (sort_by = 't1_id ASC NULLS FIRST', mutable_segment_rows = 10000);
 
 -- 20K rows. Most have non-NULL val, but the last 10 (ids 19991-20000) are NULL.
 -- With mutable_segment_rows=10000 the NULLs land in segment 2's later batch,
@@ -383,7 +372,7 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
@@ -391,14 +380,14 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
@@ -413,14 +402,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
 
@@ -450,14 +439,14 @@ EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
-WHERE t1.val @@@ 'val' OR t1.val IS NULL
+WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
 -- =============================================================================

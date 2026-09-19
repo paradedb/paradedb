@@ -38,12 +38,10 @@ CREATE TABLE document_text (
 -- Create BM25 indexes BEFORE inserting data, then insert in batches
 -- to create multiple segments (critical for reproducing the race)
 CREATE INDEX idx_parade_core ON core
-USING paradedb (dwf_doid, author)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, author);
 
 CREATE INDEX idx_parade_document_text ON document_text
-USING paradedb (dwf_doid, full_text)
-WITH (key_field='dwf_doid');
+USING paradedb (dwf_doid, full_text);
 
 -- Insert data in batches to create multiple segments
 -- Each batch creates new segments
@@ -139,7 +137,7 @@ SET min_parallel_index_scan_size = 0;
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -149,7 +147,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -159,7 +157,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -169,7 +167,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -179,7 +177,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -189,7 +187,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -199,7 +197,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -211,7 +209,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -221,7 +219,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -231,7 +229,7 @@ WHERE dt.full_text @@@ 'ea'
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ 'ea'
+WHERE dt.full_text ||| 'ea'
   AND (c.author @@@ paradedb.match('author', 'brian griffin')
        OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
        OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
@@ -243,7 +241,7 @@ PREPARE parallel_hash_join_query(text, text, text, text, date, date) AS
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ $1
+WHERE dt.full_text ||| $1
   AND (c.author @@@ paradedb.match('author', $2)
        OR c.author @@@ paradedb.match('author', $3)
        OR c.author @@@ paradedb.match('author', $4))
@@ -269,7 +267,7 @@ PREPARE parallel_hash_join_query_generic(text, text, text, text, date, date) AS
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ $1
+WHERE dt.full_text ||| $1
   AND (c.author @@@ paradedb.match('author', $2)
        OR c.author @@@ paradedb.match('author', $3)
        OR c.author @@@ paradedb.match('author', $4))

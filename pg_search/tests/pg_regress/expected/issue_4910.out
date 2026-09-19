@@ -40,16 +40,13 @@ INSERT INTO csa_not_exists (company_id, speciality)
   FROM generate_series(1, 10) s;
 -- v2 BM25 index syntax: numeric columns are fast by default; the speciality
 -- text column uses pdb.literal (raw tokenizer + fast field) for equality
--- matching without a text_fields JSON.
+-- matching with a tokenizer cast.
 CREATE INDEX cccf_idx ON cccf
-  USING paradedb (contact_id, company_id, revenue_rank)
-  WITH (key_field = contact_id);
+  USING paradedb (contact_id, company_id, revenue_rank);
 CREATE INDEX csa_exists_idx ON csa_exists
-  USING paradedb (unique_id, company_id)
-  WITH (key_field = unique_id);
+  USING paradedb (unique_id, company_id);
 CREATE INDEX csa_not_exists_idx ON csa_not_exists
-  USING paradedb (unique_id, company_id, (speciality::pdb.literal))
-  WITH (key_field = unique_id);
+  USING paradedb (unique_id, company_id, (speciality::pdb.literal));
 ANALYZE cccf;
 ANALYZE csa_exists;
 ANALYZE csa_not_exists;
@@ -87,8 +84,8 @@ LIMIT 25;
    Limit: 25
    Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[contact_id@0 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@3 as ctid_0]
-     :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[cccf]
      :       TantivyFetchExec: fetch=[ctid_0]
      :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
@@ -168,8 +165,8 @@ LIMIT 25;
    Limit: 25
    Order By: cccf.revenue_rank desc nulls last, cccf.contact_id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[contact_id@0 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@3 as ctid_0]
-     :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[cccf]
      :       TantivyFetchExec: fetch=[ctid_0]
      :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]

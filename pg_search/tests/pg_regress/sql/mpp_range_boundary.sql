@@ -48,12 +48,9 @@ ANALYZE rb_comments;
 -- A serial build keeps the worker-count warning deterministic.
 SET max_parallel_maintenance_workers TO 0;
 
-CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, display_name, reputation)
-WITH (key_field='id', target_segment_count=8, partition_by='id', text_fields='{"display_name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"reputation":{"fast":true}}');
-CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, title)
-WITH (key_field='id', target_segment_count=8, partition_by='id,owner_user_id', text_fields='{"title":{"fast":true}}', numeric_fields='{"owner_user_id":{"fast":true}}');
-CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, text, score)
-WITH (key_field='id', target_segment_count=8, partition_by='post_id', text_fields='{"text":{"fast":true}}', numeric_fields='{"post_id":{"fast":true},"score":{"fast":true}}');
+CREATE INDEX rb_users_idx ON rb_users USING paradedb (id, (display_name::pdb.literal), reputation) WITH (target_segment_count=8, partition_by='id');
+CREATE INDEX rb_posts_idx ON rb_posts USING paradedb (id, owner_user_id, (title::pdb.unicode_words('columnar=true'))) WITH (target_segment_count=8, partition_by='id,owner_user_id');
+CREATE INDEX rb_comments_idx ON rb_comments USING paradedb (id, post_id, (text::pdb.unicode_words('columnar=true')), score) WITH (target_segment_count=8, partition_by='post_id');
 
 CREATE TABLE rb_outcome (line text);
 SET statement_timeout = '120s';
@@ -72,7 +69,7 @@ BEGIN
         SELECT * FROM rb_users u
         JOIN rb_posts p ON u.id = p.owner_user_id
         JOIN rb_comments c ON c.post_id = p.id
-        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title @@@ ''error'' AND c.text @@@ ''question''
+        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title ||| ''error'' AND c.text ||| ''question''
         LIMIT 5'
     LOOP
         launched := launched OR r."QUERY PLAN" LIKE '%MPP Launch:%';
@@ -93,7 +90,7 @@ BEGIN
         SELECT u.id FROM rb_users u
         JOIN rb_posts p ON u.id = p.owner_user_id
         JOIN rb_comments c ON c.post_id = p.id
-        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title @@@ 'error' AND c.text @@@ 'question'
+        WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title ||| 'error' AND c.text ||| 'question'
         LIMIT 5
     ) q;
     INSERT INTO rb_outcome VALUES ('limit-5 rows: ' || n);

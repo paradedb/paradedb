@@ -16,10 +16,10 @@ SELECT 'the quick brown fox jumps over the lazy dog', g % 10
 FROM generate_series(1, 5000) g;
 
 -- Create BM25 index only on id and body (extra is NOT indexed).
-CREATE INDEX hfv_idx ON hfv_test USING paradedb (id, body) WITH (key_field = 'id');
+CREATE INDEX hfv_idx ON hfv_test USING paradedb (id, body);
 
 -- Baseline: query with heap_filter predicate works before any deletes.
-SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;
+SELECT count(*) FROM hfv_test WHERE body ||| 'fox' AND extra = 5;
 
 -- Delete trailing rows so VACUUM can truncate pages.
 DELETE FROM hfv_test WHERE id > 1000;
@@ -29,10 +29,10 @@ VACUUM hfv_test;
 
 -- This query uses the heap_filter path (extra is not in the BM25 index).
 -- Before the fix, this would ERROR with "could not read blocks ... read only 0 of 8192 bytes".
-SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;
+SELECT count(*) FROM hfv_test WHERE body ||| 'fox' AND extra = 5;
 
 -- Also verify a simple BM25 query still works.
-SELECT count(*) FROM hfv_test WHERE body @@@ 'fox';
+SELECT count(*) FROM hfv_test WHERE body ||| 'fox';
 
 -- Cleanup
 DROP TABLE hfv_test;

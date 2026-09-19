@@ -22,7 +22,6 @@ INSERT INTO deprecated_dt (ts, tstz) VALUES
 CREATE INDEX deprecated_dt_idx ON deprecated_dt
 USING paradedb (id, ts, tstz)
 WITH (
-    key_field = 'id',
     datetime_fields = '{"ts": {"fast": true}, "tstz": {"fast": true}}'
 );
 
@@ -34,7 +33,8 @@ ORDER BY id;
 
 SELECT id
 FROM deprecated_dt
-WHERE ts @@@ '[2024-01-02T00:00:00Z TO 2024-01-03T00:00:00Z]'
+WHERE id @@@ pdb.all()
+  AND ts BETWEEN '2024-01-02'::timestamp AND '2024-01-03'::timestamp
 ORDER BY id;
 
 SELECT id, tstz

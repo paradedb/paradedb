@@ -39,37 +39,20 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
         ('박지후', '지역 축제 개최 소식', '이번 주말 지역 축제가 열립니다. 다양한 음식과 공연이 준비되어 있어 기대가 됩니다.');
 
         CREATE INDEX korean_idx ON korean
-        USING paradedb (id, author, title, message)
-        WITH (
-            key_field = 'id',
-            text_fields = '{
-                "author": {
-                    "tokenizer": {"type": "korean_lindera"},
-                    "record": "position"
-                },
-                "title": {
-                    "tokenizer": {"type": "korean_lindera"},
-                    "record": "position"
-                },
-                "message": {
-                    "tokenizer": {"type": "korean_lindera"},
-                    "record": "position"
-                }
-            }'
-        );
+        USING paradedb (id, (author::pdb.lindera(korean)), (title::pdb.lindera(korean)), (message::pdb.lindera(korean)));
     "#
     .execute(&mut conn);
 
-    let row: (i32,) = r#"SELECT id FROM korean WHERE korean @@@ 'author:김민준' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM korean WHERE author ||| '김민준' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
     let row: (i32,) =
-        r#"SELECT id FROM korean WHERE korean @@@ 'title:"경기"' ORDER BY id"#.fetch_one(&mut conn);
+        r#"SELECT id FROM korean WHERE title ### '경기' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 2);
 
-    let row: (i32,) = r#"SELECT id FROM korean WHERE korean @@@ 'message:"지역 축제"' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM korean WHERE message ### '지역 축제' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }
 
@@ -89,37 +72,20 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
         ('王芳', '本地文化节', '本周末将举行一个地方文化节，预计将有各种食物和表演。');
 
     CREATE INDEX chinese_idx ON chinese
-    USING paradedb (id, author, title, message)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "author": {
-                "tokenizer": {"type": "chinese_lindera"},
-                "record": "position"
-            },
-            "title": {
-                "tokenizer": {"type": "chinese_lindera"},
-                "record": "position"
-            },
-            "message": {
-                "tokenizer": {"type": "chinese_lindera"},
-                "record": "position"
-            }
-        }'
-    ); 
+    USING paradedb (id, (author::pdb.lindera(chinese)), (title::pdb.lindera(chinese)), (message::pdb.lindera(chinese)));
     "#
     .execute(&mut conn);
 
     let row: (i32,) =
-        r#"SELECT id FROM chinese WHERE chinese @@@ 'author:华' ORDER BY id"#.fetch_one(&mut conn);
+        r#"SELECT id FROM chinese WHERE author ||| '华' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
     let row: (i32,) =
-        r#"SELECT id FROM chinese WHERE chinese @@@ 'title:北京' ORDER BY id"#.fetch_one(&mut conn);
+        r#"SELECT id FROM chinese WHERE title ||| '北京' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM chinese WHERE chinese @@@ 'message:文化节' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM chinese WHERE message ||| '文化节' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }
 
@@ -140,36 +106,19 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
         ('高橋花子', '地元の祭り', '今週末に地元で祭りが開催されます。様々な食べ物とパフォーマンスが用意されています。');
 
     CREATE INDEX japanese_idx ON japanese
-    USING paradedb (id, author, title, message)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "author": {
-                "tokenizer": {"type": "japanese_lindera"},
-                "record": "position"
-            },
-            "title": {
-                "tokenizer": {"type": "japanese_lindera"},
-                "record": "position"
-            },
-            "message": {
-                "tokenizer": {"type": "japanese_lindera"},
-                "record": "position"
-            }
-        }'
-    );
+    USING paradedb (id, (author::pdb.lindera(japanese)), (title::pdb.lindera(japanese)), (message::pdb.lindera(japanese)));
     "#
     .execute(&mut conn);
 
-    let row: (i32,) = r#"SELECT id FROM japanese WHERE japanese @@@ 'author:佐藤' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM japanese WHERE author ||| '佐藤' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM japanese WHERE japanese @@@ 'title:サッカー' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM japanese WHERE title ||| 'サッカー' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 2);
 
-    let row: (i32,) = r#"SELECT id FROM japanese WHERE japanese @@@ 'message:祭り' ORDER BY id"#
-        .fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM japanese WHERE message ||| '祭り' ORDER BY id"#.fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }

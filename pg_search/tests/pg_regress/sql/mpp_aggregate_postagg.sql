@@ -38,19 +38,10 @@ CREATE TABLE mpp_postagg_pages (
 );
 
 CREATE INDEX mpp_postagg_files_idx ON mpp_postagg_files
-USING paradedb (id, title, category, content)
-WITH (
-    key_field='id',
-    text_fields='{"title": {"fast": true}, "category": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), (category::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX mpp_postagg_pages_idx ON mpp_postagg_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -94,7 +85,7 @@ SELECT f.category,
        MIN(p.size_bytes) AS min_bytes,
        MAX(p.size_bytes) AS max_bytes
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 ORDER BY f.category;
 
@@ -107,7 +98,7 @@ SELECT f.category,
        MIN(p.size_bytes) AS min_bytes,
        MAX(p.size_bytes) AS max_bytes
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 ORDER BY f.category;
 
@@ -117,7 +108,7 @@ SELECT f.category,
        MIN(p.size_bytes) AS min_bytes,
        MAX(p.size_bytes) AS max_bytes
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 ORDER BY f.category;
 
@@ -129,7 +120,7 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
@@ -139,14 +130,14 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
 
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category, f.title
 ORDER BY f.category, f.title
 LIMIT 10;
@@ -159,7 +150,7 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 HAVING COUNT(*) > 100
 ORDER BY s DESC
@@ -170,7 +161,7 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 HAVING COUNT(*) > 100
 ORDER BY s DESC
@@ -178,7 +169,7 @@ LIMIT 3;
 
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.category
 HAVING COUNT(*) > 100
 ORDER BY s DESC
@@ -195,18 +186,18 @@ SET max_parallel_workers_per_gather TO 0;
 
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SET max_parallel_workers_per_gather TO 3;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 -- =====================================================================
 -- Scenario 5: Three-table join (two HashJoins → two NetworkBroadcastExec
@@ -225,11 +216,7 @@ CREATE TABLE mpp_postagg_categories (
 );
 
 CREATE INDEX mpp_postagg_categories_idx ON mpp_postagg_categories
-USING paradedb (id, name, description)
-WITH (
-    key_field='id',
-    text_fields='{"name": {"fast": true}, "description": {}}'
-);
+USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -250,7 +237,7 @@ SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f
 JOIN mpp_postagg_pages p ON f.id = p.file_id
 JOIN mpp_postagg_categories c ON f.category = c.name
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY c.name
 ORDER BY c.name;
 
@@ -261,7 +248,7 @@ SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f
 JOIN mpp_postagg_pages p ON f.id = p.file_id
 JOIN mpp_postagg_categories c ON f.category = c.name
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY c.name
 ORDER BY c.name;
 
@@ -269,7 +256,7 @@ SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f
 JOIN mpp_postagg_pages p ON f.id = p.file_id
 JOIN mpp_postagg_categories c ON f.category = c.name
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY c.name
 ORDER BY c.name;
 

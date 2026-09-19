@@ -36,7 +36,7 @@ SELECT
 FROM generate_series(1, 10000) AS g;
 CREATE INDEX inventory_items_idx ON "inventory_items" USING paradedb (
     id, supplier_id, condition, availability, customer_rating, sales_rank, is_certified, location_count
-) WITH (key_field='id');
+);
 SELECT "id"
 FROM "inventory_items" AS "InventoryItems"
 WHERE "InventoryItems"."id" @@@ '{"boolean":{"must":[{"term":{"field":"supplier_id","value":115}},{"boolean":{"should":[{"term":{"field":"condition","value":"new"}},{"term":{"field":"condition","value":"used"}}]}},{"term":{"field":"availability","value":"available"}}]}}'::jsonb

@@ -41,8 +41,7 @@ fn use_ivm(mut conn: PgConnection) {
     SELECT pgivm.create_immv('test_view', 'SELECT test.*, test.id + 1 as derived FROM test;');
 
     CREATE INDEX test_search_idx ON test_view
-    USING paradedb (id, content)
-    WITH (key_field='id');
+    USING paradedb (id, content);
     "#
     .execute(&mut conn);
 
@@ -65,7 +64,7 @@ fn use_ivm(mut conn: PgConnection) {
     let res: Vec<(i32, f32)> = r#"
     SELECT id, pdb.score(id)
     FROM test_view
-    WHERE test_view.content @@@ 'pineapple';
+    WHERE test_view.content ||| 'pineapple';
     "#
     .fetch(&mut conn);
     assert_eq!(res, vec![(1, 0.5389965)]);

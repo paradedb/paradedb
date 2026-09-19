@@ -33,27 +33,19 @@ DROP TABLE IF EXISTS ts_sorted CASCADE;
 
 CREATE TABLE ts_outer (id INTEGER PRIMARY KEY, val TEXT);
 INSERT INTO ts_outer SELECT i, 'doc' FROM generate_series(1, 200) i;
-CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, val)
-WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX ts_outer_idx ON ts_outer USING paradedb (id, (val::pdb.unicode_words('columnar=true')));
 
 CREATE TABLE ts_unique (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_unique SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX ts_unique_idx ON ts_unique USING paradedb (id, fk, val);
 
 CREATE TABLE ts_multi (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_multi SELECT i, ((i - 1) % 100) + 1, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX ts_multi_idx ON ts_multi USING paradedb (id, fk, val);
 
 CREATE TABLE ts_sorted (id INTEGER PRIMARY KEY, fk INTEGER, val TEXT);
 INSERT INTO ts_sorted SELECT i, i, 'doc' FROM generate_series(1, 10000) i;
-CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{"fk": {"fast": true}}',
-    sort_by = 'fk ASC NULLS FIRST'
-);
+CREATE INDEX ts_sorted_idx ON ts_sorted USING paradedb (id, fk, val) WITH (sort_by = 'fk ASC NULLS FIRST');
 
 ANALYZE ts_outer;
 ANALYZE ts_unique;
@@ -72,7 +64,7 @@ DROP TABLE IF EXISTS result_q1_bitset;
 CREATE TEMP TABLE result_q1_bitset AS
 SELECT ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_unique.id;
 RESET paradedb.term_set_bitset_max_density_unique;
 
@@ -81,7 +73,7 @@ DROP TABLE IF EXISTS result_q1_linear;
 CREATE TEMP TABLE result_q1_linear AS
 SELECT ts_unique.id
 FROM ts_outer JOIN ts_unique ON ts_outer.id = ts_unique.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_unique.id;
 RESET paradedb.term_set_bitset_max_density_unique;
 
@@ -116,7 +108,7 @@ DROP TABLE IF EXISTS result_q2_bitset;
 CREATE TEMP TABLE result_q2_bitset AS
 SELECT ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 200
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 200
 ORDER BY ts_multi.id;
 RESET paradedb.term_set_bitset_max_density_multi;
 
@@ -125,7 +117,7 @@ DROP TABLE IF EXISTS result_q2_linear;
 CREATE TEMP TABLE result_q2_linear AS
 SELECT ts_multi.id
 FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 200
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 200
 ORDER BY ts_multi.id;
 RESET paradedb.term_set_bitset_max_density_multi;
 
@@ -160,7 +152,7 @@ DROP TABLE IF EXISTS result_q3_gallop;
 CREATE TEMP TABLE result_q3_gallop AS
 SELECT ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_sorted.id;
 
 SET paradedb.term_set_gallop_enabled = OFF;
@@ -170,7 +162,7 @@ DROP TABLE IF EXISTS result_q3_linear;
 CREATE TEMP TABLE result_q3_linear AS
 SELECT ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
-WHERE ts_outer.val @@@ 'doc' AND ts_outer.id <= 100
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
 ORDER BY ts_sorted.id;
 RESET paradedb.term_set_gallop_enabled;
 RESET paradedb.term_set_bitset_max_density_unique;

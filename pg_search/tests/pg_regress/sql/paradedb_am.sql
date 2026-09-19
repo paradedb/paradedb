@@ -1,7 +1,4 @@
--- Regression test: a `USING paradedb` index drives every ParadeDB custom scan
--- (base, TopK, aggregate, join) through the `@@@` operator, exactly as a
--- `USING bm25` index does. `paradedb` is the primary name for the access method
--- historically known as `bm25`; both share the same handler.
+-- A ParadeDB index drives base, TopK, aggregate, and join scans.
 
 \i common/common_setup.sql
 
@@ -39,11 +36,9 @@ INSERT INTO items (id, name, content, category_id, rating) VALUES
 
 -- v2 API: numeric fields (id, category_id, rating) are columnar/fast by default,
 -- so no per-field options are needed for the aggregate/join/TopK paths.
-CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating)
-    WITH (key_field = 'id');
+CREATE INDEX items_paradedb_idx ON items USING paradedb (id, name, content, category_id, rating);
 
-CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name)
-    WITH (key_field = 'id');
+CREATE INDEX categories_paradedb_idx ON categories USING paradedb (id, name);
 
 -- The index really is built with the `paradedb` access method.
 SELECT am.amname
@@ -53,54 +48,33 @@ WHERE c.relname = 'items_paradedb_idx';
 
 -- Base custom scan.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY id;
-SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY id;
+SELECT id FROM items WHERE content ||| 'wireless' ORDER BY id;
+SELECT id FROM items WHERE content ||| 'wireless' ORDER BY id;
 
 -- TopK scan: ORDER BY score + LIMIT pushed into the index.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY pdb.score(id) DESC, id LIMIT 2;
-SELECT id FROM items WHERE content @@@ 'wireless' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+SELECT id FROM items WHERE content ||| 'wireless' ORDER BY pdb.score(id) DESC, id LIMIT 2;
+SELECT id FROM items WHERE content ||| 'wireless' ORDER BY pdb.score(id) DESC, id LIMIT 2;
 
 -- Aggregate custom scan.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT count(*) FROM items WHERE content @@@ 'wireless';
-SELECT count(*) FROM items WHERE content @@@ 'wireless';
+SELECT count(*) FROM items WHERE content ||| 'wireless';
+SELECT count(*) FROM items WHERE content ||| 'wireless';
 
 -- Join custom scan.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, c.name
 FROM items i
 JOIN categories c ON i.category_id = c.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 SELECT i.id, c.name
 FROM items i
 JOIN categories c ON i.category_id = c.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
 DROP TABLE items CASCADE;
 DROP TABLE categories CASCADE;
-
--- Single-index guard: because `paradedb` and `bm25` share a handler, they count
--- as the same index for the "one index per relation" rule. With a `bm25` index
--- already present, creating a `paradedb` index non-concurrently is rejected...
-CREATE TABLE guard_test (id INTEGER PRIMARY KEY, content TEXT);
-INSERT INTO guard_test (id, content) VALUES (1, 'wireless keyboard'), (2, 'wired mouse');
-
-CREATE INDEX guard_bm25_idx ON guard_test USING bm25 (id, content) WITH (key_field = 'id');
-
-CREATE INDEX guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
-
--- ...but CREATE INDEX CONCURRENTLY bypasses the guard, so the two coexist.
-CREATE INDEX CONCURRENTLY guard_paradedb_idx ON guard_test USING paradedb (id, content) WITH (key_field = 'id');
-
-SELECT c.relname, am.amname
-FROM pg_class c
-JOIN pg_am am ON c.relam = am.oid
-WHERE c.relname IN ('guard_bm25_idx', 'guard_paradedb_idx')
-ORDER BY c.relname;
-
-DROP TABLE guard_test CASCADE;

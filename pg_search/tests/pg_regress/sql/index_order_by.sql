@@ -33,7 +33,6 @@ INSERT INTO sorted_scan_test (content, category, priority, score) VALUES
 CREATE INDEX sorted_scan_test_idx ON sorted_scan_test
 USING paradedb (id, content, category, priority, score)
 WITH (
-    key_field = 'id',
     sort_by = 'priority DESC NULLS LAST',
     mutable_segment_rows = 5
 );
@@ -60,26 +59,26 @@ ANALYZE sorted_scan_test;
 
 \echo 'Test 1.1: ORDER BY matching sort_by exactly (DESC NULLS LAST) - no Sort node'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC;
 
 \echo 'Test 1.3: ORDER BY ASC (opposite direction) - Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority ASC NULLS FIRST;
 
 \echo 'Test 1.4: No ORDER BY clause - Unsorted path chosen'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable';
+WHERE content ||| 'searchable';
 
 \echo 'Test 1.5: Verify correct data order when sorted path is used'
 SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 1.6: ORDER BY prefix + extra key (parallel) - Gather Merge with worker Sort expected'
@@ -101,12 +100,12 @@ SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE sorted_scan_test SET (parallel_workers = 2);
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST, id ASC;
 
 \echo 'Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 RESET enable_incremental_sort;
@@ -122,13 +121,13 @@ SET max_parallel_workers_per_gather = 0;
 \echo 'Test 1.8: ORDER BY prefix + extra key (single worker) - Incremental Sort expected'
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST, id ASC;
 RESET enable_incremental_sort;
 
 \echo 'Test 1.9: ORDER BY non-prefix (single worker) - Sort expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY id ASC, priority DESC NULLS LAST;
 
 -- =============================================================================
@@ -154,21 +153,21 @@ INSERT INTO asc_sort_test (description, value) VALUES
 
 CREATE INDEX asc_sort_test_idx ON asc_sort_test
 USING paradedb (id, description, value)
-WITH (key_field = 'id', sort_by = 'value ASC NULLS FIRST');
+WITH (sort_by = 'value ASC NULLS FIRST');
 
 \echo 'Test 2.1: ORDER BY ASC NULLS FIRST (exact match)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC NULLS FIRST;
 
 \echo 'Test 2.2: ORDER BY ASC only (default NULLS LAST for ASC) - Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC;
 
 \echo 'Test 2.3: Verify NULLs appear first with ASC NULLS FIRST'
 SELECT id, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC NULLS FIRST;
 
 DROP TABLE asc_sort_test CASCADE;
@@ -182,17 +181,17 @@ DROP TABLE asc_sort_test CASCADE;
 
 \echo 'Test 3.1: SELECT content only, ORDER BY priority'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT content FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 3.2: Verify results are correctly ordered even when priority not selected'
 SELECT content FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 3.3: SELECT id only, ORDER BY priority'
 SELECT id FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 -- =============================================================================
@@ -205,8 +204,8 @@ ORDER BY priority DESC NULLS LAST;
 -- 4.1: INTEGER type (using main table)
 \echo 'Test 4.1: INTEGER field sorting (using main table priority column)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'searchable' ORDER BY priority DESC NULLS LAST;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'searchable' ORDER BY priority DESC NULLS LAST;
 
 -- 4.2: FLOAT type
 \echo 'Test 4.2: FLOAT field sorting'
@@ -222,11 +221,11 @@ INSERT INTO dtype_float_test (content, rating) VALUES
 
 CREATE INDEX dtype_float_test_idx ON dtype_float_test
 USING paradedb (id, content, rating)
-WITH (key_field = 'id', sort_by = 'rating DESC NULLS LAST');
+WITH (sort_by = 'rating DESC NULLS LAST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
-SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
+SELECT id, rating FROM dtype_float_test WHERE content ||| 'movie' ORDER BY rating DESC NULLS LAST;
+SELECT id, rating FROM dtype_float_test WHERE content ||| 'movie' ORDER BY rating DESC NULLS LAST;
 DROP TABLE dtype_float_test CASCADE;
 
 -- 4.3: TIMESTAMP type
@@ -247,11 +246,11 @@ INSERT INTO dtype_ts_test (content, created_at) VALUES
 
 CREATE INDEX dtype_ts_test_idx ON dtype_ts_test
 USING paradedb (id, content, created_at)
-WITH (key_field = 'id', sort_by = 'created_at DESC NULLS LAST');
+WITH (sort_by = 'created_at DESC NULLS LAST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
-SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
+SELECT id, created_at FROM dtype_ts_test WHERE content ||| 'event' ORDER BY created_at DESC NULLS LAST;
+SELECT id, created_at FROM dtype_ts_test WHERE content ||| 'event' ORDER BY created_at DESC NULLS LAST;
 DROP TABLE dtype_ts_test CASCADE;
 
 -- 4.4: DATE type
@@ -272,11 +271,11 @@ INSERT INTO dtype_date_test (content, event_date) VALUES
 
 CREATE INDEX dtype_date_test_idx ON dtype_date_test
 USING paradedb (id, content, event_date)
-WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
+WITH (sort_by = 'event_date ASC NULLS FIRST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
-SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
+SELECT id, event_date FROM dtype_date_test WHERE content ||| 'appointment' ORDER BY event_date ASC NULLS FIRST;
+SELECT id, event_date FROM dtype_date_test WHERE content ||| 'appointment' ORDER BY event_date ASC NULLS FIRST;
 DROP TABLE dtype_date_test CASCADE;
 
 -- 4.5: UUID type
@@ -298,13 +297,13 @@ INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
 
 CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
 USING paradedb (id, content, (uuid_col::pdb.literal))
-WITH (key_field = 'id', sort_by = 'uuid_col ASC NULLS FIRST');
+WITH (sort_by = 'uuid_col ASC NULLS FIRST');
 
 -- Select the native UUID column (no ::text cast) so ORDER BY resolves to the
 -- base Var and matches the index pathkey on uuid_col.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
-SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content ||| 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content ||| 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
 DROP TABLE dtype_uuid_test CASCADE;
 
 -- 4.6: NUMERIC type (NumericBytes)
@@ -328,11 +327,11 @@ INSERT INTO dtype_numeric_test (content, amount) VALUES
 
 CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
 USING paradedb (id, content, amount)
-WITH (key_field = 'id', sort_by = 'amount ASC NULLS FIRST');
+WITH (sort_by = 'amount ASC NULLS FIRST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
-SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
+SELECT id, amount FROM dtype_numeric_test WHERE content ||| 'num' ORDER BY amount ASC NULLS FIRST;
+SELECT id, amount FROM dtype_numeric_test WHERE content ||| 'num' ORDER BY amount ASC NULLS FIRST;
 DROP TABLE dtype_numeric_test CASCADE;
 
 -- =============================================================================
@@ -353,9 +352,9 @@ CREATE TABLE edge_case_test (
 INSERT INTO edge_case_test (content, value) VALUES ('searchable', 100);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
-SELECT id, value FROM edge_case_test WHERE content @@@ 'nonexistent' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM edge_case_test WHERE content ||| 'nonexistent' ORDER BY value DESC NULLS LAST;
 
 -- Reset for next edge case
 DROP INDEX edge_case_test_idx;
@@ -372,9 +371,9 @@ INSERT INTO edge_case_test (content, value) VALUES
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
-SELECT id, value FROM edge_case_test WHERE content @@@ 'doc' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM edge_case_test WHERE content ||| 'doc' ORDER BY value DESC NULLS LAST;
 
 -- Reset for next edge case
 DROP INDEX edge_case_test_idx;
@@ -389,9 +388,9 @@ INSERT INTO edge_case_test (content, value) VALUES
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
-SELECT id, value FROM edge_case_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM edge_case_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
 
 -- Reset for next edge case
 DROP INDEX edge_case_test_idx;
@@ -403,9 +402,9 @@ INSERT INTO edge_case_test (content, value) VALUES ('unique', 42), ('other', 99)
 
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
-SELECT id, value FROM edge_case_test WHERE content @@@ 'unique' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM edge_case_test WHERE content ||| 'unique' ORDER BY value DESC NULLS LAST;
 
 DROP TABLE edge_case_test CASCADE;
 
@@ -421,16 +420,16 @@ SELECT 'searchable document ' || i, 'docs', 1000 - i, 5.0 - (i * 0.1)
 FROM generate_series(1, 20) AS i;
 
 \echo 'Test 6.1: LIMIT 5'
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 5;
 
 \echo 'Test 6.2: LIMIT 5 OFFSET 5'
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5 OFFSET 5;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 5 OFFSET 5;
 
 \echo 'Test 6.3: FETCH FIRST 3 ROWS ONLY'
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST FETCH FIRST 3 ROWS ONLY;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST FETCH FIRST 3 ROWS ONLY;
 
 \echo 'Test 6.4: LIMIT larger than result set'
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 100;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 100;
 
 -- =============================================================================
 -- SECTION 7: MULTI-SEGMENT SORTING
@@ -448,7 +447,7 @@ CREATE TABLE multi_segment_test (
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
 
 -- Insert batches to create multiple segments
 INSERT INTO multi_segment_test (content, priority)
@@ -465,7 +464,7 @@ FROM generate_series(1, 15) AS i;
 
 \echo 'Test 7.1: Results from multiple segments should be globally sorted'
 SELECT id, priority FROM multi_segment_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST
 LIMIT 10;
 
@@ -476,7 +475,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM multi_segment_test
-        WHERE content @@@ 'searchable'
+        WHERE content ||| 'searchable'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order
@@ -495,7 +494,7 @@ TRUNCATE multi_segment_test RESTART IDENTITY;
 
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
+WITH (sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
 
 -- Insert interleaved values across segments
 INSERT INTO multi_segment_test (content, priority) VALUES ('item', 10);
@@ -518,7 +517,7 @@ INSERT INTO multi_segment_test (content, priority) VALUES ('item', 16);
 
 \echo 'Test 8.1: Interleaved inserts should be globally sorted'
 SELECT id, priority FROM multi_segment_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority ASC NULLS FIRST;
 
 \echo 'Test 8.2: Verify ascending order'
@@ -528,7 +527,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM multi_segment_test
-        WHERE content @@@ 'item'
+        WHERE content ||| 'item'
         ORDER BY priority ASC NULLS FIRST
     ) sub
 ) check_order
@@ -552,7 +551,7 @@ CREATE TABLE mod_test (
 
 CREATE INDEX mod_test_idx ON mod_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 
 -- Initial data
 INSERT INTO mod_test (content, value) VALUES
@@ -561,19 +560,19 @@ INSERT INTO mod_test (content, value) VALUES
     ('item gamma', 70);
 
 \echo 'Test 9.1: Initial order'
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
 
 \echo 'Test 9.2: After INSERT of new highest value'
 INSERT INTO mod_test (content, value) VALUES ('item delta', 100);
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
 
 \echo 'Test 9.3: After UPDATE to change order'
 UPDATE mod_test SET value = 999 WHERE id = 2;
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
 
 \echo 'Test 9.4: After DELETE of highest value'
 DELETE FROM mod_test WHERE id = 2;
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
 
 DROP TABLE mod_test CASCADE;
 
@@ -599,22 +598,22 @@ INSERT INTO exec_method_test (content, fast_field, non_fast_field) VALUES
 
 CREATE INDEX exec_method_test_idx ON exec_method_test
 USING paradedb (id, content, fast_field)
-WITH (key_field = 'id', sort_by = 'fast_field DESC NULLS LAST');
+WITH (sort_by = 'fast_field DESC NULLS LAST');
 
 \echo 'Test 10.1: Fast fields only - should use sorted path (no Sort node)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
 
 \echo 'Test 10.2: Non-fast field included - should add Sort node'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, non_fast_field, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
 
 \echo 'Test 10.3: With enable_columnar_exec OFF - should add Sort node'
 SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
 SET paradedb.enable_columnar_exec = true;
 
@@ -627,16 +626,16 @@ DROP TABLE exec_method_test CASCADE;
 \echo '=== SECTION 11: Aggregates with Sorted Index ==='
 
 \echo 'Test 11.1: MAX aggregate'
-SELECT MAX(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT MAX(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
 
 \echo 'Test 11.2: MIN aggregate'
-SELECT MIN(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT MIN(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
 
 \echo 'Test 11.3: SUM aggregate'
-SELECT SUM(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT SUM(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
 
 \echo 'Test 11.4: COUNT aggregate'
-SELECT COUNT(*) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT COUNT(*) FROM sorted_scan_test WHERE content ||| 'searchable';
 
 -- =============================================================================
 -- SECTION 12: OPPOSITE DIRECTION ORDER BY
@@ -647,7 +646,7 @@ SELECT COUNT(*) FROM sorted_scan_test WHERE content @@@ 'searchable';
 
 \echo 'Test 12.1: ORDER BY opposite direction (ASC when index is DESC)'
 SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority ASC;
 
 \echo 'Test 12.2: Verify ascending order'
@@ -657,7 +656,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM sorted_scan_test
-        WHERE content @@@ 'searchable'
+        WHERE content ||| 'searchable'
         ORDER BY priority ASC
     ) sub
 ) check_order
@@ -679,8 +678,7 @@ CREATE TABLE no_sortby_test (
 
 -- Index WITHOUT sort_by option
 CREATE INDEX no_sortby_test_idx ON no_sortby_test
-USING paradedb (id, content, value)
-WITH (key_field = 'id');
+USING paradedb (id, content, value);
 
 INSERT INTO no_sortby_test (content, value) VALUES
     ('test data one', 5),
@@ -699,7 +697,7 @@ INSERT INTO no_sortby_test (content, value) VALUES
 
 \echo 'Test 13.1: ORDER BY with no sort_by - Sort node expected'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, value FROM no_sortby_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY value DESC;
 
 DROP TABLE no_sortby_test CASCADE;
@@ -722,7 +720,7 @@ CREATE TABLE parallel_sorted_test (
 
 CREATE INDEX parallel_sorted_test_idx ON parallel_sorted_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert enough data across multiple segments for meaningful parallel test
 INSERT INTO parallel_sorted_test (content, priority)
@@ -765,7 +763,7 @@ SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE parallel_sorted_test SET (parallel_workers = 4);
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 14.3: Verify parallel sorted results are correctly ordered'
@@ -775,7 +773,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM parallel_sorted_test
-        WHERE content @@@ 'document'
+        WHERE content ||| 'document'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order
@@ -783,14 +781,14 @@ WHERE prev_priority IS NOT NULL AND priority > prev_priority;
 
 \echo 'Test 14.4: Parallel sorted scan with LIMIT'
 SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST
 LIMIT 10;
 
 \echo 'Test 14.5: Parallel sorted scan with prefix pathkeys uses Incremental Sort'
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST, id ASC;
 RESET enable_incremental_sort;
 
@@ -821,7 +819,7 @@ CREATE TABLE lazy_checkout_test (
 
 CREATE INDEX lazy_checkout_test_idx ON lazy_checkout_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 
 -- Insert multiple batches to create segments
 INSERT INTO lazy_checkout_test (content, priority)
@@ -844,7 +842,7 @@ FROM paradedb.index_info('lazy_checkout_test_idx');
 
 \echo 'Test 15.2: Multi-segment sorted scan results'
 SELECT id, priority FROM lazy_checkout_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST
 FETCH FIRST 20 ROWS ONLY;
 
@@ -855,7 +853,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM lazy_checkout_test
-        WHERE content @@@ 'document'
+        WHERE content ||| 'document'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order
@@ -870,4 +868,3 @@ DROP TABLE lazy_checkout_test CASCADE;
 DROP TABLE IF EXISTS sorted_scan_test CASCADE;
 
 \echo '=== All sorted index scan tests completed ==='
-

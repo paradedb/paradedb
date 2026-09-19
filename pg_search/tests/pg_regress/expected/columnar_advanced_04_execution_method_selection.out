@@ -28,19 +28,7 @@ CREATE TABLE mixed_numeric_string_test (
     string_field3 TEXT NOT NULL,
     content TEXT
 );
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (id, numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('mix1', 100, 10000, 'Apple', 'Red', 'Fruit', 'This is a red apple'),
@@ -102,34 +90,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path
-) WITH (
-    key_field = 'id',
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb (id, (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb (id, (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')));
+CREATE INDEX pages_search ON pages USING paradedb (id, (fileid::pdb.literal), (content::pdb.simple), page_number);
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -154,14 +117,7 @@ CREATE TABLE categories (
     description TEXT,
     parent_id INTEGER REFERENCES categories(id)
 );
-CREATE INDEX category_search ON categories USING paradedb (
-    id,
-    name,
-    description
-) WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX category_search ON categories USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')));
 INSERT INTO categories (name, description, parent_id) VALUES
 ('Electronics', 'Electronic devices and accessories', NULL),
 ('Computers', 'Desktop and laptop computers', 1),
@@ -179,16 +135,7 @@ CREATE TABLE products (
     category_id INTEGER REFERENCES categories(id),
     price FLOAT NOT NULL
 );
-CREATE INDEX product_search ON products USING paradedb (
-    id,
-    name,
-    category_id,
-    price
-) WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"category_id": {"fast": true}, "price": {"fast": true}}'
-);
+CREATE INDEX product_search ON products USING paradedb (id, (name::pdb.simple('columnar=true')), category_id, price);
 INSERT INTO products (name, category_id, price) VALUES
 ('Laptop Pro', 2, 1299.99),
 ('Smartphone X', 3, 899.99),
@@ -209,30 +156,7 @@ CREATE TABLE conversion_test (
     timestamp_field TIMESTAMP,
     content TEXT
 );
-CREATE INDEX conversion_search ON conversion_test USING paradedb (
-    id, 
-    smallint_field, 
-    integer_field, 
-    bigint_field, 
-    numeric_field, 
-    real_field, 
-    double_field, 
-    bool_from_int,
-    timestamp_field,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{
-        "smallint_field": {"fast": true}, 
-        "integer_field": {"fast": true}, 
-        "bigint_field": {"fast": true}, 
-        "numeric_field": {"fast": true}, 
-        "real_field": {"fast": true}, 
-        "double_field": {"fast": true}
-    }',
-    boolean_fields = '{"bool_from_int": {"fast": true}}'
-);
+CREATE INDEX conversion_search ON conversion_test USING paradedb ((id::pdb.literal), smallint_field, integer_field, bigint_field, numeric_field, real_field, double_field, bool_from_int, timestamp_field, (content::pdb.simple));
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
 ('conv2', -32768, -2147483648, -9223372036854775808, -9999999.99, -3.402e38, -1.7976931348623157e308, false, '1999-12-31', 'conversion test'),
@@ -284,21 +208,9 @@ FROM generate_series(1, 50) i;
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 CREATE INDEX union_test_b_idx ON union_test_b
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 -- Update statistics for consistent query planning
 ANALYZE mixed_numeric_string_test;
 ANALYZE documents;
@@ -341,17 +253,7 @@ FROM generate_series(1, 50) i;
 -- Create index with columnar storage
 DROP INDEX IF EXISTS exec_method_idx;
 CREATE INDEX exec_method_idx ON exec_method_test
-USING paradedb (
-    id, text_field1, text_field2, text_field3,
-    num_field1, num_field2, num_field3,
-    bool_field
-)
-WITH (
-    key_field = 'id',
-    text_fields = '{"text_field1": {"tokenizer": {"type": "default"}, "fast": true}, "text_field2": {"tokenizer": {"type": "default"}, "fast": true}, "text_field3": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"num_field1": {"fast": true}, "num_field2": {"fast": true}, "num_field3": {"fast": true}}',
-    boolean_fields = '{"bool_field": {"fast": true}}'
-);
+USING paradedb (id, (text_field1::pdb.simple('columnar=true')), (text_field2::pdb.simple('columnar=true')), (text_field3::pdb.simple('columnar=true')), num_field1, num_field2, num_field3, bool_field);
 -- We increase the threshold for Mixed selection in order to more easily validate which columns
 -- are capable of being used as fast.
 SET paradedb.columnar_exec_column_threshold = 100;
@@ -359,10 +261,10 @@ SET paradedb.columnar_exec_column_threshold = 100;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, text_field2;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -371,12 +273,12 @@ ORDER BY text_field1, text_field2;
          Exec Method: ColumnarExecState
          Columnar: text_field1, text_field2
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT text_field1, text_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, text_field2;
  text_field1 | text_field2 
 -------------+-------------
@@ -436,10 +338,10 @@ ORDER BY text_field1, text_field2;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+WHERE text_field1 ||| 'Text' AND num_field1 > 10
 ORDER BY text_field1, num_field1, num_field2;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, num_field1, num_field2
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -448,12 +350,12 @@ ORDER BY text_field1, num_field1, num_field2;
          Exec Method: ColumnarExecState
          Columnar: num_field1, num_field2, text_field1
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+WHERE text_field1 ||| 'Text' AND num_field1 > 10
 ORDER BY text_field1, num_field1, num_field2;
  text_field1 | num_field1 | num_field2 
 -------------+------------+------------
@@ -503,10 +405,10 @@ ORDER BY text_field1, num_field1, num_field2;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND bool_field = true
+WHERE text_field1 ||| 'Text' AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -515,12 +417,12 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Exec Method: ColumnarExecState
          Columnar: bool_field, num_field1, text_field1, text_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"bool_field","value":true}}]}}
 (9 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' AND bool_field = true
+WHERE text_field1 ||| 'Text' AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
  text_field1 | text_field2 | num_field1 | bool_field 
 -------------+-------------+------------+------------
@@ -555,10 +457,10 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -567,12 +469,12 @@ ORDER BY text_field1;
          Exec Method: ColumnarExecState
          Columnar: text_field1
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT text_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1;
  text_field1 
 -------------
@@ -632,10 +534,10 @@ ORDER BY text_field1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
-WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+WHERE num_field1 > 25 and text_field1 ||| 'Text'
 ORDER BY num_field1, num_field2;
-                                                                                                                             QUERY PLAN                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: num_field1, num_field2
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -644,12 +546,12 @@ ORDER BY num_field1, num_field2;
          Exec Method: ColumnarExecState
          Columnar: num_field1, num_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null}},{"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (9 rows)
 
 SELECT num_field1, num_field2
 FROM exec_method_test
-WHERE num_field1 > 25 and text_field1 @@@ 'Text'
+WHERE num_field1 > 25 and text_field1 ||| 'Text'
 ORDER BY num_field1, num_field2;
  num_field1 | num_field2 
 ------------+------------
@@ -684,10 +586,10 @@ ORDER BY num_field1, num_field2;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, non_indexed_field;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, non_indexed_field
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -695,12 +597,12 @@ ORDER BY text_field1, non_indexed_field;
          Index: exec_method_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 SELECT text_field1, non_indexed_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, non_indexed_field;
  text_field1 | non_indexed_field 
 -------------+-------------------
@@ -760,10 +662,10 @@ ORDER BY text_field1, non_indexed_field;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, num_field1 DESC;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, num_field1 DESC
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -772,12 +674,12 @@ ORDER BY text_field1, num_field1 DESC;
          Exec Method: ColumnarExecState
          Columnar: num_field1, text_field1
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT text_field1, num_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text'
+WHERE text_field1 ||| 'Text'
 ORDER BY text_field1, num_field1 DESC;
  text_field1 | num_field1 
 -------------+------------
@@ -837,13 +739,13 @@ ORDER BY text_field1, num_field1 DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' 
-  AND text_field2 @@@ 'Sample'
+WHERE text_field1 ||| 'Text'
+  AND text_field2 ||| 'Sample'
   AND num_field1 BETWEEN 10 AND 40
   AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
-                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -852,13 +754,13 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Exec Method: ColumnarExecState
          Columnar: bool_field, num_field1, text_field1, text_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40}}},{"term":{"field":"bool_field","value":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"text_field2","value":"Sample","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40}}},{"term":{"field":"bool_field","value":true}}]}}
 (9 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text' 
-  AND text_field2 @@@ 'Sample'
+WHERE text_field1 ||| 'Text'
+  AND text_field2 ||| 'Sample'
   AND num_field1 BETWEEN 10 AND 40
   AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
@@ -888,12 +790,12 @@ SELECT t.text_field1, t.num_field1
 FROM (
     SELECT text_field1, num_field1
     FROM exec_method_test
-    WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+    WHERE text_field1 ||| 'Text' AND num_field1 > 10
 ) t
 WHERE t.num_field1 < 30
 ORDER BY t.text_field1, t.num_field1;
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: exec_method_test.text_field1, exec_method_test.num_field1
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -902,14 +804,14 @@ ORDER BY t.text_field1, t.num_field1;
          Exec Method: ColumnarExecState
          Columnar: num_field1, text_field1
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"text_field1","value":"Text","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30}}}]}}
 (9 rows)
 
 SELECT t.text_field1, t.num_field1
 FROM (
     SELECT text_field1, num_field1
     FROM exec_method_test
-    WHERE text_field1 @@@ 'Text' AND num_field1 > 10
+    WHERE text_field1 ||| 'Text' AND num_field1 > 10
 ) t
 WHERE t.num_field1 < 30
 ORDER BY t.text_field1, t.num_field1;
@@ -939,7 +841,7 @@ ORDER BY t.text_field1, t.num_field1;
 -- Verify actual results match expected values (not just execution method)
 SELECT text_field1, text_field2, num_field1
 FROM exec_method_test
-WHERE text_field1 @@@ 'Text 1'
+WHERE text_field1 ||| 'Text 1'
   AND num_field1 < 20
 ORDER BY text_field1, text_field2, num_field1;
  text_field1 | text_field2 | num_field1 

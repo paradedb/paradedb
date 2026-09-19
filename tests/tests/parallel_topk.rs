@@ -124,7 +124,6 @@ fn setup_topk_desc_large(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_large_idx ON topk_desc_large USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 5000,
             layer_sizes = '10TB',
@@ -156,7 +155,6 @@ fn setup_many_segments(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_many_segs_idx ON topk_desc_many_segs USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 32,
             mutable_segment_rows = 1000,
             layer_sizes = '10TB',
@@ -186,7 +184,6 @@ fn setup_topk_asc_small(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_asc_small_idx ON topk_asc_small USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 1000,
             layer_sizes = '10TB',
@@ -210,7 +207,6 @@ fn setup_multi_term(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_desc_multi_term_idx ON topk_desc_multi_term USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 5000,
             layer_sizes = '10TB',
@@ -242,7 +238,6 @@ fn setup_phrase_common_terms(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_phrase_common_idx ON topk_phrase_common USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 10000,
             layer_sizes = '10TB',
@@ -274,7 +269,6 @@ fn setup_unanalyzed(conn: &mut PgConnection) {
     );
     CREATE INDEX topk_unanalyzed_idx ON topk_unanalyzed USING paradedb (id, body)
         WITH (
-            key_field = 'id',
             target_segment_count = 4,
             mutable_segment_rows = 100,
             layer_sizes = '10TB',
@@ -305,20 +299,20 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     for case in [
         PlanCase {
             name: "score_desc_large_match_small_limit_is_serial",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
+            query: "SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "score_desc_score_projection_preserves_serial_choice",
             query: "SELECT id, paradedb.score(id) FROM topk_desc_large
-                    WHERE body @@@ 'alpha'
+                    WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "score_desc_many_segments_rare_match_is_serial_by_default",
-            query: "SELECT id FROM topk_desc_many_segs WHERE body @@@ 'rare'
+            query: "SELECT id FROM topk_desc_many_segs WHERE body ||| 'rare'
                     ORDER BY paradedb.score(id) DESC LIMIT 20",
             expected_workers: None,
         },
@@ -327,7 +321,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         // scan work is far below the Gather threshold, so serial wins.
         PlanCase {
             name: "score_asc_tiny_match_is_serial",
-            query: "SELECT id FROM topk_asc_small WHERE body @@@ 'special'
+            query: "SELECT id FROM topk_asc_small WHERE body ||| 'special'
                     ORDER BY paradedb.score(id) ASC LIMIT 10",
             expected_workers: None,
         },
@@ -335,13 +329,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         // ~5 matches is well below the Gather threshold, so serial wins.
         PlanCase {
             name: "field_sort_tiny_match_is_serial",
-            query: "SELECT id FROM topk_asc_small WHERE body @@@ 'special'
+            query: "SELECT id FROM topk_asc_small WHERE body ||| 'special'
                     ORDER BY id ASC LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "unordered_topk_small_limit_is_serial",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'gamma' LIMIT 10",
+            query: "SELECT id FROM topk_desc_large WHERE body ||| 'gamma' LIMIT 10",
             expected_workers: None,
         },
         // Window aggregates genuinely bail to the general path (`compute_nworkers`),
@@ -355,7 +349,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                            pdb.agg('{\"terms\": {\"field\": \"body\", \"size\": 5}}', false)
                              OVER () AS body_facets
                     FROM topk_desc_large
-                    WHERE body @@@ 'alpha'
+                    WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC
                     LIMIT 10",
             expected_workers: None,
@@ -375,14 +369,14 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
                                  OVER ()
                            ) AS body_facets
                     FROM topk_desc_large
-                    WHERE body @@@ 'alpha'
+                    WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC
                     LIMIT 10",
             expected_workers: None,
         },
         PlanCase {
             name: "unanalyzed_small_limit_is_serial",
-            query: "SELECT id FROM topk_unanalyzed WHERE body @@@ 'alpha'
+            query: "SELECT id FROM topk_unanalyzed WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC LIMIT 10",
             expected_workers: None,
         },
@@ -392,13 +386,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         // shape up to ~2x, since serial beats parallel at every LIMIT measured.
         PlanCase {
             name: "score_desc_single_term_large_limit_stays_serial",
-            query: "SELECT id FROM topk_desc_many_segs WHERE body @@@ 'common'
+            query: "SELECT id FROM topk_desc_many_segs WHERE body ||| 'common'
                     ORDER BY paradedb.score(id) DESC LIMIT 1000",
             expected_workers: None,
         },
         PlanCase {
             name: "secondary_sort_key_is_serial",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
+            query: "SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) DESC, id ASC LIMIT 10",
             expected_workers: None,
         },
@@ -414,7 +408,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     // the Gather threshold, so it is serial.
     r#"
     PREPARE topk_desc_param_limit(int) AS
-    SELECT id FROM topk_desc_large WHERE body @@@ 'alpha'
+    SELECT id FROM topk_desc_large WHERE body ||| 'alpha'
     ORDER BY paradedb.score(id) DESC LIMIT $1;
     "#
     .execute(&mut conn);
@@ -427,12 +421,12 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         },
     );
 
-    // Runtime-bound WHERE predicate (`@@@ $1`), UNSORTED: the predicate has no plan-time value to
+    // Runtime-bound WHERE predicate (`||| $1`), UNSORTED: the predicate has no plan-time value to
     // open a scorer for, so the cost model can't run. An unsorted scan can skip segments once the
     // LIMIT is met, so it defers to the row-based heuristic, which is serial on this small fixture.
     r#"
     PREPARE unsorted_param_pred(text) AS
-    SELECT id FROM topk_desc_large WHERE body @@@ $1 LIMIT 10;
+    SELECT id FROM topk_desc_large WHERE body ||| $1 LIMIT 10;
     "#
     .execute(&mut conn);
     assert_plan_case(
@@ -454,13 +448,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
     for case in [
         PlanCase {
             name: "score_asc_large_match_parallelizes",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'gamma'
+            query: "SELECT id FROM topk_desc_large WHERE body ||| 'gamma'
                     ORDER BY paradedb.score(id) ASC LIMIT 10",
             expected_workers: Some(2),
         },
         PlanCase {
             name: "field_sort_large_match_parallelizes",
-            query: "SELECT id FROM topk_desc_large WHERE body @@@ 'gamma'
+            query: "SELECT id FROM topk_desc_large WHERE body ||| 'gamma'
                     ORDER BY id ASC LIMIT 10",
             expected_workers: Some(2),
         },
@@ -524,13 +518,13 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         assert_plan_case(&mut conn, case);
     }
 
-    // Runtime-bound WHERE predicate (`@@@ $1`), SORTED: can't be costed, but a sorted scan must
+    // Runtime-bound WHERE predicate (`||| $1`), SORTED: can't be costed, but a sorted scan must
     // visit every segment, so workers always help -- it parallelizes via the no-cost fallback
     // (the fix for parameterized score-DESC paging queries that previously serialized).
     "SET plan_cache_mode = force_generic_plan;".execute(&mut conn);
     r#"
     PREPARE sorted_param_pred(text) AS
-    SELECT id FROM topk_desc_large WHERE body @@@ $1
+    SELECT id FROM topk_desc_large WHERE body ||| $1
     ORDER BY paradedb.score(id) DESC LIMIT 10;
     "#
     .execute(&mut conn);
@@ -553,7 +547,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
         &mut conn,
         PlanCase {
             name: "unanalyzed_nonprunable_defers_to_row_heuristic_parallel",
-            query: "SELECT id FROM topk_unanalyzed WHERE body @@@ 'alpha'
+            query: "SELECT id FROM topk_unanalyzed WHERE body ||| 'alpha'
                     ORDER BY paradedb.score(id) ASC LIMIT 10",
             expected_workers: Some(2),
         },
@@ -612,7 +606,7 @@ fn no_limit_costed_both_accounts_for_scan_work(mut conn: PgConnection) {
     // isolating the transport cost as the serial-vs-parallel driver.
     let count_plan = explain(
         &mut conn,
-        "SELECT COUNT(*) FROM topk_desc_multi_term WHERE body @@@ 'alpha'",
+        "SELECT COUNT(*) FROM topk_desc_multi_term WHERE body ||| 'alpha'",
     );
     let count_root = root_plan(&count_plan);
     assert_eq!(
@@ -624,7 +618,7 @@ fn no_limit_costed_both_accounts_for_scan_work(mut conn: PgConnection) {
 
     let select_plan = explain(
         &mut conn,
-        "SELECT * FROM topk_desc_multi_term WHERE body @@@ 'alpha'",
+        "SELECT * FROM topk_desc_multi_term WHERE body ||| 'alpha'",
     );
     let select_root = root_plan(&select_plan);
     assert_eq!(
@@ -650,12 +644,12 @@ fn prunable_topk_cost_excludes_drive_work(mut conn: PgConnection) {
     // (cost excludes drive_cost) but not score ASC (cost includes it).
     let prunable = total_cost(&explain(
         &mut conn,
-        "SELECT id FROM topk_desc_multi_term WHERE body @@@ 'alpha'
+        "SELECT id FROM topk_desc_multi_term WHERE body ||| 'alpha'
          ORDER BY paradedb.score(id) DESC LIMIT 10",
     ));
     let non_prunable = total_cost(&explain(
         &mut conn,
-        "SELECT id FROM topk_desc_multi_term WHERE body @@@ 'alpha'
+        "SELECT id FROM topk_desc_multi_term WHERE body ||| 'alpha'
          ORDER BY paradedb.score(id) ASC LIMIT 10",
     ));
 
@@ -688,7 +682,7 @@ fn phrase_cost_covers_the_list_it_drives(mut conn: PgConnection) {
     // `alpha` occurs only inside that phrase, so both scans read the very same list.
     let one_word = total_cost(&explain(
         &mut conn,
-        "SELECT id FROM topk_phrase_common WHERE body @@@ 'alpha'
+        "SELECT id FROM topk_phrase_common WHERE body ||| 'alpha'
          ORDER BY paradedb.score(id) ASC LIMIT 10",
     ));
 

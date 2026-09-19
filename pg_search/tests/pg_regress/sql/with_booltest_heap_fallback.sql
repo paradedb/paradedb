@@ -20,8 +20,7 @@ VALUES
 -- Create ParadeDB index
 CREATE INDEX booltest_simple_idx
     ON booltest_simple
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
 
 -- Force ParadeDB planner path
 SET enable_seqscan = off;
@@ -33,12 +32,12 @@ SET paradedb.enable_filter_pushdown = on;
 EXPLAIN (COSTS OFF)
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE;
 
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE
 ORDER BY id;
 

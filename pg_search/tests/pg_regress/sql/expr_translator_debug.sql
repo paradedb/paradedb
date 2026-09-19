@@ -30,18 +30,9 @@ INSERT INTO et_exclusions (pattern) VALUES
     ('alpha'), ('beta');
 
 CREATE INDEX et_items_idx ON et_items
-    USING paradedb (id, name, value)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"name":{"fast":true}}',
-        numeric_fields = '{"value":{"fast":true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), value);
 CREATE INDEX et_exclusions_idx ON et_exclusions
-    USING paradedb (id, pattern)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"pattern":{"fast":true}}'
-    );
+    USING paradedb (id, (pattern::pdb.unicode_words('columnar=true')));
 
 SET paradedb.enable_join_custom_scan = on;
 SET client_min_messages = 'debug1';

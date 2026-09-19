@@ -17,13 +17,12 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, rating, category, in_stock, metadata, created_at, weight_range)
-WITH (key_field='id');
+USING paradedb (id, description, rating, category, in_stock, metadata, created_at, weight_range);
 
 --
 -- pdb.fuzzy -> pdb.boost (pre-existing)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
@@ -31,7 +30,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
 --
 -- pdb.fuzzy -> pdb.const
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.const(3);

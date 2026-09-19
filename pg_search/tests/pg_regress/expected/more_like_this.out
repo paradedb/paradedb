@@ -23,7 +23,7 @@ INSERT INTO mlt (text_field_a, text_field_b, json_field, numeric_field) VALUES
     ('aaa aaa', 'baz baz', '{"color": "aaa aaa"}', 1),
     ('ddd eee fff', 'foo foo foo', '{"color": "ddd eee fff"}', 2),
     ('aaa aaa', 'baz baz', '{"color": "aaa aaa"}', 3);
-CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field) WITH (key_field = 'id');
+CREATE INDEX ON mlt USING paradedb (id, text_field_a, text_field_b, json_field, numeric_field);
 SELECT * from mlt where id @@@ pdb.more_like_this(1);
  id | text_field_a | text_field_b | numeric_field |        json_field        
 ----+--------------+--------------+---------------+--------------------------
@@ -170,7 +170,7 @@ INSERT INTO mlt_vec (description, embedding) VALUES
     ('aaa bbb ccc', '[1,2,3]'),
     ('aaa aaa', '[4,5,6]'),
     ('ddd eee fff', '[7,8,9]');
-CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding) WITH (key_field = 'id');
+CREATE INDEX ON mlt_vec USING paradedb (id, description, embedding);
 SELECT id, description FROM mlt_vec WHERE id @@@ pdb.more_like_this(1);
  id | description 
 ----+-------------
@@ -329,7 +329,7 @@ DROP TABLE mlt_keyless;
 -- The legacy key-value overload keeps working for non-integer keys too.
 CREATE TABLE mlt_text_key (id text PRIMARY KEY, body text);
 INSERT INTO mlt_text_key VALUES ('alpha', 'alpha alpha'), ('beta', 'beta beta');
-CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body) WITH (key_field = 'id');
+CREATE INDEX mlt_text_key_idx ON mlt_text_key USING paradedb (id, body);
 SELECT id FROM mlt_text_key WHERE id @@@ pdb.more_like_this(
     key_value => 'alpha'::text, fields => ARRAY['body']) ORDER BY id;
   id   
@@ -472,4 +472,67 @@ RESET enable_indexscan;
 RESET enable_bitmapscan;
 DROP TABLE mlt_alias;
 DROP TYPE mlt_alias_document;
+RESET paradedb.planner_warnings;
+-- ============================================================================
+-- NUMERIC fields through the key-value form
+-- ============================================================================
+-- The seed row's datum carries the PostgreSQL type, not the representation the
+-- field was indexed with. A Numeric64 field is physically an I64 column, so it
+-- needs the schema-aware conversion; without it Tantivy fails to build a weight.
+-- A NUMERIC too wide for that representation is stored as Bytes, which
+-- MoreLikeThis cannot compare at all, so naming one is rejected rather than
+-- silently contributing nothing.
+--
+-- See https://github.com/paradedb/paradedb/issues/6103
+-- ============================================================================
+SET paradedb.planner_warnings = 'off';
+CREATE TABLE mlt_numeric (
+    id  int PRIMARY KEY,
+    i   int,
+    n64 numeric(10,2),
+    nb  numeric(30,2)
+);
+INSERT INTO mlt_numeric VALUES
+    (1, 123, 1.23, -49999),
+    (2, 123, 1.23, -49999),
+    (3, 456, 4.56, -49990);
+CREATE INDEX mlt_numeric_idx ON mlt_numeric USING bm25 (id, i, n64, nb);
+-- Control: an integer field matches the two rows that share a value.
+SELECT array_agg(id ORDER BY id) FROM mlt_numeric
+WHERE id @@@ pdb.more_like_this(1, ARRAY['i']);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+-- Numeric64 must agree with the integer control.
+SELECT array_agg(id ORDER BY id) FROM mlt_numeric
+WHERE id @@@ pdb.more_like_this(1, ARRAY['n64']);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+-- Both together, to cover the multi-field path.
+SELECT array_agg(id ORDER BY id) FROM mlt_numeric
+WHERE id @@@ pdb.more_like_this(1, ARRAY['i', 'n64']);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+-- Naming a NumericBytes field reports why it cannot be used.
+SELECT array_agg(id ORDER BY id) FROM mlt_numeric
+WHERE id @@@ pdb.more_like_this(1, ARRAY['nb']);
+ERROR:  numeric field 'nb' is not supported for more_like_this: its precision or scale is too wide for the fixed-point representation, so it is stored as bytes, which MoreLikeThis cannot compare
+-- Without an explicit field list the unusable field is skipped, matching how
+-- json and vector fields are already handled, and the query still works.
+SELECT array_agg(id ORDER BY id) FROM mlt_numeric
+WHERE id @@@ pdb.more_like_this(1);
+ array_agg 
+-----------
+ {1,2}
+(1 row)
+
+DROP TABLE mlt_numeric;
 RESET paradedb.planner_warnings;

@@ -23,7 +23,7 @@ INSERT INTO wlp
 SELECT g, 'shoes item ' || g, g, g % 4
 FROM generate_series(1, 500) g;
 
-CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp) WITH (key_field = 'id');
+CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp);
 
 -- ============================================================
 -- Pushes down: bare ranking window over the LIMIT's own ordering
@@ -31,45 +31,45 @@ CREATE INDEX wlp_idx ON wlp USING paradedb (id, label, n, grp) WITH (key_field =
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
 
 -- row_number, rank, dense_rank all match the full-corpus computation.
 -- `mismatches` must be 0 for each.
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 10)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 10)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 10)
 ) d;
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, RANK() OVER (ORDER BY grp DESC, id) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY grp DESC, id LIMIT 25)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY grp DESC, id LIMIT 25)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, RANK() OVER (ORDER BY grp DESC, id) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 25)
 ) d;
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, DENSE_RANK() OVER (ORDER BY grp DESC, id) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY grp DESC, id LIMIT 25)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY grp DESC, id LIMIT 25)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, DENSE_RANK() OVER (ORDER BY grp DESC, id) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 25)
 ) d;
 
 -- score ordering, which is what the RRF text branch uses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 
 -- ============================================================
@@ -79,16 +79,16 @@ ORDER BY paradedb.score(id) DESC, id LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 20 OFFSET 30;
 
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 20 OFFSET 30)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 20 OFFSET 30)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, ROW_NUMBER() OVER (ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY rank LIMIT 20 OFFSET 30)
 ) d;
 
@@ -99,29 +99,29 @@ SELECT count(*) AS mismatches FROM (
 -- PARTITION BY draws rows from outside the top N
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
 
 -- window ordering differs from the query's ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ROW_NUMBER() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
 
 -- percent_rank needs the total row count
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, PERCENT_RANK() OVER (ORDER BY n DESC) AS pr
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY n DESC LIMIT 10;
 
 -- and their values stay correct
 SELECT count(*) AS mismatches FROM (
     (SELECT id, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-     FROM wlp WHERE label @@@ 'shoes' ORDER BY n DESC LIMIT 10)
+     FROM wlp WHERE label ||| 'shoes' ORDER BY n DESC LIMIT 10)
     EXCEPT
     (SELECT id, rank FROM
         (SELECT id, n, ROW_NUMBER() OVER (PARTITION BY grp ORDER BY n DESC) AS rank
-         FROM wlp WHERE label @@@ 'shoes') x
+         FROM wlp WHERE label ||| 'shoes') x
      ORDER BY n DESC LIMIT 10)
 ) d;
 
@@ -131,11 +131,11 @@ SELECT count(*) AS mismatches FROM (
 -- DISTINCT: 4 distinct grp values, so LIMIT 3 must return 3 rows
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY grp DESC LIMIT 3;
 
 SELECT DISTINCT grp, DENSE_RANK() OVER (ORDER BY grp DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 ORDER BY grp DESC LIMIT 3;
 
 -- GROUP BY on an expression the Aggregate Scan can't resolve, so it falls through to Base Scan
@@ -143,15 +143,15 @@ SET paradedb.planner_warnings = 'off';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
 
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 ORDER BY grp + 0 DESC LIMIT 3;
 
 SELECT grp + 0 AS g, RANK() OVER (ORDER BY grp + 0 DESC) AS rank
-FROM wlp WHERE label @@@ 'shoes'
+FROM wlp WHERE label ||| 'shoes'
 GROUP BY grp + 0 HAVING count(*) > 0 ORDER BY grp + 0 DESC LIMIT 3;
 
 RESET paradedb.planner_warnings;
@@ -163,12 +163,12 @@ RESET paradedb.planner_warnings;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH a AS (
     SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC, id) AS rank
-    FROM wlp WHERE label @@@ 'shoes'
+    FROM wlp WHERE label ||| 'shoes'
     ORDER BY paradedb.score(id) DESC, id LIMIT 20
 ),
 b AS (
     SELECT id, RANK() OVER (ORDER BY n DESC) AS rank
-    FROM wlp WHERE label @@@ 'item'
+    FROM wlp WHERE label ||| 'item'
     ORDER BY n DESC LIMIT 20
 )
 SELECT COALESCE(a.id, b.id) AS id,

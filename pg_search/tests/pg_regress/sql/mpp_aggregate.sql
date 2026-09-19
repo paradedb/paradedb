@@ -35,19 +35,10 @@ CREATE TABLE mpp_pages (
 );
 
 CREATE INDEX mpp_files_idx ON mpp_files
-USING paradedb (id, title, content)
-WITH (
-    key_field='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX mpp_pages_idx ON mpp_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {}}'
-);
+USING paradedb (id, file_id, page_text, size_bytes);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -90,24 +81,24 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 -- GROUP BY: PG can pick a parallel-aggregate plan for this shape.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -118,19 +109,19 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title
     FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
 ) t;
 
 -- Values, not just the cardinality: a shuffle that drops or duplicates a group
 -- while keeping the count right would slip past a COUNT-only check.
 SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title
 LIMIT 5;
 
@@ -138,24 +129,24 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 -- pdb.agg: terms aggregation with GROUP BY
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -175,23 +166,23 @@ SET max_parallel_workers_per_gather TO 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -201,19 +192,19 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT COUNT(*) FROM (
     SELECT DISTINCT f.title
     FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
 ) t;
 
 -- Values, not just the cardinality: a shuffle that drops or duplicates a group
 -- while keeping the count right would slip past a COUNT-only check.
 SELECT DISTINCT f.title
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.title
 LIMIT 5;
 
@@ -221,24 +212,24 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 -- pdb.agg: terms aggregation with GROUP BY under MPP
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 
 SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -262,7 +253,7 @@ SELECT count(*) = 0 AS gated_no_distributed_exec
 FROM mpp_agg_explain_analyze_lines(
   $$SELECT f.title, COUNT(*), SUM(p.size_bytes)
     FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'
+    WHERE f.content ||| 'Section'
     GROUP BY f.title
     ORDER BY f.title
     LIMIT 5$$
@@ -271,7 +262,7 @@ WHERE line LIKE '%DistributedExec%';
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
@@ -280,13 +271,13 @@ SELECT count(*) = 0 AS gated_no_distributed_exec_pdb_agg
 FROM mpp_agg_explain_analyze_lines(
   $$SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
     FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-    WHERE f.content @@@ 'Section'$$
+    WHERE f.content ||| 'Section'$$
 ) AS line
 WHERE line LIKE '%DistributedExec%';
 
 SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 DROP FUNCTION mpp_agg_explain_analyze_lines(text);
 RESET paradedb.mpp_min_rows;

@@ -24,14 +24,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
     ('{"category": "clothing", "brand": "Puma", "price": 99}', '{"size": "S", "stock": 30}');
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING paradedb (id, metadata, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{
-        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
-        "data": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
 -- GROUP BY ... ORDER BY ... LIMIT pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
@@ -74,8 +67,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (count(*))
    ->  Sort
@@ -91,7 +84,7 @@ LIMIT 5;
                  : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
                  :     CooperativeExec
-                 :       PgSearchScan: table=json_test_single, segments=1, visibility=eager, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+                 :       PgSearchScan: table=json_test_single, segments=1, eager=[metadata.category], visibility=eager, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
 (16 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count

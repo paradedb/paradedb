@@ -51,19 +51,10 @@ INSERT INTO dex_suppliers (id, name, info, country) VALUES
 (3, 'FastParts', 'fast delivery of electronics parts', 'Germany');
 
 CREATE INDEX dex_products_bm25 ON dex_products
-    USING paradedb (id, name, description, category, supplier_id)
-    WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true}, "category": {"fast": true}}',
-    numeric_fields = '{"supplier_id": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description, (category::pdb.unicode_words('columnar=true')), supplier_id);
 
 CREATE INDEX dex_suppliers_bm25 ON dex_suppliers
-    USING paradedb (id, name, info, country)
-    WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), info, country);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -75,14 +66,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -90,7 +81,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -103,14 +94,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -118,7 +109,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -131,14 +122,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -146,7 +137,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -159,14 +150,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -174,7 +165,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -187,14 +178,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -202,7 +193,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -215,14 +206,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -230,7 +221,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -244,14 +235,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT upper(s.name) IS NULL, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 1;
 
 SELECT DISTINCT upper(s.name) IS NULL, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 1;
 
@@ -266,14 +257,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -281,7 +272,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -291,14 +282,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -306,7 +297,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -316,14 +307,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -331,7 +322,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -341,14 +332,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -356,7 +347,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -366,14 +357,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -381,7 +372,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -391,14 +382,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -406,7 +397,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -421,14 +412,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -436,7 +427,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -451,7 +442,7 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -460,7 +451,7 @@ ORDER BY p.name
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -477,14 +468,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
 SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
@@ -492,7 +483,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
@@ -505,14 +496,14 @@ EXPLAIN (COSTS OFF)
 SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
 
 SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
 
@@ -520,7 +511,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT s.name IS NULL AS supplier_null, s.name, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+WHERE p.description ||| 'wireless' AND s.info ||| 'electronics'
 ORDER BY supplier_null, s.name, p.name
     LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;

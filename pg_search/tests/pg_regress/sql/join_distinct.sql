@@ -86,26 +86,13 @@ VALUES (201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connecti
 -- Create BM25 indexes with fast fields on join keys and ORDER BY columns
 -- All columns that appear in DISTINCT target lists must be fast fields
 CREATE INDEX dist_products_bm25_idx ON dist_products
-    USING paradedb (id, name, description, supplier_id, category_id, price)
-    WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true}}',
-    numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description, supplier_id, category_id, price);
 
 CREATE INDEX dist_suppliers_bm25_idx ON dist_suppliers
-    USING paradedb (id, name, contact_info, country)
-    WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), contact_info, country);
 
 CREATE INDEX dist_categories_bm25_idx ON dist_categories
-    USING paradedb (id, name, description)
-    WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.unicode_words('columnar=true')), description);
 
 -- Enable JoinScan
 SET paradedb.enable_join_custom_scan = on;
@@ -122,7 +109,7 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -140,14 +127,14 @@ EXPLAIN
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 20;
 
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 20;
 
@@ -155,7 +142,7 @@ ORDER BY s.name
 SELECT DISTINCT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
 
@@ -169,7 +156,7 @@ ORDER BY s.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -179,7 +166,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -197,14 +184,14 @@ EXPLAIN
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
 
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
 
@@ -219,7 +206,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
 SELECT DISTINCT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
 
@@ -236,7 +223,7 @@ SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -244,7 +231,7 @@ SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -255,7 +242,7 @@ SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
          JOIN dist_categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -271,7 +258,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT DISTINCT p.name AS product_name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -292,7 +279,7 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY s.name
     LIMIT 10;
 
@@ -307,7 +294,7 @@ EXPLAIN
 SELECT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -322,15 +309,14 @@ EXPLAIN
 SELECT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
+WHERE p.description ||| 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column
 -- =============================================================================
--- 'description' is indexed but NOT a fast field (it's a text field without
--- fast:true). If DISTINCT includes description, JoinScan should fall back
+-- 'description' is indexed with a word tokenizer and is not columnar. If DISTINCT includes description, JoinScan should fall back
 -- because deduplication requires fast field access for all DISTINCT columns.
 -- Expect a planner warning about DISTINCT columns not being fast fields.
 
@@ -339,7 +325,7 @@ EXPLAIN
 SELECT DISTINCT p.name, p.description
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 10;
 
@@ -354,7 +340,7 @@ EXPLAIN
 SELECT COUNT(*)
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
     LIMIT 10;
 
 -- =============================================================================
@@ -367,7 +353,7 @@ WHERE p.description @@@ 'wireless'
 SELECT COUNT(*)
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
     LIMIT 3;
 
 -- =============================================================================
@@ -382,7 +368,7 @@ EXPLAIN
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name;
 
 -- =============================================================================
@@ -393,7 +379,7 @@ ORDER BY p.name;
 SELECT DISTINCT p.name AS product, s.name AS supplier
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.name
     LIMIT 10;
 
@@ -403,7 +389,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name AS product, s.name AS supplier
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+WHERE p.description ||| 'wireless' AND s.contact_info ||| 'technology'
 ORDER BY p.name
     LIMIT 10;
 
@@ -419,7 +405,7 @@ SET paradedb.enable_join_custom_scan = on;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3;
 
@@ -435,11 +421,11 @@ SELECT DISTINCT
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
-    s.country @@@ 'USA'
+    s.country ||| 'USA'
     AND (
-        p.name @@@ 'Wireless'
+        p.name ||| 'Wireless'
         OR
-        s.name @@@ 'Wireless'
+        s.name ||| 'Wireless'
     )
 ORDER BY
     score DESC
@@ -452,11 +438,11 @@ SELECT DISTINCT
 FROM dist_products p
 JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE
-    s.country @@@ 'USA'
+    s.country ||| 'USA'
     AND (
-        p.name @@@ 'Wireless'
+        p.name ||| 'Wireless'
         OR
-        s.name @@@ 'Wireless'
+        s.name ||| 'Wireless'
     )
 ORDER BY
     score DESC
@@ -479,7 +465,7 @@ LIMIT 10;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 0;
 -- Expected: Headphones, Keyboard, Mouse Pad
@@ -488,7 +474,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
 -- Expected: Mouse Pad, Wireless Charger, Wireless Mouse
@@ -497,7 +483,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 4;
 -- Expected: Wireless Mouse (only 1 row since 5 - 4 = 1)
@@ -506,7 +492,7 @@ ORDER BY p.name
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 10;
 -- Expected: 0 rows
@@ -516,7 +502,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
 -- Expected: same as JoinScan result above
@@ -527,7 +513,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DISTINCT p.name, s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
@@ -547,8 +533,8 @@ INSERT INTO jobs VALUES
   (4, 2, 'Recruiter'),         -- Bob  ← should exclude Bob
   (5, 3, 'Recruiter');         -- Charlie
 
-CREATE INDEX jobs_bm25 ON jobs USING paradedb (id, person_id, title) WITH (key_field='id');
-CREATE INDEX persons_bm25 ON persons USING paradedb (id, name) WITH (key_field='id', text_fields='{"name": {"fast": true}}');
+CREATE INDEX jobs_bm25 ON jobs USING paradedb (id, person_id, title);
+CREATE INDEX persons_bm25 ON persons USING paradedb (id, (name::pdb.unicode_words('columnar=true')));
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -622,7 +608,7 @@ INSERT INTO profiles_positions (profile_id, group_id, deleted_at, title) VALUES
   (2, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter'),
   (3, 'c624233d-2c2c-43ab-976e-0847bfd58387', NULL, 'Recruiter');
 
-CREATE INDEX profiles_positions_bm25 ON profiles_positions USING paradedb (id, profile_id, group_id, deleted_at, title) WITH (key_field='id');
+CREATE INDEX profiles_positions_bm25 ON profiles_positions USING paradedb (id, profile_id, group_id, deleted_at, title);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -695,6 +681,79 @@ ORDER BY profile_id
 LIMIT 50;
 
 -- =============================================================================
+-- TEST 20: DISTINCT with column omitted from order_by / EquivalenceClass merging
+-- =============================================================================
+-- When DISTINCT projects multiple columns but one is omitted from ORDER BY pathkeys
+-- (e.g. equated columns merge into a single EquivalenceClass, or constant filter
+-- removes a column from distinct_pathkeys), all projected columns must still be
+-- included in the scan schema and correctly deduplicated.
+
+-- Sub-test A: Equated columns (p.name = s.name merges into one EquivalenceClass)
+SET paradedb.enable_aggregate_custom_scan = off;
+
+INSERT INTO dist_products (id, name, description, supplier_id, category_id, price)
+VALUES (211, 'TechCorp', 'Brand product with wireless technology', 151, 301, 49.99);
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.name = s.name
+ORDER BY p.name
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- Sub-test B: Constant-filtered column (category_id = 301 is stripped from distinct_pathkeys)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+
+SELECT DISTINCT p.name, p.category_id
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description ||| 'wireless'
+  AND p.category_id = 301
+ORDER BY p.name
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -708,3 +767,4 @@ DROP TABLE IF EXISTS profiles_positions CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;

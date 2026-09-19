@@ -30,7 +30,7 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     WorkerStyle, chunk_range,
 };
-use crate::postgres::build_partitioning::plan_partition_boundaries;
+use crate::postgres::build_partitioning::{PartitionField, plan_partition_boundaries};
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
@@ -46,7 +46,6 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::tuplesort::Int8Sorter;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
-    scalar_datum_to_tantivy_value, unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
@@ -636,14 +635,14 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 }
 
 /// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
-/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to the
+/// routed to a partition by the leader's kd-tree boundaries and its ctid appended to that
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
     tree: KdTree,
-    /// The `partition_by` fields in `tree.dims()` order, resolved to the index's categorized
+    /// The `partition_by` fields in `tree.dims()` order, resolved to either `Ctid` or the index's categorized
     /// fields so the callback can project each scanned row onto them.
-    dim_fields: Vec<(SearchField, CategorizedFieldData)>,
+    dim_fields: Vec<PartitionField>,
     files: PartitionSpillFiles,
     /// A key's encoding can depend on the version that created the index, so routing has to
     /// convert values the way the document build does.
@@ -657,19 +656,7 @@ impl PartitionSpill {
         files: PartitionSpillFiles,
         created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
-        let dim_fields = tree
-            .dims()
-            .iter()
-            .map(|dim| {
-                categorized_fields
-                    .iter()
-                    .find(|(field, _)| field.field_name() == dim)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("partition_by field `{dim}` is not an indexed field")
-                    })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let dim_fields = PartitionField::resolve_dims(tree.dims(), categorized_fields)?;
         let files = files.with_partitions(tree.partition_count());
         Ok(Self {
             tree,
@@ -686,30 +673,24 @@ impl PartitionSpill {
         &self,
         values: *mut pg_sys::Datum,
         isnull: *mut bool,
+        ctid: u64,
         unpacked_composites: &CompositeSlotValues,
     ) -> anyhow::Result<usize> {
         let point = self
             .dim_fields
             .iter()
-            .map(|(field, categorized)| {
-                let (datum, is_null) = get_field_value(
-                    &categorized.source,
-                    categorized.attno,
-                    values,
-                    isnull,
-                    unpacked_composites,
-                );
-                if is_null {
-                    return Ok(PdbOwnedValue::Null);
+            .map(|dim_field| match dim_field {
+                PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionField::Categorized(categorized) => {
+                    let (datum, is_null) = get_field_value(
+                        &categorized.categorized.source,
+                        categorized.categorized.attno,
+                        values,
+                        isnull,
+                        unpacked_composites,
+                    );
+                    unsafe { categorized.datum_to_value(datum, is_null, self.created_by_version) }
                 }
-                let datum = unwrap_alias_datum(datum, categorized.pg_type);
-                Ok(scalar_datum_to_tantivy_value(
-                    datum,
-                    field.field_type(),
-                    categorized.base_oid,
-                    self.created_by_version,
-                )?
-                .0)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(self.tree.route(&point))
@@ -1045,7 +1026,7 @@ impl<'a> WorkerBuildState<'a> {
                     values,
                     isnull,
                 ));
-            partitioning.route(values, isnull, &unpacked_composites)
+            partitioning.route(values, isnull, ctid, &unpacked_composites)
         });
         self.per_row_context.reset();
         partitioning.files.append(pid?, ctid);
@@ -1877,11 +1858,10 @@ mod tests {
             "serial partitioned build indexes every row"
         );
 
-        let matches: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
-        )
-        .unwrap()
-        .unwrap();
+        let matches: i64 =
+            Spi::get_one("SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';")
+                .unwrap()
+                .unwrap();
         assert_eq!(
             matches, 20000,
             "search through the serial partitioned index"
@@ -1925,7 +1905,7 @@ mod tests {
             );
 
             let matches: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE partitioned_build @@@ 'name:lorem';",
+                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';",
             )
             .unwrap()
             .unwrap();
@@ -1936,6 +1916,77 @@ mod tests {
         }
 
         Spi::run("DROP TABLE partitioned_build;").unwrap();
+    }
+
+    /// An index with `partition_by = 'ctid'` routes each row by its ctid and builds one segment
+    /// per partition, serial or parallel.
+    #[pg_test]
+    fn test_partitioned_build_with_ctid() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_ctid_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_ctid_build (tenant_id, name)
+            SELECT (i * 7919) % 100, 'row ' || i
+            FROM generate_series(1, 1000) i;
+            "#,
+        )
+        .unwrap();
+
+        // 1-dim partition_by on ctid
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, name) WITH (partition_by = 'ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 4, "serial partitioned build on ctid: 4 segments");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "serial partitioned build on ctid indexes every row"
+        );
+
+        // 2-dim partition_by on tenant_id, ctid with parallel workers
+        Spi::run("DROP INDEX partitioned_ctid_build_idx;").unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 4,
+            "parallel partitioned build on (tenant_id, ctid): 4 segments"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "parallel partitioned build on (tenant_id, ctid) indexes every row"
+        );
+
+        Spi::run("DROP TABLE partitioned_ctid_build;").unwrap();
     }
 
     /// A partition whose rows all sit in one heap block is scanned by a single participant, so every
@@ -1987,7 +2038,7 @@ mod tests {
             assert_eq!(num_docs, 20005, "every row is indexed once");
 
             let lone: i64 = Spi::get_one(
-                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND partitioned_lone_partition @@@ 'name:lone';",
+                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND name ||| 'lone';",
             )
             .unwrap()
             .unwrap();
@@ -2045,7 +2096,7 @@ mod tests {
         );
 
         let visible: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE partitioned_deleted @@@ 'name:lorem';",
+            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE name ||| 'lorem';",
         )
         .unwrap()
         .unwrap();
@@ -2135,14 +2186,14 @@ mod tests {
         .unwrap();
 
         let fresh: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:freshmarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'freshmarker';",
         )
         .unwrap()
         .unwrap();
         assert_eq!(fresh, 1, "the live row version must be indexed");
 
         let stale: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE partitioned_hot @@@ 'name:stalemarker';",
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'stalemarker';",
         )
         .unwrap()
         .unwrap();
@@ -2216,7 +2267,7 @@ mod tests {
         let ids_for = |query: &str| -> String {
             Spi::get_one::<String>(&format!(
                 "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') \
-                 FROM partitioned_parity WHERE partitioned_parity @@@ '{query}';"
+                 FROM partitioned_parity WHERE partitioned_parity @@@ pdb.parse('{query}');"
             ))
             .unwrap()
             .unwrap()
@@ -2225,7 +2276,7 @@ mod tests {
         // Ground truth: a non-partitioned index over the same rows.
         Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
         Spi::run(
-            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');",
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true')));",
         )
         .unwrap();
         let expected_alpha = ids_for("message:alpha");
@@ -2254,7 +2305,7 @@ mod tests {
                 "{label}: full set differs"
             );
         };
-        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, message) WITH (partition_by = 'tenant_id, message', target_segment_count = 8, text_fields = '{\"message\": {\"fast\": true, \"normalizer\": \"raw\"}}');";
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true'))) WITH (partition_by = 'tenant_id, message', target_segment_count = 8);";
 
         // Serial build.
         Spi::run(create_partitioned).unwrap();

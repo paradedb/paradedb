@@ -30,14 +30,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING paradedb (id, metadata, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{
-        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
-        "data": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
 
 -- GROUP BY ... ORDER BY ... LIMIT pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

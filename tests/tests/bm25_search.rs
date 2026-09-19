@@ -31,7 +31,7 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard OR category:electronics') ORDER BY id"
             .fetch_collect(&mut conn);
 
     assert_eq!(
@@ -60,12 +60,12 @@ async fn basic_search_ids(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard OR category:electronics') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 }
@@ -75,7 +75,7 @@ fn json_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.color:white' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.color:white') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![4, 15, 25]);
 }
@@ -85,7 +85,7 @@ fn date_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'last_updated_date:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('last_updated_date:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 23, 41]);
 }
@@ -95,7 +95,7 @@ fn timestamp_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'created_at:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('created_at:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 22, 23, 41]);
 }
@@ -110,7 +110,7 @@ fn real_time_search(mut conn: PgConnection) {
     "DELETE FROM paradedb.bm25_search WHERE id = 1".execute(&mut conn);
     "UPDATE paradedb.bm25_search SET description = 'PVC Keyboard' WHERE id = 2".execute(&mut conn);
 
-    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics' ORDER BY id"
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard OR category:electronics') ORDER BY id"
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 12, 22, 32, 42]);
 }
@@ -158,11 +158,10 @@ fn quoted_table_name(mut conn: PgConnection) {
     INSERT INTO "Activity" (name, age) VALUES ('Ivan', 30);
     INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
     CREATE INDEX activity ON "Activity"
-    USING paradedb ("key", name) WITH (key_field='key')"#
+    USING paradedb ("key", name)"#
         .execute(&mut conn);
     let row: (i32, String, i32) =
-        "SELECT * FROM \"Activity\" WHERE \"Activity\" @@@ 'name:alice' ORDER BY key"
-            .fetch_one(&mut conn);
+        "SELECT * FROM \"Activity\" WHERE name ||| 'alice' ORDER BY key".fetch_one(&mut conn);
 
     assert_eq!(row, (1, "Alice".into(), 29));
 }
@@ -179,28 +178,21 @@ fn text_arrays(mut conn: PgConnection) {
     ('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
     ('{"single element"}', '{"single varchar element"}');
     CREATE INDEX example_table_idx ON public.example_table
-    USING paradedb (id, text_array, varchar_array)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "text_array": {},
-            "varchar_array": {}
-        }'
-    );"#
-    .execute(&mut conn);
-    let row: (i32,) =
-        r#"SELECT * FROM example_table WHERE example_table @@@ 'text_array:text1' ORDER BY id"#
-            .fetch_one(&mut conn);
+    USING paradedb (id, text_array, varchar_array);"#
+        .execute(&mut conn);
+    let row: (i32,) = r#"SELECT * FROM example_table WHERE text_array ||| 'text1' ORDER BY id"#
+        .fetch_one(&mut conn);
 
     assert_eq!(row, (1,));
 
     let row: (i32,) =
-        r#"SELECT * FROM example_table WHERE example_table @@@ 'text_array:"single element"' ORDER BY id"#.fetch_one(&mut conn);
+        r#"SELECT * FROM example_table WHERE text_array ### 'single element' ORDER BY id"#
+            .fetch_one(&mut conn);
 
     assert_eq!(row, (3,));
 
     let rows: Vec<(i32,)> =
-        r#"SELECT * FROM example_table WHERE example_table @@@ 'varchar_array:varchar OR text_array:array' ORDER BY id"#
+        r#"SELECT * FROM example_table WHERE example_table @@@ pdb.parse('varchar_array:varchar OR text_array:array') ORDER BY id"#
             .fetch(&mut conn);
 
     assert_eq!(rows[0], (2,));
@@ -219,18 +211,16 @@ fn int_arrays(mut conn: PgConnection) {
     ('{4, 5, 6}', '{300, 400, 500}'),
     ('{7, 8, 9}', '{600, 700, 800, 900}');
     CREATE INDEX example_table_idx ON public.example_table
-    USING paradedb (id, int_array, bigint_array)
-    WITH (key_field = 'id');"#
+    USING paradedb (id, int_array, bigint_array);"#
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM example_table WHERE example_table @@@ 'int_array:1' ORDER BY id"
-            .fetch(&mut conn);
+        "SELECT id FROM example_table WHERE int_array @@@ pdb.term(1) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (1,));
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM example_table WHERE example_table @@@ 'bigint_array:500' ORDER BY id"
+        "SELECT id FROM example_table WHERE bigint_array @@@ pdb.term(500) ORDER BY id"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (2,));
@@ -248,19 +238,19 @@ fn boolean_arrays(mut conn: PgConnection) {
     ('{true, true, false}');
 
     CREATE INDEX example_table_idx ON example_table
-    USING paradedb (id, bool_array) WITH (key_field='id')
+    USING paradedb (id, bool_array)
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM example_table WHERE example_table @@@ 'bool_array:true' ORDER BY id"
+        "SELECT id FROM example_table WHERE bool_array @@@ pdb.term(true) ORDER BY id"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], (1,));
     assert_eq!(rows[1], (3,));
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM example_table WHERE example_table @@@ 'bool_array:false' ORDER BY id"
+        "SELECT id FROM example_table WHERE bool_array @@@ pdb.term(false) ORDER BY id"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], (2,));
@@ -279,17 +269,17 @@ fn datetime_arrays(mut conn: PgConnection) {
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
     CREATE INDEX example_table_idx ON example_table
-    USING paradedb (id, date_array, timestamp_array) WITH (key_field='id')
+    USING paradedb (id, date_array, timestamp_array)
     "#.execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM example_table WHERE example_table @@@ 'date_array:"2023-02-01T00:00:00Z"' ORDER BY id"#
+        r#"SELECT id FROM example_table WHERE example_table @@@ pdb.parse('date_array:"2023-02-01T00:00:00Z"') ORDER BY id"#
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (1,));
 
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM example_table WHERE example_table @@@ 'timestamp_array:"2023-04-01T15:00:00Z"' ORDER BY id"#
+        r#"SELECT id FROM example_table WHERE example_table @@@ pdb.parse('timestamp_array:"2023-04-01T15:00:00Z"') ORDER BY id"#
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (2,));
@@ -307,8 +297,8 @@ fn json_arrays(mut conn: PgConnection) {
     (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
         .execute(&mut conn);
 
-    match "CREATE INDEX example_table_idx ON example_table USING paradedb (id, json_array) WITH (key_field='id')"
-    .execute_result(&mut conn)
+    match "CREATE INDEX example_table_idx ON example_table USING paradedb (id, json_array)"
+        .execute_result(&mut conn)
     {
         Ok(_) => panic!("json arrays should not yet be supported"),
         Err(err) => assert!(err.to_string().contains("not yet supported")),
@@ -336,20 +326,19 @@ fn uuid(mut conn: PgConnection) {
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'some text');
 
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING paradedb (id, some_text) WITH (key_field='id');
+    USING paradedb (id, some_text);
 
     DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
     CREATE INDEX uuid_table_bm25_index ON uuid_table
-    USING paradedb (id, some_text, random_uuid) WITH (key_field='id')
+    USING paradedb (id, some_text, random_uuid)
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        r#"SELECT * FROM uuid_table WHERE uuid_table @@@ 'some_text:some' ORDER BY id"#
-            .fetch(&mut conn);
+        r#"SELECT * FROM uuid_table WHERE some_text ||| 'some' ORDER BY id"#.fetch(&mut conn);
 
     assert_eq!(rows.len(), 10);
 }
@@ -377,7 +366,7 @@ fn snippet(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let row: (i32, String, f32) = "
         SELECT id, pdb.snippet(description), pdb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
+        FROM paradedb.bm25_search WHERE description ||| 'shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
     assert_eq!(row.0, 3);
@@ -386,7 +375,7 @@ fn snippet(mut conn: PgConnection) {
 
     let row: (i32, String, f32) = "
         SELECT id, pdb.snippet(description, '<h1>', '</h1>'), pdb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
+        FROM paradedb.bm25_search WHERE description ||| 'shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
     assert_eq!(row.0, 3);
@@ -395,7 +384,7 @@ fn snippet(mut conn: PgConnection) {
 
     let row: (i32, String, f32) = "
         SELECT id, pdb.snippet(description, max_num_chars=>14), pdb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id;"
+        FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id;"
         .fetch_one(&mut conn);
 
     assert_eq!(row.0, 1);
@@ -404,7 +393,7 @@ fn snippet(mut conn: PgConnection) {
 
     let row: (i32, String, f32) = "
         SELECT id, pdb.snippet(description, max_num_chars=>17), pdb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        FROM paradedb.bm25_search WHERE description ||| 'shoes' ORDER BY score DESC"
         .fetch_one(&mut conn);
 
     assert_eq!(row.0, 5);
@@ -424,13 +413,13 @@ fn snippet_text_array(mut conn: PgConnection) {
     ('{"Alice", "Bob", "Charlie"}', '{"New York", "Los Angeles"}'),
     ('{"Diana", "Eve", "Fiona"}', '{"Chicago", "Houston"}'),
     ('{"George", "Hannah", "Ivan"}', '{"Miami", "Seattle"}');
-    CREATE INDEX people_idx ON people USING paradedb (id, names, locations) WITH (key_field='id');
+    CREATE INDEX people_idx ON people USING paradedb (id, names, locations);
     "#
     .execute(&mut conn);
 
     let results: Vec<(i32, String, String)> = "
         SELECT id, pdb.snippet(names), pdb.snippet(locations)
-        FROM people WHERE names @@@ 'alice' AND locations @@@ 'new'"
+        FROM people WHERE names ||| 'alice' AND locations ||| 'new'"
         .fetch(&mut conn);
     assert_eq!(
         results,
@@ -452,14 +441,7 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
 
     CREATE INDEX search_idx
     ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
-    WITH (
-        key_field='id',
-        text_fields='{"description": {}, "category": {}}',
-        numeric_fields='{"rating": {}}',
-        boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}'
-    );
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at);
 
     CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -484,7 +466,7 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
     ),
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) as rank
-        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+        FROM mock_items WHERE description ||| 'keyboard' LIMIT 20
     )
     SELECT
         COALESCE(semantic_search.id, bm25_search.id) AS id,
@@ -530,10 +512,9 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}}')
+    USING paradedb (id, (description::pdb.simple('lowercase=true', 'remove_long=255')))
     "#
-      .execute(&mut conn);
+    .execute(&mut conn);
 
     let page_size_before: (i64,) =
         "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
@@ -563,17 +544,17 @@ async fn json_array_flattening(mut conn: PgConnection) {
 
     // Search for individual elements in the JSON array
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:red' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:red') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:green' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:green') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:blue' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:blue') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 }
@@ -592,22 +573,22 @@ async fn json_array_multiple_documents(mut conn: PgConnection) {
 
     // Search for individual elements and verify the correct documents are returned
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:red' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:red') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:green' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:green') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42, 44]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:blue' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:blue') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![43, 44]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.colors:yellow' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.colors:yellow') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![43]);
 }
@@ -624,17 +605,17 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
 
     // Search for each data type element in the JSON array
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.attributes:fast' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.attributes:fast') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.attributes:4' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.attributes:4') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.attributes:true' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.attributes:true') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 }
@@ -651,17 +632,17 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 
     // Search for elements in the nested JSON arrays
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.specs.dimensions:width' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.specs.dimensions:width') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.specs.dimensions:height' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.specs.dimensions:height') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'metadata.specs.dimensions:depth' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('metadata.specs.dimensions:depth') ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 }
@@ -674,15 +655,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    ) WHERE category = 'Electronics';
+    USING paradedb (id, (description::pdb.simple), category, rating) WHERE category = 'Electronics';
     "#
     .execute_result(&mut conn);
     assert!(ret.is_ok(), "{ret:?}");
@@ -690,7 +663,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     // Ensure returned rows match the predicate
     // Query must include category = 'Electronics' to use the partial index
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.test_partial_index WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1' ORDER BY rating LIMIT 20"
+        "SELECT * FROM paradedb.test_partial_index WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1') ORDER BY rating LIMIT 20"
             .fetch_collect(&mut conn);
     assert_eq!(columns.category.len(), 5);
     assert_eq!(
@@ -704,7 +677,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     // Ensure no mismatch rows returned
     let rows: Vec<(String, String)> = "
     SELECT description, category FROM paradedb.test_partial_index
-    WHERE category = 'Electronics' AND test_partial_index @@@ '(description:jeans OR category:Footwear) AND rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('(description:jeans OR category:Footwear) AND rating:>1')
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 0);
@@ -718,7 +691,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -734,7 +707,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -747,7 +720,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -760,7 +733,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     // Insert one row without specifying the column referenced by the predicate.
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -786,15 +759,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 
     let ret = r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}},
-            "category": {}
-        }',
-        numeric_fields='{"rating": {}}'
-    ) WHERE category = 'Electronics';"#
+    USING paradedb (id, (description::pdb.simple('lowercase=true', 'remove_long=255')), category, rating) WHERE category = 'Electronics';"#
     .execute_result(&mut conn);
     assert!(ret.is_ok(), "{ret:?}");
 
@@ -806,7 +771,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) AS rank
         FROM mock_items
-        WHERE mock_items @@@ 'rating:>1'
+        WHERE mock_items @@@ pdb.parse('rating:>1')
         AND category = 'Electronics'
         LIMIT 20
     )
@@ -853,7 +818,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     bm25_search AS (
         SELECT id, RANK () OVER (ORDER BY pdb.score(id) DESC) AS rank
         FROM mock_items
-        WHERE mock_items @@@ 'rating:>1'
+        WHERE mock_items @@@ pdb.parse('rating:>1')
         AND category = 'Electronics'
         LIMIT 20
     )
@@ -890,15 +855,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     // unknown column
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    ) WHERE city = 'Electronics';
+    USING paradedb (id, (description::pdb.simple), category, rating) WHERE city = 'Electronics';
     "#
     .execute_result(&mut conn);
     assert!(ret.is_err());
@@ -906,30 +863,14 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     // mismatch type
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    ) WHERE city = 'Electronics';
+    USING paradedb (id, (description::pdb.simple), category, rating) WHERE city = 'Electronics';
     "#
     .execute_result(&mut conn);
     assert!(ret.is_err());
 
     let ret = r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    ) WHERE category = 'Electronics';
+    USING paradedb (id, (description::pdb.simple), category, rating) WHERE category = 'Electronics';
     "#
     .execute_result(&mut conn);
     assert!(ret.is_ok(), "{ret:?}");
@@ -943,13 +884,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, category, rating)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}
-        }'
-    ) WHERE category = 'Electronics';
+    USING paradedb (id, (description::pdb.simple('lowercase=true', 'remove_long=255')), category, rating) WHERE category = 'Electronics';
     "#
     .execute(&mut conn);
     let rows: Vec<(String,)> =
@@ -971,13 +906,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX partial_idx ON paradedb.test_partial_index
-    USING paradedb (id, description, rating)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": true, "remove_long": 255}}
-        }'
-    );
+    USING paradedb (id, (description::pdb.simple('lowercase=true', 'remove_long=255')), rating);
     "#
     .execute(&mut conn);
 
@@ -1000,14 +929,12 @@ fn high_limit_rows(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX large_series_idx ON public.large_series
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM large_series WHERE large_series @@@ 'description:Product' ORDER BY id"
-            .fetch(&mut conn);
+        "SELECT id FROM large_series WHERE description ||| 'Product' ORDER BY id".fetch(&mut conn);
     assert_eq!(rows.len(), 200000);
 }
 
@@ -1143,12 +1070,8 @@ fn json_range(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
     "CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-    USING paradedb (id, metadata)
-    WITH (
-        key_field='id',
-        json_fields='{\"metadata\": {\"fast\": true}}'
-    )"
-    .execute(&mut conn);
+    USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')))"
+        .execute(&mut conn);
 
     r#"
     UPDATE paradedb.bm25_search
@@ -1196,21 +1119,16 @@ fn test_customers_table(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"CREATE INDEX customers_idx ON customers
-    USING paradedb (id, name, crm_data)
-    WITH (
-        key_field='id',
-        text_fields='{"name": {}}',
-        json_fields='{"crm_data": {}}'
-    );"#
-    .execute(&mut conn);
+    USING paradedb (id, name, crm_data);"#
+        .execute(&mut conn);
 
     // Test querying by name
     let rows: Vec<(i32,)> =
-        "SELECT id FROM customers WHERE customers @@@ 'name:Deep' ORDER BY id".fetch(&mut conn);
+        "SELECT id FROM customers WHERE name ||| 'Deep' ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
     // Test querying nested JSON data
-    let rows: Vec<(i32,)> = "SELECT id FROM customers WHERE customers @@@ 'crm_data.level1.level2.level3:deep_value' ORDER BY id"
+    let rows: Vec<(i32,)> = "SELECT id FROM customers WHERE customers @@@ pdb.parse('crm_data.level1.level2.level3:deep_value') ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 }
@@ -1223,11 +1141,7 @@ fn json_array_term(mut conn: PgConnection) {
         ('["red", "green", "blue"]'::JSON, '["red", "green", "blue"]'::JSONB),
         ('["red", "orange"]'::JSON, '["red", "orange"]'::JSONB);
     CREATE INDEX colors_bm25_index ON colors
-    USING paradedb (id, colors_json, colors_jsonb)
-    WITH (
-        key_field='id',
-        json_fields='{"colors_json": {}, "colors_jsonb": {}}'
-    );
+    USING paradedb (id, colors_json, colors_jsonb);
     "#
     .execute(&mut conn);
 
@@ -1291,26 +1205,7 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
 
     // Create the BM25 index
     r#"CREATE INDEX products_index ON products
-    USING paradedb (id, name, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "name": {
-                "tokenizer": {"type": "default"}
-            },
-            "name_stem": {
-                "tokenizer": {"type": "default", "stemmer": "English"},
-                "column": "name"
-            },
-            "description": {
-                "tokenizer": {"type": "default"}
-            },
-            "description_stem": {
-                "tokenizer": {"type": "default", "stemmer": "English"},
-                "column": "description"
-            }
-        }'
-    );"#
+    USING paradedb (id, (name::pdb.simple), (description::pdb.simple), (name::pdb.simple('stemmer=english', 'alias=name_stem')), (description::pdb.simple('stemmer=english', 'alias=description_stem')));"#
     .execute(&mut conn);
 
     // Test querying with default tokenizer
@@ -1387,42 +1282,19 @@ fn alias_cannot_duplicate_indexed_field(mut conn: PgConnection) {
     // An alias cannot reuse another indexed field's name.
     let result = r#"
     CREATE INDEX products_index ON products
-    USING paradedb (id, name, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "name": {
-                "tokenizer": {"type": "default"}
-            },
-            "id": {
-                "tokenizer": {"type": "default", "stemmer": "English"},
-                "column": "description"
-            }
-        }'
-    );"#
+    USING paradedb (id, (name::pdb.simple), description, (description::pdb.simple('stemmer=english', 'alias=id')));"#
     .execute_result(&mut conn);
 
     assert!(result.is_err());
     assert_eq!(
         db_error_message(&result.unwrap_err()),
-        "error returned from database: Field already exists in schema id"
+        "error returned from database: indexed attribute id defined more than once"
     );
 
     // A distinct alias is valid.
     r#"
     CREATE INDEX products_index ON products
-    USING paradedb (id, name, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "name": {
-                "tokenizer": {"type": "default"}
-            },
-            "id_aliased": {
-                "column": "id"
-            }
-        }'
-    );"#
+    USING paradedb (id, (name::pdb.simple), description, (id::pdb.unicode_words('alias=id_aliased')));"#
     .execute(&mut conn);
 
     let rows: Vec<(String,)> =
@@ -1457,26 +1329,7 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
 
     // Create the BM25 index with multiple tokenizers
     r#"CREATE INDEX product_reviews_index ON product_reviews
-    USING paradedb (id, product_name, review_text)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "product_name": {
-                "tokenizer": {"type": "default"}
-            },
-            "product_name_ngram": {
-                "column": "product_name",
-                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
-            },
-            "review_text": {
-                "tokenizer": {"type": "default"}
-            },
-            "review_text_stem": {
-                "column": "review_text",
-                "tokenizer": {"type": "default", "stemmer": "English"}
-            }
-        }'
-    );"#
+    USING paradedb (id, (product_name::pdb.simple), (review_text::pdb.simple), (product_name::pdb.ngram(3, 3, 'prefix_only=false', 'alias=product_name_ngram')), (review_text::pdb.simple('stemmer=english', 'alias=review_text_stem')));"#
     .execute(&mut conn);
 
     //  Exact match using default tokenizer
@@ -1528,20 +1381,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     // Create the BM25 index with aliased fields
     r#"
     CREATE INDEX test_more_like_this_alias_index ON test_more_like_this_alias
-    USING paradedb (id, flavour, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "taste": {
-                "column": "flavour",
-                "tokenizer": {"type": "default"}
-            },
-            "details": {
-                "column": "description",
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );
+    USING paradedb (id, flavour, description, (flavour::pdb.simple('alias=taste')), (description::pdb.simple('alias=details')));
     "#
     .execute(&mut conn);
 
@@ -1578,36 +1418,22 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
 
     // Create index with multiple aliases for same column
     r#"CREATE INDEX multi_alias_idx ON multi_alias
-    USING paradedb (id, content)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "content": {
-                "tokenizer": {"type": "default"}
-            },
-            "content_stem": {
-                "column": "content",
-                "tokenizer": {"type": "default", "stemmer": "English"}
-            },
-            "content_ngram": {
-                "column": "content",
-                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
-            }
-        }'
-    );"#
+    USING paradedb (id, (content::pdb.simple), (content::pdb.simple('stemmer=english', 'alias=content_stem')), (content::pdb.ngram(3, 3, 'prefix_only=false', 'alias=content_ngram')));"#
     .execute(&mut conn);
 
     // Test each alias configuration
     let rows: Vec<(i32,)> =
-        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content:running'".fetch(&mut conn);
+        "SELECT id FROM multi_alias WHERE content ||| 'running'".fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_stem:running'".fetch(&mut conn);
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ pdb.parse('content_stem:running')"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_ngram:run'".fetch(&mut conn);
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ pdb.parse('content_ngram:run')"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
@@ -1620,47 +1446,14 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
-    USING paradedb (id, text_field)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "ctid": {
-                "column": "text_field",
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );"#
-    .execute_result(&mut conn);
+    USING paradedb (id, text_field, (text_field::pdb.simple('alias=ctid')));"#
+        .execute_result(&mut conn);
 
     assert!(result.is_err());
     assert_eq!(
         db_error_message(&result.unwrap_err()),
-        "error returned from database: the name `ctid` is reserved by pg_search"
+        "error returned from database: Field already exists in schema ctid"
     );
-}
-
-#[rstest]
-fn can_index_only_key_field(mut conn: PgConnection) {
-    "CREATE TABLE can_index_only_key_field (
-        id SERIAL PRIMARY KEY,
-        text_field TEXT
-    );"
-    .execute(&mut conn);
-
-    let result = r#"
-
-        INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');
-
-        CREATE INDEX idxcan_index_only_key_field ON can_index_only_key_field
-        USING paradedb (id)
-        WITH (key_field='id');
-    "#
-    .execute_result(&mut conn);
-    assert!(result.is_ok());
-
-    let (count,) = "SELECT COUNT(*) FROM can_index_only_key_field WHERE id @@@ '1'"
-        .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
 }
 
 #[rstest]
@@ -1673,22 +1466,13 @@ fn missing_source_column(mut conn: PgConnection) {
 
     // Attempt to create index with alias pointing to non-existent column
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
-    USING paradedb (id, text_field)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "alias": {
-                "column": "nonexistent_column",
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );"#
-    .execute_result(&mut conn);
+    USING paradedb (id, text_field, (nonexistent_column::pdb.simple('alias=alias')));"#
+        .execute_result(&mut conn);
 
     assert!(result.is_err());
     assert_eq!(
         db_error_message(&result.unwrap_err()),
-        "error returned from database: the column `nonexistent_column` referenced by the field configuration for 'alias' does not exist"
+        r#"error returned from database: column "nonexistent_column" does not exist"#
     );
 }
 
@@ -1703,16 +1487,7 @@ fn alias_type_mismatch(mut conn: PgConnection) {
 
     // Try to create text alias pointing to numeric column
     let result = r#"CREATE INDEX type_mismatch_idx ON type_mismatch
-    USING paradedb (id, numeric_field, text_field)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "wrong_type": {
-                "column": "numeric_field",
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );"#
+    USING paradedb (id, numeric_field, text_field, (numeric_field::pdb.simple('alias=wrong_type')));"#
     .execute_result(&mut conn);
 
     assert!(result.is_err());
@@ -1728,20 +1503,7 @@ fn alias_chain_validation(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let result = r#"CREATE INDEX alias_chain_idx ON alias_chain
-    USING paradedb (id, base_field)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "first_alias": {
-                "column": "base_field",
-                "tokenizer": {"type": "default"}
-            },
-            "second_alias": {
-                "column": "first_alias",
-                "tokenizer": {"type": "default"}
-            }
-        }'
-    );"#
+    USING paradedb (id, base_field, (base_field::pdb.simple('alias=first_alias')), (first_alias::pdb.simple('alias=second_alias')));"#
     .execute_result(&mut conn);
 
     assert!(result.is_err());
@@ -1763,30 +1525,17 @@ fn mixed_field_types_with_aliases(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX mixed_fields_idx ON mixed_fields
-    USING paradedb (id, text_content, json_content)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "text_alias": {
-                "column": "text_content",
-                "tokenizer": {"type": "default"}
-            }
-        }',
-        json_fields='{
-            "json_alias": {
-                "column": "json_content"
-            }
-        }'
-    );"#
+    USING paradedb (id, text_content, json_content, (text_content::pdb.simple('alias=text_alias')), (json_content::pdb.unicode_words('alias=json_alias')));"#
     .execute(&mut conn);
 
     // Test each type of alias
     let rows: Vec<(i32,)> =
-        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'text_alias:test'".fetch(&mut conn);
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ pdb.parse('text_alias:test')"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'json_alias.key:value1'"
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ pdb.parse('json_alias.key:value1')"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 }

@@ -57,7 +57,7 @@ DROP TABLE IF EXISTS t2_c CASCADE;
 
 -- t1: 30,000 rows. `body` carries a space-separated string ('doc 1',
 -- 'doc 2', …) so the default BM25 tokenizer splits cleanly and the
--- shared 'doc' token lets `@@@ 'doc'` match every row. Each FK column
+-- shared 'doc' token lets `||| 'doc'` match every row. Each FK column
 -- produces a distinct value per row (D = 1) by multiplying the row index
 -- by a prime coprime to the modulus. Three different primes (7919, 6151,
 -- 4099) give three independent pseudo-uniform spreads.
@@ -112,22 +112,13 @@ FROM generate_series(800, 1899) AS i;
 -- linear-scan TermSetDocSet path (with smart-seek for forward-cursor
 -- advancement).
 CREATE INDEX t1_idx ON t1
-USING paradedb (id, body, fk_a, fk_b, fk_c)
-WITH (
-    key_field = 'id',
-    text_fields = '{"body": {"fast": true}}',
-    numeric_fields = '{"fk_a": {"fast": true}, "fk_b": {"fast": true}, "fk_c": {"fast": true}}',
-    sort_by = 'fk_a ASC NULLS FIRST'
-);
+USING paradedb (id, (body::pdb.unicode_words('columnar=true')), fk_a, fk_b, fk_c) WITH (sort_by = 'fk_a ASC NULLS FIRST');
 
-CREATE INDEX t2_a_idx ON t2_a USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX t2_a_idx ON t2_a USING paradedb (id, fk, body);
 
-CREATE INDEX t2_b_idx ON t2_b USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX t2_b_idx ON t2_b USING paradedb (id, fk, body);
 
-CREATE INDEX t2_c_idx ON t2_c USING paradedb (id, fk, body)
-WITH (key_field = 'id', numeric_fields = '{"fk": {"fast": true}}');
+CREATE INDEX t2_c_idx ON t2_c USING paradedb (id, fk, body);
 
 ANALYZE t1;
 ANALYZE t2_a;
@@ -146,7 +137,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -160,7 +151,7 @@ CREATE TEMP TABLE result_q1_linear AS
 SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -170,7 +161,7 @@ CREATE TEMP TABLE result_q1_gallop AS
 SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -203,7 +194,7 @@ SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -214,7 +205,7 @@ SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -225,7 +216,7 @@ SELECT t1.id
 FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -259,7 +250,7 @@ FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
 JOIN t2_c ON t1.fk_c = t2_c.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -271,7 +262,7 @@ FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
 JOIN t2_c ON t1.fk_c = t2_c.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 
@@ -283,7 +274,7 @@ FROM t1
 JOIN t2_a ON t1.fk_a = t2_a.fk
 JOIN t2_b ON t1.fk_b = t2_b.fk
 JOIN t2_c ON t1.fk_c = t2_c.fk
-WHERE t1.body @@@ 'doc'
+WHERE t1.body ||| 'doc'
 ORDER BY t1.id
 LIMIT 10;
 

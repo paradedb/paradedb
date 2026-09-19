@@ -28,19 +28,7 @@ CREATE TABLE mixed_numeric_string_test (
     content TEXT
 );
 
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (id, numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 
 -- Insert test data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
@@ -108,36 +96,11 @@ CREATE TABLE pages (
 );
 
 -- Create BM25 indexes
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb (id, (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
 
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path
-) WITH (
-    key_field = 'id',
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX files_search ON files USING paradedb (id, (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')));
 
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX pages_search ON pages USING paradedb (id, (fileid::pdb.literal), (content::pdb.simple), page_number);
 
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
@@ -167,14 +130,7 @@ CREATE TABLE categories (
     parent_id INTEGER REFERENCES categories(id)
 );
 
-CREATE INDEX category_search ON categories USING paradedb (
-    id,
-    name,
-    description
-) WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}, "description": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
+CREATE INDEX category_search ON categories USING paradedb (id, (name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')));
 
 INSERT INTO categories (name, description, parent_id) VALUES
 ('Electronics', 'Electronic devices and accessories', NULL),
@@ -195,16 +151,7 @@ CREATE TABLE products (
     price FLOAT NOT NULL
 );
 
-CREATE INDEX product_search ON products USING paradedb (
-    id,
-    name,
-    category_id,
-    price
-) WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"category_id": {"fast": true}, "price": {"fast": true}}'
-);
+CREATE INDEX product_search ON products USING paradedb (id, (name::pdb.simple('columnar=true')), category_id, price);
 
 INSERT INTO products (name, category_id, price) VALUES
 ('Laptop Pro', 2, 1299.99),
@@ -228,30 +175,7 @@ CREATE TABLE conversion_test (
     content TEXT
 );
 
-CREATE INDEX conversion_search ON conversion_test USING paradedb (
-    id, 
-    smallint_field, 
-    integer_field, 
-    bigint_field, 
-    numeric_field, 
-    real_field, 
-    double_field, 
-    bool_from_int,
-    timestamp_field,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{
-        "smallint_field": {"fast": true}, 
-        "integer_field": {"fast": true}, 
-        "bigint_field": {"fast": true}, 
-        "numeric_field": {"fast": true}, 
-        "real_field": {"fast": true}, 
-        "double_field": {"fast": true}
-    }',
-    boolean_fields = '{"bool_from_int": {"fast": true}}'
-);
+CREATE INDEX conversion_search ON conversion_test USING paradedb ((id::pdb.literal), smallint_field, integer_field, bigint_field, numeric_field, real_field, double_field, bool_from_int, timestamp_field, (content::pdb.simple));
 
 INSERT INTO conversion_test VALUES
 ('conv1', 32767, 2147483647, 9223372036854775807, 9999999.99, 3.402e38, 1.7976931348623157e308, true, '1988-04-29', 'conversion test'),
@@ -312,22 +236,10 @@ DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 
 CREATE INDEX union_test_a_idx ON union_test_a
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 
 CREATE INDEX union_test_b_idx ON union_test_b
-USING paradedb (id, title, author, rating, year, price, is_published)
-WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "author": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
-    boolean_fields = '{"is_published": {"fast": true}}'
-);
+USING paradedb (id, (title::pdb.simple('columnar=true')), (author::pdb.simple('columnar=true')), rating, year, price, is_published);
 
 -- Update statistics for consistent query planning
 ANALYZE mixed_numeric_string_test;

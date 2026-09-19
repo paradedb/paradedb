@@ -79,8 +79,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
           (description::pdb.ngram(3,5)),
           (metadata::pdb.literal),
           (metadata::pdb.unicode_words('alias=metadata_words'))
-        )
-        WITH (key_field=id);
+        );
     "#
     .execute(&mut conn);
 
@@ -90,7 +89,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
 
     let search_results: Vec<(String,)> = r#"
         SELECT id::text FROM lt
-        WHERE lt @@@ 'description:payment'
+        WHERE description ||| 'payment'
         ORDER BY id
     "#
     .fetch(&mut conn);

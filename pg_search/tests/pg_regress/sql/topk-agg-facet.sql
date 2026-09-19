@@ -28,23 +28,7 @@ INSERT INTO products (name, description, category, brand, price, rating, in_stoc
 
 -- Create BM25 index
 CREATE INDEX products_idx ON products
-USING paradedb (id, name, description, category, brand, price, rating, in_stock, sales)
-WITH (
-    key_field='id',
-    text_fields='{
-        "name": {},
-        "description": {},
-        "brand": {"fast": true}
-    }',
-    numeric_fields='{
-        "price": {"fast": true},
-        "rating": {"fast": true},
-        "sales": {"fast": true}
-    }',
-    boolean_fields='{
-        "in_stock": {"fast": true}
-    }'
-);
+USING paradedb (id, name, description, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), price, rating, in_stock, sales);
 
 -- =============================================================================
 -- OPERATOR SUPPORT TESTS
@@ -195,7 +179,7 @@ SELECT
     category,
     rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -205,7 +189,7 @@ SELECT
     category,
     rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -217,7 +201,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -227,7 +211,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -242,7 +226,7 @@ SELECT
     SUM(price) OVER () as total_price,
     AVG(rating) OVER () as avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -255,7 +239,7 @@ SELECT
     SUM(price) OVER () as total_price,
     AVG(rating) OVER () as avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -268,7 +252,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -279,7 +263,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -292,7 +276,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating DESC) as running_total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -303,7 +287,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating DESC) as running_total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -315,7 +299,7 @@ SELECT
     rating,
     AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -325,7 +309,7 @@ SELECT
     rating,
     AVG(rating) OVER (ORDER BY rating DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as moving_avg
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -339,7 +323,7 @@ SELECT
     MIN(price) OVER () as min_price,
     MAX(price) OVER () as max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -351,7 +335,7 @@ SELECT
     MIN(price) OVER () as min_price,
     MAX(price) OVER () as max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -364,7 +348,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -375,7 +359,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE in_stock = true) OVER () as in_stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -387,7 +371,7 @@ SELECT
     rating,
     COUNT(brand) OVER () as brand_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -397,7 +381,7 @@ SELECT
     rating,
     COUNT(brand) OVER () as brand_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -411,7 +395,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -423,7 +407,7 @@ SELECT
     rating,
     COUNT(*) OVER (PARTITION BY category ORDER BY rating DESC) as category_rank_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -435,7 +419,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 SELECT 
     id,
@@ -443,7 +427,7 @@ SELECT
     rating,
     COUNT(*) OVER () as total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 -- Test 12: Window aggregate with RANGE frame
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -454,7 +438,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -465,7 +449,7 @@ SELECT
     price,
     SUM(price) OVER (ORDER BY rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING) as range_sum
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -481,7 +465,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as by_brand,
     COUNT(*) OVER () as total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -495,7 +479,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as by_brand,
     COUNT(*) OVER () as total
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -507,7 +491,7 @@ SELECT
     rating,
     COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -517,7 +501,7 @@ SELECT
     rating,
     COUNT(*) OVER (ORDER BY rating GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) as group_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -556,7 +540,7 @@ SELECT
     COUNT(*) OVER () as total_count,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 
@@ -571,7 +555,7 @@ SELECT
     COUNT(*) OVER () as total_count,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 
@@ -585,7 +569,7 @@ SELECT * FROM (
         price,
         COUNT(*) OVER () as total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) sub
@@ -600,7 +584,7 @@ SELECT * FROM (
         price,
         COUNT(*) OVER () as total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) sub
@@ -617,7 +601,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -629,7 +613,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY category) as category_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -651,7 +635,7 @@ SELECT
         ELSE 'Premium'
     END) as bucket_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
@@ -671,7 +655,7 @@ SELECT
         ELSE 'Premium'
     END) as bucket_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
@@ -686,7 +670,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as brand_count,
     AVG(price) OVER (PARTITION BY brand) as avg_brand_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -699,7 +683,7 @@ SELECT
     COUNT(*) OVER (PARTITION BY brand) as brand_count,
     AVG(price) OVER (PARTITION BY brand) as avg_brand_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -714,7 +698,7 @@ SELECT
     MIN(price) OVER (PARTITION BY category) as category_min_price,
     MAX(price) OVER (PARTITION BY category) as category_max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -727,7 +711,7 @@ SELECT
     MIN(price) OVER (PARTITION BY category) as category_min_price,
     MAX(price) OVER (PARTITION BY category) as category_max_price
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -740,7 +724,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -751,7 +735,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -769,7 +753,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -785,7 +769,7 @@ SELECT
     COUNT(*) OVER () as total_results,
     SUM(sales) OVER () as total_sales
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -809,7 +793,7 @@ SELECT
         ELSE 'Fair (<4.0)'
     END) as tier_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
@@ -831,7 +815,7 @@ SELECT
         ELSE 'Fair (<4.0)'
     END) as tier_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
@@ -858,7 +842,7 @@ SELECT
     -- Stock facets
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -883,13 +867,13 @@ SELECT
     -- Stock facets
     COUNT(*) OVER (PARTITION BY in_stock) as stock_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
 -- =============================================================================
 -- QUERY CONTEXT FEATURE FLAG TESTS
--- Testing HAVING_SUPPORT, JOIN_SUPPORT, and SUBQUERY_SUPPORT feature flags
+-- Testing HAVING_SUPPORT, and SUBQUERY_SUPPORT feature flags
 -- =============================================================================
 
 -- Test 26: Window function with HAVING clause (should NOT use custom scan - HAVING_SUPPORT=false)
@@ -899,7 +883,7 @@ SELECT
     AVG(price) as avg_price,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
@@ -910,13 +894,13 @@ SELECT
     AVG(price) as avg_price,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
 
--- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
+-- Test 27: Window function with JOIN (This is supported. Joinscan should engage)
 
 -- Create a second table for JOIN testing
 CREATE TABLE product_categories (
@@ -929,8 +913,7 @@ INSERT INTO product_categories VALUES
 ('Laptops', 'Portable computing devices', 1);
 
 CREATE INDEX product_categories_idx ON product_categories
-USING paradedb (name, description, priority)
-WITH (key_field='name');
+USING paradedb ((name::pdb.simple('columnar=true')), (description::pdb.simple('columnar=true')), priority);
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -941,11 +924,11 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
 LIMIT 3;
 
-SELECT 
+SELECT
     p.id,
     p.name,
     p.rating,
@@ -953,8 +936,94 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 ORDER BY p.rating DESC
+LIMIT 3;
+
+-- Test 27b: Global window function over a JOIN with fast-field join keys
+-- JoinScan absorbs the empty OVER () window aggregates and computes them
+-- in its DataFusion plan (issue #5637).
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    content TEXT,
+    score INTEGER
+);
+
+INSERT INTO product_reviews (product_id, content, score) VALUES
+(1, 'Excellent build quality', 95),
+(1, 'Battery could be better', 70),
+(2, 'Great value ultrabook', 88),
+(3, 'Keyboard is fantastic', 91),
+(5, 'Runs hot under load', 65);
+
+CREATE INDEX product_reviews_idx ON product_reviews
+USING paradedb (
+    id,
+    product_id,
+    (content::pdb.unicode_words),
+    score
+); 
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    p.name,
+    r.score,
+    COUNT(*) OVER () AS total_count,
+    SUM(r.score) OVER () AS total_score,
+    AVG(r.score) OVER () AS avg_score,
+    MIN(r.score) OVER () AS min_score,
+    MAX(r.score) OVER () AS max_score
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+-- Test 27c: Window aggregates embedded in target list expressions:
+-- constant arithmetic, a cast, a source column mixed with a window value,
+-- and two window functions in one entry.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
+LIMIT 3;
+
+SELECT
+    p.id,
+    r.score,
+    COUNT(*) OVER () + 1 AS count_plus_one,
+    AVG(r.score) OVER ()::float8 AS avg_score,
+    r.score + COUNT(*) OVER () AS score_plus_count,
+    COUNT(*) OVER () + SUM(r.score) OVER () AS count_plus_sum
+FROM products p
+JOIN product_reviews r ON p.id = r.product_id
+WHERE p.description ||| 'laptop'
+ORDER BY r.score DESC
 LIMIT 3;
 
 -- Test 28: Window function in subquery
@@ -968,7 +1037,7 @@ FROM (
         price,
         COUNT(*) OVER() AS total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) subq
@@ -985,7 +1054,7 @@ FROM (
         price,
         COUNT(*) OVER() AS total_count
     FROM products
-    WHERE description @@@ 'laptop'
+    WHERE description ||| 'laptop'
     ORDER BY rating DESC
     LIMIT 5
 ) subq
@@ -1007,7 +1076,7 @@ FROM (
             rating,
             COUNT(*) OVER() AS total_count
         FROM products
-        WHERE description @@@ 'laptop'
+        WHERE description ||| 'laptop'
         ORDER BY rating DESC
         LIMIT 4
     ) inner_query
@@ -1026,7 +1095,7 @@ FROM (
             rating,
             COUNT(*) OVER() AS total_count
         FROM products
-        WHERE description @@@ 'laptop'
+        WHERE description ||| 'laptop'
         ORDER BY rating DESC
         LIMIT 4
     ) inner_query
@@ -1042,7 +1111,7 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
@@ -1055,7 +1124,7 @@ SELECT
     COUNT(*) OVER() AS total_count
 FROM products p
 JOIN product_categories pc ON p.category = pc.name
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
@@ -1072,7 +1141,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1083,7 +1152,7 @@ SELECT
     in_stock,
     COUNT(*) FILTER (WHERE rating > 4.5) OVER() AS high_rating_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1094,7 +1163,7 @@ SELECT
     AVG(rating) as avg_rating,
     COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(rating) > 4.0
 ORDER BY avg_rating DESC
@@ -1105,7 +1174,7 @@ SELECT
     AVG(rating) as avg_rating,
     COUNT(*) FILTER (WHERE price > 1500) OVER() AS expensive_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 GROUP BY category
 HAVING AVG(rating) > 4.0
 ORDER BY avg_rating DESC
@@ -1122,7 +1191,7 @@ SELECT
     SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
     COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1135,7 +1204,7 @@ SELECT
     SUM(price) OVER() AS total_price,                  -- Not supported (SUM=false)
     COUNT(brand) OVER() AS brand_count                 -- Not supported (COUNT=false)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1149,7 +1218,7 @@ SELECT
     COUNT(*) OVER() AS total_count1,                   -- Supported (COUNT_ANY=true)
     COUNT(*) OVER() AS total_count2                    -- Supported (COUNT_ANY=true)
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1161,7 +1230,7 @@ SELECT
     COUNT(*) OVER() AS total_count1,
     COUNT(*) OVER() AS total_count2
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1173,7 +1242,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 SELECT 
     id,
@@ -1181,7 +1250,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 -- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_K=true)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1191,7 +1260,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC;
 
 SELECT 
@@ -1200,7 +1269,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC;
 
 -- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_K=true)
@@ -1211,7 +1280,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 LIMIT 3;
 
 SELECT 
@@ -1220,7 +1289,7 @@ SELECT
     rating,
     COUNT(*) OVER() AS total_count
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 LIMIT 3;
 
 -- Test 37: Window function with COALESCE
@@ -1234,7 +1303,7 @@ SELECT
     SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
     AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1247,7 +1316,7 @@ SELECT
     SUM(COALESCE(price, 0.0)) OVER() AS total_price_with_default,
     AVG(COALESCE(rating, 4.0)) OVER() AS avg_rating_with_default
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
@@ -1256,13 +1325,13 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
@@ -1271,13 +1340,13 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
@@ -1286,13 +1355,13 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
@@ -1302,17 +1371,18 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
-WHERE description @@@ 'laptop'
+WHERE description ||| 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
 
 -- Cleanup
+DROP TABLE product_reviews CASCADE;
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

@@ -8,13 +8,13 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, string_field, numeric_field
 FROM nullable_test
-WHERE content @@@ 'null'
+WHERE content ||| 'null'
 ORDER BY id;
 
 -- Test retrieval of NULL values
 SELECT id, string_field, numeric_field
 FROM nullable_test
-WHERE content @@@ 'null'
+WHERE content ||| 'null'
 ORDER BY id;
 
 \i common/columnar_edgecases_cleanup.sql

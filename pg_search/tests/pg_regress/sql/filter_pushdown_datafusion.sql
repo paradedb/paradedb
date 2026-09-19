@@ -58,11 +58,9 @@ INSERT INTO suppliers (id, name, description, country, rating) VALUES
 (5, 'PowerTech', 'Power and charging solutions', 'USA', 4);
 
 -- Create BM25 indexes
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}, "stock": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price, stock);
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating)
-WITH (key_field = 'id', numeric_fields = '{"rating": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, description, country, rating);
 
 -- Enable JoinScan
 SET paradedb.enable_join_custom_scan = on;
@@ -77,21 +75,21 @@ SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
 -- TEST 1: Simple cross-table OR
--- (p.description @@@ 'X') OR (s.description @@@ 'Y')
+-- (p.description ||| 'X') OR (s.description ||| 'Y')
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
+WHERE (p.description ||| 'laptop' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
+WHERE (p.description ||| 'laptop' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
@@ -103,14 +101,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
+WHERE ((p.description ||| 'monitor' OR p.description ||| 'webcam') OR (s.description ||| 'display' OR s.description ||| 'premium'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
+WHERE ((p.description ||| 'monitor' OR p.description ||| 'webcam') OR (s.description ||| 'display' OR s.description ||| 'premium'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -125,7 +123,7 @@ SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price > 100
-  AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
+  AND ((p.description ||| 'laptop' OR p.description ||| 'keyboard') OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
@@ -133,7 +131,7 @@ SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.price > 100
-  AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
+  AND ((p.description ||| 'laptop' OR p.description ||| 'keyboard') OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
@@ -146,14 +144,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
+WHERE (p.description ||| 'laptop' OR p.description ||| 'monitor' OR s.description ||| 'professional')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
+WHERE (p.description ||| 'laptop' OR p.description ||| 'monitor' OR s.description ||| 'professional')
 ORDER BY p.id
 LIMIT 10;
 
@@ -166,7 +164,7 @@ SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.stock >= 25
-  AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
+  AND ((p.description ||| 'laptop' OR p.description ||| 'monitor' OR p.description ||| 'headphones') OR (s.description ||| 'audio' OR s.description ||| 'display'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -174,7 +172,7 @@ SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.stock >= 25
-  AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
+  AND ((p.description ||| 'laptop' OR p.description ||| 'monitor' OR p.description ||| 'headphones') OR (s.description ||| 'audio' OR s.description ||| 'display'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -188,16 +186,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
-  AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
+WHERE (p.description ||| 'laptop' OR p.description ||| 'keyboard')
+  AND (p.description ||| 'computer' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
-  AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
+WHERE (p.description ||| 'laptop' OR p.description ||| 'keyboard')
+  AND (p.description ||| 'computer' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
@@ -211,14 +209,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.description ||| 'professional' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
+WHERE p.description ||| 'keyboard' OR (p.description ||| 'headphones' OR (s.description ||| 'professional' AND NOT p.description ||| 'wireless'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -231,16 +229,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop OR headphones')
-  AND (s.description @@@ 'technology OR audio')
+WHERE ((p.description ||| 'laptop' OR p.description ||| 'headphones'))
+  AND ((s.description ||| 'technology' OR s.description ||| 'audio'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (p.description @@@ 'laptop OR headphones')
-  AND (s.description @@@ 'technology OR audio')
+WHERE ((p.description ||| 'laptop' OR p.description ||| 'headphones'))
+  AND ((s.description ||| 'technology' OR s.description ||| 'audio'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -253,16 +251,16 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
-    OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
+WHERE ((p.description ||| 'laptop' AND s.description ||| 'technology')
+    OR (p.description ||| 'headphones' AND s.description ||| 'audio'))
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
-    OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
+WHERE ((p.description ||| 'laptop' AND s.description ||| 'technology')
+    OR (p.description ||| 'headphones' AND s.description ||| 'audio'))
 ORDER BY p.id
 LIMIT 10;
 
@@ -275,14 +273,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
+WHERE (NOT p.description ||| 'wireless' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
+WHERE (NOT p.description ||| 'wireless' OR s.description ||| 'technology')
 ORDER BY p.id
 LIMIT 10;
 

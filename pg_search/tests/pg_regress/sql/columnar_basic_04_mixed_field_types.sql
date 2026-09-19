@@ -8,13 +8,13 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT numeric_field1, string_field1, numeric_field2, string_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'red'
+WHERE content ||| 'red'
 ORDER BY id;
 
 -- Execute query and check results
 SELECT numeric_field1, string_field1, numeric_field2, string_field2
 FROM mixed_numeric_string_test
-WHERE content @@@ 'red'
+WHERE content ||| 'red'
 ORDER BY id;
 
 \i common/columnar_basic_cleanup.sql

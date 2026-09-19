@@ -24,7 +24,6 @@ INSERT INTO partial_test (description, category, rating) VALUES
 -- Create partial index with WHERE clause
 CREATE INDEX partial_test_idx ON partial_test
 USING paradedb (id, description)
-WITH (key_field = 'id')
 WHERE category = 'Electronics';
 
 -- ============================================================
@@ -34,12 +33,12 @@ WHERE category = 'Electronics';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics'
+WHERE description ||| 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
 
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics'
+WHERE description ||| 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
 
 -- ============================================================
@@ -50,12 +49,12 @@ ORDER BY score DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
+WHERE description ||| 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
 
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
+WHERE description ||| 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
 
 -- ============================================================
@@ -88,27 +87,19 @@ CALL paradedb.create_paradedb_test_table(table_name => 'test_partial_index', sch
 
 -- Create partial index with predicate WHERE category = 'Electronics'
 CREATE INDEX partial_idx ON paradedb.test_partial_index
-USING paradedb (id, description, category, rating)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "description": {
-            "tokenizer": {"type": "default"}
-        }
-    }'
-) WHERE category = 'Electronics';
+USING paradedb (id, (description::pdb.simple), category, rating) WHERE category = 'Electronics';
 
 -- Test 1: Query WITH category = 'Electronics' predicate
 -- This should use the partial index and return only Electronics items with rating > 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 -- Insert test data
@@ -121,7 +112,7 @@ INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock
 -- Product 3 (Footwear) is NOT in partial index and NOT in query results
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 -- Test 3: Update Product 1 to Footwear - should reduce results to 5
@@ -129,7 +120,7 @@ UPDATE paradedb.test_partial_index SET category = 'Footwear' WHERE description =
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 -- Test 4: Update Product 3 to Electronics - should increase results to 6
@@ -137,12 +128,12 @@ UPDATE paradedb.test_partial_index SET category = 'Electronics' WHERE descriptio
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('rating:>1')
 ORDER BY rating LIMIT 20;
 
 -- Test 5: Query for Footwear items should return nothing from partial index
@@ -150,12 +141,12 @@ ORDER BY rating LIMIT 20;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('category:Footwear AND rating:>1')
 ORDER BY rating LIMIT 20;
 
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ pdb.parse('category:Footwear AND rating:>1')
 ORDER BY rating LIMIT 20;
 
 -- Cleanup
@@ -184,7 +175,6 @@ INSERT INTO profiles (id, headline, deleted_at) VALUES
 -- Create partial index with WHERE deleted_at IS NULL
 CREATE INDEX profiles_search_idx ON profiles
 USING paradedb (id, headline)
-WITH (key_field = 'id')
 WHERE deleted_at IS NULL;
 
 -- Enable aggregate custom scan for this test
@@ -193,9 +183,9 @@ SET paradedb.enable_aggregate_custom_scan = true;
 -- Test: COUNT(*) with partial index predicate should use Aggregate Scan
 -- and should NOT have heap_filter for deleted_at IS NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+SELECT COUNT(*) FROM profiles WHERE headline ||| 'Engineer' AND deleted_at IS NULL;
 
-SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+SELECT COUNT(*) FROM profiles WHERE headline ||| 'Engineer' AND deleted_at IS NULL;
 
 -- Cleanup
 DROP TABLE profiles CASCADE;

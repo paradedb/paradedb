@@ -12,20 +12,7 @@ CREATE TABLE items (
 ALTER TABLE ONLY items
     ADD CONSTRAINT items_pkey PRIMARY KEY (id);
 
-CREATE INDEX items_idx ON items USING paradedb (
-    id,
-    group_id,
-    status,
-    created_at
-)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "id": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "group_id": { "fast": true, "tokenizer": { "type": "keyword" } },
-        "status": { "fast": true, "tokenizer": { "type": "keyword" } }
-    }'
-);
+CREATE INDEX items_idx ON items USING paradedb ((id::pdb.literal), (group_id::pdb.literal), (status::pdb.literal), created_at);
 
 INSERT INTO items (id, group_id, status, created_at)
 VALUES
@@ -43,7 +30,7 @@ FROM items
 WHERE
     group_id = 'g1'
     AND (id @@@ paradedb.all())
-    AND status @@@ 'IN [posted pending]'
+    AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (
         created_at < (SELECT created_at FROM items WHERE id = '4')
@@ -58,7 +45,7 @@ FROM items
 WHERE
     group_id = 'g1'
     AND (id @@@ paradedb.all())
-    AND status @@@ 'IN [posted pending]'
+    AND status === ARRAY['posted', 'pending']
     AND created_at <= (SELECT created_at FROM items WHERE id = '4')
     AND (
         created_at < (SELECT created_at FROM items WHERE id = '4')

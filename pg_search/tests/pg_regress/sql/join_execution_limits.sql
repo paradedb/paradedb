@@ -50,23 +50,22 @@ SELECT
 FROM generate_series(1, 1000) i;
 
 -- Note: large_orders.supplier_id must be columnar for the join key
-CREATE INDEX large_orders_bm25_idx ON large_orders USING paradedb (id, description, supplier_id)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
-CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country) WITH (key_field = 'id');
+CREATE INDEX large_orders_bm25_idx ON large_orders USING paradedb (id, description, supplier_id);
+CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING paradedb (id, name, country);
 
 -- This query may fall back to nested loop due to small work_mem
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
 JOIN large_suppliers ls ON lo.supplier_id = ls.id
-WHERE lo.description @@@ 'wireless'
+WHERE lo.description ||| 'wireless'
 ORDER BY lo.id
 LIMIT 10;
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
 JOIN large_suppliers ls ON lo.supplier_id = ls.id
-WHERE lo.description @@@ 'wireless'
+WHERE lo.description ||| 'wireless'
 ORDER BY lo.id
 LIMIT 10;
 
@@ -111,10 +110,9 @@ FROM generate_series(1, 500) AS i;
 
 -- Note: mem_test_products.supplier_id must be columnar for the join key
 CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
-    USING paradedb (id, name, description, supplier_id)
-    WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+    USING paradedb (id, name, description, supplier_id);
 CREATE INDEX mem_test_suppliers_bm25_idx ON mem_test_suppliers
-    USING paradedb (id, name, info) WITH (key_field = 'id');
+    USING paradedb (id, name, info);
 
 -- Run with constrained work_mem to test memory handling
 -- Note: 64 is the minimum work_mem in PostgreSQL (KB)
@@ -124,14 +122,14 @@ SET work_mem = '64kB';
 SELECT COUNT(*) AS match_count
 FROM mem_test_products p
 JOIN mem_test_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 LIMIT 100;
 
 -- Verify actual results are correct
 SELECT p.name, s.name AS supplier_name
 FROM mem_test_products p
 JOIN mem_test_suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 
@@ -177,22 +175,21 @@ SELECT
 FROM generate_series(1, 1000) AS i;
 
 -- Note: large_items.category_id must be columnar for the join key
-CREATE INDEX large_items_bm25_idx ON large_items USING paradedb (id, name, content, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description) WITH (key_field = 'id');
+CREATE INDEX large_items_bm25_idx ON large_items USING paradedb (id, name, content, category_id);
+CREATE INDEX large_categories_bm25_idx ON large_categories USING paradedb (id, name, description);
 
 -- Query with larger LIMIT to test larger result sets
 SELECT COUNT(*) AS wireless_count
 FROM large_items li
 JOIN large_categories lc ON li.category_id = lc.id
-WHERE li.content @@@ 'wireless'
+WHERE li.content ||| 'wireless'
 LIMIT 500;
 
 -- Verify first few results
 SELECT li.name, lc.name AS category_name
 FROM large_items li
 JOIN large_categories lc ON li.category_id = lc.id
-WHERE li.content @@@ 'wireless'
+WHERE li.content ||| 'wireless'
 ORDER BY li.id
 LIMIT 5;
 
@@ -227,15 +224,14 @@ INSERT INTO update_test_items (id, content, ref_id) VALUES
 (103, 'wireless device gamma', 3);
 
 -- Note: update_test_items.ref_id must be columnar for the join key
-CREATE INDEX update_items_bm25_idx ON update_test_items USING paradedb (id, content, ref_id)
-WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name) WITH (key_field = 'id');
+CREATE INDEX update_items_bm25_idx ON update_test_items USING paradedb (id, content, ref_id);
+CREATE INDEX update_refs_bm25_idx ON update_test_refs USING paradedb (id, ref_name);
 
 -- Initial query
 SELECT i.id, i.content, r.ref_name, i.version
 FROM update_test_items i
 JOIN update_test_refs r ON i.ref_id = r.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -246,7 +242,7 @@ UPDATE update_test_items SET version = 2 WHERE content LIKE '%wireless%';
 SELECT i.id, i.content, r.ref_name, i.version
 FROM update_test_items i
 JOIN update_test_refs r ON i.ref_id = r.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -257,7 +253,7 @@ UPDATE update_test_items SET content = 'updated wireless device', version = 3 WH
 SELECT i.id, i.content, r.ref_name, i.version
 FROM update_test_items i
 JOIN update_test_refs r ON i.ref_id = r.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -268,7 +264,7 @@ UPDATE update_test_items SET ref_id = 2, version = 4 WHERE id = 103;
 SELECT i.id, i.content, r.ref_name, i.version
 FROM update_test_items i
 JOIN update_test_refs r ON i.ref_id = r.id
-WHERE i.content @@@ 'wireless'
+WHERE i.content ||| 'wireless'
 ORDER BY i.id
 LIMIT 10;
 
@@ -302,23 +298,22 @@ INSERT INTO tiny_products VALUES
 (103, 1, 'wireless device gamma');
 
 -- Note: tiny_products.ref_id must be columnar for the join key
-CREATE INDEX tiny_products_bm25_idx ON tiny_products USING paradedb (id, description, ref_id)
-WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
-CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name) WITH (key_field = 'id');
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING paradedb (id, description, ref_id);
+CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING paradedb (id, name);
 
 -- Query with very small build side - should work correctly regardless of algorithm
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
 JOIN tiny_refs tr ON tp.ref_id = tr.id
-WHERE tp.description @@@ 'wireless'
+WHERE tp.description ||| 'wireless'
 ORDER BY tp.id
 LIMIT 10;
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
 JOIN tiny_refs tr ON tp.ref_id = tr.id
-WHERE tp.description @@@ 'wireless'
+WHERE tp.description ||| 'wireless'
 ORDER BY tp.id
 LIMIT 10;
 
@@ -354,23 +349,22 @@ SELECT i, (i % 50) + 1,
 FROM generate_series(1, 200) i;
 
 -- Note: hint_test_products.category_id must be columnar for the join key
-CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING paradedb (id, description, category_id)
-WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
-CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name) WITH (key_field = 'id');
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING paradedb (id, description, category_id);
+CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING paradedb (id, name);
 
 -- Query that exercises hash table with medium build side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
-WHERE hp.description @@@ 'wireless'
+WHERE hp.description ||| 'wireless'
 ORDER BY hp.id
 LIMIT 20;
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
-WHERE hp.description @@@ 'wireless'
+WHERE hp.description ||| 'wireless'
 ORDER BY hp.id
 LIMIT 20;
 
@@ -378,7 +372,7 @@ LIMIT 20;
 SELECT COUNT(*) AS wireless_count
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
-WHERE hp.description @@@ 'wireless';
+WHERE hp.description ||| 'wireless';
 
 -- =============================================================================
 -- CLEANUP

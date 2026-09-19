@@ -9,20 +9,7 @@ CREATE TABLE comments (
 	text TEXT DEFAULT ''
 );
 -- add search index
-CREATE INDEX comments_search ON comments USING paradedb (
-	id, customer_id, text
-)
-WITH (
-	key_field='id',
-	text_fields='{
-		"id": {"tokenizer": {"type": "keyword"}, "fast": true},
-		"customer_id": {
-			"fast":true,
-			"tokenizer": {"type": "keyword"},
-			"record": "basic"
-		}
-	}'
-);
+CREATE INDEX comments_search ON comments USING paradedb ((id::pdb.literal), (customer_id::pdb.literal), text);
 -- populate the table with faulty data
 INSERT INTO comments (id, customer_id) VALUES ('ctx_01ifsur2egUPnbJOAiHv', 'customer_1');
 INSERT INTO comments (id, customer_id) VALUES ('ctx_01iddo3tioqV6f4yCB6O', 'customer_1');

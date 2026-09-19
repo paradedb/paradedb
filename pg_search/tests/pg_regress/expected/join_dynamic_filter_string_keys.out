@@ -41,11 +41,9 @@ SELECT md5('k' || i)::uuid,
        i
 FROM generate_series(1, 5000) i;
 CREATE INDEX strkey_build_idx ON strkey_build
-USING bm25 (id, (id_txt::pdb.literal), keep, ordinal)
-WITH (key_field = 'id');
+USING paradedb (id, (id_txt::pdb.literal), keep, ordinal);
 CREATE INDEX strkey_probe_idx ON strkey_probe
-USING bm25 (id, fk_uuid, (fk_txt::pdb.literal), amount)
-WITH (key_field = 'id');
+USING paradedb (id, fk_uuid, (fk_txt::pdb.literal), amount);
 ANALYZE strkey_build;
 ANALYZE strkey_probe;
 -- =============================================================================
@@ -66,11 +64,11 @@ LIMIT 10;
    Limit: 10
    Order By: b.ordinal asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[ordinal@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
-     :   SortExec: TopK(fetch=10), expr=[ordinal@0 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@0 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
+     : ProjectionExec: expr=[ordinal@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[ordinal@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@1 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
      :     VisibilityFilterExec: tables=[b, p], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, fk_uuid@0)], projection=[ordinal@1, ctid_0@2, ctid_1@4], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk_uuid@1)], projection=[ctid_0@0, ordinal@2, ctid_1@3], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.3 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1792.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
      :           CooperativeExec
@@ -115,11 +113,11 @@ LIMIT 10;
    Limit: 10
    Order By: b.ordinal asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[ordinal@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
-     :   SortExec: TopK(fetch=10), expr=[ordinal@0 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@0 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
+     : ProjectionExec: expr=[ordinal@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
+     :   SortExec: TopK(fetch=10), expr=[ordinal@1 ASC NULLS LAST], preserve_partitioning=[false], filter=[ordinal@1 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
      :     VisibilityFilterExec: tables=[b, p], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1], metrics=[output_rows=20, output_bytes=64.3 KB, output_batches=1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@0, fk_txt@0)], projection=[ordinal@1, ctid_0@2, ctid_1@4], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id_txt@1, fk_txt@1)], projection=[ctid_0@0, ordinal@2, ctid_1@3], metrics=[output_rows=20, output_bytes=192.0 KB, output_batches=1, build_mem_used=2.2 KB, array_map_created_count=0, build_input_batches=1, build_input_rows=20, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :           CooperativeExec
      :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"keep","value":true}}]}}, metrics=[output_rows=20, output_bytes=1664.0 B, output_batches=1, rows_pruned=0, rows_scanned=20]
      :           CooperativeExec

@@ -32,8 +32,7 @@ CREATE TABLE items (
 );
 -- Create BM25 index BEFORE inserting data to create multiple segments
 CREATE INDEX items_bm25_idx ON items
-USING paradedb (id, name)
-WITH (key_field = 'id');
+USING paradedb (id, name);
 -- Insert first batch of data (creates segment 1)
 INSERT INTO items (name) SELECT 'item ' || g FROM generate_series(1, 5000) g;
 -- Insert second batch (creates segment 2)
@@ -52,9 +51,9 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 -- Test 1: min_rows_per_worker=2000 -> 1000/2000 = 0 workers -> serial
 SET paradedb.min_rows_per_worker = 2000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
-                                                                                                                                         QUERY PLAN                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.items
    Output: items.id, items.name
    Table: items
@@ -62,7 +61,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 F
    Worker Selection: Row-capped
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
    InitPlan 2
      ->  Result
            Output: ((InitPlan 1).col1 + 1)
@@ -76,9 +75,9 @@ SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 F
 -- Test 2: min_rows_per_worker=500 -> 1000/500 = 2 workers -> parallel
 SET paradedb.min_rows_per_worker = 500;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather
    Output: items.id, items.name
    Workers Planned: 2
@@ -97,15 +96,15 @@ SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 F
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
 (19 rows)
 
 -- Test 3: min_rows_per_worker=0 -> no cap -> parallel by segment count
 SET paradedb.min_rows_per_worker = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 FROM items);
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name ||| 'item' AND id <> (SELECT max(id) + 1 FROM items);
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather
    Output: items.id, items.name
    Workers Planned: 2
@@ -124,7 +123,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' AND id <> (SELECT max(id) + 1 F
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '<>'::text, $2)"}}}]}}
 (19 rows)
 
 -- Test 4: TopK sorted scan bypasses min_rows_per_worker
@@ -176,9 +175,9 @@ LIMIT 10;
 -- TopK with ORDER BY id (not score) also declares sorted output and must visit
 -- all segments, so parallel should be enabled despite high threshold.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name ||| 'item' ORDER BY id LIMIT 10;
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
    ->  Gather Merge
@@ -193,7 +192,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Scores: false
                   TopK Order By: id asc
                   TopK Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 -- Test 6: Verify unanalyzed table behavior
@@ -205,8 +204,7 @@ CREATE TABLE items (
     name TEXT NOT NULL
 ) WITH (autovacuum_enabled = off);
 CREATE INDEX items_bm25_idx ON items
-USING paradedb (id, name)
-WITH (key_field = 'id');
+USING paradedb (id, name);
 -- Insert data in two batches but DON'T analyze
 INSERT INTO items (name) SELECT 'item ' || g FROM generate_series(1, 5000) g;
 INSERT INTO items (name) SELECT 'item ' || g FROM generate_series(5001, 10000) g;
@@ -221,9 +219,9 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 -- parallel should still be used because we don't have reliable row estimates
 SET paradedb.min_rows_per_worker = 300000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item';
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, name FROM items WHERE name ||| 'item';
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather
    Output: id, name
    Workers Planned: 2
@@ -234,7 +232,7 @@ SELECT id, name FROM items WHERE name @@@ 'item';
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 -- Clean up

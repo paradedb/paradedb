@@ -27,11 +27,11 @@ use tests::fixtures::*;
 fn corrupt_targetlist(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id, score) = "select count(*), max(pdb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'"
+    let (id, score) = "select count(*), max(pdb.score(id)) from paradedb.bm25_search where description ||| 'keyboard'"
         .fetch_one::<(i64, f32)>(&mut conn);
     assert_eq!((id, score), (2, 3.2668595));
 
-    "PREPARE prep AS select count(*), max(pdb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'".execute(&mut conn);
+    "PREPARE prep AS select count(*), max(pdb.score(id)) from paradedb.bm25_search where description ||| 'keyboard'".execute(&mut conn);
     for _ in 0..100 {
         "EXECUTE prep".fetch_one::<(i64, f32)>(&mut conn);
         assert_eq!((id, score), (2, 3.2668595));
@@ -42,7 +42,7 @@ fn corrupt_targetlist(mut conn: PgConnection) {
 fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id, ) = "SELECT id, description FROM paradedb.bm25_search WHERE description @@@ 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
+    let (id, ) = "SELECT id, description FROM paradedb.bm25_search WHERE description ||| 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -51,7 +51,7 @@ fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
 fn generates_custom_scan_for_or(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' OR description ||| 'shoes'".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
 
     let plan = plan.pointer("/0/Plan").unwrap();
@@ -70,7 +70,7 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND description ||| 'shoes'".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan.pointer("/0/Plan").unwrap();
     assert_eq!(
@@ -87,7 +87,7 @@ fn includes_segment_count(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND description ||| 'shoes'".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan.pointer("/0/Plan").unwrap();
     assert!(plan.get("Segment Count").is_some());
@@ -98,7 +98,7 @@ fn field_on_left(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id,) =
-        "SELECT id FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY id ASC"
+        "SELECT id FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id ASC"
             .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -107,8 +107,8 @@ fn field_on_left(mut conn: PgConnection) {
 fn table_on_left(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id, ) =
-        "SELECT id FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id ASC"
+    let (id,) =
+        "SELECT id FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY id ASC"
             .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -118,7 +118,7 @@ fn scores_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score) =
-        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.score(id) FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -129,7 +129,7 @@ fn snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.snippet(description) FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(snippet, String::from("Plastic <b>Keyboard</b>"));
@@ -140,7 +140,7 @@ fn scores_and_snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score, snippet) =
-        "SELECT id, pdb.score(id), pdb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
+        "SELECT id, pdb.score(id), pdb.snippet(description) FROM paradedb.bm25_search WHERE description ||| 'keyboard' ORDER BY pdb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -152,7 +152,7 @@ fn mingets(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, pdb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
+        "SELECT id, pdb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description ||| 'teddy bear'"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 40);
     assert_eq!(
@@ -172,7 +172,7 @@ select id,
     rating,
     pdb.score(id) * rating    /* testing this, specifically */
 from paradedb.bm25_search
-where metadata @@@ 'color:white'
+where metadata->>'color' ||| 'white'
 order by 5 desc, score desc
 limit 1;
         "#
@@ -195,7 +195,7 @@ fn limit_without_order_by(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     let (plan, ) = r#"
-explain (analyze, format json) select * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
+explain (analyze, format json) select * from paradedb.bm25_search where metadata->>'color' ||| 'white' limit 1;
         "#
         .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
@@ -216,7 +216,7 @@ fn score_and_limit_without_order_by(mut conn: PgConnection) {
 
     "SET enable_indexscan TO off;".execute(&mut conn);
     let (plan, ) = r#"
-explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
+explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search where metadata->>'color' ||| 'white' limit 1;
         "#
         .fetch_one::<(Value,)>(&mut conn);
     let path = plan.pointer("/0/Plan/Plans/0").unwrap();
@@ -242,7 +242,7 @@ select a.id,
     b.score
 from (select pdb.score(id), * from paradedb.bm25_search) a
 inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
-where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
+where a.description ||| 'bear' AND b.description ||| 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
 
     // PG18 introduces self-join elimination (SJE) which combines the queries into a single scan.
@@ -275,7 +275,7 @@ select a.id,
     b.score
 from (select pdb.score(id), * from paradedb.bm25_search) a
 inner join (select pdb.score(id), * from paradedb.bm25_search) b on a.id = b.id
-where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
+where a.description ||| 'bear' OR b.description ||| 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
 
     // PG18 introduces self-join elimination (SJE) which combines the queries into a single scan.
@@ -301,8 +301,7 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
 
     CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
@@ -315,15 +314,14 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#.execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
     let result = "
         SELECT o.order_id, m.description, pdb.score(o.order_id) + pdb.score(m.id) as score
         FROM orders o JOIN mock_items m ON o.product_id = m.id
-        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+        WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'shoes'
         ORDER BY order_id
         LIMIT 1"
         .fetch_one::<(i32, String, f32)>(&mut conn);
@@ -337,9 +335,9 @@ fn scores_survive_joins(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'b', schema_name => 'public');
     CALL paradedb.create_paradedb_test_table(table_name => 'c', schema_name => 'public');
 
-    CREATE INDEX idxa ON a USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
-    CREATE INDEX idxb ON b USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
-    CREATE INDEX idxc ON c USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
+    CREATE INDEX idxa ON a USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
+    CREATE INDEX idxb ON b USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
+    CREATE INDEX idxc ON c USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
@@ -348,7 +346,7 @@ fn scores_survive_joins(mut conn: PgConnection) {
         FROM a
         join b on a.id = b.id
         join c on a.id = c.id
-        WHERE a.description @@@ 'shoes'
+        WHERE a.description ||| 'shoes'
         ORDER BY a.description;"#
         .fetch_result::<(String, f32)>(&mut conn)
         .expect("query failed");
@@ -372,8 +370,7 @@ fn join_issue_1776(mut conn: PgConnection) {
         );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at);
 
     CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
@@ -387,8 +384,7 @@ fn join_issue_1776(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -396,7 +392,7 @@ fn join_issue_1776(mut conn: PgConnection) {
         SELECT o.order_id, m.description, o.customer_name, pdb.score(o.order_id) as orders_score, pdb.score(m.id) as items_score
         FROM orders o
         JOIN mock_items m ON o.product_id = m.id
-        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
+        WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'shoes' OR m.description ||| 'Smith'
         ORDER BY order_id
         LIMIT 5;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
@@ -416,8 +412,7 @@ fn join_issue_1826(mut conn: PgConnection) {
         );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at);
 
     CALL paradedb.create_paradedb_test_table(
           schema_name => 'public',
@@ -431,8 +426,7 @@ fn join_issue_1826(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -440,7 +434,7 @@ fn join_issue_1826(mut conn: PgConnection) {
         SELECT o.order_id, m.description, o.customer_name, pdb.score(o.order_id) as orders_score, pdb.score(m.id) as items_score
         FROM orders o
         JOIN mock_items m ON o.product_id = m.id
-        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
+        WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'shoes' OR m.description ||| 'Smith'
         ORDER BY pdb.score(m.id) desc, m.id asc
         LIMIT 1;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
@@ -467,7 +461,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // this will raise an error when it hits id #12
-    let result = "SELECT id, pdb.score(id), raise_exception(id, 12) FROM paradedb.bm25_search WHERE category @@@ 'electronics' ORDER BY pdb.score(id) DESC, id LIMIT 10"
+    let result = "SELECT id, pdb.score(id), raise_exception(id, 12) FROM paradedb.bm25_search WHERE category ||| 'electronics' ORDER BY pdb.score(id) DESC, id LIMIT 10"
         .execute_result(&mut conn);
     assert!(result.is_err());
     assert_eq!(
@@ -519,14 +513,14 @@ fn cte_issue_1951(mut conn: PgConnection) {
         insert into t (id, data) select x, md5(x::text) || ' query' from generate_series(1, 100) x;
         insert into s (id, data) select x, md5(x::text) from generate_series(1, 100) x;
 
-        create index idxt on t using paradedb (id, data) with (key_field = id);
-        create index idxs on s using paradedb (id, data) with (key_field = id);
+        create index idxt on t using paradedb (id, data);
+        create index idxs on s using paradedb (id, data);
     "#.execute(&mut conn);
 
     let results = r#"
         with cte as (
         select id, 1 as score from t
-        where data @@@ 'query'
+        where data ||| 'query'
         limit 1)
         select cte.id from s
         right join cte on cte.id = s.id
@@ -541,8 +535,7 @@ fn without_operator_guc(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, rating)
-    WITH (key_field='id');
+    USING paradedb (id, description, rating);
     "#
     .execute(&mut conn);
 
@@ -579,8 +572,10 @@ fn without_operator_guc(mut conn: PgConnection) {
         }
 
         // And that a plan which does use our operator is not affected by the GUC.
-        let uses_custom_scan =
-            plan_uses_custom_scan(&mut conn, "SELECT id FROM mock_items WHERE id @@@ '1'");
+        let uses_custom_scan = plan_uses_custom_scan(
+            &mut conn,
+            "SELECT id FROM mock_items WHERE id @@@ pdb.all() AND id = 1",
+        );
         assert!(
             uses_custom_scan,
             "Should use the custom scan when our operator is used, regardless of \
@@ -616,7 +611,7 @@ fn top_k_matches(mut conn: PgConnection) {
 
         -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id');
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity);
         CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
         DECLARE
             current_txid bigint;
@@ -647,7 +642,7 @@ fn top_k_matches(mut conn: PgConnection) {
 
     for n in 1..=100 {
         let sql = format!(
-            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;"
+            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message ||| 'beer' order by severity limit {n}) x;"
         );
 
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
@@ -663,7 +658,7 @@ fn top_k_matches(mut conn: PgConnection) {
 
     for n in 1..=100 {
         let sql = format!(
-            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message @@@ 'beer' order by severity limit {n}) x;"
+            "select assert(count(*), LEAST({n}, 8)), count(*) from (select id from test where message ||| 'beer' order by severity limit {n}) x;"
         );
 
         let (b, count) = sql.fetch_one::<(bool, i64)>(&mut conn);
@@ -687,7 +682,7 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 
     let mut query = |offset: usize, limit: usize| -> Vec<(i32, String, f32)> {
         format!(
-            "SELECT id, description, pdb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'category:electronics'
+            "SELECT id, description, pdb.score(id) FROM paradedb.bm25_search WHERE category ||| 'electronics'
              ORDER BY pdb.score(id), id OFFSET {offset} LIMIT {limit}"
         )
         .fetch_collect(&mut conn)
@@ -715,15 +710,16 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 fn top_k_is_exhausted(mut conn: PgConnection) {
     r#"
         CREATE TABLE exhausted (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
-        CREATE INDEX exhausted_idx ON exhausted USING paradedb (id, message, severity) WITH (key_field = 'id');
+        CREATE INDEX exhausted_idx ON exhausted USING paradedb (id, message, severity);
         INSERT INTO exhausted (message, severity) VALUES ('beer wine cheese a', 1);
         SET max_parallel_workers = 0;
-    "#.execute(&mut conn);
+    "#
+    .execute(&mut conn);
 
     let (plan,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT * FROM exhausted
-        WHERE message @@@ 'beer'
+        WHERE message ||| 'beer'
         ORDER BY severity LIMIT 100;
     "#
     .fetch_one::<(Value,)>(&mut conn);
@@ -742,7 +738,7 @@ fn top_k_completes_issue2511(mut conn: PgConnection) {
     r#"
         drop table if exists loop;
         create table loop (id serial8 not null primary key, message text) with (autovacuum_enabled = false);
-        create index idxloop on loop using paradedb (id, message) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        create index idxloop on loop using paradedb (id, message) WITH (layer_sizes = '1GB, 1GB');
 
         insert into loop (message) select md5(x::text) from generate_series(1, 5000) x;
 
@@ -772,7 +768,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
@@ -856,8 +852,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     -- Create ParadeDB BM25 index
     DROP INDEX IF EXISTS company_name_search_idx;
     CREATE INDEX company_name_search_idx ON company
-    USING paradedb (id, name)
-    WITH (key_field = 'id');
+    USING paradedb (id, name);
 
     -- Insert test data
     DELETE FROM company;
@@ -905,7 +900,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     )
     SELECT
         u.id,
@@ -931,7 +926,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     ),
     scored_users AS (
         SELECT
@@ -973,7 +968,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     )
     SELECT
         u.id,
@@ -1026,7 +1021,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     )
     SELECT
         u.id,
@@ -1067,7 +1062,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     ),
     scored_users AS (
         SELECT
@@ -1109,7 +1104,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
     matched_companies AS (
         SELECT c.id, pdb.score(c.id) AS company_score
         FROM company c
-        WHERE c.id @@@ 'name:Testing'
+        WHERE c.name ||| 'Testing'
     )
     SELECT
         u.id,
@@ -1150,7 +1145,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
 
     CREATE TABLE t (id bigint);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;
-    CREATE INDEX t_idx ON t USING paradedb (id) WITH (key_field='id');
+    CREATE INDEX t_idx ON t USING paradedb (id);
     "#
     .execute(&mut conn);
 
@@ -1195,10 +1190,9 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
         content TEXT
     ) WITH (autovacuum_enabled = false);
 
-    CREATE INDEX idxa ON a USING paradedb (a_id_pk, content) WITH (key_field = 'a_id_pk');
+    CREATE INDEX idxa ON a USING paradedb (a_id_pk, content);
 
-    CREATE INDEX idxb ON b USING paradedb (b_id_pk, a_id_fk, content) WITH (key_field = 'b_id_pk',
-      text_fields = '{ "a_id_fk": { "fast": true, "tokenizer": { "type": "keyword" } } }');
+    CREATE INDEX idxb ON b USING paradedb (b_id_pk, (a_id_fk::pdb.literal), content);
 
     INSERT INTO a (a_id_pk, content) VALUES ('this-is-a-id', 'beer');
     INSERT INTO b (b_id_pk, a_id_fk, content) VALUES ('this-is-b-id', 'this-is-a-id', 'wine');
@@ -1213,7 +1207,7 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     SELECT a.a_id_pk as my_a_id_pk, b.b_id_pk as my_b_id_pk
     FROM b
     JOIN a ON a.a_id_pk = b.a_id_fk
-    WHERE a.content @@@ 'beer' AND b.content @@@ 'wine';
+    WHERE a.content ||| 'beer' AND b.content ||| 'wine';
     "#
     .fetch_result::<(String, String)>(&mut conn)
     .expect("JOIN query with string fast fields should execute successfully");
@@ -1233,10 +1227,9 @@ fn custom_scan_respects_parentheses_issue2526(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     "#.execute(&mut conn);
 
-    let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description @@@ 'shoes' AND (description @@@ 'keyboard' OR description @@@ 'hat')".fetch(&mut conn);
+    let result: Vec<(i64,)> = "SELECT COUNT(*) from mock_items WHERE description ||| 'shoes' AND (description ||| 'keyboard' OR description ||| 'hat')".fetch(&mut conn);
     assert_eq!(result, vec![(0,)]);
 }

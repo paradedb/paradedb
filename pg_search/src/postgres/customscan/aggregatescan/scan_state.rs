@@ -98,6 +98,13 @@ pub struct DataFusionAggState {
     /// Per-phase launch timing for `EXPLAIN ANALYZE`'s `MPP Launch` line. Set only when the
     /// query launched distributed.
     pub launch_timing: Option<MppLaunchTiming>,
+    /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
+    /// leader's own local execution spills an operator to disk. Serial queries have no
+    /// `ParallelScanState` to record this in, so it's tracked here instead; `shutdown_custom_scan`
+    /// reads it directly for the serial case, and ORs it with `ParallelScanState::did_spill()`
+    /// for the MPP case, since the leader can spill locally in addition to (or instead of) any
+    /// worker.
+    pub spilled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own
@@ -143,7 +150,7 @@ pub struct AggregateScanState {
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
     pub wrapped_projection: Option<WrappedAggregateProjection>,
 
-    /// Reusable tuple slot for aggregate result rows
+    /// Tantivy-only reusable tuple slot for aggregate result rows.
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,

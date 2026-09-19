@@ -32,50 +32,45 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 
 CREATE INDEX products_idx ON products
-USING paradedb (id, description, rating, category, price)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
-);
+USING paradedb (id, description, rating, (category::pdb.unicode_words('columnar=true')), price);
 
 -- Test 1.1: COUNT(*) aggregate (already supported)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
+SELECT COUNT(*) FROM products WHERE description ||| 'laptop';
 
-SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
+SELECT COUNT(*) FROM products WHERE description ||| 'laptop';
 
 -- Test 1.2: SUM aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
+SELECT SUM(price) FROM products WHERE description ||| 'laptop';
 
-SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
+SELECT SUM(price) FROM products WHERE description ||| 'laptop';
 
 -- Test 1.3: AVG aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
+SELECT AVG(price) FROM products WHERE description ||| 'laptop';
 
-SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
+SELECT AVG(price) FROM products WHERE description ||| 'laptop';
 
 -- Test 1.4: MIN aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MIN(price) FROM products WHERE description @@@ 'laptop';
+SELECT MIN(price) FROM products WHERE description ||| 'laptop';
 
-SELECT MIN(price) FROM products WHERE description @@@ 'laptop';
+SELECT MIN(price) FROM products WHERE description ||| 'laptop';
 
 -- Test 1.5: MAX aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
+SELECT MAX(price) FROM products WHERE description ||| 'laptop';
 
-SELECT MAX(price) FROM products WHERE description @@@ 'laptop';
+SELECT MAX(price) FROM products WHERE description ||| 'laptop';
 
 -- Test 1.6: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
-FROM products WHERE description @@@ 'laptop';
+FROM products WHERE description ||| 'laptop';
 
 SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
-FROM products WHERE description @@@ 'laptop';
+FROM products WHERE description ||| 'laptop';
 
 -- =====================================================================
 -- SECTION 2: Edge Cases and Error Conditions
@@ -83,65 +78,65 @@ FROM products WHERE description @@@ 'laptop';
 
 -- Test 2.1: Empty result set behavior
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
+SELECT COUNT(*) FROM products WHERE description ||| 'nonexistent';
 
-SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
+SELECT COUNT(*) FROM products WHERE description ||| 'nonexistent';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
+SELECT SUM(price) FROM products WHERE description ||| 'nonexistent';
 
-SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
+SELECT SUM(price) FROM products WHERE description ||| 'nonexistent';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
+SELECT AVG(price) FROM products WHERE description ||| 'nonexistent';
 
-SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
+SELECT AVG(price) FROM products WHERE description ||| 'nonexistent';
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT MIN(price) FROM products WHERE description ||| 'nonexistent';
+
+SELECT MIN(price) FROM products WHERE description ||| 'nonexistent';
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT MAX(price) FROM products WHERE description ||| 'nonexistent';
+
+SELECT MAX(price) FROM products WHERE description ||| 'nonexistent';
 
 -- Test 2.2: Contradictory WHERE clauses (impossible conditions)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+SELECT COUNT(*) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
-SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
-SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+SELECT COUNT(*) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+SELECT SUM(price) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
-SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
-
-SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+SELECT SUM(price) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+SELECT AVG(rating) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
-SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+SELECT AVG(rating) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT MIN(price) FROM products WHERE ((NOT (description ||| 'laptop')) AND (description ||| 'laptop'));
+
+SELECT MIN(price) FROM products WHERE ((NOT (description ||| 'laptop')) AND (description ||| 'laptop'));
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT MAX(rating) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
+
+SELECT MAX(rating) FROM products WHERE ((NOT (category ||| 'Electronics')) AND (category ||| 'Electronics'));
 
 -- Test 2.3: Complex contradictory conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)
 FROM products
-WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+WHERE (description ||| 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
 
 SELECT COUNT(*), SUM(price)
 FROM products
-WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+WHERE (description ||| 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
 
 -- =====================================================================
 -- SECTION 3: Data Type Compatibility Tests
@@ -165,19 +160,7 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
     (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
 
 CREATE INDEX type_test_idx ON type_test
-USING paradedb (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
-WITH (
-    key_field='id',
-    text_fields='{"text_val": {"fast": true}}',
-    numeric_fields='{
-        "int_val": {"fast": true},
-        "bigint_val": {"fast": true},
-        "smallint_val": {"fast": true},
-        "numeric_val": {"fast": true},
-        "float_val": {"fast": true},
-        "double_val": {"fast": true}
-    }'
-);
+USING paradedb (id, (text_val::pdb.unicode_words('columnar=true')), int_val, bigint_val, smallint_val, numeric_val, float_val, double_val);
 
 -- Test 3.1: Aggregates on different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -189,7 +172,7 @@ SELECT
     SUM(float_val), AVG(float_val), MIN(float_val), MAX(float_val),
     SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
 FROM type_test
-WHERE text_val @@@ 'test1 OR test2';
+WHERE (text_val ||| 'test1' OR text_val ||| 'test2');
 
 SELECT
     SUM(int_val), AVG(int_val), MIN(int_val), MAX(int_val),
@@ -199,7 +182,7 @@ SELECT
     SUM(float_val), AVG(float_val), MIN(float_val), MAX(float_val),
     SUM(double_val), AVG(double_val), MIN(double_val), MAX(double_val)
 FROM type_test
-WHERE text_val @@@ 'test1 OR test2';
+WHERE (text_val ||| 'test1' OR text_val ||| 'test2');
 
 -- =====================================================================
 -- SECTION 4: Validation and Fallback Tests
@@ -209,22 +192,22 @@ WHERE text_val @@@ 'test1 OR test2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
-WHERE description @@@ 'laptop';
+WHERE description ||| 'laptop';
 
 -- Test 4.2: Aggregate on non-fast field (should fall back)
 -- Note: description field is not marked as "fast" in the index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
 FROM products
-WHERE category @@@ 'Electronics';
+WHERE category ||| 'Electronics';
 
 SELECT AVG(LENGTH(description))
 FROM products
-WHERE category @@@ 'Electronics';
+WHERE category ||| 'Electronics';
 
 -- =====================================================================
 -- SECTION 6: Complex Query Patterns
@@ -234,23 +217,23 @@ WHERE category @@@ 'Electronics';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
-  AND (rating >= 4 OR category @@@ 'Electronics');
+WHERE ((description ||| 'laptop') OR (description ||| 'keyboard'))
+  AND (rating >= 4 OR category ||| 'Electronics');
 
 SELECT COUNT(*), SUM(price), AVG(rating)
 FROM products
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
-  AND (rating >= 4 OR category @@@ 'Electronics');
+WHERE ((description ||| 'laptop') OR (description ||| 'keyboard'))
+  AND (rating >= 4 OR category ||| 'Electronics');
 
 -- Test 6.2: Nested boolean expressions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard');
+WHERE (NOT (NOT (category ||| 'Electronics'))) AND ((description ||| 'laptop' OR description ||| 'keyboard'));
 
 SELECT COUNT(*), AVG(price), MIN(rating), MAX(rating)
 FROM products
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard');
+WHERE (NOT (NOT (category ||| 'Electronics'))) AND ((description ||| 'laptop' OR description ||| 'keyboard'));
 
 -- =====================================================================
 -- SECTION 7: COALESCE Null Values

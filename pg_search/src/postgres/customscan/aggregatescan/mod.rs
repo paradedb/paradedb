@@ -28,6 +28,7 @@ pub mod json_rewrite;
 pub mod limit_offset;
 pub mod orderby;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
+use crate::postgres::node::NodeExt;
 pub mod pdb_agg;
 pub mod privdat;
 pub mod scan_state;
@@ -40,20 +41,20 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::postgres::catalog::is_ltree_oid;
 
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, get_plan_with_merged_metrics,
 };
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 
 use datafusion_distributed::{DistributedExt, DistributedTaskContext};
 
 use datafusion_distributed::shm::MppMesh;
 
-use crate::postgres::customscan::mpp::glue::query_allows_parallel_mode;
+use crate::postgres::customscan::mpp::glue::{query_allows_parallel_mode, warn_if_spilled};
 use crate::postgres::customscan::mpp::interrupt::block_on_next;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::launch::mpp_eligible;
@@ -82,7 +83,8 @@ use crate::postgres::customscan::aggregatescan::exec::{
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, GroupingTransform, PdbAggRoute, extract_aggregate_targetlist, pdb_agg_route,
+    AggKind, ExtractedDataFusionTarget, GroupingTransform, PdbAggRoute,
+    extract_aggregate_targetlist, pdb_agg_route,
 };
 use crate::postgres::customscan::aggregatescan::pdb_agg::assemble_pdb_agg_rows;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -104,7 +106,9 @@ use crate::postgres::customscan::exec::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
-use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
+use crate::postgres::customscan::joinscan::scan_state::{
+    build_physical_plan, build_task_context, clone_task_context_with_config,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, range_table};
@@ -373,6 +377,15 @@ impl GroupingShape {
         self.is_distinct
     }
 
+    /// The clause named in decline messages.
+    pub(crate) fn clause_name(&self) -> &'static str {
+        if self.is_distinct {
+            "DISTINCT"
+        } else {
+            "GROUP BY"
+        }
+    }
+
     /// The `PathTarget` defining the grouping/DISTINCT output columns.
     pub(crate) fn reltarget(&self) -> *mut pg_sys::PathTarget {
         self.reltarget
@@ -557,117 +570,96 @@ impl CustomScan for AggregateScan {
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe { bitmap_intersection::keep_bitmap_child_plan(&mut builder) };
 
-        // Extract values from private data before the match to avoid borrow conflicts.
-        let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
-            match builder.custom_private() {
-                PrivateData::Tantivy {
-                    heap_rti,
-                    aggregate_clause,
-                    ..
-                } => (
-                    true,
-                    *heap_rti,
-                    aggregate_clause.planner_should_replace_aggrefs(),
-                    0usize,
-                ),
-                PrivateData::DataFusion {
-                    multi_table_clause_count,
-                    ..
-                } => (false, 0, false, *multi_table_clause_count),
-            };
+        // Copied out so the arms below can consume `builder`.
+        enum PlanShape {
+            Tantivy {
+                heap_rti: pg_sys::Index,
+                replace_aggrefs: bool,
+            },
+            DataFusion {
+                clause_count: usize,
+            },
+        }
+        let shape = match builder.custom_private() {
+            PrivateData::Tantivy {
+                heap_rti,
+                aggregate_clause,
+                ..
+            } => PlanShape::Tantivy {
+                heap_rti: *heap_rti,
+                replace_aggrefs: aggregate_clause.planner_should_replace_aggrefs(),
+            },
+            PrivateData::DataFusion {
+                multi_table_clause_count,
+                ..
+            } => PlanShape::DataFusion {
+                clause_count: *multi_table_clause_count,
+            },
+        };
 
-        if is_tantivy {
-            builder.set_scanrelid(heap_rti_val);
-            if should_replace_val {
+        match shape {
+            PlanShape::Tantivy {
+                heap_rti,
+                replace_aggrefs,
+            } => {
+                builder.set_scanrelid(heap_rti);
+                if replace_aggrefs {
+                    unsafe {
+                        let mut cscan = builder.build();
+                        let plan = &mut cscan.scan.plan;
+                        replace_aggrefs_in_target_list(plan);
+                        cscan
+                    }
+                } else {
+                    builder.build()
+                }
+            }
+            PlanShape::DataFusion { clause_count } => {
+                // For join aggregates, scanrelid=0 (no single base relation)
+                builder.set_scanrelid(0);
+
+                let best_path = builder.args().best_path;
+
                 unsafe {
                     let mut cscan = builder.build();
-                    let plan = &mut cscan.scan.plan;
-                    replace_aggrefs_in_target_list(plan);
-                    cscan
-                }
-            } else {
-                builder.build()
-            }
-        } else {
-            // For join aggregates, scanrelid=0 (no single base relation)
-            builder.set_scanrelid(0);
 
-            // Check if the query has pathkeys (ORDER BY) before consuming builder.
-            let root = builder.args().root;
-            let has_pathkeys = unsafe {
-                !(*root).query_pathkeys.is_null() && pg_sys::list_length((*root).query_pathkeys) > 0
-            };
+                    // The plan target list keeps its Aggrefs: setrefs rewrites them
+                    // against the raw tuple described by custom_scan_tlist.
+                    let path_private_full =
+                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+                    assert_eq!(
+                        path_private_full.len(),
+                        2 + clause_count,
+                        "DataFusion aggregate CustomPath private layout must be [JSON, raw TargetEntry List, predicate Exprs]"
+                    );
+                    let raw_entries = path_private_full
+                        .get_ptr(1)
+                        .expect("raw TargetEntry List must be present");
+                    assert_eq!((*raw_entries).type_, pg_sys::NodeTag::T_List);
+                    let mut scan_tlist = PgList::<pg_sys::TargetEntry>::new();
+                    for target_entry in
+                        PgList::<pg_sys::TargetEntry>::from_pg(raw_entries.cast()).iter_ptr()
+                    {
+                        scan_tlist.push(
+                            pg_sys::copyObjectImpl(target_entry.cast())
+                                .cast::<pg_sys::TargetEntry>(),
+                        );
+                    }
 
-            let clause_count = clause_count_val;
-            let best_path = builder.args().best_path;
-
-            unsafe {
-                let mut cscan = builder.build();
-
-                // Set custom_scan_tlist so Postgres can resolve variable references
-                // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
-                // This is a copy of the original targetlist (with Aggrefs intact) —
-                // setrefs.c uses it to create INDEX_VAR references in parent nodes.
-                let original_tlist = cscan.scan.plan.targetlist;
-                cscan.custom_scan_tlist =
-                    pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
-
-                // Move raw PG Expr pointers from custom_private to custom_exprs
-                // so setrefs transforms their Var nodes to INDEX_VAR references.
-                if clause_count > 0 {
+                    // Move raw PG Expr pointers from custom_private to custom_exprs
+                    // so setrefs transforms their Var nodes to INDEX_VAR references.
                     // Before moving to custom_exprs, ensure all Vars referenced
                     // in the predicate clauses are present in custom_scan_tlist.
                     // setrefs needs them there to create INDEX_VAR references.
-                    let path_private_full =
-                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
-                    let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(cscan.custom_scan_tlist);
-                    // Skip index 0 (PrivateData JSON)
-                    for i in 1..path_private_full.len() {
-                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
-                            add_vars_to_tlist(node_ptr, &mut tlist);
-                        }
-                    }
-                    cscan.custom_scan_tlist = tlist.into_pg();
-
-                    let path_private_full =
-                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
                     let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(cscan.custom_exprs);
-                    // Skip index 0 (PrivateData JSON)
-                    for i in 1..path_private_full.len() {
-                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
-                            custom_exprs_list.push(node_ptr);
-                        }
+                    for node_ptr in path_private_full.iter_ptr().skip(2) {
+                        add_vars_to_tlist(node_ptr, &mut scan_tlist);
+                        custom_exprs_list.push(node_ptr);
                     }
                     cscan.custom_exprs = custom_exprs_list.into_pg();
+                    cscan.custom_scan_tlist = scan_tlist.into_pg();
+                    cscan
                 }
-
-                let parallel_aware = (*best_path).path.parallel_aware;
-                if !has_pathkeys && !parallel_aware {
-                    // Non-MPP, no-pathkeys: safe to replace Aggrefs at plan
-                    // time. The customscan emits final aggregate rows, no
-                    // Gather above us, no setrefs match needed.
-                    let plan = &mut cscan.scan.plan;
-                    replace_aggrefs_in_target_list(plan);
-                }
-                // MPP path (parallel_aware): leave Aggrefs in
-                // `plan.targetlist`. PG's `set_plan_refs` walks the
-                // partial-worker tlist looking for `equal()` matches to
-                // wire the Gather's projection — observed behaviour is
-                // that replacing the Aggrefs with `pdb.agg_fn(...)`
-                // placeholders breaks every match and the planner falls
-                // back to `Single Copy: true`. We haven't traced the
-                // exact upstream code path that does the rejection (it
-                // doesn't necessarily go through Partial+Final aggregate
-                // insertion), only the symptom. Either way the workaround
-                // is the same: keep the Aggrefs through path/plan
-                // construction and replace them at execution time in
-                // `create_custom_scan_state`.
-                //
-                // When has_pathkeys: same reason — `make_sort_from_pathkeys`
-                // needs to see the original Aggrefs. Replacement deferred
-                // to `create_custom_scan_state` (execution time) for both
-                // MPP-on and MPP-off+ORDER-BY cases.
-                cscan
             }
         }
     }
@@ -703,11 +695,8 @@ impl CustomScan for AggregateScan {
                 parallel_mode_ok,
                 ..
             } => {
-                // Replace Aggrefs for DataFusion path too
                 let (custom_exprs, custom_scan_tlist) = unsafe {
                     let cscan = builder.args().cscan;
-                    let pg_plan = &mut (*cscan).scan.plan;
-                    replace_aggrefs_in_target_list(pg_plan);
                     ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
@@ -730,6 +719,7 @@ impl CustomScan for AggregateScan {
                     mpp: MppLifecycle::Inactive,
                     parallel_mode_ok,
                     launch_timing: None,
+                    spilled: Arc::new(AtomicBool::new(false)),
                 });
                 builder.build()
             }
@@ -898,26 +888,9 @@ impl CustomScan for AggregateScan {
         eflags: i32,
     ) {
         if state.custom_state().is_datafusion_backend() {
-            // The agg-on-join path runs entirely inside DataFusion and
-            // never reaches the standard `init_expr_context` block below.
-            // Allocate an ExprContext here so per-relation HeapFilter
-            // queries (e.g. `=` on a `pdb.literal`-cast column) have a
-            // live evaluation context - except under EXPLAIN_ONLY, where
-            // no expressions run and the allocation is just dead weight
-            // until the per-query context tears down.
-            unsafe {
-                let planstate = state.planstate();
-                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
-                    pg_sys::ExecAssignExprContext(estate, planstate);
-                    state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
-                }
-
-                let scan_slot = pg_sys::MakeTupleTableSlot(
-                    (*planstate).ps_ResultTupleDesc,
-                    &pg_sys::TTSOpsVirtual,
-                );
-                state.custom_state_mut().scan_slot = Some(scan_slot);
-            }
+            // ExecInitCustomScan already built ps_ProjInfo from ps_ExprContext;
+            // assigning a fresh context here would leave the two divergent.
+            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             // MPP: pin the source manifests and mark one launch attempt. The real logical and
             // physical plan is built once, on first execution; its finished stages provide the
             // exact dispatch-payload size. Plain EXPLAIN never executes and must not prepare MPP.
@@ -983,10 +956,12 @@ impl CustomScan for AggregateScan {
             unsafe { bitmap_exec.rescan() };
         }
         state.custom_state_mut().state = ExecutionState::NotStarted;
-        // Reset DataFusion state so rescan rebuilds the plan and stream.
-        // Drop stream before runtime to avoid tokio panics.
+        // Reset DataFusion state so rescan rebuilds the plan and stream. The stream
+        // goes before the runtime (tokio). `spilled` stays: the warning covers the
+        // whole `ExecutorRun`, and a rescan is part of it.
         if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.pdb_agg_json = None;
             df_state.batch_row_idx = 0;
@@ -1029,6 +1004,14 @@ impl CustomScan for AggregateScan {
             {
                 let _ = finish.recv();
             }
+            // Must come after the join; see `warn_if_spilled`.
+            warn_if_spilled(
+                &df_state.spilled,
+                df_state
+                    .mpp
+                    .leader()
+                    .and_then(|leader| leader.finish.as_ref()),
+            );
         }
     }
 
@@ -1049,9 +1032,12 @@ impl CustomScan for AggregateScan {
                 Some(mut leader) => leader.finish.take(),
                 _ => None,
             };
-            // Drop the stream first (tokio + mesh), then everything else holding a mesh reference
-            // (physical plan, session) via `drop(df_state)`, before destroying the DSM below.
+            // Drop order: the physical plan and session hold a mesh reference, so both
+            // must go before the DSM is destroyed below, and the stream must go before
+            // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
+            // to `drop(df_state)` so the order doesn't depend on struct field order.
             df_state.stream = None;
+            df_state.physical_plan = None;
             df_state.current_batch = None;
             df_state.runtime = None;
             drop(df_state);
@@ -1376,7 +1362,7 @@ impl AggregateScan {
 
         // If it's not a plain relation (e.g. it's a partitioned table), we can't do Tantivy agg directly.
         // Parent partitioned tables are not yet supported for aggregate pushdown.
-        let Some(heap_relid) = (unsafe { range_table::get_plain_relation_relid(heap_rte) }) else {
+        let Some(heap_relid) = range_table::get_plain_relation_relid(heap_rte) else {
             if has_paradedb_agg {
                 pgrx::error!(
                     "Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)"
@@ -1438,19 +1424,21 @@ impl AggregateScan {
         bm25_oid: pg_sys::Oid,
         aggregate_clause: &mut AggregateCSClause,
     ) -> CustomPathBuilder<Self> {
-        unsafe {
-            let root = builder.args().root;
-            let base_rel = if !(*root).simple_rel_array.is_null()
-                && (heap_rti as i32) < (*root).simple_rel_array_size
-            {
-                *(*root).simple_rel_array.add(heap_rti as usize)
+        let root = builder.args().root;
+        let base_rel = {
+            let root = unsafe { &*root };
+            if !root.simple_rel_array.is_null() && (heap_rti as i32) < root.simple_rel_array_size {
+                unsafe { *root.simple_rel_array.add(heap_rti as usize) }
             } else {
                 std::ptr::null_mut()
-            };
+            }
+        };
 
-            let bm25_row_estimate = (!base_rel.is_null() && (*base_rel).tuples > 0.0)
-                .then(|| (*base_rel).tuples * PARAMETERIZED_SELECTIVITY);
-            if let Some(harvested) = BitmapPlanner::from_search_query(
+        let bm25_row_estimate = unsafe { base_rel.as_ref() }
+            .filter(|base_rel| base_rel.tuples > 0.0)
+            .map(|base_rel| base_rel.tuples * PARAMETERIZED_SELECTIVITY);
+        if let Some(harvested) = unsafe {
+            BitmapPlanner::from_search_query(
                 root,
                 base_rel,
                 bm25_oid,
@@ -1458,19 +1446,18 @@ impl AggregateScan {
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
-            {
-                harvested.rewrite_query(aggregate_clause.query_mut());
-                let mut children = PgList::<pg_sys::Path>::new();
-                children.push(harvested.path);
-                let startup_cost = builder.startup_cost() + harvested.build_cost;
-                let total_cost = builder.total_cost() + harvested.build_cost;
-                builder = builder
-                    .set_custom_paths(children)
-                    .set_startup_cost(startup_cost)
-                    .set_total_cost(total_cost);
-            }
-            builder
+        } {
+            unsafe { harvested.rewrite_query(aggregate_clause.query_mut()) };
+            let mut children = PgList::<pg_sys::Path>::new();
+            children.push(harvested.path);
+            let startup_cost = builder.startup_cost() + harvested.build_cost;
+            let total_cost = builder.total_cost() + harvested.build_cost;
+            builder = builder
+                .set_custom_paths(children)
+                .set_startup_cost(startup_cost)
+                .set_total_cost(total_cost);
         }
+        builder
     }
 
     /// New DataFusion-backed aggregate path for JOINs.
@@ -1570,7 +1557,7 @@ impl AggregateScan {
                         // or UNION arms within the subquery.
                         if rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY {
                             let subquery = unsafe { (*rte_ptr).subquery };
-                            if !subquery.is_null() && unsafe { query_will_use_topk(subquery) } {
+                            if !subquery.is_null() && query_will_use_topk(subquery) {
                                 return Err(AggregatePathDecline::Quiet);
                             }
                         }
@@ -1593,9 +1580,9 @@ impl AggregateScan {
             // DISTINCT ON can't be modelled as an aggregate. A GROUP BY under a
             // DISTINCT ON still pushes down, with PG applying the DISTINCT ON
             // above the grouped output, so this is gated on the shape.
-            let has_distinct_on = unsafe {
+            let has_distinct_on = {
                 let parse = builder.args().root().parse;
-                !parse.is_null() && (*parse).hasDistinctOn
+                !parse.is_null() && unsafe { (*parse).hasDistinctOn }
             };
             if has_distinct_on {
                 return Err(warn(AggregateDeclineReason::DistinctOn));
@@ -1611,9 +1598,11 @@ impl AggregateScan {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
-        let path_info = match unsafe {
-            datafusion_build::check_join_path_predicates(root, input_rel, &sources)
-        } {
+        let path_info = match datafusion_build::check_join_path_predicates(
+            root,
+            input_rel.cheapest_total_path,
+            &sources,
+        ) {
             datafusion_build::JoinPathPredicateCheck::Complete(info) => info,
             datafusion_build::JoinPathPredicateCheck::Unsupported(reason) => {
                 return Err(warn(AggregateDeclineReason::JoinPredicate(reason)));
@@ -1634,15 +1623,16 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = unsafe {
+        let extracted_target = unsafe {
             extract_aggregate_targetlist(builder.args(), &sources, &plan, shape, pdb_route)
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+        let targetlist = extracted_target.targetlist();
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
         unsafe {
-            datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
+            datafusion_build::populate_required_fields(&mut plan, targetlist, &multi_table_clauses)
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
@@ -1659,7 +1649,7 @@ impl AggregateScan {
         // We do NOT declare pathkeys to Postgres because scanrelid=0 CustomScans
         // cannot resolve pathkey items through setrefs.c. Postgres may add a
         // redundant Sort above us, which is correct (just wasteful on K rows).
-        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist, shape) };
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &extracted_target, shape) };
 
         // Extract HAVING clause if present.
         //
@@ -1671,13 +1661,15 @@ impl AggregateScan {
         // targetlist refs themselves don't carry it.
         let outer_root_id =
             crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
-        let having_filter = unsafe {
-            let parse = builder.args().root().parse;
-            if !parse.is_null() && !(*parse).havingQual.is_null() {
+        let having_filter = {
+            let parse = unsafe { builder.args().root().parse.as_ref() };
+            if let Some(parse) = parse
+                && !parse.havingQual.is_null()
+            {
                 let having = privdat::FilterExpr::from_pg_node(
-                    (*parse).havingQual,
+                    parse.havingQual,
                     &datafusion_build::FilterExprBuildContext::Having {
-                        targetlist: &targetlist,
+                        extracted_target: &extracted_target,
                         plan: &plan,
                         outer_root_id,
                     },
@@ -1721,6 +1713,7 @@ impl AggregateScan {
 
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
+        let (targetlist, raw_scan_tlist) = unsafe { extracted_target.into_parts() };
         let mut custom_path = builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
@@ -1730,18 +1723,15 @@ impl AggregateScan {
             parallel_mode_ok,
         });
 
-        // Append raw PG Expr pointers to custom_private after the serialized
-        // PrivateData. Structure: [PrivateData JSON, expr_1, expr_2, ...]
-        // These will be moved to custom_exprs in plan_custom_path so that
-        // setrefs transforms their Var nodes to INDEX_VAR references.
-        if !multi_table_clauses.is_empty() {
-            unsafe {
-                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
-                for clause in multi_table_clauses {
-                    private_list.push(clause.cast());
-                }
-                custom_path.custom_private = private_list.into_pg();
+        // Sidecar layout, checked by plan_custom_path:
+        // [PrivateData JSON, raw TargetEntry List, predicate Exprs].
+        unsafe {
+            let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
+            private_list.push(raw_scan_tlist.into_pg().cast());
+            for clause in multi_table_clauses {
+                private_list.push(clause.cast());
             }
+            custom_path.custom_private = private_list.into_pg();
         }
 
         Ok(custom_path)
@@ -1929,11 +1919,13 @@ impl AggregateScan {
     fn exec_datafusion_aggregate(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
-        // Grab the scan_slot pointer before entering the mutable borrow
-        let scan_slot = state
-            .custom_state()
-            .scan_slot
-            .expect("scan_slot must be initialized in begin_custom_scan");
+        // This is the raw `[groups..., aggregates..., resjunk...]` slot
+        // created by ExecInitCustomScan from custom_scan_tlist.
+        let scan_slot = state.scanslot();
+        assert!(
+            !scan_slot.is_null(),
+            "aggregate scan slot must be initialized"
+        );
 
         // Capture before the mutable borrow on `datafusion_state`. Threaded
         // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
@@ -2056,6 +2048,9 @@ impl AggregateScan {
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
+                crate::postgres::customscan::datafusion::spill::notify_atomic_bool(Arc::clone(
+                    &df_state.spilled,
+                )),
             );
             // Install `DistributedTaskContext` explicitly so the top boundary sees the leader's
             // `(task_index=0, task_count=1)` identity. Skipping this would let the fork's
@@ -2068,11 +2063,7 @@ impl AggregateScan {
                         task_count: 1,
                     },
                 ));
-                Arc::new(
-                    TaskContext::default()
-                        .with_session_config(cfg)
-                        .with_runtime(task_ctx.runtime_env().clone()),
-                )
+                Arc::new(clone_task_context_with_config(&task_ctx, cfg))
             };
             let stream = {
                 let _guard = runtime.enter();
@@ -2091,6 +2082,17 @@ impl AggregateScan {
             }
         }
 
+        let projection_info = state.projection_info();
+        let expr_context = state.runtime_context;
+        assert!(
+            !expr_context.is_null(),
+            "aggregate expression context must be initialized"
+        );
+        assert!(
+            projection_info.is_null()
+                || unsafe { (*projection_info).pi_exprContext == expr_context },
+            "aggregate projection must use the CustomScan expression context"
+        );
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -2103,29 +2105,41 @@ impl AggregateScan {
             if let Some(ref batch) = df_state.current_batch {
                 if df_state.batch_row_idx < batch.num_rows() {
                     unsafe {
+                        // Clear before the reset below frees what the slot points at.
                         pg_sys::ExecClearTuple(scan_slot);
+                        // CustomScan callbacks bypass ExecScan, which normally
+                        // resets this context once per emitted row.
+                        let mut per_tuple_context =
+                            PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
+                        per_tuple_context.reset();
+                        let row_idx = df_state.batch_row_idx;
+                        let targetlist = &df_state.targetlist;
+                        let group_df_indices = &df_state.group_df_indices;
+                        // Each row is projected once, so its documents move out.
+                        let pdb_agg_json = df_state
+                            .pdb_agg_json
+                            .as_mut()
+                            .map(|rows| std::mem::take(&mut rows[row_idx]))
+                            .unwrap_or_default();
+                        // By-reference Datums must land in per-tuple memory, not
+                        // the per-query context.
+                        per_tuple_context.switch_to(|_| {
+                            project_aggregate_row_to_slot(
+                                scan_slot,
+                                batch,
+                                row_idx,
+                                targetlist,
+                                group_df_indices,
+                                pdb_agg_json,
+                            );
+                        });
+                        df_state.batch_row_idx += 1;
+                        if projection_info.is_null() {
+                            return scan_slot;
+                        }
+                        (*expr_context).ecxt_scantuple = scan_slot;
+                        return pg_sys::ExecProject(projection_info);
                     }
-                    let row_idx = df_state.batch_row_idx;
-                    let targetlist = &df_state.targetlist;
-                    let group_df_indices = &df_state.group_df_indices;
-                    // Each row is projected once, so its documents move out.
-                    let pdb_agg_json = df_state
-                        .pdb_agg_json
-                        .as_mut()
-                        .map(|rows| std::mem::take(&mut rows[row_idx]))
-                        .unwrap_or_default();
-                    let result = unsafe {
-                        project_aggregate_row_to_slot(
-                            scan_slot,
-                            batch,
-                            row_idx,
-                            targetlist,
-                            group_df_indices,
-                            pdb_agg_json,
-                        )
-                    };
-                    df_state.batch_row_idx += 1;
-                    return result;
                 }
                 // Current batch exhausted
                 df_state.current_batch = None;
@@ -2545,11 +2559,22 @@ unsafe fn group_key_to_datum(
 /// - COUNT/SUM/AVG ordering → `SortExec(fetch=K)` bounded heap
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
-    targetlist: &join_targetlist::JoinAggregateTargetList,
+    extracted_target: &ExtractedDataFusionTarget,
     shape: GroupingShape,
 ) -> Option<privdat::DataFusionTopK> {
+    let targetlist = extracted_target.targetlist();
     let parse = args.root().parse;
     if parse.is_null() || (*parse).sortClause.is_null() {
+        return None;
+    }
+
+    // A WindowAgg above the aggregate consumes every grouped row: the WINDOW
+    // stage sits between UPPERREL_GROUP_AGG and the LIMIT, so pushing the
+    // fetch into the scan starves it — `count(*) OVER ()` above a GROUP BY
+    // would return the fetch instead of the qualifying-group count (issue
+    // #5561's shape, one stage down). The scan still engages; only the
+    // sort+limit pushdown stays out.
+    if (*parse).hasWindowFuncs {
         return None;
     }
 
@@ -2570,19 +2595,13 @@ unsafe fn detect_join_aggregate_topk(
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
-    let target_exprs = shape.target_exprs();
-
-    let mut match_pos = None;
-    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
-        if pg_sys::equal(
-            sort_expr as *const core::ffi::c_void,
-            target_expr as *const core::ffi::c_void,
-        ) {
-            match_pos = Some(pos);
-            break;
-        }
+    let sort_expr_is_output = shape
+        .target_exprs()
+        .iter_ptr()
+        .any(|target_expr| pg_sys::equal(sort_expr.cast(), target_expr.cast()));
+    if !sort_expr_is_output {
+        return None;
     }
-    let pos = match_pos?;
 
     // Grouping sets carry every bucket level in one stream; a sort + limit over
     // that stream would cut across levels.
@@ -2591,19 +2610,9 @@ unsafe fn detect_join_aggregate_topk(
     }
 
     // Try aggregate target: ORDER BY COUNT(*), SUM(x), MIN(x), etc.
-    if let Some(agg_idx) = targetlist
-        .aggregates
-        .iter()
-        .position(|a| a.output_index == pos)
-    {
-        // The sort expression must BE an aggregate, not merely contain one.
-        // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
-        // monotonicity so DataFusion's ordering wouldn't match Postgres.
-        if targetlist::find_single_aggref_in_expr(sort_expr)
-            .is_none_or(|a| a as *mut pg_sys::Node != sort_expr)
-        {
-            return None;
-        }
+    if let Some(agg_idx) = extracted_target.aggregate_index(sort_expr) {
+        // A wrapper such as ABS(SUM(score)) equals no raw Aggref, so its
+        // ordering stays in PostgreSQL.
         // A numeric AVG evaluates to a [count, sum] blob whose byte order
         // does not follow the quotient, so DataFusion cannot TopK on it.
         // Skipping TopK is correct: all groups are returned and Postgres
@@ -2625,11 +2634,7 @@ unsafe fn detect_join_aggregate_topk(
     }
 
     // Try group column: ORDER BY category, ORDER BY name, etc.
-    if let Some(gc_idx) = targetlist
-        .group_columns
-        .iter()
-        .position(|gc| gc.output_index == pos)
-    {
+    if let Some(gc_idx) = extracted_target.group_index(sort_expr) {
         // The sort expression must be a simple Var (group column reference).
         if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
             return None;
@@ -2712,8 +2717,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     let has_unpushable = targetlist.iter_ptr().any(|te| {
         !te.is_null()
             && !(*te).expr.is_null()
-            && (expr_contains_aggref((*te).expr as *mut pg_sys::Node)
-                || expr_contains_unnest((*te).expr as *mut pg_sys::Node))
+            && ((*te).expr.contains_aggref() || (*te).expr.contains_unnest())
     });
 
     if !has_unpushable {
@@ -2733,65 +2737,6 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     (*plan).targetlist = new_targetlist;
-}
-
-/// Check if an expression tree contains any UNNEST nodes
-unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
-    use pgrx::pg_guard;
-    use std::ptr::addr_of_mut;
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
-            let func_expr = node as *mut pg_sys::FuncExpr;
-            if is_unnest_func((*func_expr).funcid) {
-                let ctx = &mut *(context as *mut bool);
-                *ctx = true;
-                return true; // Stop walking
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
-    found
-}
-
-/// Check if an expression tree contains any Aggref nodes
-unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
-    use pgrx::pg_guard;
-    use std::ptr::addr_of_mut;
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-            let ctx = &mut *(context as *mut bool);
-            *ctx = true;
-            return true; // Stop walking
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut found = false;
-    walker(node, addr_of_mut!(found).cast());
-    found
 }
 
 /// Creates a placeholder `FuncExpr` for a PostgreSQL `Aggref`.
@@ -2863,26 +2808,29 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 /// and an `ORDER BY` on a ParadeDB index), we want to silently decline it instead. This is because
 /// `BaseScan` will natively optimize the subquery, meaning we can safely step aside without
 /// bothering the user with a planner warning.
-unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
+fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     if parse.is_null() {
         return false;
     }
 
     // If there is an explicit LIMIT, check if TopK pushdown will natively optimize it
-    if !(*parse).limitCount.is_null()
+    if unsafe { !(*parse).limitCount.is_null() }
         && crate::gucs::enable_custom_scan()
         && validate_topk_compatibility(parse)
     {
         return true;
     }
+    let parse = unsafe { &*parse };
 
     // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
+    if !parse.rtable.is_null() {
+        let rtable =
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::RangeTblEntry>::from_pg(parse.rtable) };
         for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_will_use_topk((*rte).subquery)
+            let rte = unsafe { &*rte };
+            if rte.rtekind == pgrx::pg_sys::RTEKind::RTE_SUBQUERY
+                && !rte.subquery.is_null()
+                && query_will_use_topk(rte.subquery)
             {
                 return true;
             }
@@ -2890,11 +2838,12 @@ unsafe fn query_will_use_topk(parse: *mut pgrx::pg_sys::Query) -> bool {
     }
 
     // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
+    if !parse.cteList.is_null() {
         let ctelist =
-            pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
+            unsafe { pgrx::list::PgList::<pgrx::pg_sys::CommonTableExpr>::from_pg(parse.cteList) };
         for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_will_use_topk((*cte).ctequery.cast()) {
+            let cte = unsafe { &*cte };
+            if !cte.ctequery.is_null() && query_will_use_topk(cte.ctequery.cast()) {
                 return true;
             }
         }

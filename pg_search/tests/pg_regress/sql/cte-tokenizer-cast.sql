@@ -8,8 +8,7 @@ CALL paradedb.create_paradedb_test_table(
 
 -- Create index with tokenizer cast on description field
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
+USING paradedb (id, (description::pdb.simple), category, rating, in_stock, created_at, metadata, weight_range);
 
 -- Test 1: Direct query
 SELECT id, description FROM mock_items WHERE description ||| 'shoes' ORDER BY id;
@@ -43,7 +42,7 @@ SELECT id, description, rating FROM q2 ORDER BY id;
 
 -- Test 6: CTE with other operators
 WITH q AS (
-  SELECT * FROM mock_items WHERE description @@@ 'shoes'
+  SELECT * FROM mock_items WHERE description ||| 'shoes'
 )
 SELECT id, description FROM q ORDER BY id;
 
@@ -59,4 +58,3 @@ SELECT id, description FROM q ORDER BY id;
 
 -- Clean up
 DROP TABLE mock_items CASCADE;
-

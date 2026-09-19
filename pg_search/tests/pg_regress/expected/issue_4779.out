@@ -36,11 +36,11 @@ INSERT INTO t_main_4779 SELECT i, 'val_' || i FROM generate_series(1, 100) i;
 INSERT INTO t_a_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 INSERT INTO t_b_4779 SELECT i, (i % 100) + 1 FROM generate_series(1, 200) i;
 CREATE INDEX t_main_4779_idx ON t_main_4779
-  USING paradedb (id, (val::pdb.literal)) WITH (key_field = 'id');
+  USING paradedb (id, (val::pdb.literal));
 CREATE INDEX t_a_4779_idx ON t_a_4779
-  USING paradedb (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id);
 CREATE INDEX t_b_4779_idx ON t_b_4779
-  USING paradedb (id, main_id) WITH (key_field = 'id');
+  USING paradedb (id, main_id);
 ANALYZE t_main_4779;
 ANALYZE t_a_4779;
 ANALYZE t_b_4779;
@@ -68,12 +68,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec
@@ -140,12 +140,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec
@@ -177,12 +177,12 @@ ORDER BY m.id DESC LIMIT 10;
    Limit: 10
    Order By: m.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 DESC], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[m]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, main_id@0)]
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
+     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, main_id@0)]
      :             CooperativeExec
      :               PgSearchScan: table=m, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :             CooperativeExec

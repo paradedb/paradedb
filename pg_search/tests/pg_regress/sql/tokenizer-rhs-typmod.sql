@@ -4,10 +4,7 @@ CREATE TABLE rhs_typmod(
     t text
 );
 INSERT INTO rhs_typmod(t) VALUES ('hello, world');
-CREATE INDEX idxrhs_typmod ON rhs_typmod USING paradedb (id, t) WITH (key_field = 'id');
-
--- generates ERROR as @@@ doesn't support casting to a tokenizer on the rhs
-SELECT * FROM rhs_typmod WHERE t @@@ 'hello'::pdb.ngram(3, 4);
+CREATE INDEX idxrhs_typmod ON rhs_typmod USING paradedb (id, t);
 
 -- all of these do support a tokenizer cast on the rhs
 SELECT * FROM rhs_typmod WHERE t &&& 'hello'::pdb.ngram(5, 6);

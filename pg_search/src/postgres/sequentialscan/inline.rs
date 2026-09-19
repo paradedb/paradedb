@@ -22,9 +22,10 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::ExpressionState;
+use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
-use crate::postgres::var::{find_one_var, find_var_relation, find_vars};
+use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
@@ -83,7 +84,7 @@ impl MaybeInlineRow {
             let targetlist = targetlist.expect("derived row should have a target list");
             let source = pg_sys::get_tle_by_resno(targetlist.as_ptr(), (*base_var).varattno)
                 .as_ref()
-                .and_then(|entry| find_one_var(entry.expr.cast()));
+                .and_then(|entry| entry.expr.find_single_node::<pg_sys::Var>());
             let mut fields = PgList::<pg_sys::Node>::new();
             let mut names = PgList::<pg_sys::Node>::new();
             let mut attributes: HashMap<_, Option<*mut pg_sys::TargetEntry>> = HashMap::default();
@@ -92,10 +93,13 @@ impl MaybeInlineRow {
                     || (*entry).resorigtbl != heap_oid
                     || (*entry).resorigcol <= 0
                     || source.is_some_and(|source| {
-                        find_one_var((*entry).expr.cast()).is_none_or(|var| {
-                            (*var).varno != (*source).varno
-                                || (*var).varlevelsup != (*source).varlevelsup
-                        })
+                        (*entry)
+                            .expr
+                            .find_single_node::<pg_sys::Var>()
+                            .is_none_or(|var| {
+                                (*var).varno != (*source).varno
+                                    || (*var).varlevelsup != (*source).varlevelsup
+                            })
                     })
                 {
                     continue;
@@ -223,7 +227,7 @@ impl MaybeInlineRow {
             )
             .cast::<pg_sys::List>();
             #[cfg(feature = "pg18")]
-            for var in find_vars(predicate.cast()) {
+            for var in predicate.collect_nodes::<pg_sys::Var>() {
                 (*var).varreturningtype = (*base_var).varreturningtype;
             }
             requirements.push(pg_sys::make_ands_explicit(predicate));
@@ -354,7 +358,11 @@ impl RowMatcher {
             .collect();
         let expressions = index_relation.index_expressions();
         for expression in &required_expressions {
-            for var in find_vars(expressions.get_ptr(*expression).unwrap().cast()) {
+            for var in expressions
+                .get_ptr(*expression)
+                .unwrap()
+                .collect_nodes::<pg_sys::Var>()
+            {
                 if (*var).varattno == 0 {
                     required_attributes.extend(0..(*heap_relation.rd_att).natts as usize);
                 } else if (*var).varattno > 0 {

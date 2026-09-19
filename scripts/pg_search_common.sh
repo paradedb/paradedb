@@ -58,7 +58,7 @@ PGVER=${PGVER:-18.6}
 
 # Extract major version and set port and feature flag
 BASEVER=${PGVER%%.*}
-PORT=288${BASEVER} # pgrx prefixes the PostgreSQL major version with 288 (e.g., 28818)
+PORT=288${BASEVER}   # pgrx prefixes the PostgreSQL major version with 288 (e.g., 28818)
 FEATURE=pg${BASEVER} # Feature flag (e.g., pg18)
 
 # Enable command echo for debugging the setup steps below. It is disabled again
@@ -70,7 +70,7 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension, conditionally using --release
-cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+"${SCRIPT_DIR}/dev-install.sh" --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

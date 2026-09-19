@@ -39,14 +39,11 @@ CREATE TABLE mpp_users    (id bigserial primary key, uuid uuid, name text, age i
 CREATE TABLE mpp_products (id bigserial primary key, uuid uuid, name text, age int);
 CREATE TABLE mpp_orders   (id bigserial primary key, uuid uuid, name text, age int);
 
-CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, uuid, name, age, category)
-WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true},"category":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_users_idx ON mpp_users USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age, (category::pdb.literal));
 
-CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, uuid, name, age)
-WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_products_idx ON mpp_products USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age);
 
-CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, uuid, name, age)
-WITH (key_field='id', text_fields='{"uuid":{"tokenizer":{"type":"keyword"},"fast":true},"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_orders_idx ON mpp_orders USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -104,7 +101,7 @@ const MPP_QUERY: &str = r#"
 SELECT mpp_users.id, mpp_users.name, mpp_users.age, mpp_products.age
 FROM mpp_users JOIN mpp_products ON mpp_users.age = mpp_products.age
 JOIN mpp_orders ON mpp_products.uuid = mpp_orders.uuid
-WHERE NOT ((mpp_users.name @@@ 'bob') AND (mpp_users.name @@@ 'bob'))
+WHERE NOT ((mpp_users.name ||| 'bob') AND (mpp_users.name ||| 'bob'))
   AND mpp_users.age >= mpp_products.age
 ORDER BY mpp_users.id LIMIT 31
 "#;

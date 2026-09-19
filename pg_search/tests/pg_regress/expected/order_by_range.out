@@ -39,16 +39,16 @@ INSERT INTO range_items (title, i4, i8, nr, dr, tr, tzr) VALUES
  ('doc', '[0,1)', '[0,1)', '[0.0000000001,123456789.123456789)', '[2020-01-01,2020-01-02)', '[2020-01-01 00:00:00.000001,2020-01-02)', '[2020-01-01 00:00:00.000001,2020-01-02)');
 -- Range fields are fast by default, so no explicit field configuration is needed.
 CREATE INDEX range_items_idx ON range_items
-USING paradedb (id, title, i4, i8, nr, dr, tr, tzr) WITH (key_field = 'id');
+USING paradedb (id, title, i4, i8, nr, dr, tr, tzr);
 -- =============================================================================
 -- The plan: ORDER BY range + LIMIT is a Top-N scan, with no Postgres Sort above it.
 -- Before this was supported, the same query produced a `Sort` over a
 -- `NormalScanExecState` scan and a "not using Top K scan" warning.
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY tzr LIMIT 5;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY tzr LIMIT 5;
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, tzr
    ->  Custom Scan (ParadeDB Base Scan) on public.range_items
@@ -60,13 +60,13 @@ SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY tzr LIMIT 5;
          Scores: false
             TopK Order By: tzr asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC LIMIT 5;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC LIMIT 5;
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, nr
    ->  Custom Scan (ParadeDB Base Scan) on public.range_items
@@ -78,14 +78,14 @@ SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC LIMIT 5;
          Scores: false
             TopK Order By: nr desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 -- =============================================================================
 -- The ordering itself, per range type. `id` is the tiebreaker so the duplicate
 -- row does not make the output non-deterministic.
 -- =============================================================================
-SELECT id, i4 FROM range_items WHERE title @@@ 'doc' ORDER BY i4, id LIMIT 14;
+SELECT id, i4 FROM range_items WHERE title ||| 'doc' ORDER BY i4, id LIMIT 14;
  id |     i4     
 ----+------------
   1 | empty
@@ -104,7 +104,7 @@ SELECT id, i4 FROM range_items WHERE title @@@ 'doc' ORDER BY i4, id LIMIT 14;
  11 | 
 (14 rows)
 
-SELECT id, i8 FROM range_items WHERE title @@@ 'doc' ORDER BY i8, id LIMIT 14;
+SELECT id, i8 FROM range_items WHERE title ||| 'doc' ORDER BY i8, id LIMIT 14;
  id |            i8            
 ----+--------------------------
   1 | empty
@@ -123,7 +123,7 @@ SELECT id, i8 FROM range_items WHERE title @@@ 'doc' ORDER BY i8, id LIMIT 14;
  11 | 
 (14 rows)
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 14;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 14;
  id |                 nr                 
 ----+------------------------------------
   1 | empty
@@ -142,7 +142,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 14;
  11 | 
 (14 rows)
 
-SELECT id, dr FROM range_items WHERE title @@@ 'doc' ORDER BY dr, id LIMIT 14;
+SELECT id, dr FROM range_items WHERE title ||| 'doc' ORDER BY dr, id LIMIT 14;
  id |           dr            
 ----+-------------------------
   1 | empty
@@ -161,7 +161,7 @@ SELECT id, dr FROM range_items WHERE title @@@ 'doc' ORDER BY dr, id LIMIT 14;
  11 | 
 (14 rows)
 
-SELECT id, tr FROM range_items WHERE title @@@ 'doc' ORDER BY tr, id LIMIT 14;
+SELECT id, tr FROM range_items WHERE title ||| 'doc' ORDER BY tr, id LIMIT 14;
  id |                               tr                               
 ----+----------------------------------------------------------------
   1 | empty
@@ -180,7 +180,7 @@ SELECT id, tr FROM range_items WHERE title @@@ 'doc' ORDER BY tr, id LIMIT 14;
  11 | 
 (14 rows)
 
-SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr, id LIMIT 14;
+SELECT id, tzr FROM range_items WHERE title ||| 'doc' ORDER BY tzr, id LIMIT 14;
  id |                                  tzr                                   
 ----+------------------------------------------------------------------------
   1 | empty
@@ -201,7 +201,7 @@ SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr, id LIMIT 14;
 
 -- Continuous types keep their inclusivity, so they exercise the bound-flag tiebreaks that
 -- discrete types normalize away (`(5,10)` becomes `[6,10)` for int4range).
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC, id LIMIT 14;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC, id LIMIT 14;
  id |                 nr                 
 ----+------------------------------------
  11 | 
@@ -220,7 +220,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC, id LIMIT 
   1 | empty
 (14 rows)
 
-SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr DESC, id LIMIT 14;
+SELECT id, tzr FROM range_items WHERE title ||| 'doc' ORDER BY tzr DESC, id LIMIT 14;
  id |                                  tzr                                   
 ----+------------------------------------------------------------------------
  11 | 
@@ -240,7 +240,7 @@ SELECT id, tzr FROM range_items WHERE title @@@ 'doc' ORDER BY tzr DESC, id LIMI
 (14 rows)
 
 -- NULL placement follows the query, not the storage.
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS FIRST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr ASC NULLS FIRST, id LIMIT 3;
  id |  nr   
 ----+-------
  11 | 
@@ -248,7 +248,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS FIRST
   3 | (,10)
 (3 rows)
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS LAST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr ASC NULLS LAST, id LIMIT 3;
  id |  nr   
 ----+-------
   1 | empty
@@ -256,7 +256,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr ASC NULLS LAST,
   2 | (,)
 (3 rows)
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS FIRST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC NULLS FIRST, id LIMIT 3;
  id |   nr   
 ----+--------
  11 | 
@@ -264,7 +264,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS FIRS
   9 | (5,10)
 (3 rows)
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS LAST, id LIMIT 3;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr DESC NULLS LAST, id LIMIT 3;
  id |   nr   
 ----+--------
  10 | (5,10]
@@ -273,7 +273,7 @@ SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr DESC NULLS LAST
 (3 rows)
 
 -- OFFSET walks past the leading keys.
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 4 OFFSET 6;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 4 OFFSET 6;
  id |   nr   
 ----+--------
   5 | [5,10)
@@ -302,7 +302,7 @@ BEGIN
     -- came from another, and a lost pushdown would compare native to native.
     query := format(
         'SELECT array_agg(v) FROM ('
-        '  SELECT %I::text AS v FROM %I WHERE title @@@ ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
+        '  SELECT %I::text AS v FROM %I WHERE title ||| ''doc'' ORDER BY %I %s LIMIT %s OFFSET %s'
         ') s',
         col, tbl, col, dir, lim, off);
 
@@ -349,9 +349,9 @@ ORDER BY result;
 -- to a Postgres Sort, which is correct but unaccelerated.
 -- =============================================================================
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 5;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY nr, id LIMIT 5;
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on range_items
          Table: range_items
@@ -360,14 +360,14 @@ SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY nr, id LIMIT 5;
          Scores: false
             TopK Order By: nr asc, id asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY id, nr LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: id, nr
@@ -376,10 +376,10 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Index: range_items_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, nr FROM range_items WHERE title @@@ 'doc' ORDER BY id, nr LIMIT 5;
+SELECT id, nr FROM range_items WHERE title ||| 'doc' ORDER BY id, nr LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
  id |   nr   
 ----+--------
@@ -394,10 +394,10 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 -- recognises, and a scalar bound orders differently from the whole range, so this
 -- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
 EXPLAIN (COSTS OFF, TIMING OFF)
-SELECT id FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr) LIMIT 5;
+SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr) LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (lower(nr))
@@ -406,10 +406,10 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Index: range_items_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, lower(nr) FROM range_items WHERE title @@@ 'doc' ORDER BY lower(nr), id LIMIT 5;
+SELECT id, lower(nr) FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr), id LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
  id |    lower     
 ----+--------------
@@ -428,7 +428,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 -- =============================================================================
 CREATE TABLE range_segments (id SERIAL PRIMARY KEY, title TEXT, nr NUMRANGE, tzr TSTZRANGE);
 CREATE INDEX range_segments_idx ON range_segments
-USING paradedb (id, title, nr, tzr) WITH (key_field = 'id');
+USING paradedb (id, title, nr, tzr);
 DO $$
 BEGIN
     FOR batch IN 0..5 LOOP
@@ -494,12 +494,12 @@ SELECT 'Product ' || i,
        numrange((i % 10) * 10, (i % 10 + 1) * 10)
 FROM generate_series(1, 100) i;
 CREATE INDEX records_no_fast_idx ON data_records
-USING paradedb (id, title, category, valid_period, quantity_range) WITH (key_field = 'id');
+USING paradedb (id, title, category, valid_period, quantity_range);
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id, title, category FROM data_records
-WHERE title @@@ 'product' ORDER BY valid_period LIMIT 10;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE title ||| 'product' ORDER BY valid_period LIMIT 10;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
@@ -508,11 +508,11 @@ WHERE title @@@ 'product' ORDER BY valid_period LIMIT 10;
          Scores: false
             TopK Order By: valid_period asc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"product","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, title, category FROM data_records
-WHERE title @@@ 'product' ORDER BY valid_period, id LIMIT 10;
+WHERE title ||| 'product' ORDER BY valid_period, id LIMIT 10;
  id |   title    |  category   
 ----+------------+-------------
   1 | Product 1  | Clothing
@@ -554,12 +554,12 @@ $$;
 -- the plan whose values get compared.
 SELECT plan_contains(
     'SELECT array_agg(v) FROM ('
-    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    '  SELECT nr::text AS v FROM range_segments WHERE title ||| ''doc'' ORDER BY nr LIMIT 5'
     ') s',
     'Gather') AS parallel_plan,
     plan_contains(
     'SELECT array_agg(v) FROM ('
-    '  SELECT nr::text AS v FROM range_segments WHERE title @@@ ''doc'' ORDER BY nr LIMIT 5'
+    '  SELECT nr::text AS v FROM range_segments WHERE title ||| ''doc'' ORDER BY nr LIMIT 5'
     ') s',
     'TopK') AS topk_plan;
  parallel_plan | topk_plan 

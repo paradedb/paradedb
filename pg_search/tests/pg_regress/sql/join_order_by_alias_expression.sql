@@ -30,19 +30,10 @@ INSERT INTO tech_installs (unique_id, company_id, technology_name) VALUES (1, 1,
 -- expression on the same column. This triggers the attno dedup
 -- false-positive in ORDER BY field collection.
 CREATE INDEX contacts_idx ON contacts
-USING paradedb (
-    contact_id,
-    company_id,
-    (lower(company_name::text)::pdb.literal_normalized('ascii_folding=true')),
-    (company_name::pdb.simple('alias=company_name_words', 'ascii_folding=true', 'columnar=true'))
-) WITH (key_field=contact_id, numeric_fields='{"company_id": {"fast": true}}');
+USING paradedb (contact_id, company_id, (lower(company_name::text)::pdb.literal_normalized('ascii_folding=true')), (company_name::pdb.simple('alias=company_name_words', 'ascii_folding=true', 'columnar=true')));
 
 CREATE INDEX tech_installs_idx ON tech_installs
-USING paradedb (
-    unique_id,
-    company_id,
-    technology_name
-) WITH (key_field=unique_id, numeric_fields='{"company_id": {"fast": true}}');
+USING paradedb (unique_id, company_id, technology_name);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -54,14 +45,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT cccf.*
 FROM contacts cccf
 JOIN tech_installs ti ON cccf.company_id = ti.company_id
-WHERE technology_name @@@ 'java'
+WHERE technology_name ||| 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
 
 SELECT cccf.*
 FROM contacts cccf
 JOIN tech_installs ti ON cccf.company_id = ti.company_id
-WHERE technology_name @@@ 'java'
+WHERE technology_name ||| 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
 
@@ -70,7 +61,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT cccf.*
 FROM contacts cccf
 JOIN tech_installs ti ON cccf.company_id = ti.company_id
-WHERE technology_name @@@ 'java'
+WHERE technology_name ||| 'java'
 ORDER BY lower(company_name) ASC, cccf.contact_id
 LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;

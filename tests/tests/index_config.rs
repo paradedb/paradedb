@@ -35,11 +35,11 @@ fn prevent_duplicate(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description) WITH (key_field='id')"#
+        USING paradedb (id, description)"#
         .execute(&mut conn);
 
     match r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description) WITH (key_field='id')"#
+        USING paradedb (id, description)"#
         .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with relation already exists"),
@@ -72,14 +72,14 @@ async fn drop_column(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"CREATE INDEX test_index ON test_table
-        USING paradedb (id, fulltext) WITH (key_field='id')"#
+        USING paradedb (id, fulltext)"#
         .execute(&mut conn);
 
     r#"DROP INDEX test_index CASCADE;
     ALTER TABLE test_table DROP COLUMN fkey;
 
     CREATE INDEX test_index ON test_table
-        USING paradedb (id, fulltext) WITH (key_field='id')"#
+        USING paradedb (id, fulltext)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -96,7 +96,7 @@ fn default_text_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description) WITH (key_field='id')"#
+        USING paradedb (id, description)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -109,15 +109,14 @@ fn default_text_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn text_field_with_options(mut conn: PgConnection) {
+fn text_field_with_tokenizer(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description)
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}');
+        USING paradedb (id, (description::pdb.simple('columnar=true')));
 "#
-        .execute(&mut conn);
+    .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -135,13 +134,9 @@ fn multiple_text_fields(mut conn: PgConnection) {
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
 
-        USING paradedb (id, description, category)
-        WITH (
-            key_field='id',
-            text_fields='{"description": {"tokenizer": {"type": "default", "normalizer": "raw"}, "record": "freq", "fast": true}}'
-        );
+        USING paradedb (id, (description::pdb.simple('columnar=true')), category);
         "#
-        .execute(&mut conn);
+    .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -159,7 +154,7 @@ fn default_numeric_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, rating) WITH (key_field='id')"#
+        USING paradedb (id, rating)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -172,12 +167,12 @@ fn default_numeric_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn numeric_field_with_options(mut conn: PgConnection) {
+fn numeric_field_without_options(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, rating) WITH (key_field='id', numeric_fields='{"rating": {"fast": true}}')"#
+        USING paradedb (id, rating)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -195,7 +190,7 @@ fn default_boolean_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, in_stock) WITH (key_field='id')"#
+        USING paradedb (id, in_stock)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -208,12 +203,12 @@ fn default_boolean_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn boolean_field_with_options(mut conn: PgConnection) {
+fn boolean_field_without_options(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, in_stock) WITH (key_field='id', boolean_fields='{"in_stock": {"fast": false}}')"#
+        USING paradedb (id, in_stock)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -231,7 +226,7 @@ fn default_json_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, metadata) WITH (key_field='id')"#
+        USING paradedb (id, metadata)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -244,16 +239,12 @@ fn default_json_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn json_field_with_options(mut conn: PgConnection) {
+fn json_field_with_tokenizer(mut conn: PgConnection) {
     "CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, metadata)
-        WITH (
-            key_field='id',
-            json_fields='{"metadata": {"fast": true, "expand_dots": false, "tokenizer": {"type": "raw", "normalizer": "raw"}}}'
-        )"#
+        USING paradedb (id, (metadata::pdb.literal_normalized))"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -271,7 +262,7 @@ fn default_datetime_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, created_at, last_updated_date) WITH (key_field='id')"#
+        USING paradedb (id, created_at, last_updated_date)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -290,8 +281,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, created_at, last_updated_date)
-        WITH (key_field='id')"#
+        USING paradedb (id, created_at, last_updated_date)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -310,7 +300,7 @@ fn multiple_fields(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description, category, rating, in_stock, metadata) WITH (key_field='id')"#
+        USING paradedb (id, description, category, rating, in_stock, metadata)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -347,12 +337,12 @@ fn null_values(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description, category, rating, in_stock, metadata) WITH (key_field='id')"#
+        USING paradedb (id, description, category, rating, in_stock, metadata)"#
         .execute(&mut conn);
 
     let rows: Vec<(String, Option<String>, Option<i32>)> = "
         SELECT description, category, rating
-        FROM paradedb.index_config WHERE index_config @@@ 'description:\"Null Item\"'
+        FROM paradedb.index_config WHERE index_config @@@ pdb.parse('description:\"Null Item\"')
         ORDER BY id"
         .fetch(&mut conn);
 
@@ -361,46 +351,10 @@ fn null_values(mut conn: PgConnection) {
     assert_eq!(rows[1], ("Null Item 2".into(), None, Some(2)));
 
     let rows: Vec<(bool,)> =
-        "SELECT in_stock FROM paradedb.index_config WHERE index_config @@@ 'in_stock:false'"
+        "SELECT in_stock FROM paradedb.index_config WHERE id @@@ pdb.all() AND in_stock = false"
             .fetch(&mut conn);
 
     assert_eq!(rows.len(), 13);
-}
-
-#[rstest]
-fn null_key_field_build(mut conn: PgConnection) {
-    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
-    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-    let rows: Vec<(Option<i32>,)> =
-        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
-            .fetch(&mut conn);
-    assert_eq!(rows, vec![(None,), (Some(2),)]);
-}
-
-#[rstest]
-#[case(0)]
-#[case(1000)]
-fn null_key_field_insert(mut conn: PgConnection, #[case] mutable_segment_rows: usize) {
-    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
-    "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
-        .execute(&mut conn);
-
-    format!(
-        "CREATE INDEX index_config_index ON paradedb.index_config USING paradedb (id, description)
-        WITH (key_field='id', mutable_segment_rows={mutable_segment_rows})"
-    )
-    .execute(&mut conn);
-
-    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute(&mut conn);
-    let rows: Vec<(Option<i32>,)> =
-        "SELECT id FROM paradedb.index_config WHERE description @@@ 'item' ORDER BY id NULLS FIRST"
-            .fetch(&mut conn);
-    assert_eq!(rows, vec![(None,), (Some(1),), (Some(2),)]);
 }
 
 #[rstest]
@@ -411,11 +365,11 @@ fn column_name_camelcase(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb ("IdName", "ColumnName") WITH (key_field='IdName')"#
+        USING paradedb ("IdName", "ColumnName")"#
         .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config WHERE index_config @@@ 'ColumnName:keyboard'"
+        "SELECT * FROM paradedb.index_config WHERE index_config @@@ pdb.parse('ColumnName:keyboard')"
             .fetch(&mut conn);
 
     assert_eq!(rows.len(), 1);
@@ -427,10 +381,10 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config1(id INTEGER, description TEXT)".execute(&mut conn);
     "CREATE TABLE paradedb.index_config2(id INTEGER, description TEXT)".execute(&mut conn);
     r#"CREATE INDEX index_config1_index ON paradedb.index_config1
-        USING paradedb (id, description) WITH (key_field='id')"#
+        USING paradedb (id, description)"#
         .execute(&mut conn);
     r#"CREATE INDEX index_config2_index ON paradedb.index_config2
-        USING paradedb (id, description) WITH (key_field='id')"#
+        USING paradedb (id, description)"#
         .execute(&mut conn);
     "BEGIN".execute(&mut conn);
     "INSERT INTO paradedb.index_config1 VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
@@ -438,13 +392,11 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "COMMIT".execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config1 WHERE index_config1 @@@ 'description:item'"
-            .fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config1 WHERE description ||| 'item'".fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM paradedb.index_config2 WHERE index_config2 @@@ 'description:item'"
-            .fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config2 WHERE description ||| 'item'".fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
@@ -552,7 +504,7 @@ fn partitioned_query(mut conn: PgConnection) {
     for table in ["sales", "sales_2023_q1"] {
         let search_results: Vec<(i32, String)> = format!(
             r#"
-            SELECT id, description FROM {table} WHERE id @@@ 'description:keyboard'
+            SELECT id, description FROM {table} WHERE description ||| 'keyboard'
             "#
         )
         .fetch(&mut conn);
@@ -564,7 +516,7 @@ fn partitioned_query(mut conn: PgConnection) {
         let amount_results: Vec<(i32, String, f32)> = format!(
             r#"
             SELECT id, description, amount FROM {table}
-            WHERE amount @@@ '[175 TO 250]'
+            WHERE id @@@ pdb.all() AND amount BETWEEN 175 AND 250
             ORDER BY amount ASC
             "#
         )
@@ -595,7 +547,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
         FROM sales
-        WHERE id @@@ '1';
+        WHERE id @@@ pdb.all() AND id = 1;
         "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
@@ -623,7 +575,7 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT count(*)
         FROM sales
-        WHERE description @@@ 'keyboard' and sale_date = '2023-01-10';
+        WHERE description ||| 'keyboard' and sale_date = '2023-01-10';
         "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
@@ -658,8 +610,7 @@ fn custom_enum_term(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX index_config_index ON paradedb.index_config
-    USING paradedb (id, description, color)
-    WITH (key_field='id');
+    USING paradedb (id, description, color);
     "#
     .execute(&mut conn);
 
@@ -680,8 +631,7 @@ fn custom_enum_parse(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX index_config_index ON paradedb.index_config
-    USING paradedb (id, description, color)
-    WITH (key_field='id');
+    USING paradedb (id, description, color);
     "#
     .execute(&mut conn);
 
@@ -692,37 +642,18 @@ fn custom_enum_parse(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn long_text_key_field_issue2198(mut conn: PgConnection) {
-    "CREATE TABLE issue2198 (id TEXT, value TEXT)".execute(&mut conn);
-
-    "CREATE INDEX idxissue2198 ON issue2198 USING paradedb (id, value) WITH (key_field='id')"
-        .execute(&mut conn);
-
-    let long_string = "a".repeat(10000);
-
-    format!("INSERT INTO issue2198(id) VALUES ('{long_string}')").execute(&mut conn);
-    let (count,) = format!("SELECT count(*) FROM issue2198 WHERE id @@@ '{long_string}'")
-        .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
-
-    let (count,) =
-        format!("SELECT count(*) FROM issue2198 WHERE id @@@ paradedb.term('id', '{long_string}')")
-            .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 1);
-}
-
-#[rstest]
 fn uuid_as_raw_issue2199(mut conn: PgConnection) {
     "CREATE TABLE issue2199 (id SERIAL8 NOT NULL PRIMARY KEY, value uuid);".execute(&mut conn);
 
-    "CREATE INDEX idxissue2199 ON issue2199 USING paradedb (id, value) WITH (key_field='id');"
-        .execute(&mut conn);
+    "CREATE INDEX idxissue2199 ON issue2199 USING paradedb (id, value);".execute(&mut conn);
 
     let uuid = uuid::Uuid::new_v4();
 
     format!("INSERT INTO issue2199(value) VALUES ('{uuid}')").execute(&mut conn);
-    let (count,) = format!("SELECT count(*) FROM issue2199 WHERE value @@@ '{uuid}'")
-        .fetch_one::<(i64,)>(&mut conn);
+    let (count,) = format!(
+        "SELECT count(*) FROM issue2199 WHERE value @@@ pdb.all() AND value = '{uuid}'::uuid"
+    )
+    .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =
@@ -772,12 +703,7 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
         ('Speaker', 120.00, '2024-06-30');
 
         CREATE INDEX idx_sales_bm25 ON sales
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
         "#
         .execute(conn);
     } else {
@@ -818,20 +744,10 @@ fn setup_table_for_order_by_limit_test(conn: &mut PgConnection, is_partitioned: 
 
         -- Create BM25 indexes for both tables
         CREATE INDEX idx_products_2023_bm25 ON products_2023
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
 
         CREATE INDEX idx_products_2024_bm25 ON products_2024
-        USING paradedb (id, product_name, amount, sale_date)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"product_name": {}}',
-            numeric_fields = '{"amount": {}}'
-        );
+        USING paradedb (id, product_name, amount, sale_date);
         "#
         .execute(conn);
     }
@@ -881,20 +797,10 @@ fn setup_view_for_order_by_limit_test(conn: &mut PgConnection) {
 
     -- Create BM25 indexes for both tables
     CREATE INDEX idx_products_2023_view_bm25 ON products_2023_view
-    USING paradedb (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}'
-    );
+    USING paradedb (id, product_name, amount, sale_date);
 
     CREATE INDEX idx_products_2024_view_bm25 ON products_2024_view
-    USING paradedb (id, product_name, amount, sale_date)
-    WITH (
-        key_field = 'id',
-        text_fields = '{"product_name": {}}',
-        numeric_fields = '{"amount": {}}'
-    );
+    USING paradedb (id, product_name, amount, sale_date);
 
     -- Create view combining both tables
     CREATE VIEW products_view AS
@@ -913,7 +819,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM sales
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch::<(String,)>(&mut conn)
@@ -943,7 +849,7 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     // Also test that we get the correct sorted results
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM sales
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -971,10 +877,10 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM (
         SELECT * FROM products_2023
-        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
         UNION ALL
         SELECT * FROM products_2024
-        WHERE product_name @@@ 'tablet OR printer'
+        WHERE (product_name ||| 'tablet' OR product_name ||| 'printer')
     ) combined_products
     ORDER BY sale_date LIMIT 5;
     "#
@@ -1000,10 +906,10 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM (
         SELECT * FROM products_2023
-        WHERE product_name @@@ 'laptop OR smartphone OR headphones'
+        WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones')
         UNION ALL
         SELECT * FROM products_2024
-        WHERE product_name @@@ 'tablet OR printer'
+        WHERE (product_name ||| 'tablet' OR product_name ||| 'printer')
     ) combined_products
     ORDER BY sale_date LIMIT 5;
     "#
@@ -1056,7 +962,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Verify direct table queries work
     let test_query: Vec<(String,)> = r#"
     SELECT product_name FROM products_2023_view
-    WHERE product_name @@@ 'laptop'
+    WHERE product_name ||| 'laptop'
     LIMIT 1;
     "#
     .fetch(&mut conn);
@@ -1066,7 +972,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     let explain_output = r#"
     EXPLAIN (ANALYZE, VERBOSE)
     SELECT * FROM products_view
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones' OR product_name ||| 'tablet' OR product_name ||| 'printer')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch::<(String,)>(&mut conn)
@@ -1092,7 +998,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Ensure the query works and returns correct results
     let results: Vec<(String, String)> = r#"
     SELECT product_name, sale_date::text FROM products_view
-    WHERE product_name @@@ 'laptop OR smartphone OR headphones OR tablet OR printer'
+    WHERE (product_name ||| 'laptop' OR product_name ||| 'smartphone' OR product_name ||| 'headphones' OR product_name ||| 'tablet' OR product_name ||| 'printer')
     ORDER BY sale_date LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -1121,7 +1027,7 @@ fn expression_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, (lower(description)::pdb.simple)) WITH (key_field='id')"#
+        USING paradedb (id, (lower(description)::pdb.simple))"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =

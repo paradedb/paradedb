@@ -34,10 +34,10 @@ pub enum TokenizerType {
 }
 
 impl TokenizerType {
-    fn to_index_config(&self) -> &'static str {
+    fn to_tokenizer(&self) -> &'static str {
         match self {
-            TokenizerType::Default => r#""tokenizer": {"type": "default"}"#,
-            TokenizerType::Keyword => r#""tokenizer": {"type": "keyword"}"#,
+            TokenizerType::Default => "pdb.simple",
+            TokenizerType::Keyword => "pdb.literal",
         }
     }
 }
@@ -193,20 +193,13 @@ INSERT INTO scalar_array_test (text_col, int_col, bool_col, ts_col, uuid_col) VA
 
 -- Create BM25 index with configurable tokenizer
 CREATE INDEX idx_scalar_array_test ON scalar_array_test
-USING paradedb (id, text_col, int_col, bool_col, ts_col, uuid_col)
-WITH (
-    key_field = 'id',
-    text_fields = '{{
-        "text_col": {{ {} }},
-        "uuid_col": {{ {} }}
-    }}'
-);
+USING paradedb (id, (text_col::{}), int_col, bool_col, ts_col, (uuid_col::{}));
 
 -- help our cost estimates
 ANALYZE scalar_array_test;
 "#,
-        tokenizer.to_index_config(),
-        tokenizer.to_index_config()
+        tokenizer.to_tokenizer(),
+        tokenizer.to_tokenizer()
     );
 
     setup_sql.clone().execute(conn);

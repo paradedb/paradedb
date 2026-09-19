@@ -28,11 +28,9 @@ CREATE TABLE lmp_comments (
     body TEXT
 );
 
-CREATE INDEX lmp_posts_idx ON lmp_posts USING bm25 (id, title, body)
-WITH (key_field = 'id', text_fields = '{"title": {"fast": true}, "body": {}}');
+CREATE INDEX lmp_posts_idx ON lmp_posts USING paradedb (id, (title::pdb.unicode_words('columnar=true')), body);
 
-CREATE INDEX lmp_comments_idx ON lmp_comments USING bm25 (id, post_id, author, body)
-WITH (key_field = 'id', numeric_fields = '{"post_id": {"fast": true}}', text_fields = '{"author": {"fast": true}, "body": {}}');
+CREATE INDEX lmp_comments_idx ON lmp_comments USING paradedb (id, post_id, (author::pdb.unicode_words('columnar=true')), body);
 
 -- Two insert batches per table give each index two segments, enough for the MPP leg to
 -- cut the plan into tasks.
@@ -79,13 +77,13 @@ SHOW paradedb.defer_string_decode;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
@@ -94,13 +92,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 SELECT c.id, c.author
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
@@ -108,13 +106,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id < p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 SELECT c.id, c.author
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id < p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
@@ -125,13 +123,13 @@ SET paradedb.enable_segmented_topk = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
@@ -141,14 +139,14 @@ RESET paradedb.enable_segmented_topk;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
   AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
   AND EXISTS (SELECT 1 FROM lmp_comments c WHERE c.post_id = p.id)
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
@@ -157,13 +155,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p LEFT JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
@@ -171,13 +169,13 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.author, b.author
 FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
-WHERE a.body @@@ 'comment'
+WHERE a.body ||| 'comment'
 ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
 LIMIT 5;
 
 SELECT a.id, a.author, b.author
 FROM lmp_comments a JOIN lmp_comments b ON a.post_id = b.post_id
-WHERE a.body @@@ 'comment'
+WHERE a.body ||| 'comment'
 ORDER BY a.author ASC, b.author DESC, a.id ASC, b.id ASC
 LIMIT 5;
 
@@ -187,14 +185,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_comments c
 JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC, c2.id ASC
 LIMIT 5;
 
 SELECT c.id, c.author
 FROM lmp_comments c
 JOIN (lmp_posts p JOIN lmp_comments c2 ON c2.post_id = p.id) ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC, c2.id ASC
 LIMIT 5;
 
@@ -208,60 +206,59 @@ CREATE TABLE lmp_profiles (
     bio TEXT
 );
 
-CREATE INDEX lmp_profiles_idx ON lmp_profiles USING bm25 (id, handle, bio)
-WITH (key_field = 'id', numeric_fields = '{"handle": {"fast": true}}');
+CREATE INDEX lmp_profiles_idx ON lmp_profiles USING paradedb (id, handle, bio);
 
 INSERT INTO lmp_profiles (id, handle, bio)
 SELECT i, i, CASE WHEN i % 3 = 0 THEN 'alpha profile' ELSE 'beta profile' END
 FROM generate_series(1, 30) AS i;
 
--- `handle` is not the key field, but its unique index proves that each comment matches at
+-- The unique index on `handle` proves that each comment matches at
 -- most one profile: the fetch stays deferred.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
-WHERE p.bio @@@ 'alpha'
+WHERE p.bio ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.handle
-WHERE p.bio @@@ 'alpha'
+WHERE p.bio ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
--- The key field alone proves nothing: `id` has no unique index, so the join may fan the
--- comments out, and the comments scan resolves the ordinals itself.
+-- `id` has no unique index, so the join may fan the comments out, and the comments
+-- scan resolves the ordinals itself.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.bio @@@ 'alpha'
+WHERE p.bio ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 SELECT c.id, c.author
 FROM lmp_profiles p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.bio @@@ 'alpha'
+WHERE p.bio ||| 'alpha'
 ORDER BY c.author ASC, c.id ASC
 LIMIT 5;
 
 -- =============================================================================
--- Aggregates: nothing above bounds the rows, so a fan-out decodes in the scan
+-- Aggregates: the key's own table decides. A title with one row per term is not
+-- grouped on ordinals, so nothing bounds the fan-out and the scan decodes it. An
+-- author with many rows per term is, so the decode runs once per group instead
 -- =============================================================================
-
-SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
@@ -269,14 +266,14 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.author, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY c.author
 ORDER BY c.author
 LIMIT 5;
 
 SELECT c.author, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY c.author
 ORDER BY c.author
 LIMIT 5;
@@ -291,15 +288,53 @@ LIMIT 5;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c1.author, c2.author
 FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
-WHERE c1.body @@@ 'comment'
+WHERE c1.body ||| 'comment'
 ORDER BY c1.author, c2.author
 LIMIT 5;
 
 SELECT c1.author, c2.author
 FROM lmp_comments c1 JOIN lmp_comments c2 ON c1.post_id = c2.id
-WHERE c1.body @@@ 'comment'
+WHERE c1.body ||| 'comment'
 ORDER BY c1.author, c2.author
 LIMIT 5;
+
+-- =============================================================================
+-- A single-table aggregate reads every row the scan emits. `title` has one row per
+-- term, so its ordinals are not grouped and a deferred decode would repeat the
+-- scan's own work; the scan decodes it instead. `author` repeats across rows, so
+-- the decode runs once per group and stays where it is. The bucket limit is what
+-- routes a single-table group-by to DataFusion.
+-- =============================================================================
+
+SET paradedb.max_term_agg_buckets TO 1;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+SELECT p.title, COUNT(*)
+FROM lmp_posts p
+WHERE p.body @@@ 'alpha'
+GROUP BY p.title
+ORDER BY p.title;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+SELECT c.author, COUNT(*)
+FROM lmp_comments c
+WHERE c.body @@@ 'comment'
+GROUP BY c.author
+ORDER BY c.author;
+
+RESET paradedb.max_term_agg_buckets;
 
 -- =============================================================================
 -- Settings override the rule
@@ -310,14 +345,14 @@ SET paradedb.defer_string_decode = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
@@ -330,33 +365,32 @@ SET paradedb.defer_column_fetch = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
 RESET paradedb.defer_column_fetch;
-RESET paradedb.enable_aggregate_late_materialization;
 
 SET paradedb.defer_column_fetch = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
@@ -368,13 +402,13 @@ SET paradedb.defer_string_decode = off;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
@@ -393,32 +427,32 @@ SET parallel_tuple_cost TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
 
 SELECT p.id, p.title
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 ORDER BY p.title DESC, p.id ASC
 LIMIT 5;
-
-SET paradedb.enable_aggregate_late_materialization = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
 
 SELECT p.title, COUNT(*)
 FROM lmp_posts p JOIN lmp_comments c ON c.post_id = p.id
-WHERE p.body @@@ 'alpha'
+WHERE p.body ||| 'alpha'
 GROUP BY p.title
 ORDER BY p.title
 LIMIT 5;
+
+
 
 RESET paradedb.enable_aggregate_late_materialization;
 

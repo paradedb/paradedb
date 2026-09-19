@@ -25,11 +25,9 @@ CREATE INDEX ON issue_2585_test USING paradedb (
     titles,
     metadata,
     is_null
-) WITH (
-    key_field = 'id'
 );
 
-SELECT * FROM issue_2585_test WHERE content @@@ 'content' AND titles IS NOT NULL AND metadata IS NOT NULL AND is_null IS NOT NULL;
-SELECT * FROM issue_2585_test WHERE content @@@ 'fields' AND titles IS NULL AND metadata IS NULL AND is_null IS FALSE;
+SELECT * FROM issue_2585_test WHERE content ||| 'content' AND titles IS NOT NULL AND metadata IS NOT NULL AND is_null IS NOT NULL;
+SELECT * FROM issue_2585_test WHERE content ||| 'fields' AND titles IS NULL AND metadata IS NULL AND is_null IS FALSE;
 
 DROP TABLE IF EXISTS issue_2585_test;

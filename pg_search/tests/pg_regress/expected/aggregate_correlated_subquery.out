@@ -39,35 +39,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    key_field = 'id',
-    text_fields = '{"documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb (id, (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb (id, (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb (id, (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -97,13 +71,13 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
-                                                                                                                                      QUERY PLAN                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
@@ -114,12 +88,12 @@ ORDER BY d.id;
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          SubPlan 1
            ->  Custom Scan (ParadeDB Aggregate Scan) on public.files f
                  Output: pdb.agg_fn('COUNT(*)'::text)
                  Index: files_search
-                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
+                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"Invoice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
                    Applies to Aggregates: COUNT(*)
                    Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (18 rows)
@@ -129,10 +103,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
@@ -152,10 +126,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
@@ -170,10 +144,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+        WHERE f.documentId = d.id AND f.title ||| 'Invoice'
     ) AS invoice_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
@@ -196,10 +170,10 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id AND f.file_size > 500
     ) AS large_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
@@ -210,7 +184,7 @@ ORDER BY d.id;
          Worker Selection: Row-capped
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
          SubPlan 1
            ->  Aggregate
                  Output: count(*)
@@ -227,7 +201,7 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id AND f.file_size > 500
     ) AS large_file_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | large_file_count 
 ------+--------------+------------------
@@ -246,10 +220,10 @@ SELECT d.id, d.title,
     (
         SELECT COUNT(*)
         FROM files f
-        WHERE f.documentId = d.id AND f.title @@@ 'NonExistent'
+        WHERE f.documentId = d.id AND f.title ||| 'NonExistent'
     ) AS nonexistent_count
 FROM documents d
-WHERE d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |    title     | nonexistent_count 
 ------+--------------+-------------------
@@ -271,7 +245,7 @@ SELECT d.id, d.title,
         WHERE f.documentId = d.id
     ) AS all_file_count
 FROM documents d
-WHERE d.parents @@@ 'Contracts' OR d.parents @@@ 'Factures'
+WHERE d.parents ||| 'Contracts' OR d.parents ||| 'Factures'
 ORDER BY d.id;
   id  |     title     | all_file_count 
 ------+---------------+----------------

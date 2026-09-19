@@ -44,25 +44,10 @@ FROM generate_series(1, 500) as i
 WHERE i % 3 = 0 AND i % 15 = 0;
 
 CREATE INDEX items_idx ON items
-USING paradedb (id, name, alt_name, category)
-WITH (
-    key_field = id,
-    text_fields = '{
-        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }'
-);
+USING paradedb (id, (name::pdb.literal), (alt_name::pdb.literal), (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')));
 
 CREATE INDEX exclusions_idx ON exclusions
-USING paradedb (id, pattern, reason)
-WITH (
-    key_field = id,
-    text_fields = '{
-        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "reason": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }'
-);
+USING paradedb (id, (pattern::pdb.literal), (reason::pdb.literal));
 
 SET paradedb.enable_join_custom_scan TO on;
 
@@ -77,7 +62,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -88,7 +73,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -103,7 +88,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
 
@@ -114,7 +99,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 10;
 
@@ -133,7 +118,7 @@ WHERE NOT EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -148,7 +133,7 @@ WHERE NOT EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -166,7 +151,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -187,7 +172,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -198,7 +183,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR length(e.pattern) > 100)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -216,7 +201,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.id <> i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -227,7 +212,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.id <> i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -239,7 +224,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.id <> i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -257,7 +242,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -268,7 +253,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -280,7 +265,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id > i.id OR e.pattern = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -299,7 +284,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -310,7 +295,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -322,7 +307,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.id = 42::bigint)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -343,7 +328,7 @@ WHERE NOT EXISTS (
           OR e.pattern = i.alt_name
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -357,7 +342,7 @@ WHERE NOT EXISTS (
           OR e.pattern = i.alt_name
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -372,7 +357,7 @@ WHERE NOT EXISTS (
           OR e.pattern = i.alt_name
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -392,7 +377,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.pattern = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -403,7 +388,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.pattern = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -415,7 +400,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND e.pattern = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -435,7 +420,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"other"'
+AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -447,7 +432,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"other"'
+AND i.category ### 'other'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -486,24 +471,10 @@ FROM generate_series(1, 100) as i
 WHERE i % 5 = 0;
 
 CREATE INDEX items_vc_idx ON items_vc
-USING paradedb (id, name, alt_name, category)
-WITH (
-    key_field = id,
-    text_fields = '{
-        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }'
-);
+USING paradedb (id, (name::pdb.literal), (alt_name::pdb.literal), (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase')));
 
 CREATE INDEX exclusions_vc_idx ON exclusions_vc
-USING paradedb (id, pattern)
-WITH (
-    key_field = id,
-    text_fields = '{
-        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }'
-);
+USING paradedb (id, (pattern::pdb.literal));
 
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
@@ -513,7 +484,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -524,7 +495,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 
@@ -536,7 +507,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
@@ -557,7 +528,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND upper(e.pattern) = upper(i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
 
@@ -568,7 +539,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND upper(e.pattern) = upper(i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
 
@@ -580,7 +551,7 @@ WHERE EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND upper(e.pattern) = upper(i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -597,7 +568,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -608,7 +579,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -620,7 +591,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND COALESCE(e.pattern, '') = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -638,7 +609,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -649,7 +620,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -661,7 +632,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern IS NULL)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -678,7 +649,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -689,7 +660,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -701,7 +672,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -720,7 +691,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id * 2) > i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -731,7 +702,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id * 2) > i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -743,7 +714,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.id * 2) > i.id
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -762,7 +733,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -773,7 +744,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -785,7 +756,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -810,7 +781,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -821,7 +792,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -833,7 +804,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -856,7 +827,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -867,7 +838,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -879,7 +850,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -901,7 +872,7 @@ WHERE NOT EXISTS (
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -913,7 +884,7 @@ WHERE NOT EXISTS (
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 
@@ -926,7 +897,7 @@ WHERE NOT EXISTS (
       AND md5(e.pattern) = md5(i.name)
       AND to_hex(e.id) <> to_hex(i.id)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
@@ -990,18 +961,9 @@ INSERT INTO coll_patterns (id, pattern) VALUES
     (3, 'gamma');
 
 CREATE INDEX coll_items_idx ON coll_items
-    USING paradedb (id, name, pattern_id)
-    WITH (
-        key_field = id,
-        text_fields = '{"name": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-        numeric_fields = '{"pattern_id": {"fast": true}}'
-    );
+    USING paradedb (id, (name::pdb.literal), pattern_id);
 CREATE INDEX coll_patterns_idx ON coll_patterns
-    USING paradedb (id, pattern)
-    WITH (
-        key_field = id,
-        text_fields = '{"pattern": {"fast": true, "tokenizer": {"type": "keyword"}}}'
-    );
+    USING paradedb (id, (pattern::pdb.literal));
 
 -- (A) Disjunctive equi-key OR `upper(... COLLATE "C")` — JoinScan's
 -- disjunctive-absorption path routes the whole predicate through

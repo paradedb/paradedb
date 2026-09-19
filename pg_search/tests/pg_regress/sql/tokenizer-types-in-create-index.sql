@@ -27,24 +27,23 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING paradedb
      (t::pdb.simple('stemmer=english', 'alias=stemmed')),
      (t::pdb.whitespace('alias=whitespace')),
      (t::pdb.source_code('alias=source_code'))
-        )
-    WITH (key_field = 'id');
+        );
 
 SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex_pattern('is|a', 'alias=regex')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) @@@ 'test';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) @@@ 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex_pattern('is|a', 'alias=regex')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) ||| 'test';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) ||| 'test';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t &&& 'test';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) &&& 'test';

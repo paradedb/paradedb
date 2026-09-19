@@ -77,19 +77,7 @@ VALUES ('apple', 'apple', 'Electronics', 'apple', 10),
         'elderberry',
         50
     );
-CREATE INDEX collation_test_idx ON collation_test USING paradedb (
-    id,
-    name_c,
-    name_icu,
-    name_case_insensitive,
-    name_default,
-    priority
-)
-WITH (
-        key_field = 'id',
-        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_case_insensitive": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
-        numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
-    );
+CREATE INDEX collation_test_idx ON collation_test USING paradedb (id, (name_c::pdb.unicode_words('columnar=true')), (name_icu::pdb.unicode_words('columnar=true')), (name_case_insensitive::pdb.unicode_words('columnar=true')), (name_default::pdb.unicode_words('columnar=true')), priority);
 ANALYZE collation_test;
 -- =============================================================================
 -- SECTION 1: TopK (Base Scan ORDER BY ... LIMIT)
@@ -493,13 +481,7 @@ VALUES ('berlin', 3600000),
     ('chicago', 2700000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
-WITH (
-        key_field = 'id',
-        text_fields = '{"city": {"indexed": true, "fast": true}}',
-        numeric_fields = '{"population": {"indexed": true, "fast": true}}',
-        sort_by = 'city ASC NULLS FIRST'
-    );
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, (city::pdb.unicode_words('columnar=true')), population) WITH (sort_by = 'city ASC NULLS FIRST');
 ANALYZE collation_sortby_test;
 \echo 'Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node'
 Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node
@@ -636,22 +618,8 @@ VALUES (1, 1, 'TechCorp'),
     (3, 3, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
-CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (
-    id,
-    name_c,
-    name_icu,
-    description
-)
-WITH (
-        key_field = 'id',
-        text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
-    );
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
-WITH (
-        key_field = 'id',
-        text_fields = '{"supplier_name": {"fast": true}}',
-        numeric_fields = '{"product_id": {"fast": true}}'
-    );
+CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (id, (name_c::pdb.unicode_words('columnar=true')), (name_icu::pdb.unicode_words('columnar=true')), description);
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, (supplier_name::pdb.unicode_words('columnar=true')));
 ANALYZE collation_join_products;
 ANALYZE collation_join_suppliers;
 \echo 'Test 5.1: JoinScan ORDER BY C-collation column -> JoinScan used'
@@ -660,27 +628,26 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_c, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.id = s.product_id
    Limit: 5
    Order By: p.name_c asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[name_c@0 as col_1, supplier_name@2 as col_2, ctid_0@1 as ctid_0, ctid_1@3 as ctid_1]
-     :   TantivyDecodeExec: decode=[name_c, supplier_name]
-     :     TantivyFetchExec: fetch=[supplier_name]
-     :       SegmentedTopKExec: expr=[name_c@0 ASC NULLS LAST], k=5, visibility_checks=[p, s]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[name_c@1, ctid_0@2, supplier_name@4, ctid_1@5]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, fetch=[name_c], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
-(15 rows)
+     : ProjectionExec: expr=[name_c@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   TantivyDecodeExec: decode=[name_c]
+     :     SegmentedTopKExec: expr=[name_c@1 ASC NULLS LAST], k=5, visibility_checks=[p, s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, name_c@2, ctid_1@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, fetch=[name_c], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(14 rows)
 
 \echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
 Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)
@@ -688,12 +655,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_icu, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name_icu
 LIMIT 5;
 WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) collation (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: p.name_icu COLLATE test_icu
@@ -707,7 +674,7 @@ WARNING:  JoinScan not used: ORDER BY columns must have a byte-ordered (C-like) 
                            Exec Method: ColumnarExecState
                            Columnar: id, name_icu
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (14 rows)
 
 \echo 'Test 5.3: JoinScan ORDER BY integer -> JoinScan used (collation is InvalidOid)'
@@ -716,28 +683,27 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_c, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                               QUERY PLAN                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: p INNER s
    Join Cond: p.id = s.product_id
    Limit: 5
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[supplier_name]
-     :   ProjectionExec: expr=[name_c@1 as col_1, supplier_name@3 as col_2, id@0 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :     SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-     :       VisibilityFilterExec: tables=[p, s]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[id@0, name_c@1, ctid_0@2, supplier_name@4, ctid_1@5]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, eager=[name_c], dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=s, segments=1, fetch=[supplier_name], dynamic_filters=1, query="all"
-(16 rows)
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[p, s]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=s, segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 RESET paradedb.enable_join_custom_scan;
 -- =============================================================================
@@ -775,8 +741,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY name_icu
 ORDER BY name_icu
 LIMIT 3;
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: name_icu COLLATE test_icu
@@ -788,7 +754,7 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : AggregateExec: mode=Single, gby=[name_icu@0 as name_icu], aggr=[count(1) as agg_0]
                  :   CooperativeExec
-                 :     PgSearchScan: table=collation_test, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+                 :     PgSearchScan: table=collation_test, segments=1, eager=[name_icu], visibility=eager, query={"with_index":{"query":"all"}}
 (12 rows)
 
 RESET paradedb.max_term_agg_buckets;

@@ -35,12 +35,7 @@ INSERT INTO groupby_conflict_test (title, category, rating, price, views) VALUES
 
 -- Create BM25 index with fast fields
 CREATE INDEX groupby_conflict_idx ON groupby_conflict_test 
-USING paradedb (id, title, category, rating, price, views)
-WITH (
-    key_field='id',
-    text_fields='{"title": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}, "views": {"fast": true}}'
-);
+USING paradedb (id, title, (category::pdb.unicode_words('columnar=true')), rating, price, views);
 
 -- =====================================================================
 -- Test 1: GROUP BY on rating field with AVG(rating)
@@ -48,14 +43,14 @@ WITH (
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT rating, AVG(rating) as avg_rating, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY rating
 ORDER BY rating;
 
 -- Execute the query
 SELECT rating, AVG(rating) as avg_rating, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY rating
 ORDER BY rating;
 
@@ -65,14 +60,14 @@ ORDER BY rating;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT price, SUM(price) as total_price, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY price
 ORDER BY price;
 
 -- Execute the query
 SELECT price, SUM(price) as total_price, COUNT(*) as count
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY price
 ORDER BY price;
 
@@ -82,14 +77,14 @@ ORDER BY price;
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT views, MAX(views) as max_views, MIN(views) as min_views
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY views
 ORDER BY views;
 
 -- Execute the query
 SELECT views, MAX(views) as max_views, MIN(views) as min_views
 FROM groupby_conflict_test
-WHERE title @@@ 'Product'
+WHERE title ||| 'Product'
 GROUP BY views
 ORDER BY views;
 
@@ -104,7 +99,7 @@ SELECT rating,
        MAX(rating) as max_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY rating
 ORDER BY rating;
 
@@ -115,7 +110,7 @@ SELECT rating,
        MAX(rating) as max_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY rating
 ORDER BY rating;
 
@@ -129,7 +124,7 @@ SELECT title,
        AVG(rating) as avg_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY title
 ORDER BY title;
 
@@ -138,7 +133,7 @@ SELECT title,
        AVG(rating) as avg_rating,
        COUNT(*) as count
 FROM groupby_conflict_test
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 GROUP BY title
 ORDER BY title
 LIMIT 5;

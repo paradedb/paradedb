@@ -59,7 +59,7 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
         id serial8 not null primary key,
         bool_field bool
     );
-    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING paradedb (id, bool_field) WITH (key_field = 'id');
+    CREATE INDEX idxpushdown_is_true ON pushdown_is_true USING paradedb (id, bool_field);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
     INSERT INTO pushdown_is_true (bool_field) SELECT true FROM generate_series(1, 100);
@@ -124,18 +124,17 @@ fn pushdown(mut conn: PgConnection) {
             CREATE INDEX idxtest
                       ON test
                    USING paradedb (id, col_boolean, {})
-                   WITH (
-                    key_field='id',
-                        text_fields = '{{
-                            "col_text": {{"tokenizer": {{"type":"keyword"}} }},
-                            "col_text_1": {{"tokenizer": {{"type":"keyword"}} }},
-                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }},
-                            "col_varchar_1": {{"tokenizer": {{"type":"keyword"}} }}
-                         }}'
-                    );"#,
+;"#,
         TYPES
             .iter()
-            .map(|t| sqlname(t[0]))
+            .map(|t| {
+                let name = sqlname(t[0]);
+                if matches!(t[1], "text" | "varchar") {
+                    format!("({name}::pdb.literal)")
+                } else {
+                    name
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ")
     );
@@ -228,8 +227,7 @@ fn issue2301_is_null_with_joins(mut conn: PgConnection) {
             removed_at timestamp with time zone
         );
         CREATE INDEX mcp_server_search_idx ON mcp_server
-        USING paradedb (id, name, description, synced_at, removed_at)
-        WITH (key_field='id');
+        USING paradedb (id, name, description, synced_at, removed_at);
     "#
     .execute(&mut conn);
 
@@ -268,8 +266,7 @@ fn setup_test_table(mut conn: PgConnection) -> PgConnection {
     sql.execute(&mut conn);
 
     let sql = r#"
-        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, col_text, col_int8)
-        WITH (key_field='id', text_fields = '{"col_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+        CREATE INDEX idxtest ON test USING paradedb (id, col_boolean, (col_text::pdb.literal_normalized), col_int8);
     "#;
     sql.execute(&mut conn);
 
@@ -294,7 +291,7 @@ mod pushdown_is_not_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ '1';
+            AND id @@@ pdb.all() AND id = 1;
         "#;
 
         eprintln!("/----------/");
@@ -375,7 +372,7 @@ mod pushdown_is_not_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ '>2';
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -384,7 +381,7 @@ mod pushdown_is_not_null {
             SELECT *
             FROM test
             WHERE col_text IS NOT NULL
-            AND id @@@ '>2';
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(3, false, Some(String::from("bar")), Some(333))]);
@@ -454,8 +451,7 @@ mod pushdown_is_not_null {
         "CREATE TABLE test2 (id SERIAL8 NOT NULL PRIMARY KEY, ref_id int8, ref_text text);"
             .execute(&mut conn);
         let sql = r#"
-            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
-            WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, (ref_text::pdb.literal_normalized));
         "#;
         sql.execute(&mut conn);
 
@@ -508,7 +504,7 @@ mod pushdown_is_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ '1';
+            AND id @@@ pdb.all() AND id = 1;
         "#;
 
         eprintln!("/----------/");
@@ -568,9 +564,9 @@ mod pushdown_is_null {
         let res = r#"
             SELECT *
             FROM test
-            WHERE col_int8 IS NULL
-            AND col_text IS NULL
-            AND id @@@ '1' OR id @@@ '2' OR id @@@ '3' OR id @@@ '4'
+            WHERE id @@@ pdb.all()
+            AND ((col_int8 IS NULL AND col_text IS NULL AND id = 1)
+                OR id = 2 OR id = 3 OR id = 4)
             ORDER BY id;
         "#
         .fetch::<(i64, bool, Option<String>, Option<i64>)>(&mut conn);
@@ -592,7 +588,7 @@ mod pushdown_is_null {
             SELECT count(*)
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ '>2';
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64,)>(&mut conn);
         assert_eq!(count, vec![(1,)]);
@@ -601,7 +597,7 @@ mod pushdown_is_null {
             SELECT id, col_boolean, col_int8
             FROM test
             WHERE col_text IS NULL
-            AND id @@@ '>2';
+            AND id @@@ pdb.all() AND id > 2;
         "#
         .fetch::<(i64, bool, Option<i64>)>(&mut conn);
         assert_eq!(res, vec![(4, false, Some(444))]);
@@ -655,8 +651,7 @@ mod pushdown_is_null {
         "CREATE TABLE test2 (id SERIAL8 NOT NULL PRIMARY KEY, ref_id int8, ref_text text);"
             .execute(&mut conn);
         let sql = r#"
-            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, ref_text)
-            WITH (key_field='id', text_fields = '{"ref_text": {"fast": true, "tokenizer": {"type":"raw"}}}');
+            CREATE INDEX idxtest2 ON test2 USING paradedb (id, ref_id, (ref_text::pdb.literal_normalized));
         "#;
         sql.execute(&mut conn);
 
@@ -724,7 +719,7 @@ mod pushdown_is_bool_operator {
             r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
             SELECT *, pdb.score(id) FROM is_true
-            WHERE bool_field {condition} AND message @@@ 'beer';
+            WHERE bool_field {condition} AND message ||| 'beer';
             "#
         );
 
@@ -740,7 +735,7 @@ mod pushdown_is_bool_operator {
             r#"
             SELECT id, bool_field, message, pdb.score(id)
             FROM is_true
-            WHERE bool_field {condition} AND message @@@ 'beer'
+            WHERE bool_field {condition} AND message ||| 'beer'
             ORDER BY id;
             "#
         )
@@ -763,7 +758,7 @@ mod pushdown_is_bool_operator {
             r#"
             EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
             SELECT *, pdb.score(id) FROM is_true
-            WHERE {condition} AND message @@@ 'beer';
+            WHERE {condition} AND message ||| 'beer';
             "#
         );
 
@@ -779,7 +774,7 @@ mod pushdown_is_bool_operator {
             r#"
             SELECT id, bool_field, message, pdb.score(id)
             FROM is_true
-            WHERE {condition} AND message @@@ 'beer'
+            WHERE {condition} AND message ||| 'beer'
             ORDER BY id;
             "#
         )
@@ -805,7 +800,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message);
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -837,7 +832,7 @@ mod pushdown_is_bool_operator {
         message text
     );
 
-    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+    CREATE INDEX idxis_true ON is_true USING paradedb (id, bool_field, message);
 
     INSERT INTO is_true (bool_field, message) VALUES (true, 'beer');
     INSERT INTO is_true (bool_field, message) VALUES (false, 'beer');
@@ -876,7 +871,7 @@ mod pushdown_is_bool_operator {
             message text
         );
 
-        CREATE INDEX idx_bool_null_test ON bool_null_test USING paradedb (id, bool_field, message) WITH (key_field = 'id');
+        CREATE INDEX idx_bool_null_test ON bool_null_test USING paradedb (id, bool_field, message);
 
         -- Insert values: true, false, and NULL
         INSERT INTO bool_null_test (bool_field, message) VALUES (true, 'beer');
@@ -898,7 +893,7 @@ mod pushdown_is_bool_operator {
                 r#"
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
                 SELECT *, pdb.score(id) FROM bool_null_test
-                WHERE {condition} AND message @@@ 'beer';
+                WHERE {condition} AND message ||| 'beer';
                 "#
             );
 
@@ -914,7 +909,7 @@ mod pushdown_is_bool_operator {
                 r#"
                 SELECT id, bool_field, message, pdb.score(id)
                 FROM bool_null_test
-                WHERE {condition} AND message @@@ 'beer'
+                WHERE {condition} AND message ||| 'beer'
                 ORDER BY id;
                 "#
             )
@@ -1034,7 +1029,7 @@ mod pushdown_is_bool_operator {
             let results: Vec<(i64, Option<bool>, String)> = r#"
                 SELECT id, bool_field, message
                 FROM bool_null_test
-                WHERE bool_field IS NULL AND message @@@ 'beer'
+                WHERE bool_field IS NULL AND message ||| 'beer'
                 ORDER BY id;
             "#
             .fetch(&mut conn);

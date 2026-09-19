@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Added a `paradedb.spill_to_disk` GUC. When enabled, queries that exceed `work_mem` spill to disk and complete instead of returning a `work_mem`-exceeded error. A warning is emitted when spilling occurs. Off by default.

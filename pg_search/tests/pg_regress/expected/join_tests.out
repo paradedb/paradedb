@@ -112,11 +112,11 @@ INSERT INTO bridge_table (author_id, book_id, relationship_type, strength) VALUE
 (1, 6, 'secondary', 5), (6, 8, 'primary', 8);
 ERROR:  relation "bridge_table" does not exist at character 13
 -- Create BM25 indexes
-CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, country) WITH (key_field = 'id');
-CREATE INDEX books_bm25_idx ON books USING paradedb (id, title, content) WITH (key_field = 'id');
-CREATE INDEX reviews_bm25_idx ON reviews USING paradedb (id, content) WITH (key_field = 'id');
-CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description) WITH (key_field = 'id');
-CREATE INDEX publishers_bm25_idx ON publishers USING paradedb (id, name, description) WITH (key_field = 'id');
+CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, country);
+CREATE INDEX books_bm25_idx ON books USING paradedb (id, title, content);
+CREATE INDEX reviews_bm25_idx ON reviews USING paradedb (id, content);
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description);
+CREATE INDEX publishers_bm25_idx ON publishers USING paradedb (id, name, description);
 -- =============================================================================
 -- SECTION 1: Equi-joins with various join types
 -- =============================================================================
@@ -128,7 +128,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
+WHERE (a.bio ||| 'science' OR b.content ||| 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
   author_name  |     book_title      | author_score | book_score 
@@ -147,7 +147,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
+WHERE (a.bio ||| 'mystery' OR b.content ||| 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
@@ -163,7 +163,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
+WHERE (a.bio ||| 'fiction' OR b.content ||| 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
@@ -184,7 +184,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
-WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
+WHERE (a.bio ||| 'writer' OR b.content ||| 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -199,7 +199,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
+WHERE (a.bio ||| 'author' OR b.content ||| 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
  author_name  |      book_title      | author_score | book_score 
@@ -224,7 +224,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
-WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
+WHERE (a.bio ||| 'fiction' OR b.content ||| 'love')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: outer-join ON residual predicates are not supported (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
@@ -261,7 +261,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
-WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
+WHERE (a.bio ||| 'writer' OR b.content ||| 'programming')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: outer-join ON residual predicates are not supported (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
@@ -281,7 +281,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
+WHERE (a.bio ||| 'author' OR b.content ||| 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -296,7 +296,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR b.content @@@ 'performance')
+WHERE (a.bio ||| 'smartphone' OR b.content ||| 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
    author_name   |                        book_content                         | author_score | book_score 
@@ -324,7 +324,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 CROSS JOIN categories c
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR c.description @@@ 'technology')
+WHERE (a.bio ||| 'author' OR b.content ||| 'science' OR c.description ||| 'technology')
 ORDER BY a.id, b.id, c.id, author_score DESC, book_score DESC, category_score DESC
 LIMIT 10;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b, c)
@@ -351,7 +351,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR a.country @@@ 'British' OR b.content @@@ 'performance')
+WHERE (a.bio ||| 'smartphone' OR a.country ||| 'British' OR b.content ||| 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
    author_name   | author_country |                        book_content                         | author_score | book_score 
@@ -379,7 +379,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
+WHERE (a.bio ||| 'science' OR b.content ||| 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
@@ -401,8 +401,8 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
-   OR (b.content @@@ 'magic' AND b.publication_year > 1980)
+WHERE (a.bio ||| 'smartphone' AND a.birth_year > 1950)
+   OR (b.content ||| 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
@@ -424,8 +424,8 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN reviews r ON b.id = r.book_id
-WHERE (a.bio @@@ 'British' AND b.is_published = true) 
-   OR (b.content @@@ 'horror' AND r.score >= 4)
+WHERE (a.bio ||| 'British' AND b.is_published = true)
+   OR (b.content ||| 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
 WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: a, b, r)
  author_name | book_title | review_content | author_score | book_score | review_score 
@@ -438,9 +438,9 @@ SELECT
     pdb.score(a.id) as author_score
 FROM authors a
 JOIN categories c ON a.id = c.id
-WHERE (a.bio @@@ 'laptop')
+WHERE (a.bio ||| 'laptop')
   AND (a.birth_year > 1000)
-  AND (c.name @@@ 'Electronics')
+  AND (c.name ||| 'Electronics')
 ORDER BY a.id, author_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, c)
  author_name | author_score 
@@ -458,7 +458,7 @@ SELECT
     pdb.score(a2.id) as author2_score
 FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
-WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
+WHERE (a1.bio ||| 'fiction' OR a2.bio ||| 'mystery')
 ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a1, a2)
  author1_name | author2_name | author1_score | author2_score 
@@ -473,7 +473,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author' AND b.category_id = 1
+WHERE a.bio ||| 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -485,7 +485,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
+WHERE a.bio ||| 'author' OR b.content ||| 'story'
 ORDER BY a.id, b.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
@@ -512,8 +512,8 @@ SELECT
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
-WHERE a.bio @@@ 'author' 
-   OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
+WHERE a.bio ||| 'author'
+   OR (b.content ||| 'story' AND c.name ||| 'Fantasy')
 ORDER BY a.id, b.id, c.id
 LIMIT 15;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b, c)
@@ -537,7 +537,7 @@ SELECT
 FROM authors a
 JOIN bridge_table br ON a.id = br.author_id
 JOIN books b ON b.id = br.book_id
-WHERE (a.bio @@@ 'smartphone' AND b.content @@@ 'advanced')
+WHERE (a.bio ||| 'smartphone' AND b.content ||| 'advanced')
    OR (a.birth_year > 1900 AND b.rating > 4.0)
 ORDER BY a.id, b.id, author_score DESC;
 ERROR:  relation "bridge_table" does not exist at character 180
@@ -549,7 +549,7 @@ SELECT
     a.name as author_name,
     pdb.score(a.id) as author_score
 FROM authors a
-WHERE a.bio @@@ 'author'
+WHERE a.bio ||| 'author'
 ORDER BY a.id, author_score DESC;
  author_name  | author_score 
 --------------+--------------
@@ -563,7 +563,7 @@ SELECT
     pdb.score(a.id) as author_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE a.bio @@@ 'author'
+WHERE a.bio ||| 'author'
 ORDER BY a.id, author_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  | author_score 
@@ -583,7 +583,7 @@ SELECT
     AVG(pdb.score(b.id)) as avg_book_score
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
+WHERE (a.bio ||| 'author' OR b.content ||| 'story')
   AND (a.is_active = true OR b.is_published = true);
 WARNING:  Aggregate Scan (DataFusion) not used: join predicates must reference columnar indexed fields (table: join)
  total_results |  avg_author_score  |   avg_book_score   
@@ -599,7 +599,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM authors a
 CROSS JOIN books b
-WHERE (a.bio @@@ 'smartphone' OR a.birth_year = b.publication_year)
+WHERE (a.bio ||| 'smartphone' OR a.birth_year = b.publication_year)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 5;
 WARNING:  JoinScan not used: predicate cannot be pushed into the scan (tables: a, b)
@@ -627,9 +627,9 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 LEFT JOIN reviews r ON b.id = r.book_id
 WHERE (
-    (a.bio @@@ 'laptop' AND a.birth_year > 1000)
+    (a.bio ||| 'laptop' AND a.birth_year > 1000)
     OR 
-    (b.content @@@ 'Electronics' AND r.score > 4)
+    (b.content ||| 'Electronics' AND r.score > 4)
     OR
     (a.is_active = true AND b.is_published = true)
 )
@@ -655,8 +655,8 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 JOIN categories c ON b.category_id = c.id
-WHERE (a.bio @@@ 'smartphone')    -- Safe condition on authors
-   OR (c.description @@@ 'electronic')    -- External condition on categories
+WHERE (a.bio ||| 'smartphone')    -- Safe condition on authors
+   OR (c.description ||| 'electronic')    -- External condition on categories
 ORDER BY a.id, c.id, author_score DESC, category_score DESC;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, c)
  author_name | category_name | author_score | category_score 
@@ -672,12 +672,12 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a,
 SELECT 'Single table A - smartphone' as query_type, 
        a.name, pdb.score(a.id) as score
 FROM authors a 
-WHERE a.bio @@@ 'smartphone'
+WHERE a.bio ||| 'smartphone'
 UNION ALL
 SELECT 'Single table B - performance' as query_type,
        b.title, pdb.score(b.id) as score
 FROM books b
-WHERE b.content @@@ 'performance'
+WHERE b.content ||| 'performance'
 ORDER BY score DESC;
           query_type          |        name         |   score   
 ------------------------------+---------------------+-----------
@@ -700,10 +700,10 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
 LEFT JOIN publishers p ON b.publisher_id = p.id
-WHERE (a.bio @@@ 'technology' OR a.country @@@ 'British')
-   OR (b.content @@@ 'performance' OR b.title @@@ 'magic')
-   OR (c.description @@@ 'innovation' OR c.name @@@ 'Fantasy')
-   OR (p.description @@@ 'technology' OR p.name @@@ 'Academic')
+WHERE (a.bio ||| 'technology' OR a.country ||| 'British')
+   OR (b.content ||| 'performance' OR b.title ||| 'magic')
+   OR (c.description ||| 'innovation' OR c.name ||| 'Fantasy')
+   OR (p.description ||| 'technology' OR p.name ||| 'Academic')
 ORDER BY a.id, b.id, c.id, p.id, author_score DESC, book_score DESC
 LIMIT 15;
 WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: a, b, c, p)
@@ -726,4 +726,4 @@ DROP TABLE IF EXISTS publishers;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS authors;
 RESET max_parallel_workers_per_gather;
-RESET enable_indexscan; 
+RESET enable_indexscan;

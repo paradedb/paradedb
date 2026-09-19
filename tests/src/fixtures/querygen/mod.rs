@@ -25,6 +25,7 @@ pub mod orderbygen;
 pub mod pagegen;
 pub mod pdbagggen;
 pub mod wheregen;
+pub mod windowgen;
 
 use std::fmt::{Debug, Write};
 use std::num::NonZeroUsize;
@@ -46,19 +47,11 @@ use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::Expr;
 
-#[derive(Debug, Clone)]
-pub struct BM25Options {
-    /// "text_fields" or "numeric_fields"
-    pub field_type: &'static str,
-    /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
-    pub config_json: &'static str,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexExpression {
-    /// V2 expression index: `(upper({column})::pdb.literal)`
+    Literal,
+    UnicodeWordsColumnar,
     Upper,
-    /// V2 expression index: `({column}::pdb.literal_normalized)`
     LiteralNormalized,
 }
 
@@ -66,6 +59,10 @@ impl IndexExpression {
     /// Generate the column definition for `CREATE INDEX ... USING paradedb(...)`
     pub fn to_index_sql(&self, column_name: &str) -> String {
         match self {
+            Self::Literal => format!("({column_name}::pdb.literal)"),
+            Self::UnicodeWordsColumnar => {
+                format!("({column_name}::pdb.unicode_words('columnar=true'))")
+            }
             Self::Upper => format!("(upper({column_name})::pdb.literal)"),
             Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
         }
@@ -82,10 +79,7 @@ pub struct Column {
     pub is_whereable: bool,
     pub is_indexed: bool,
     pub is_orderable: Option<bool>,
-    pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
-    /// V2 syntax: typed expression to use in index column list, e.g. `IndexExpression::Upper`.
-    /// When set, this is used instead of bm25_options JSON config.
     pub index_expression: Option<IndexExpression>,
 }
 
@@ -104,7 +98,6 @@ impl Column {
             is_whereable: true,
             is_indexed: true,
             is_orderable: None,
-            bm25_options: None,
             random_generator_sql: "NULL",
             index_expression: None,
         }
@@ -153,39 +146,13 @@ impl Column {
             || ty.starts_with("TIME")
     }
 
-    pub const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "text_fields",
-            config_json,
-        });
-        self
-    }
-
-    pub const fn bm25_numeric_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "numeric_fields",
-            config_json,
-        });
-        self
-    }
-
-    pub const fn bm25_json_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "json_fields",
-            config_json,
-        });
-        self
-    }
-
     /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
         self
     }
 
-    /// V2 syntax: set index expression using typed `IndexExpression`
-    /// When set, this is used instead of bm25_options JSON config.
-    pub const fn bm25_v2_expression(mut self, expression: IndexExpression) -> Self {
+    pub const fn index_expression(mut self, expression: IndexExpression) -> Self {
         self.index_expression = Some(expression);
         self
     }
@@ -234,6 +201,8 @@ impl std::fmt::Display for SetupScript {
 /// killed midway rolls back cleanly and the retry starts from scratch (`CREATE TABLE` has no
 /// `IF NOT EXISTS`). `BEGIN`/`COMMIT` are kept out of the returned script, which is replayed
 /// statement by statement.
+///
+/// The seed also decides whether the BM25 indexes are `partition_by` (see `pick_partition_by`).
 pub fn generated_queries_setup(
     pool: &MutexObjectPool<PgConnection>,
     tables: &[(&str, usize)],
@@ -280,6 +249,7 @@ fn generated_queries_setup_inner(
     let mut rng = StdRng::seed_from_u64(qgen_seed);
     let pg_seed: f64 = rng.random_range(-1.0..=1.0);
     let bulk_inserts = pick_bulk_inserts(&mut rng);
+    let partition_by = pick_partition_by(&mut rng, columns_def);
 
     let seed_sql = format!("SET seed TO {pg_seed};\n");
     seed_sql.as_str().execute_result(conn)?;
@@ -287,6 +257,10 @@ fn generated_queries_setup_inner(
     let mut setup_sql = seed_sql;
     setup_sql.push_str(&format!("-- PARADEDB_QGEN_SEED: {qgen_seed}\n"));
     setup_sql.push_str(&format!("-- qgen bulk inserts: {bulk_inserts}\n"));
+    setup_sql.push_str(&format!(
+        "-- qgen partition_by: {}\n",
+        partition_by.as_deref().unwrap_or("none")
+    ));
 
     let column_definitions = columns_def
         .iter()
@@ -300,9 +274,7 @@ fn generated_queries_setup_inner(
         .collect::<Vec<_>>()
         .join(", \n");
 
-    // For bm25 index
-    // Columns with index_expression use v2 syntax, others use just the name
-    let bm25_columns = columns_def
+    let index_columns = columns_def
         .iter()
         .filter(|c| c.is_indexed)
         .map(|c| {
@@ -314,40 +286,6 @@ fn generated_queries_setup_inner(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let key_field = columns_def
-        .iter()
-        .find(|c| c.is_primary_key)
-        .map(|c| c.name)
-        .expect("At least one column must be a primary key");
-
-    // Only include columns without index_expression in text_fields (v1 syntax)
-    let text_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "text_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    // Only include columns without index_expression in numeric_fields (v1 syntax)
-    let numeric_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "numeric_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    let json_fields = columns_def
-        .iter()
-        .filter(|c| c.is_indexed && c.index_expression.is_none())
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "json_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
 
     // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
     let sortable_types = [
@@ -369,12 +307,7 @@ fn generated_queries_setup_inner(
                 .iter()
                 .any(|t| c.sql_type.to_uppercase().contains(t))
         })
-        .filter_map(|c| {
-            c.bm25_options
-                .as_ref()
-                .filter(|o| o.config_json.contains(r#""fast": true"#))
-                .map(|_| c.name)
-        })
+        .map(|c| c.name)
         .next();
 
     // For INSERT statements
@@ -405,13 +338,20 @@ fn generated_queries_setup_inner(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
-        // Total commits per table = the sample-row `INSERT` + `bulk_inserts`
-        // bulk chunks. Pin `target_segment_count` to that so the layered merge
-        // policy short-circuits (it returns empty layer sizes when
-        // `current_segments <= target`) and the chunks survive as distinct
-        // segments instead of being merged back into one.
-        let target_segments = bulk_inserts.get() + 1;
-        let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
+        // In incremental mode this equals the insert-commit count, preventing the generated
+        // segments from immediately merging together. A partitioned build gets two partitions:
+        // more would leave segments of a handful of rows on these tables, and a segment in
+        // which no row has a given JSON key trips the aggregate scan (#6353).
+        let target_segments = if partition_by.is_some() {
+            2
+        } else {
+            bulk_inserts.get() + 1
+        };
+
+        let partition_by_clause = partition_by
+            .as_deref()
+            .map(|fields| format!(",\n    partition_by = '{fields}'"))
+            .unwrap_or_default();
 
         let bulk_insert_sql = build_bulk_inserts(
             tname,
@@ -421,22 +361,32 @@ fn generated_queries_setup_inner(
             bulk_inserts,
         );
 
+        let create_index_sql = format!(
+            r#"CREATE INDEX idx{tname} ON {tname} USING paradedb ({index_columns}) WITH (
+    target_segment_count = {target_segments}{sort_by_clause}{partition_by_clause}
+);
+"#,
+        );
+        // TODO(#5738): drop this toggle once partitioning also applies to rows inserted after
+        // CREATE INDEX (partitioning M3); then every index can be created before the data.
+        let (index_before_data, index_after_data) = if partition_by.is_some() {
+            ("", create_index_sql.as_str())
+        } else {
+            (create_index_sql.as_str(), "")
+        };
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
     {column_definitions}
 );
--- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING paradedb ({bm25_columns}) WITH (
-    key_field = '{key_field}',
-    text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
-);
+{index_before_data}
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
+
+{index_after_data}
 
 {b_tree_indexes}
 
@@ -544,6 +494,9 @@ pub struct PgGucs {
     pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
     pub columnar_exec: bool,
+    /// Enable range co-partitioning for joins whose indexes declare compatible `partition_by`
+    /// fields.
+    pub range_partitioned_join: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -579,6 +532,56 @@ fn qgen_seed() -> Option<u64> {
         s.parse::<u64>()
             .unwrap_or_else(|_| panic!("PARADEDB_QGEN_SEED must parse as u64; got '{s}'"))
     })
+}
+
+/// `PARADEDB_QGEN_PARTITION_BY` overrides the seeded choice. Only integer fields are candidates:
+/// text fields would need a raw normalizer the fixture does not set.
+///
+/// A partitioned layout under a parallel join currently aborts the backend at plan time
+/// (#6364). The roll stays on so the generators keep reaching that path; `none` is the
+/// escape hatch until the fix lands.
+fn pick_partition_by(rng: &mut impl RngExt, columns_def: &[Column]) -> Option<String> {
+    let mode = std::env::var("PARADEDB_QGEN_PARTITION_BY")
+        .ok()
+        .unwrap_or_default();
+    match mode.to_ascii_lowercase().as_str() {
+        "none" => return None,
+        "" | "random" => {}
+        _ => {
+            let names: Vec<&str> = columns_def.iter().map(|c| c.name).collect();
+            if mode.split(',').all(|field| names.contains(&field)) {
+                return Some(mode);
+            }
+        }
+    }
+
+    let integer_types = [
+        "INT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "SERIAL8",
+        "BIGSERIAL",
+    ];
+    let candidates = columns_def
+        .iter()
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
+        .filter(|c| integer_types.contains(&c.sql_type.to_uppercase().as_str()))
+        .map(|c| c.name)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() || rng.random_bool(1.0 / 3.0) {
+        return None;
+    }
+    let first = rng.random_range(0..candidates.len());
+    let mut fields = vec![candidates[first]];
+    if candidates.len() > 1 && rng.random_bool(0.25) {
+        let mut second = rng.random_range(0..candidates.len() - 1);
+        if second >= first {
+            second += 1;
+        }
+        fields.push(candidates[second]);
+    }
+    Some(fields.join(","))
 }
 
 /// Picks how many separate bulk `INSERT` statements the setup will emit per
@@ -650,7 +653,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 10]>()
+        any::<[bool; 11]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -663,6 +666,7 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
+                    range_partitioned_join: b[10],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -687,6 +691,7 @@ impl PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
+            range_partitioned_join: false,
         }
     }
 
@@ -702,6 +707,7 @@ impl PgGucs {
             parallel_workers,
             parallel_leader_participation,
             columnar_exec,
+            range_partitioned_join,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -746,6 +752,11 @@ impl PgGucs {
         writeln!(
             gucs,
             "SET paradedb.enable_columnar_exec TO {columnar_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
         // Pin `min_rows_per_worker` low when we want parallel workers to be used.
@@ -948,6 +959,7 @@ pub fn compare_plan_retrying(
     pool: &MutexObjectPool<PgConnection>,
     setup: &SetupScript,
     expected_any: &[&str],
+    forbidden_any: &[&str],
 ) -> CaseOutcome {
     use crate::fixtures::fault_grace::{RetryError, retry_transient, sql_attempt};
 
@@ -987,6 +999,15 @@ pub fn compare_plan_retrying(
         let expected_desc = expected_any.join(" or ");
         return fail(format!(
             "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {bm25_query}"
+        ));
+    }
+
+    if let Some(forbidden) = forbidden_any
+        .iter()
+        .find(|forbidden| plan_str.contains(**forbidden))
+    {
+        return fail(format!(
+            "Query should not use {forbidden} but got plan: {plan_str}\nQuery: {bm25_query}"
         ));
     }
 

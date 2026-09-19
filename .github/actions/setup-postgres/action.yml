@@ -24,7 +24,7 @@ runs:
           | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
 
     - name: Install PostgreSQL Packages
-      uses: paradedb/actions/apt-install@v11
+      uses: paradedb/actions/apt-install@v13
       with:
         packages: >-
           postgresql-${{ inputs.pg_version }}

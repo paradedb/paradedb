@@ -35,10 +35,8 @@ CREATE TABLE mpp_ws_outcome (line text);
 -- Two segments per index: two bulk inserts with the mutable segment disabled.
 CREATE TABLE mpp_ws_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws_users_idx ON mpp_ws_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws_products_idx ON mpp_ws_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_ws_users_idx ON mpp_ws_users USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX mpp_ws_products_idx ON mpp_ws_products USING paradedb (id, (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws_users (name, age)
@@ -56,10 +54,8 @@ ANALYZE mpp_ws_products;
 -- One segment per index: a single insert each.
 CREATE TABLE mpp_ws1_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws1_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws1_users_idx ON mpp_ws1_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws1_products_idx ON mpp_ws1_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_ws1_users_idx ON mpp_ws1_users USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX mpp_ws1_products_idx ON mpp_ws1_products USING paradedb (id, (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws1_users (name, age)
@@ -79,7 +75,7 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
@@ -104,7 +100,7 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
             saw_launch := true;
@@ -126,7 +122,7 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
         SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         plan := plan || E'\n' || r."QUERY PLAN";
     END LOOP;
@@ -146,7 +142,7 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (VERBOSE, COSTS OFF)
         SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+        WHERE u.name ||| ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP
         plan := plan || E'\n' || r."QUERY PLAN";
     END LOOP;
@@ -169,7 +165,7 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT p.age, count(*) FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+        WHERE u.name ||| ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP
         IF r."QUERY PLAN" LIKE '%MPP Launch:%' THEN
             launched := (regexp_match(r."QUERY PLAN", 'workers=(\d+)'))[1]::int;
@@ -200,7 +196,7 @@ BEGIN
         INSERT INTO mpp_ws_agg_insert_out
         SELECT p.age, count(*)
         FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob''
+        WHERE u.name ||| ''bob''
         GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP
         plan := plan || E'\n' || r."QUERY PLAN";
@@ -221,7 +217,7 @@ END$$;
 INSERT INTO mpp_ws_agg_insert_out
 SELECT p.age, count(*)
 FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-WHERE u.name @@@ 'bob'
+WHERE u.name ||| 'bob'
 GROUP BY p.age ORDER BY p.age LIMIT 5;
 
 INSERT INTO mpp_ws_outcome
@@ -245,7 +241,7 @@ BEGIN
         INSERT INTO mpp_ws_join_insert_out
         SELECT u.id
         FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         plan := plan || E'\n' || r."QUERY PLAN";
     END LOOP;
@@ -265,7 +261,7 @@ END$$;
 INSERT INTO mpp_ws_join_insert_out
 SELECT u.id
 FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-WHERE u.name @@@ 'bob' ORDER BY u.id LIMIT 10;
+WHERE u.name ||| 'bob' ORDER BY u.id LIMIT 10;
 
 INSERT INTO mpp_ws_outcome
 SELECT CASE
@@ -284,7 +280,7 @@ PREPARE mpp_ws_prepared_join_insert(text) AS
 INSERT INTO mpp_ws_join_insert_out
 SELECT u.id
 FROM mpp_ws_users u JOIN mpp_ws_products p ON u.age = p.age
-WHERE u.name @@@ $1 ORDER BY u.id LIMIT 10;
+WHERE u.name ||| $1 ORDER BY u.id LIMIT 10;
 
 DO $$
 DECLARE
@@ -328,10 +324,8 @@ RESET plan_cache_mode;
 -- producers (dispatch::push_owned_tasks), returning the same results as serial.
 CREATE TABLE mpp_ws4_users    (id bigserial PRIMARY KEY, name text, age int);
 CREATE TABLE mpp_ws4_products (id bigserial PRIMARY KEY, name text, age int);
-CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
-CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING paradedb (id, name, age)
-WITH (key_field='id', text_fields='{"name":{"tokenizer":{"type":"keyword"},"fast":true}}', numeric_fields='{"age":{"fast":true}}');
+CREATE INDEX mpp_ws4_users_idx ON mpp_ws4_users USING paradedb (id, (name::pdb.literal), age);
+CREATE INDEX mpp_ws4_products_idx ON mpp_ws4_products USING paradedb (id, (name::pdb.literal), age);
 
 SET paradedb.global_mutable_segment_rows = 0;
 INSERT INTO mpp_ws4_users (name, age)
@@ -365,7 +359,7 @@ DECLARE
     mpp_sum bigint;
     q constant text := 'SELECT count(*), coalesce(sum(id), 0) FROM (
         SELECT u.id FROM mpp_ws4_users u JOIN mpp_ws4_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 50000) t';
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 50000) t';
 BEGIN
     PERFORM set_config('max_parallel_workers_per_gather', '0', false);
     EXECUTE q INTO serial_cnt, serial_sum;
@@ -401,13 +395,13 @@ DECLARE
 BEGIN
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT u.id FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' ORDER BY u.id LIMIT 10'
+        WHERE u.name ||| ''bob'' ORDER BY u.id LIMIT 10'
     LOOP
         NULL;
     END LOOP;
     FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF)
         SELECT p.age, count(*) FROM mpp_ws1_users u JOIN mpp_ws1_products p ON u.age = p.age
-        WHERE u.name @@@ ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
+        WHERE u.name ||| ''bob'' GROUP BY p.age ORDER BY p.age LIMIT 5'
     LOOP
         NULL;
     END LOOP;

@@ -31,15 +31,7 @@ FROM generate_series(1, ceil(:rows / 8.0)::int) AS s(i);
 
 CREATE INDEX documents_bm25
 ON documents
-USING paradedb (row_id, file_id, file_title, doc_title, doc_parents)
-WITH (
-  key_field = 'row_id',
-  text_fields = '{
-    "file_title":  { "tokenizer": { "type": "default" }, "fast": true },
-    "doc_title":   { "tokenizer": { "type": "default" }, "fast": true },
-    "doc_parents": { "tokenizer": { "type": "default" }, "fast": true }
-  }'
-);
+USING paradedb (row_id, file_id, (file_title::pdb.simple('columnar=true')), (doc_title::pdb.simple('columnar=true')), (doc_parents::pdb.simple('columnar=true')));
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
@@ -48,8 +40,8 @@ SELECT
   paradedb.score(t.row_id) AS score
 FROM documents t
 WHERE
-  t.doc_parents @@@ 'PARENT_GROUP'
-  AND (t.file_title @@@ 'Title' OR t.doc_title @@@ 'Title')
+  t.doc_parents ||| 'PARENT_GROUP'
+  AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;
 
@@ -59,7 +51,7 @@ SELECT
   paradedb.score(t.row_id) AS score
 FROM documents t
 WHERE
-  t.doc_parents @@@ 'PARENT_GROUP'
-  AND (t.file_title @@@ 'Title' OR t.doc_title @@@ 'Title')
+  t.doc_parents ||| 'PARENT_GROUP'
+  AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;

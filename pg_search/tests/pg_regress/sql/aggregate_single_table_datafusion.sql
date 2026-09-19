@@ -32,15 +32,18 @@ INSERT INTO df_fallback_products (description, category, price, rating) VALUES
     ('Book novel read', 'Books', 14.99, 5),
     ('Pen ballpoint write', 'Office', 2.99, 3),
     ('Desk wooden sit', 'Furniture', 399.99, 4),
-    ('Lamp bright light', 'Lighting', 59.99, 4);
+    ('Lamp bright light', 'Lighting', 59.99, 4),
+    ('Garden hose green', 'Garden', 19.99, NULL),
+    ('Garden gloves thick', 'Garden', 9.99, NULL);
+
+-- One row per group makes the functionally-dependent output case explicit;
+-- the large text expression exercises per-tuple projection allocation.
+INSERT INTO df_fallback_products (description, category, price, rating)
+SELECT 'Memory projection row ' || g, 'Memory', g, 1
+FROM generate_series(1, 2048) g;
 
 CREATE INDEX df_fallback_products_idx ON df_fallback_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 -- ANALYZE so Postgres gets accurate group count estimates
 ANALYZE df_fallback_products;
@@ -53,12 +56,12 @@ ANALYZE df_fallback_products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -74,14 +77,14 @@ SET paradedb.max_term_agg_buckets TO 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 -- Test 2.2: With bucket limit = 1, the estimate exceeds the cap so it routes to
 -- DataFusion and returns every group (no truncation).
 SELECT category, COUNT(*)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -89,25 +92,177 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category;
 
 SELECT category, COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
--- Test 2.4: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
+-- Test 2.4: PostgreSQL evaluates wrappers and multi-aggregate expressions
+-- over the flat DataFusion tuple.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+
+SELECT category, COUNT(*), COUNT(*) * 2, COUNT(*)::numeric, COUNT(*) / 2.0
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY 2 DESC
+LIMIT 2;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+SELECT SUM(rating) + COUNT(*) AS combined,
+       SUM(rating)::text || ':' || category AS labeled
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+-- Test 2.5: NULL, casts and COALESCE remain PostgreSQL expressions.
+SELECT category, COUNT(rating), MAX(rating)::text, COALESCE(SUM(rating), 0),
+       COUNT(rating) * 2, AVG(rating)::numeric(4, 2)
+FROM df_fallback_products
+WHERE description @@@ 'garden OR laptop'
+GROUP BY category
+ORDER BY 2 DESC;
+
+-- Test 2.6: HAVING identifies filtered aggregates by complete Aggref identity.
+-- The output and HAVING contain the same two COUNT(*) calls, but the HAVING
+-- predicate must refer to the second filter rather than the first one.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+
+SELECT category,
+       COUNT(*) FILTER (WHERE rating >= 4) + COUNT(*) FILTER (WHERE rating <= 3) AS rated
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING COUNT(*) FILTER (WHERE rating <= 3) > 0
+ORDER BY category;
+
+-- Test 2.7: category is functionally dependent on the grouped primary key.
+-- It must be a real raw grouping input, never an uninitialised resjunk slot.
+-- The text group key also exercises by-reference Arrow-to-Datum conversion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT id, category, upper(category),
+       repeat(category, 1024) || ':' || COUNT(*)::text AS label
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+GROUP BY id;
+
+SELECT COUNT(*) AS groups,
+       BOOL_AND(category = 'Memory') AS categories_ok,
+       BOOL_AND(upper_category = 'MEMORY') AS wrappers_ok,
+       MIN(octet_length(label)) AS min_label_bytes,
+       MAX(octet_length(label)) AS max_label_bytes
+FROM (
+    SELECT id, category, upper(category) AS upper_category,
+           repeat(category, 1024) || ':' || COUNT(*)::text AS label
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    GROUP BY id
+) projected_groups;
+
+-- Test 2.8: DISTINCT with an ORDER BY whose sort-group order differs from the
+-- output column order.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT category, id
+FROM df_fallback_products
+WHERE description @@@ 'memory'
+ORDER BY id DESC;
+
+SELECT COUNT(*) AS groups,
+       MIN(category) AS only_category,
+       MAX(id) - MIN(id) + 1 AS id_span
+FROM (
+    SELECT DISTINCT category, id
+    FROM df_fallback_products
+    WHERE description @@@ 'memory'
+    ORDER BY id DESC
+) distinct_groups;
+
+-- Test 2.9: Scalar aggregate (no GROUP BY) stays on Tantivy — it produces a
 -- single row and cannot truncate, so the bucket cap is irrelevant.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes';
+WHERE (description ||| 'laptop' OR description ||| 'shoes');
 
 SELECT COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes';
+WHERE (description ||| 'laptop' OR description ||| 'shoes');
+
+-- Test 2.10: a GROUP BY column that is not selected still binds as a raw
+-- group column, so the sort and limit see one row per group.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+ORDER BY 1 DESC
+LIMIT 3;
+
+SELECT COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+ORDER BY 1 DESC
+LIMIT 3;
+
+-- Test 2.11: HAVING on an aggregate that is not in the output. The aggregate
+-- rides in the raw tuple only.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+GROUP BY category
+HAVING SUM(rating) > 4
+ORDER BY category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 2.12: an output column carried through functional dependency on the
+-- grouped primary key is named as such when it is not columnar indexed.
+SELECT id, description, COUNT(*)
+FROM df_fallback_products
+WHERE description @@@ 'laptop'
+GROUP BY id
+ORDER BY id;
 
 -- =====================================================================
 -- SECTION 3: Parity — DataFusion fallback vs Postgres native
@@ -117,7 +272,7 @@ WHERE description @@@ 'laptop OR shoes';
 -- DataFusion fallback (bucket limit still 1)
 SELECT category, COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 
@@ -125,7 +280,7 @@ ORDER BY category;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, COUNT(*), SUM(price)
 FROM df_fallback_products
-WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
+WHERE (description ||| 'laptop' OR description ||| 'shoes' OR description ||| 'jacket' OR description ||| 'robot' OR description ||| 'coffee' OR description ||| 'headphones' OR description ||| 'yoga' OR description ||| 'book' OR description ||| 'pen' OR description ||| 'desk' OR description ||| 'lamp')
 GROUP BY category
 ORDER BY category;
 

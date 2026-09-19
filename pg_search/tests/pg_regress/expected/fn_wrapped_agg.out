@@ -13,14 +13,7 @@ CREATE TABLE fn_wrapped_agg_logs (
 );
 -- Create a BM25 index with fast fields for aggregation
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING paradedb (log_id, description, category)
-WITH (
-    key_field = 'log_id',
-    text_fields = '{
-        "description": {},
-        "category": {"fast": true}
-    }'
-);
+USING paradedb (log_id, description, (category::pdb.unicode_words('columnar=true')));
 -- Insert test data
 INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
     ('error in application', 'app'),
@@ -30,7 +23,7 @@ INSERT INTO fn_wrapped_agg_logs (description, category) VALUES
     ('info message', 'app');
 -- Test 1: Basic pdb.agg() with window function (should work)
 -- Use paradedb.all() to force custom scan
--- Only select indexed fields (log_id is the key_field)
+-- Only select indexed fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT log_id, description, category, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () 
 FROM fn_wrapped_agg_logs
@@ -296,26 +289,25 @@ UPDATE fn_wrapped_agg_logs SET score = log_id * 10;
 -- Recreate index with score column using v2 API
 DROP INDEX fn_wrapped_agg_logs_idx;
 CREATE INDEX fn_wrapped_agg_logs_idx ON fn_wrapped_agg_logs
-USING paradedb (log_id, description, (category::pdb.literal), score)
-WITH (key_field = 'log_id');
+USING paradedb (log_id, description, (category::pdb.literal), score);
 -- Test 5: pdb.agg() wrapped in jsonb_pretty (non-window)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: jsonb_pretty(pdb.agg_fn('pdb.agg'::text))
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}})
      Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}}}
 (6 rows)
 
 SELECT jsonb_pretty(pdb.agg('{"value_count": {"field": "score"}}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
    jsonb_pretty   
 ------------------
  {               +
@@ -327,20 +319,20 @@ WHERE description @@@ 'error';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: (pdb.agg_fn('pdb.agg'::text) -> 'avg'::text)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"score"}})
      Aggregate Definition: {"0":{"stats":{"field":"score","missing":null}}}
 (6 rows)
 
 SELECT (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
      avg_score      
 --------------------
  23.333333333333332
@@ -350,20 +342,20 @@ WHERE description @@@ 'error';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: COALESCE(pdb.agg_fn('pdb.agg'::text), '{}'::jsonb)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}})
      Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}}}
 (6 rows)
 
 SELECT COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}')
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
     coalesce    
 ----------------
  {"value": 3.0}
@@ -373,20 +365,20 @@ WHERE description @@@ 'error';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: jsonb_pretty(COALESCE(pdb.agg_fn('pdb.agg'::text), '{}'::jsonb))
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}})
      Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}}}
 (6 rows)
 
 SELECT jsonb_pretty(COALESCE(pdb.agg('{"value_count": {"field": "score"}}'), '{}'))
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
    jsonb_pretty   
 ------------------
  {               +
@@ -398,20 +390,20 @@ WHERE description @@@ 'error';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(COUNT(*), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: COALESCE(pdb.agg_fn('COUNT(*)'::text), '0'::bigint)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
 SELECT COALESCE(COUNT(*), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
  coalesce 
 ----------
         3
@@ -421,20 +413,20 @@ WHERE description @@@ 'error';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(SUM(score), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: COALESCE(pdb.agg_fn('SUM'::text), '0'::bigint)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: SUM(score)
      Aggregate Definition: {"0":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
 
 SELECT COALESCE(SUM(score), 0)
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
  coalesce 
 ----------
        70
@@ -448,13 +440,13 @@ SELECT
     pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
     (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: pdb.agg_fn('pdb.agg'::text), (pdb.agg_fn('pdb.agg'::text) -> 'avg'::text)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}}), CUSTOM_AGG({"stats":{"field":"score"}})
      Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}},"1":{"stats":{"field":"score","missing":null}}}
 (6 rows)
@@ -463,7 +455,7 @@ SELECT
     pdb.agg('{"value_count": {"field": "score"}}') as raw_count,
     (pdb.agg('{"stats": {"field": "score"}}'))->'avg' as avg_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
    raw_count    |     avg_score      
 ----------------+--------------------
  {"value": 3.0} | 23.333333333333332
@@ -476,13 +468,13 @@ SELECT
     (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
     COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: jsonb_pretty(pdb.agg_fn('pdb.agg'::text)), (pdb.agg_fn('pdb.agg'::text) -> 'max'::text), COALESCE(pdb.agg_fn('pdb.agg'::text), '{}'::jsonb)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}}), CUSTOM_AGG({"stats":{"field":"score"}}), CUSTOM_AGG({"sum":{"field":"score"}})
      Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}},"1":{"stats":{"field":"score","missing":null}},"2":{"sum":{"field":"score","missing":null}}}
 (6 rows)
@@ -492,7 +484,7 @@ SELECT
     (pdb.agg('{"stats": {"field": "score"}}'))->'max' as max_score,
     COALESCE(pdb.agg('{"sum": {"field": "score"}}'), '{}') as sum_score
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
    pretty_count   | max_score |    sum_score    
 ------------------+-----------+-----------------
  {               +| 40.0      | {"value": 70.0}
@@ -506,13 +498,13 @@ SELECT
     COUNT(*) as raw_count,
     COALESCE(SUM(score), 0) as coalesced_sum
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.fn_wrapped_agg_logs
    Output: pdb.agg_fn('COUNT(*)'::text), COALESCE(pdb.agg_fn('SUM'::text), '0'::bigint)
    Index: fn_wrapped_agg_logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*), SUM(score)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"score","missing":null,"none_if_no_match":true}}}
 (6 rows)
@@ -521,7 +513,7 @@ SELECT
     COUNT(*) as raw_count,
     COALESCE(SUM(score), 0) as coalesced_sum
 FROM fn_wrapped_agg_logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
  raw_count | coalesced_sum 
 -----------+---------------
          3 |            70

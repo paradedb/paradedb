@@ -34,13 +34,13 @@ CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
-) WITH (key_field = 'id');
+);
 CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
-) WITH (key_field = 'id');
+);
 -- Commented out for now because it has an oid in the output, which changes on every run
 -- -- Show the problematic query plan
 -- -- This query causes predicates to be split between scan filters and join filters
@@ -51,7 +51,7 @@ CREATE INDEX ON books USING paradedb (
 --     pdb.snippet_positions(a.name) as author_positions
 -- FROM books b
 -- JOIN authors a ON b.author_id = a.id
--- WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+-- WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50;
 -- Execute the query to show the snippet issue
 -- Currently, this returns empty snippets for author_snippet and author_positions
 -- even though 'Rowling' should be highlighted in a.name
@@ -63,7 +63,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50
 ORDER BY b.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_snippet    | author_positions | author_score | book_score 
@@ -81,7 +81,7 @@ SELECT
     pdb.snippet_positions(a.name) as author_positions,
     pdb.score(a.id) as author_score
 FROM authors a
-WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
+WHERE a.name ||| 'Rowling' AND a.age > 50
 ORDER BY a.id;
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
@@ -95,7 +95,7 @@ SELECT
     pdb.snippet_positions(b.content) as content_positions,
     pdb.score(b.id) as book_score
 FROM books b
-WHERE b.content @@@ 'test'
+WHERE b.content ||| 'test'
 ORDER BY b.id;
  book_id |                                      content_snippet                                      |     content_positions     | book_score 
 ---------+-------------------------------------------------------------------------------------------+---------------------------+------------
@@ -116,7 +116,7 @@ ORDER BY b.id;
 --     pdb.snippet_positions(b.content) as content_positions
 -- FROM books b
 -- JOIN authors a ON b.author_id = a.id
--- WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+-- WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50;
 -- Execute the multi-snippet query
 SELECT
     b.id as book_id,
@@ -129,7 +129,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |     content_positions     | author_score | book_score 
@@ -149,7 +149,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    | author_score | book_score 
@@ -169,7 +169,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.id @@@ pdb.all() AND a.age > 50
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  |   author_snippet    | author_score | book_score 
@@ -181,4 +181,4 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a,
 
 -- Cleanup
 DROP TABLE IF EXISTS books;
-DROP TABLE IF EXISTS authors; 
+DROP TABLE IF EXISTS authors;

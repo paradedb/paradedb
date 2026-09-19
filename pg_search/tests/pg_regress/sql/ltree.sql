@@ -16,7 +16,7 @@ CREATE TABLE tbl_ltree (
     id SERIAL,
     category ltree
 );
-CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category) WITH (key_field = 'id');
+CREATE INDEX idx_ltree ON tbl_ltree USING paradedb (id, category);
 
 -- Insert test data with various ltree paths
 INSERT INTO tbl_ltree (category) VALUES 
@@ -29,36 +29,36 @@ INSERT INTO tbl_ltree (category) VALUES
     (NULL);
 
 -- Test equality query via BM25 index
-SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Astronomy') ORDER BY id;
 
 -- Test count aggregation with ltree filter
 -- ltree is indexed as a Tantivy Facet field, which stores ancestor terms at index time.
-SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+SELECT count(*) FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Biology');
 
 -- Explain to verify index usage
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+SELECT count(*) FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Biology');
 
 -- Test sorting by ltree column (lexicographic order)
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
 
--- Test ltree as key field
+-- Test an ltree primary key
 DROP TABLE IF EXISTS tbl_ltree_key;
 CREATE TABLE tbl_ltree_key (
     path ltree,
     name TEXT
 );
-CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name) WITH (key_field = 'path');
+CREATE INDEX idx_ltree_key ON tbl_ltree_key USING paradedb (path, name);
 
 INSERT INTO tbl_ltree_key (path, name) VALUES 
     ('Root.Branch1', 'First Branch'),
     ('Root.Branch2', 'Second Branch');
 
-SELECT path, name FROM tbl_ltree_key WHERE name @@@ 'Branch' ORDER BY path;
+SELECT path, name FROM tbl_ltree_key WHERE name ||| 'Branch' ORDER BY path;
 
 -- Test columnar exec path (exercises arrow_array_to_datum ltree conversion)
 SET paradedb.enable_columnar_exec = true;
-SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE category @@@ pdb.term('Top.Science.Astronomy') ORDER BY id;
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
 RESET paradedb.enable_columnar_exec;
 

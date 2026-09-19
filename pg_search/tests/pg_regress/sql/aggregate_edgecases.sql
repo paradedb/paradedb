@@ -19,11 +19,7 @@ CREATE TABLE large_agg_test (
 );
 
 CREATE INDEX large_agg_test_idx ON large_agg_test
-USING paradedb (id, data)
-WITH (
-    key_field = 'id',
-    text_fields = '{"data": {"fast": true}}'
-);
+USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 
 -- Insert enough data to make the terms aggregation result > 1MB
 INSERT INTO large_agg_test (data) SELECT md5(g::text) FROM generate_series(1, 25000) g;
@@ -70,11 +66,7 @@ CREATE TABLE delete_agg_test (
 );
 
 CREATE INDEX delete_agg_test_idx ON delete_agg_test
-USING paradedb (id, name)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}}'
-);
+USING paradedb (id, name);
 
 INSERT INTO delete_agg_test VALUES (1, 'a'), (2, 'b');
 INSERT INTO delete_agg_test VALUES (3, 'c'), (4, 'd'), (5, 'e');
@@ -132,11 +124,7 @@ CREATE TABLE mvcc_agg_test (
 );
 
 CREATE INDEX mvcc_agg_test_idx ON mvcc_agg_test
-USING paradedb (id, category)
-WITH (
-    key_field = 'id',
-    text_fields = '{"category": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')));
 
 INSERT INTO mvcc_agg_test (category) VALUES ('A'), ('B');
 INSERT INTO mvcc_agg_test (category) VALUES ('A');
@@ -175,8 +163,7 @@ CREATE TABLE triple_pipe_agg_test (
 );
 
 CREATE INDEX triple_pipe_agg_test_idx ON triple_pipe_agg_test
-USING paradedb (id, description, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')));
 
 INSERT INTO triple_pipe_agg_test (description, category) VALUES
     ('running shoes for men', 'footwear'),
@@ -262,4 +249,3 @@ WHERE description === 'running';
 -- not plain text, so they cannot be tested with this simple pattern.
 
 DROP TABLE triple_pipe_agg_test;
-

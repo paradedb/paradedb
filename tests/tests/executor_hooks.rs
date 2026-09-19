@@ -25,9 +25,9 @@ fn multiple_index_changes_in_same_xact(mut conn: PgConnection) {
         CREATE TABLE a (id int, value text);
         CREATE TABLE b (id int, value text);
         CREATE TABLE c (id int, value text);
-        CREATE INDEX idxa ON a USING paradedb (id, value) WITH (key_field='id');
-        CREATE INDEX idxb ON b USING paradedb (id, value) WITH (key_field='id');
-        CREATE INDEX idxc ON c USING paradedb (id, value) WITH (key_field='id');
+        CREATE INDEX idxa ON a USING paradedb (id, value);
+        CREATE INDEX idxb ON b USING paradedb (id, value);
+        CREATE INDEX idxc ON c USING paradedb (id, value);
         INSERT INTO a (id, value) VALUES (1, 'a');
         INSERT INTO b (id, value) VALUES (1, 'b');
         INSERT INTO c (id, value) VALUES (1, 'c');
@@ -35,11 +35,11 @@ fn multiple_index_changes_in_same_xact(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let results = r#"
-        SELECT * FROM a WHERE value @@@ 'a'
+        SELECT * FROM a WHERE value ||| 'a'
            UNION
-        SELECT * FROM b WHERE value @@@ 'b'
+        SELECT * FROM b WHERE value ||| 'b'
            UNION
-        SELECT * FROM c WHERE value @@@ 'c'
+        SELECT * FROM c WHERE value ||| 'c'
         ORDER BY 1, 2;
     "#
     .fetch::<(i32, String)>(&mut conn);
@@ -103,16 +103,7 @@ fn issue2187_executor_hooks(mut conn: PgConnection) {
 
                         EXECUTE format(
                                 'CREATE INDEX %I ON %I
-                                 USING paradedb (id, is_processed)
-                                 WITH (
-                                     key_field = ''id'',
-                                     boolean_fields = ''{
-                                         "is_processed": {
-                                             "fast": true,
-                                             "indexed": true
-                                         }
-                                     }''
-                                 )', index_name, table_name);
+                                 USING paradedb (id, is_processed)', index_name, table_name);
                     END LOOP;
             END
         $$;

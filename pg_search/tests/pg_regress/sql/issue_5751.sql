@@ -24,11 +24,9 @@ INSERT INTO issue_5751_entries VALUES
     (4, 3, 'u1');
 
 CREATE INDEX issue_5751_series_idx
-ON issue_5751_series USING paradedb (id, ((state)::pdb.literal))
-WITH (key_field = 'id');
+ON issue_5751_series USING paradedb (id, ((state)::pdb.literal));
 CREATE INDEX issue_5751_entries_idx
-ON issue_5751_entries USING paradedb (id, series_id, ((user_id)::pdb.literal))
-WITH (key_field = 'id');
+ON issue_5751_entries USING paradedb (id, series_id, ((user_id)::pdb.literal));
 
 -- Keep the plan assertion stable without recording DataFusion's physical plan.
 CREATE FUNCTION issue_5751_plan_uses(q text, needle text) RETURNS boolean AS $$
@@ -279,11 +277,9 @@ INSERT INTO issue_5751_ppi_entries VALUES
     (5, 2, 25);
 
 CREATE INDEX issue_5751_ppi_series_bm25
-ON issue_5751_ppi_series USING paradedb (id, threshold)
-WITH (key_field = 'id');
+ON issue_5751_ppi_series USING paradedb (id, threshold);
 CREATE INDEX issue_5751_ppi_entries_bm25
-ON issue_5751_ppi_entries USING paradedb (id, series_id, amount)
-WITH (key_field = 'id');
+ON issue_5751_ppi_entries USING paradedb (id, series_id, amount);
 CREATE INDEX issue_5751_ppi_lookup
 ON issue_5751_ppi_series (id, threshold);
 
@@ -397,9 +393,9 @@ CREATE TABLE issue_5751_js_right (id bigint PRIMARY KEY, left_id bigint, body te
 INSERT INTO issue_5751_js_left SELECT g, 'alpha beta' FROM generate_series(1, 20) g;
 INSERT INTO issue_5751_js_right SELECT g, g, 'gamma delta' FROM generate_series(1, 20) g;
 CREATE INDEX issue_5751_js_left_bm25
-ON issue_5751_js_left USING paradedb (id, body) WITH (key_field = 'id');
+ON issue_5751_js_left USING paradedb (id, body);
 CREATE INDEX issue_5751_js_right_bm25
-ON issue_5751_js_right USING paradedb (id, left_id, body) WITH (key_field = 'id');
+ON issue_5751_js_right USING paradedb (id, left_id, body);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -408,7 +404,7 @@ SELECT issue_5751_plan_uses(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   'ParadeDB Aggregate Scan') AS both_scans_on_uses_aggregate_scan;
 
 -- With AggregateScan out of the way, JoinScan still declines: it does not
@@ -422,7 +418,7 @@ SELECT issue_5751_plan_uses(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   'ParadeDB Base Scan') AS joinscan_declines_falls_back_to_base_scans;
 SET paradedb.enable_aggregate_custom_scan = on;
 
@@ -430,13 +426,13 @@ SELECT issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   true
 ) = issue_5751_result(
   $$SELECT count(*)
     FROM issue_5751_js_right r
     JOIN issue_5751_js_left l ON l.id = r.left_id
-    WHERE l.body @@@ 'alpha' AND r.body @@@ 'gamma'$$,
+    WHERE l.body ||| 'alpha' AND r.body ||| 'gamma'$$,
   false
 ) AS joinscan_interaction_matches_postgres;
 RESET paradedb.enable_join_custom_scan;
@@ -454,9 +450,9 @@ CREATE TABLE issue_5751_pw_b2 PARTITION OF issue_5751_pw_b FOR VALUES FROM (100)
 INSERT INTO issue_5751_pw_a SELECT g, g, 'x' FROM generate_series(1, 199) g;
 INSERT INTO issue_5751_pw_b SELECT g, g, 'y' FROM generate_series(1, 199) g;
 CREATE INDEX issue_5751_pw_a_bm25
-ON issue_5751_pw_a USING paradedb (id, k, ((s)::pdb.literal)) WITH (key_field = 'id');
+ON issue_5751_pw_a USING paradedb (id, k, ((s)::pdb.literal));
 CREATE INDEX issue_5751_pw_b_bm25
-ON issue_5751_pw_b USING paradedb (id, k, ((t)::pdb.literal)) WITH (key_field = 'id');
+ON issue_5751_pw_b USING paradedb (id, k, ((t)::pdb.literal));
 
 SET enable_partitionwise_join = on;
 SELECT issue_5751_plan_uses(

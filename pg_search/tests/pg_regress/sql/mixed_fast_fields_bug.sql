@@ -39,18 +39,7 @@ FROM generate_series(1, 100) AS i;
 -- Create BM25 index with fast fields
 DROP INDEX IF EXISTS benchmark_data_idx CASCADE;
 CREATE INDEX benchmark_data_idx ON benchmark_data 
-USING paradedb (
-    id, 
-    string_field1,
-    string_field2,
-    numeric_field1,
-    numeric_field2,
-    numeric_field3
-) WITH (
-    key_field = 'id',
-    text_fields = '{"string_field1": {"fast": true, "tokenizer": {"type": "keyword"}}, "string_field2": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}, "numeric_field3": {"fast": true}}'
-);
+USING paradedb (id, (string_field1::pdb.literal), (string_field2::pdb.literal), numeric_field1, numeric_field2, numeric_field3);
 
 -- Force index usage
 SET enable_seqscan = off;
@@ -67,8 +56,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
 
 -- Run the query with normal execution
@@ -76,8 +65,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
 
 -- Now enable ColumnarExec
@@ -91,8 +80,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
 
 -- Run the query with ColumnarExec (should return same data)
@@ -100,8 +89,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
 
 RESET paradedb.enable_fast_field_exec;

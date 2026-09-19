@@ -44,20 +44,10 @@ INSERT INTO cov_items (order_id, item_name, unit_price) VALUES
     (5, 'tablet-case', 39);
 
 CREATE INDEX cov_orders_idx ON cov_orders
-USING paradedb (id, description, customer, quantity, amount)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "customer": {"fast": true}}',
-    numeric_fields='{"quantity": {"fast": true}, "amount": {"fast": true}}'
-);
+USING paradedb (id, description, (customer::pdb.unicode_words('columnar=true')), quantity, amount);
 
 CREATE INDEX cov_items_idx ON cov_items
-USING paradedb (id, order_id, item_name, unit_price)
-WITH (
-    key_field='id',
-    numeric_fields='{"order_id": {"fast": true}, "unit_price": {"fast": true}}',
-    text_fields='{"item_name": {"fast": true}}'
-);
+USING paradedb (id, order_id, (item_name::pdb.unicode_words('columnar=true')), unit_price);
 
 -- =====================================================================
 -- Test 1: SUM(integer) — exercises Decimal128→NUMERIC projection
@@ -66,13 +56,13 @@ WITH (
 SELECT SUM(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop';
+WHERE o.description ||| 'laptop';
 
 -- Test 1b: SUM(bigint) — same Decimal128→NUMERIC path
 SELECT SUM(o.amount)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop';
+WHERE o.description ||| 'laptop';
 
 -- =====================================================================
 -- Test 2: COUNT(column) — exercises Count variant (not CountStar)
@@ -80,7 +70,7 @@ WHERE o.description @@@ 'laptop';
 SELECT COUNT(i.unit_price)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop';
+WHERE o.description ||| 'laptop';
 
 -- =====================================================================
 -- Test 3: MIN/MAX on INTEGER columns — exercises Int64→INT4OID path
@@ -88,13 +78,13 @@ WHERE o.description @@@ 'laptop';
 SELECT MIN(o.quantity), MAX(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes');
 
 -- Test 3b: MIN/MAX on integer from the joined table
 SELECT MIN(i.unit_price), MAX(i.unit_price)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop';
+WHERE o.description ||| 'laptop';
 
 -- =====================================================================
 -- Test 4: AVG(integer) — returns NUMERIC in Postgres,
@@ -103,7 +93,7 @@ WHERE o.description @@@ 'laptop';
 SELECT AVG(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes');
 
 -- =====================================================================
 -- Test 5: GROUP BY text column — exercises Utf8/Utf8View projection
@@ -114,7 +104,7 @@ SET client_min_messages TO error;
 SELECT o.customer, COUNT(*), SUM(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes' OR o.description ||| 'jacket' OR o.description ||| 'tablet')
 GROUP BY o.customer
 ORDER BY o.customer;
 SET client_min_messages TO warning;
@@ -126,7 +116,7 @@ SET client_min_messages TO warning;
 SELECT COUNT(*), SUM(o.quantity), AVG(o.quantity), MIN(o.quantity), MAX(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'nonexistent_product_xyz';
+WHERE o.description ||| 'nonexistent_product_xyz';
 
 -- =====================================================================
 -- Test 7: Multiple aggregates with mixed types — exercises all
@@ -137,7 +127,7 @@ SELECT COUNT(*), COUNT(i.unit_price), SUM(o.quantity), AVG(o.quantity),
        MIN(i.unit_price), MAX(i.unit_price), SUM(o.amount)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR tablet';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'tablet');
 SET client_min_messages TO warning;
 
 -- =====================================================================
@@ -147,7 +137,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT o.customer, COUNT(*), SUM(o.quantity), MIN(i.unit_price), MAX(i.unit_price)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes' OR o.description ||| 'jacket' OR o.description ||| 'tablet')
 GROUP BY o.customer
 ORDER BY o.customer;
 
@@ -156,7 +146,7 @@ SET client_min_messages TO error;
 SELECT o.customer, COUNT(*), SUM(o.quantity), MIN(i.unit_price), MAX(i.unit_price)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes' OR o.description ||| 'jacket' OR o.description ||| 'tablet')
 GROUP BY o.customer
 ORDER BY o.customer;
 SET client_min_messages TO warning;
@@ -168,13 +158,13 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes');
 
 -- =====================================================================
 -- Test 10: Fallback — FILTER clause should gracefully fall back
@@ -184,7 +174,7 @@ SET client_min_messages TO error;
 SELECT COUNT(*) FILTER (WHERE o.quantity > 5)
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
-WHERE o.description @@@ 'laptop OR shoes';
+WHERE (o.description ||| 'laptop' OR o.description ||| 'shoes');
 SET client_min_messages TO warning;
 
 -- =====================================================================
@@ -217,45 +207,35 @@ INSERT INTO cov_logs (sensor_id, log_type) VALUES
     (4, 'info');
 
 CREATE INDEX cov_sensors_idx ON cov_sensors
-USING paradedb (id, description, reading, priority)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"reading": {"fast": true}, "priority": {"fast": true}}'
-);
+USING paradedb (id, description, reading, priority);
 
 CREATE INDEX cov_logs_idx ON cov_logs
-USING paradedb (id, sensor_id, log_type)
-WITH (
-    key_field='id',
-    numeric_fields='{"sensor_id": {"fast": true}}',
-    text_fields='{"log_type": {"fast": true}}'
-);
+USING paradedb (id, sensor_id, (log_type::pdb.unicode_words('columnar=true')));
 
 -- Test 11a: SUM/AVG/MIN/MAX on REAL column
 SELECT COUNT(*), SUM(s.reading), AVG(s.reading), MIN(s.reading), MAX(s.reading)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
-WHERE s.description @@@ 'sensor';
+WHERE s.description ||| 'sensor';
 
 -- Test 11b: SUM/MIN/MAX on SMALLINT column
 SELECT SUM(s.priority), MIN(s.priority), MAX(s.priority)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
-WHERE s.description @@@ 'sensor';
+WHERE s.description ||| 'sensor';
 
 -- Test 11c: Parity — REAL aggregates
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
-WHERE s.description @@@ 'temperature';
+WHERE s.description ||| 'temperature';
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
 FROM cov_sensors s
 JOIN cov_logs l ON s.id = l.sensor_id
-WHERE s.description @@@ 'temperature';
+WHERE s.description ||| 'temperature';
 
 DROP TABLE cov_logs;
 DROP TABLE cov_sensors;
@@ -287,34 +267,24 @@ INSERT INTO cov_big_tags (big_id, tag) VALUES
     (1, 'a'), (2, 'b');
 
 CREATE INDEX cov_big_idx ON cov_big
-USING paradedb (id, description, qty)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"qty": {"fast": true}}'
-);
+USING paradedb (id, description, qty);
 
 CREATE INDEX cov_big_tags_idx ON cov_big_tags
-USING paradedb (id, big_id, tag)
-WITH (
-    key_field='id',
-    numeric_fields='{"big_id": {"fast": true}}',
-    text_fields='{"tag": {"fast": true}}'
-);
+USING paradedb (id, big_id, (tag::pdb.unicode_words('columnar=true')));
 
 -- SUM(bigint) returns NUMERIC in Postgres — exercises the NUMERICOID
 -- arm of int64_to_datum (the path that previously caused SIGSEGV)
 SELECT SUM(b.qty)
 FROM cov_big b
 JOIN cov_big_tags t ON b.id = t.big_id
-WHERE b.description @@@ 'laptop OR phone';
+WHERE (b.description ||| 'laptop' OR b.description ||| 'phone');
 
 -- Parity check
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT SUM(b.qty)
 FROM cov_big b
 JOIN cov_big_tags t ON b.id = t.big_id
-WHERE b.description @@@ 'laptop OR phone';
+WHERE (b.description ||| 'laptop' OR b.description ||| 'phone');
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 DROP TABLE cov_big_tags;

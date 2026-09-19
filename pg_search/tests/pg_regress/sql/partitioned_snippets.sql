@@ -30,20 +30,19 @@ INSERT INTO logs (id, message, country, timestamp) VALUES
 
 CREATE INDEX logs_idx
 ON logs
-USING paradedb (id, message, country)
-WITH (key_field = 'id', text_fields = '{"country": {"tokenizer": {"type": "keyword"} }}');
+USING paradedb (id, message, (country::pdb.literal));
 
 
 \echo 'Test 1: pdb.snippets (no UNNEST) on parent table'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.snippets(message, max_num_chars => 25)
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 SELECT id, pdb.snippets(message, max_num_chars => 25)
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 
@@ -53,12 +52,12 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 
@@ -67,12 +66,12 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 
@@ -80,12 +79,12 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 2 OFFSET 1;
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 2 OFFSET 1;
 
@@ -94,12 +93,12 @@ LIMIT 2 OFFSET 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 0;
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)) as snippet
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 0;
 
@@ -109,12 +108,12 @@ LIMIT 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020
-WHERE message @@@ 'research' AND country @@@ 'Canada'
+WHERE message ||| 'research' AND country ||| 'Canada'
 ORDER BY id
 LIMIT 3;
 

@@ -253,11 +253,11 @@ async fn test_logical_replication() -> Result<()> {
 
     // Create the bm25 index on the description field
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING paradedb (id, description) WITH (key_field='id');
+    USING paradedb (id, description);
     "
     .execute(&mut source_conn);
     "CREATE INDEX mock_items_bm25_idx ON public.mock_items
-    USING paradedb (id, description) WITH (key_field='id');
+    USING paradedb (id, description);
     "
     .execute(&mut target_conn);
 
@@ -273,11 +273,9 @@ async fn test_logical_replication() -> Result<()> {
 
     // Verify initial state of the search results
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
-            .fetch(&mut source_conn);
+        "SELECT description FROM mock_items WHERE description ||| 'shoes'".fetch(&mut source_conn);
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
-            .fetch(&mut target_conn);
+        "SELECT description FROM mock_items WHERE description ||| 'shoes'".fetch(&mut target_conn);
 
     assert_eq!(source_results.len(), 0);
     assert_eq!(target_results.len(), 0);
@@ -288,12 +286,11 @@ async fn test_logical_replication() -> Result<()> {
 
     // Verify the insert is replicated to the target database
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
-            .fetch(&mut source_conn);
+        "SELECT description FROM mock_items WHERE description ||| 'shoes'".fetch(&mut source_conn);
 
     // Wait for the replication to complete
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'".fetch_retry(
+        "SELECT description FROM mock_items WHERE description ||| 'shoes'".fetch_retry(
             &mut target_conn,
             RETRIES,
             RETRY_DELAY,
@@ -309,13 +306,13 @@ async fn test_logical_replication() -> Result<()> {
 
     // Verify the additional insert is replicated to the target database
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:\"running shoes\"'"
+        "SELECT description FROM mock_items WHERE id @@@ pdb.parse('description:\"running shoes\"')"
             .fetch(&mut source_conn);
 
     // Wait for the replication to complete
     std::thread::sleep(std::time::Duration::from_secs(1));
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE id @@@ 'description:\"running shoes\"'"
+        "SELECT description FROM mock_items WHERE id @@@ pdb.parse('description:\"running shoes\"')"
             .fetch(&mut target_conn);
 
     assert_eq!(source_results.len(), 1);
@@ -374,13 +371,13 @@ async fn test_logical_replication() -> Result<()> {
 
     // verify the COPY worked
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
+        "SELECT description FROM mock_items WHERE description ||| 'replicated1' OR description ||| 'replicated2' OR description ||| 'replicated3'"
             .fetch(&mut source_conn);
     assert_eq!(source_results.len(), 3);
 
     std::thread::sleep(std::time::Duration::from_secs(1)); // give a little time for the data to replicate
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
+        "SELECT description FROM mock_items WHERE description ||| 'replicated1' OR description ||| 'replicated2' OR description ||| 'replicated3'"
             .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| result.len() == 3);
     assert_eq!(target_results.len(), 3);
 
@@ -431,17 +428,15 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
     "
     CREATE INDEX text_array_table_idx ON text_array_table
-    USING paradedb (id, text_array)
-    WITH (key_field = 'id');
+    USING paradedb (id, text_array);
     "
     .execute(&mut source_conn);
 
     // Verify search results before pg_basebackup
-    let source_results: Vec<(i32,)> = sqlx::query_as(
-        "SELECT id FROM text_array_table WHERE text_array_table @@@ 'text_array:dog' ORDER BY id",
-    )
-    .fetch_all(&mut source_conn)
-    .await?;
+    let source_results: Vec<(i32,)> =
+        sqlx::query_as("SELECT id FROM text_array_table WHERE text_array ||| 'dog' ORDER BY id")
+            .fetch_all(&mut source_conn)
+            .await?;
     assert_eq!(source_results.len(), 1);
 
     let target_tempdir = TempDir::new().expect("Failed to create temp dir");
@@ -465,11 +460,10 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let mut target_conn = target_postgres.connection().await?;
 
     // Verify the content in the target database
-    let target_results: Vec<(i32,)> = sqlx::query_as(
-        "SELECT id FROM text_array_table WHERE text_array_table @@@ 'text_array:dog'",
-    )
-    .fetch_all(&mut target_conn)
-    .await?;
+    let target_results: Vec<(i32,)> =
+        sqlx::query_as("SELECT id FROM text_array_table WHERE text_array ||| 'dog'")
+            .fetch_all(&mut target_conn)
+            .await?;
 
     assert_eq!(source_results.len(), target_results.len());
 
@@ -739,8 +733,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     // standby replays it, rm_redo aborts recovery with our "not supported" error.
     "
     CREATE INDEX items_search_idx ON items
-    USING paradedb (id, description, category)
-    WITH (key_field = 'id');
+    USING paradedb (id, description, category);
     "
     .execute(&mut source_conn);
 

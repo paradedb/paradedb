@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+The DataFusion aggregate scan now evaluates expressions wrapped around an aggregate, such as `COUNT(*) * 2`, `COUNT(*)::numeric`, `COALESCE(SUM(x), 0)`, or an aggregate combined with a grouped column, instead of returning the bare aggregate value or crashing the backend on by-reference result types (#6168). Multiple aggregates in one output expression, functionally dependent output columns, and `HAVING` on filtered aggregates are pushed down as well. `EXPLAIN VERBOSE` on these plans now prints the real expressions rather than `pdb.agg_fn(...)` placeholders, and the GROUP BY and DISTINCT decline messages name the offending item by position.

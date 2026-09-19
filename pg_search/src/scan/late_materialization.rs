@@ -31,7 +31,9 @@ use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::logical_expr::{
+    Aggregate, Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore,
+};
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -146,14 +148,10 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
             }
         }
         LogicalPlan::Aggregate(agg) => {
+            let keys = group_keys(agg);
             if let Ok(idx) = agg.schema.index_of_column(col) {
-                if idx < agg.group_expr.len() {
-                    let expr = &agg.group_expr[idx];
-                    let unaliased = match expr {
-                        Expr::Alias(alias) => alias.expr.as_ref(),
-                        e => e,
-                    };
-                    if let Expr::Column(c) = unaliased {
+                if idx < keys.len() {
+                    if let Expr::Column(c) = unalias(keys[idx]) {
                         trace_column(agg.input.as_ref(), c)
                     } else {
                         None
@@ -329,6 +327,9 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             for expr in &proj.expr {
                 let mut cols = HashSet::new();
                 expr.add_column_refs(&mut cols);
+                // Traced through the input, not through this node. A projection's own
+                // schema holds what it produces, so an input column an expression consumes
+                // and does not re-emit is absent from it and would trace to nothing.
                 let uses_deferred = cols.iter().any(|c| {
                     if let Some(base_col) = trace_column(proj.input.as_ref(), c) {
                         deferred_fields.iter().any(|df| base_col.is(df))
@@ -426,6 +427,45 @@ pub(crate) fn has_reduction_before_stop(
     has_reduction
 }
 
+/// True if the first ancestor that anchors `df` is an aggregate grouping on it as a plain
+/// column. The partial aggregate then groups the ordinals and reduces the rows before the
+/// decode, which is a reduction of its own (see `DeferredAggregateRule`).
+fn grouped_at_anchor(
+    ancestors: &[&LogicalPlan],
+    is_stop: impl Fn(&LogicalPlan) -> bool,
+    df: &DeferredField,
+) -> bool {
+    let Some(anchor) = ancestors.iter().rev().find(|a| is_stop(a)) else {
+        return false;
+    };
+    let LogicalPlan::Aggregate(agg) = anchor else {
+        return false;
+    };
+    group_keys(agg).into_iter().any(|expr| match unalias(expr) {
+        Expr::Column(c) => trace_column(agg.input.as_ref(), c).is_some_and(|base| base.is(df)),
+        _ => false,
+    })
+}
+
+/// The group keys in output order. A grouping set is one expression that stands for
+/// several keys, and the aggregate lays those out in the set's distinct order.
+fn group_keys(agg: &Aggregate) -> Vec<&Expr> {
+    agg.group_expr
+        .iter()
+        .flat_map(|expr| match expr {
+            Expr::GroupingSet(set) => set.distinct_expr(),
+            expr => vec![expr],
+        })
+        .collect()
+}
+
+fn unalias(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Alias(alias) => alias.expr.as_ref(),
+        expr => expr,
+    }
+}
+
 /// Recursively traverses `plan` tracking the ancestor chain down to each `TableScan`.
 /// For each deferred field of a `TableScan`, checks if there is any intermediate reduction
 /// node (`Filter`, `Join`, `Limit`, etc.) on the path between the scan and the first ancestor
@@ -446,9 +486,11 @@ fn collect_beneficial_deferred_fields_inner<'a>(
                 {
                     continue;
                 }
-                if has_reduction_before_stop(ancestors, |ancestor| {
-                    should_anchor(ancestor, std::slice::from_ref(&df))
-                }) {
+                let anchors =
+                    |ancestor: &LogicalPlan| should_anchor(ancestor, std::slice::from_ref(&df));
+                if has_reduction_before_stop(ancestors, anchors)
+                    || grouped_at_anchor(ancestors, anchors, &df)
+                {
                     beneficial.insert(df.canonical);
                 }
             }

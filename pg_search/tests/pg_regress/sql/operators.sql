@@ -15,8 +15,7 @@ VACUUM FULL mock_items;
 
 CREATE INDEX IF NOT EXISTS idxregress_mock_items
 ON mock_items
-    USING paradedb (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
-WITH (key_field='id');
+    USING paradedb (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range);
 
 --
 -- these are designed to validate that the EXPLAIN output is correct
@@ -27,11 +26,11 @@ WITH (key_field='id');
 --
 -- @@@ (parse)
 --
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'running shoes';
-SELECT * FROM mock_items WHERE description @@@ 'running shoes';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
+SELECT * FROM mock_items WHERE description @@@ pdb.parse_with_field('running shoes');
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes';
-SELECT * FROM mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes');
+SELECT * FROM mock_items WHERE lower(description) @@@ pdb.parse_with_field('running shoes') ORDER BY id;
 
 
 --
@@ -93,7 +92,7 @@ SELECT * FROM mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] OR
 ---
 --- the rhs of the operator is an expression that must be evaluated at execution time
 ---
-select * from mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from mock_items where description @@@ pdb.parse_with_field(case when id = 1 then 'keyboard' else 'DoesNotExist' end);
 select * from mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 select * from mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 select * from mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
@@ -104,12 +103,12 @@ select * from mock_items where description === case when id = 1 then 'keyboard' 
 -- other supported types on the lhs
 -- these are types that postgres will coerce to TEXT
 --
-SELECT * FROM mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
+SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
 SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
-SELECT * FROM mock_items WHERE category @@@ 'footwear' ORDER BY id;
+SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category &&& 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category ||| 'footwear' ORDER BY id;
 SELECT * FROM mock_items WHERE category ### 'footwear' ORDER BY id;

@@ -39,29 +39,29 @@ SET enable_seqscan = off;
 SET enable_bitmapscan = off;
 
 -- A non-first fast field is returnable without a configured key field.
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle'$$);
 
 -- Multiple fast fields are populated in index tuple order, including NULL values.
-SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT id, tenant_id, score, active FROM index_only_scan WHERE body ||| 'needle'$$);
 SELECT id, tenant_id, score, active
 FROM index_only_scan
-WHERE body @@@ 'needle'
+WHERE body ||| 'needle'
 ORDER BY tenant_id;
 
 -- A tokenized-only field is not losslessly returnable.
-SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT body FROM index_only_scan WHERE body ||| 'needle'$$);
 
 -- Residual filters need returnable columns too.
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
-SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' AND body LIKE '%two%';
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' AND body LIKE '%two%';
 
 -- CTIDs and whole rows requested by the query still require the heap.
-SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body @@@ 'needle'$$);
-SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body @@@ 'needle'$$);
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle' FOR UPDATE$$);
+SELECT explain_index_only($$SELECT ctid FROM index_only_scan WHERE body ||| 'needle'$$);
+SELECT explain_index_only($$SELECT index_only_scan FROM index_only_scan WHERE body ||| 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle' FOR UPDATE$$);
 
 SET enable_indexonlyscan = off;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE body ||| 'needle'$$);
 RESET enable_indexonlyscan;
 
 -- A nonreturnable first column must not block covered queries or require a non-NULL anchor.
@@ -72,20 +72,20 @@ INSERT INTO index_only_anchor VALUES
     ('other', 20, 3, 'other');
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
-SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%'$$);
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' AND body LIKE '%two%';
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' AND body LIKE '%two%'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' AND body LIKE '%two%';
 
 SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = on;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
 SET enable_bitmapscan = off;
 SET enable_seqscan = on;
-SELECT row_id, body @@@ 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
+SELECT row_id, body ||| 'needle' AS body_match, tenant_id @@@ pdb.all() AS tenant_all
 FROM index_only_anchor ORDER BY row_id;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
@@ -94,24 +94,23 @@ SET enable_seqscan = off;
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (tenant_id, body, row_id, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
 
 -- Numeric columns with fast fields disabled are not eligible anchors either.
 DROP INDEX index_only_anchor_idx;
-CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note)
-WITH (numeric_fields = '{"row_id": {"fast": false}}');
+CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (row_id, tenant_id, body, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY tenant_id;
-SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body @@@ 'needle'$$);
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE body ||| 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT row_id FROM index_only_anchor WHERE body ||| 'needle'$$);
 
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, tenant_id, row_id, note)
 WHERE row_id <= 2;
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 AND body ||| 'needle' ORDER BY tenant_id;
 SELECT explain_index_only($$SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2$$);
 SELECT tenant_id FROM index_only_anchor WHERE row_id <= 2 ORDER BY tenant_id;
 SET enable_indexonlyscan = off;
@@ -123,8 +122,8 @@ RESET enable_indexonlyscan;
 DROP INDEX index_only_anchor_idx;
 CREATE INDEX index_only_anchor_idx ON index_only_anchor USING paradedb (body, note);
 VACUUM (FREEZE, ANALYZE) index_only_anchor;
-SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body @@@ 'needle'$$);
-SELECT body FROM index_only_anchor WHERE body @@@ 'needle' ORDER BY body;
+SELECT explain_index_only($$SELECT body FROM index_only_anchor WHERE body ||| 'needle'$$);
+SELECT body FROM index_only_anchor WHERE body ||| 'needle' ORDER BY body;
 DROP TABLE index_only_anchor;
 
 -- Allowing conditions on later columns also permits scans without search conditions.
@@ -158,7 +157,7 @@ BEGIN
     INSERT INTO index_only_max_keys (text_1, last_value)
     VALUES ('needle', 42), ('needle', NULL), ('other', 7);
     EXECUTE format(
-        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING bm25 (%s, last_value)',
+        'CREATE INDEX index_only_max_keys_idx ON index_only_max_keys USING paradedb (%s, last_value)',
         index_columns
     );
 END;
@@ -167,8 +166,8 @@ VACUUM (FREEZE, ANALYZE) index_only_max_keys;
 SELECT bool_and(pg_index_column_has_property('index_only_max_keys_idx', i, 'returnable')
                 IS NOT DISTINCT FROM (i = current_setting('max_index_keys')::int)) AS correct_capabilities
 FROM generate_series(1, current_setting('max_index_keys')::int) i;
-SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle'$$);
-SELECT last_value FROM index_only_max_keys WHERE text_1 @@@ 'needle' ORDER BY last_value;
+SELECT explain_index_only($$SELECT last_value FROM index_only_max_keys WHERE text_1 ||| 'needle'$$);
+SELECT last_value FROM index_only_max_keys WHERE text_1 ||| 'needle' ORDER BY last_value;
 DROP TABLE index_only_max_keys;
 
 -- The fallback condition must not prevent a covering partial index from using an index-only scan.
@@ -176,16 +175,16 @@ DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
 USING paradedb (id, tenant_id, score, active, body) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-SELECT tenant_id FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+SELECT tenant_id FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
 
 -- A NOT NULL anchor selects the strict helper without requiring the CTID or whole row.
 DROP INDEX index_only_scan_idx;
 CREATE INDEX index_only_scan_idx ON index_only_scan
 USING paradedb (tenant_id, id, score, active, body) WHERE active;
 VACUUM (FREEZE, ANALYZE) index_only_scan;
-SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle'$$);
-SELECT tenant_id, score FROM index_only_scan WHERE active AND body @@@ 'needle' ORDER BY tenant_id;
+SELECT explain_index_only($$SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle'$$);
+SELECT tenant_id, score FROM index_only_scan WHERE active AND body ||| 'needle' ORDER BY tenant_id;
 
 -- Deleted mutable-segment rows can have missing fast values before PostgreSQL checks visibility.
 CREATE TABLE index_only_uuid (id bigint, uuid uuid, body text, age integer)
@@ -221,7 +220,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| ''needle'''
     INTO plan;
     IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
         OR (plan #>> '{0,Plan,Heap Fetches}')::int IS DISTINCT FROM 0
@@ -246,8 +245,8 @@ DECLARE
     query text;
 BEGIN
     FOREACH query IN ARRAY ARRAY[
-        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term',
-        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id'
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term',
+        'SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.id > t.min_id'
     ] LOOP
         EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || query INTO plan;
         IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Nested Loop'
@@ -262,7 +261,7 @@ BEGIN
 END;
 $$;
 SELECT t.term, count(*), sum(d.id)
-FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.id > t.min_id
+FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.id > t.min_id
 GROUP BY t.term ORDER BY t.term;
 
 -- A join filter on a nonreturnable field still requires heap access.
@@ -270,7 +269,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term AND d.body LIKE t.pattern'
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT t.term, d.id FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term AND d.body LIKE t.pattern'
     INTO plan;
     IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan'
         OR (plan #>> '{0,Plan,Actual Rows}')::numeric IS DISTINCT FROM 0
@@ -285,7 +284,7 @@ DECLARE
     projection text;
 BEGIN
     FOREACH projection IN ARRAY ARRAY['d.ctid', 'd.xmin', 'd'] LOOP
-        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT ' || projection || ' FROM index_only_terms t JOIN index_only_lifetime d ON d.body @@@ t.term'
+        EXECUTE 'EXPLAIN (FORMAT JSON) SELECT ' || projection || ' FROM index_only_terms t JOIN index_only_lifetime d ON d.body ||| t.term'
         INTO plan;
         IF plan #>> '{0,Plan,Plans,1,Node Type}' IS DISTINCT FROM 'Index Scan' THEN
             RAISE EXCEPTION 'expected a heap scan for an explicit system column or whole row: %', plan;
@@ -310,7 +309,7 @@ DECLARE
 BEGIN
     FOREACH heap_threshold IN ARRAY ARRAY['0', '1GB'] LOOP
         PERFORM set_config('min_parallel_table_scan_size', heap_threshold, true);
-        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ ''needle'''
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| ''needle'''
         INTO plan;
         IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Gather'
             OR (plan #>> '{0,Plan,Workers Planned}')::int <= 0
@@ -325,14 +324,14 @@ BEGIN
 END;
 $$;
 SELECT count(*), sum(id), count(DISTINCT uuid), count(nullable_uuid)
-FROM index_only_lifetime WHERE body @@@ 'needle';
+FROM index_only_lifetime WHERE body ||| 'needle';
 
 SET min_parallel_index_scan_size = '1GB';
 DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM index_only_lifetime WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT id FROM index_only_lifetime WHERE body ||| ''needle'''
     INTO plan;
     IF plan #>> '{0,Plan,Node Type}' IS DISTINCT FROM 'Index Only Scan'
         OR (plan #>> '{0,Plan,Parallel Aware}')::boolean IS DISTINCT FROM false
@@ -350,7 +349,7 @@ RESET paradedb.enable_aggregate_custom_scan;
 -- UUID datums must survive caller resets without accumulating across rows.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT id, uuid, nullable_uuid FROM index_only_lifetime WHERE body ||| 'needle';
     row_data record;
     rows_seen int := 0;
     warm_bytes bigint;
@@ -393,7 +392,7 @@ $$;
 -- Closing an unfinished cursor must release its tuple and temporary datums too.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT uuid FROM index_only_lifetime WHERE body ||| 'needle';
     value uuid;
 BEGIN
     FOR i IN 1..100 LOOP
@@ -410,7 +409,7 @@ $$;
 -- Error cleanup deletes child contexts before dropping the Rust scan state.
 DO $$
 DECLARE
-    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body @@@ 'needle';
+    scan CURSOR FOR SELECT uuid, 1 / (id - id) FROM index_only_lifetime WHERE body ||| 'needle';
     row_data record;
 BEGIN
     BEGIN
@@ -447,7 +446,7 @@ DO $$
 DECLARE
     plan json;
 BEGIN
-    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body @@@ ''needle'''
+    EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) SELECT count(*) FROM index_only_bitmap WHERE body ||| ''needle'''
     INTO plan;
     IF (plan #>> '{0,Plan,Plans,0,Node Type}') IS DISTINCT FROM 'Bitmap Heap Scan'
         OR COALESCE((plan #>> '{0,Plan,Plans,0,Lossy Heap Blocks}')::int, 0) = 0
@@ -458,7 +457,7 @@ BEGIN
 END;
 $$;
 
-SELECT count(*) FROM index_only_bitmap WHERE body @@@ 'needle';
+SELECT count(*) FROM index_only_bitmap WHERE body ||| 'needle';
 RESET client_min_messages;
 RESET work_mem;
 RESET enable_indexscan;

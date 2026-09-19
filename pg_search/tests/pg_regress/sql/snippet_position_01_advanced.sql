@@ -9,7 +9,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+WHERE b.content ||| 'test' OR a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 
 SELECT
@@ -21,7 +21,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
+WHERE b.content ||| 'test' OR NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 
 SELECT
@@ -33,7 +33,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
+WHERE NOT(b.content ||| 'test') OR a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 
 SELECT
@@ -45,7 +45,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
+WHERE NOT(b.content ||| 'test') OR NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 
 SELECT
@@ -57,7 +57,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+WHERE b.content ||| 'test' AND a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 
 SELECT
@@ -69,7 +69,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
+WHERE b.content ||| 'test' AND NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 
 SELECT
@@ -81,7 +81,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
+WHERE NOT(b.content ||| 'test') AND a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 
 SELECT
@@ -93,7 +93,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
+WHERE NOT(b.content ||| 'test') AND NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 
 WITH book_snippets AS (
@@ -105,7 +105,7 @@ WITH book_snippets AS (
         pdb.score(b.id) as book_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
-    WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+    WHERE b.content ||| 'test' AND a.name ||| 'Rowling'
 )
 SELECT
     bs.*,
@@ -115,7 +115,7 @@ SELECT
     pdb.score(r.id) as review_score
 FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
-WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
+WHERE r.review ||| 'test' AND r.review ||| 'snippet'
 ORDER BY bs.book_id, r.id;
 
 SELECT
@@ -132,10 +132,10 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 LEFT JOIN reviews r ON r.book_id = b.id
-WHERE b.content @@@ 'test'
-    OR a.name @@@ 'Rowling'
-    OR r.review @@@ 'test'
-    OR r.review @@@ 'snippet'
+WHERE b.content ||| 'test'
+    OR a.name ||| 'Rowling'
+    OR r.review ||| 'test'
+    OR r.review ||| 'snippet'
 ORDER BY b.id, r.id;
 
 \i common/snippet_position_advanced_cleanup.sql

@@ -46,12 +46,7 @@ VALUES
 -- Index: category and brand are fast text fields; name is not fast;
 -- rating and price are fast numeric fields.
 CREATE INDEX dist_products_idx ON dist_products
-USING bm25 (id, name, category, brand, rating, price)
-WITH (
-    key_field = 'id',
-    text_fields  = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}'
-);
+USING paradedb (id, name, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), rating, price);
 
 ANALYZE dist_products;
 
@@ -63,12 +58,12 @@ ANALYZE dist_products;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'laptop OR jacket OR shoes'
+WHERE (name ||| 'laptop' OR name ||| 'jacket' OR name ||| 'shoes')
 ORDER BY category;
 
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'laptop OR jacket OR shoes'
+WHERE (name ||| 'laptop' OR name ||| 'jacket' OR name ||| 'shoes')
 ORDER BY category;
 
 -- Correctness: must match native PG (scan without custom scan)
@@ -76,7 +71,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'laptop OR jacket OR shoes'
+WHERE (name ||| 'laptop' OR name ||| 'jacket' OR name ||| 'shoes')
 ORDER BY category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -88,12 +83,12 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT rating
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard')
 ORDER BY rating;
 
 SELECT DISTINCT rating
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard')
 ORDER BY rating;
 
 -- =============================================================================
@@ -110,13 +105,13 @@ ORDER BY rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT rating
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'jacket' OR name ||| 'shoes' OR name ||| 'headphones' OR name ||| 'hub' OR name ||| 'monitor' OR name ||| 'mat' OR name ||| 'chair' OR name ||| 'desk')
 ORDER BY rating
 LIMIT 2;
 
 SELECT DISTINCT rating
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'jacket' OR name ||| 'shoes' OR name ||| 'headphones' OR name ||| 'hub' OR name ||| 'monitor' OR name ||| 'mat' OR name ||| 'chair' OR name ||| 'desk')
 ORDER BY rating
 LIMIT 2;
 
@@ -124,7 +119,7 @@ LIMIT 2;
 -- TopK eligibility depends on the database collation).
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'jacket' OR name ||| 'shoes' OR name ||| 'headphones' OR name ||| 'hub' OR name ||| 'monitor' OR name ||| 'mat' OR name ||| 'chair' OR name ||| 'desk')
 ORDER BY category
 LIMIT 3;
 
@@ -132,7 +127,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR jacket OR shoes OR headphones OR hub OR monitor OR mat OR chair OR desk'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'jacket' OR name ||| 'shoes' OR name ||| 'headphones' OR name ||| 'hub' OR name ||| 'monitor' OR name ||| 'mat' OR name ||| 'chair' OR name ||| 'desk')
 ORDER BY category
 LIMIT 3;
 
@@ -146,12 +141,12 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category, brand
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 ORDER BY category, brand;
 
 SELECT DISTINCT category, brand
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 ORDER BY category, brand;
 
 -- Correctness: compare with native PG
@@ -159,26 +154,26 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT category, brand
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 ORDER BY category, brand;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =============================================================================
 -- TEST 5: DISTINCT on a non-fast field - must fall back gracefully
--- 'name' has no fast:true, so the custom scan cannot push down the
+-- 'name' is not columnar, so the custom scan cannot push down the
 -- deduplication. It should fall back to native PG without an error.
 -- =============================================================================
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT name
 FROM dist_products
-WHERE name @@@ 'laptop'
+WHERE name ||| 'laptop'
 ORDER BY name;
 
 SELECT DISTINCT name
 FROM dist_products
-WHERE name @@@ 'laptop'
+WHERE name ||| 'laptop'
 ORDER BY name;
 
 -- With paradedb.planner_warnings = 'off' the decline warning must be
@@ -187,7 +182,7 @@ SET paradedb.planner_warnings = 'off';
 
 SELECT DISTINCT name
 FROM dist_products
-WHERE name @@@ 'laptop'
+WHERE name ||| 'laptop'
 ORDER BY name;
 
 RESET paradedb.planner_warnings;
@@ -201,12 +196,12 @@ RESET paradedb.planner_warnings;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT ON (category) category, name
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard')
 ORDER BY category, name;
 
 SELECT DISTINCT ON (category) category, name
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard')
 ORDER BY category, name;
 
 -- With paradedb.planner_warnings = 'off' the decline warning must be
@@ -215,7 +210,7 @@ SET paradedb.planner_warnings = 'off';
 
 SELECT DISTINCT ON (category) category, name
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard')
 ORDER BY category, name;
 
 RESET paradedb.planner_warnings;
@@ -227,7 +222,7 @@ RESET paradedb.planner_warnings;
 
 SELECT DISTINCT category
 FROM dist_products
-WHERE name @@@ 'nonexistent_xyz_term'
+WHERE name ||| 'nonexistent_xyz_term'
 ORDER BY category;
 
 -- =============================================================================
@@ -264,11 +259,7 @@ INSERT INTO dist_regions (category, region) VALUES
     ('Furniture',   'West');
 
 CREATE INDEX dist_regions_idx ON dist_regions
-USING bm25 (id, category, region)
-WITH (
-    key_field = 'id',
-    text_fields = '{"category": {"fast": true}, "region": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), (region::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_regions;
 
@@ -280,13 +271,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 ORDER BY dp.category;
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 ORDER BY dp.category;
 
 -- Correctness: results must match native PG.
@@ -295,7 +286,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 ORDER BY dp.category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -324,20 +315,19 @@ INSERT INTO dist_urls (name, url) VALUES
 
 -- Index the url column using the pdb.literal cast expression (raw tokenizer, fast field).
 CREATE INDEX dist_urls_idx ON dist_urls
-USING bm25 (id, name, (url::pdb.literal))
-WITH (key_field = 'id');
+USING paradedb (id, name, (url::pdb.literal));
 
 ANALYZE dist_urls;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT url
 FROM dist_urls
-WHERE name @@@ 'Page'
+WHERE name ||| 'Page'
 ORDER BY url;
 
 SELECT DISTINCT url
 FROM dist_urls
-WHERE name @@@ 'Page'
+WHERE name ||| 'Page'
 ORDER BY url;
 
 -- Correctness: must match native PG
@@ -345,7 +335,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT url
 FROM dist_urls
-WHERE name @@@ 'Page'
+WHERE name ||| 'Page'
 ORDER BY url;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -372,11 +362,7 @@ INSERT INTO dist_nullable (name, category) VALUES
     ('Thingamajig', NULL);            -- second NULL category
 
 CREATE INDEX dist_nullable_idx ON dist_nullable
-USING bm25 (id, name, category)
-WITH (
-    key_field   = 'id',
-    text_fields = '{"name": {}, "category": {"fast": true}}'
-);
+USING paradedb (id, name, (category::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_nullable;
 
@@ -384,19 +370,19 @@ ANALYZE dist_nullable;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category
 FROM dist_nullable
-WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'widget' OR name ||| 'gadget' OR name ||| 'thingamajig')
 ORDER BY category;
 
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
 SELECT DISTINCT category
 FROM dist_nullable
-WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'widget' OR name ||| 'gadget' OR name ||| 'thingamajig')
 ORDER BY category;
 
 -- NULL rows must be included; expected count is 2.
 SELECT COUNT(*)
 FROM dist_nullable
-WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'widget' OR name ||| 'gadget' OR name ||| 'thingamajig')
   AND category IS NULL;
 
 -- Correctness: compare with native PG
@@ -404,7 +390,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT category
 FROM dist_nullable
-WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'widget' OR name ||| 'gadget' OR name ||| 'thingamajig')
 ORDER BY category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -435,8 +421,7 @@ SELECT
 FROM generate_series(1, 20) AS i;
 
 CREATE INDEX dist_highcard_idx ON dist_highcard
-USING bm25 (id, name, (url::pdb.literal))
-WITH (key_field = 'id');
+USING paradedb (id, name, (url::pdb.literal));
 
 ANALYZE dist_highcard;
 
@@ -444,7 +429,7 @@ ANALYZE dist_highcard;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT url
 FROM dist_highcard
-WHERE name @@@ 'Page'
+WHERE name ||| 'Page'
 ORDER BY url;
 
 -- Verify all 20 distinct values are returned, not just 10.
@@ -452,7 +437,7 @@ SELECT COUNT(*)
 FROM (
     SELECT DISTINCT url
     FROM dist_highcard
-    WHERE name @@@ 'Page'
+    WHERE name ||| 'Page'
 ) t;
 
 RESET paradedb.max_term_agg_buckets;
@@ -480,24 +465,20 @@ INSERT INTO dist_expr (name, category, brand) VALUES
     ('USB Hub',        'Accessories', 'BrandC');
 
 CREATE INDEX dist_expr_idx ON dist_expr
-USING bm25 (id, name, category, brand)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}, "category": {"fast": true}, "brand": {"fast": true}}'
-);
+USING paradedb (id, name, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_expr;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT upper(category)
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 -- Expected: 2 rows — 'ACCESSORIES', 'ELECTRONICS'.
 SELECT DISTINCT upper(category)
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 -- Correctness: compare with native PG.
@@ -505,7 +486,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT upper(category)
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -514,21 +495,21 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT category || '-' || brand
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 -- Expected: 4 rows — 'Accessories-BrandC', 'Electronics-BrandA',
 -- 'accessories-BrandC', 'electronics-BrandB'.
 SELECT DISTINCT category || '-' || brand
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT category || '-' || brand
 FROM dist_expr
-WHERE name @@@ 'laptop OR mouse OR hub'
+WHERE (name ||| 'laptop' OR name ||| 'mouse' OR name ||| 'hub')
 ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -545,13 +526,13 @@ DROP TABLE IF EXISTS dist_expr CASCADE;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT brand, COUNT(*)
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 GROUP BY brand
 ORDER BY brand;
 
 SELECT DISTINCT brand, COUNT(*)
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 GROUP BY brand
 ORDER BY brand;
 
@@ -560,7 +541,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT DISTINCT brand, COUNT(*)
 FROM dist_products
-WHERE name @@@ 'laptop OR keyboard OR headphones'
+WHERE (name ||| 'laptop' OR name ||| 'keyboard' OR name ||| 'headphones')
 GROUP BY brand
 ORDER BY brand;
 
@@ -587,11 +568,7 @@ INSERT INTO dist_regions (category, region) VALUES
     ('Furniture',   'West');
 
 CREATE INDEX dist_regions_idx ON dist_regions
-USING bm25 (id, category, region)
-WITH (
-    key_field = 'id',
-    text_fields = '{"category": {"fast": true}, "region": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), (region::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_regions;
 
@@ -599,14 +576,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 GROUP BY dp.category
 ORDER BY dp.category;
 
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 GROUP BY dp.category
 ORDER BY dp.category;
 
@@ -616,7 +593,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT DISTINCT ON (dp.category) dp.category, COUNT(*)
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 GROUP BY dp.category
 ORDER BY dp.category;
 
@@ -635,13 +612,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 ORDER BY dp.category;
 
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
 ORDER BY dp.category;
 
 -- =============================================================================
@@ -655,7 +632,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
   AND dp.id + random() > 0
 ORDER BY dp.category
 LIMIT 10;
@@ -663,7 +640,7 @@ LIMIT 10;
 SELECT DISTINCT dp.category
 FROM dist_products dp
 JOIN dist_regions dr ON dp.category = dr.category
-WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+WHERE (dp.name ||| 'laptop' OR dp.name ||| 'jacket' OR dp.name ||| 'shoes')
   AND dp.id + random() > 0
 ORDER BY dp.category
 LIMIT 10;
@@ -692,12 +669,7 @@ INSERT INTO dist_cast (name, n) VALUES
     ('gamma', 1);
 
 CREATE INDEX dist_cast_idx ON dist_cast
-USING bm25 (id, name, n)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}}',
-    numeric_fields = '{"n": {"fast": true}}'
-);
+USING paradedb (id, name, n);
 
 ANALYZE dist_cast;
 
@@ -744,12 +716,7 @@ INSERT INTO dist_json (name, meta) VALUES
     ('gamma', '{"tags": ["a"]}');
 
 CREATE INDEX dist_json_idx ON dist_json
-USING bm25 (id, name, meta)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}}',
-    json_fields = '{"meta": {"fast": true}}'
-);
+USING paradedb (id, name, (meta::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_json;
 
@@ -804,11 +771,7 @@ INSERT INTO dist_ci (name, value) VALUES
     ('three', 'b');
 
 CREATE INDEX dist_ci_idx ON dist_ci
-USING bm25 (id, name, value)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}, "value": {"fast": true}}'
-);
+USING paradedb (id, name, (value::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_ci;
 
@@ -846,8 +809,7 @@ CREATE TABLE dist_ci_join (
 INSERT INTO dist_ci_join (label) VALUES ('one'), ('two');
 
 CREATE INDEX dist_ci_join_idx ON dist_ci_join
-USING bm25 (id, label)
-WITH (key_field = 'id', text_fields = '{"label": {"fast": true}}');
+USING paradedb (id, (label::pdb.unicode_words('columnar=true')));
 
 ALTER TABLE dist_ci ADD COLUMN join_id INT;
 UPDATE dist_ci SET join_id = CASE WHEN value = 'b' THEN 2 ELSE 1 END;
@@ -912,11 +874,7 @@ INSERT INTO dist_inh_parent (name, category) VALUES ('parent row', 'FromParent')
 INSERT INTO dist_inh_child  (name, category) VALUES ('child row',  'FromChild');
 
 CREATE INDEX dist_inh_parent_idx ON dist_inh_parent
-USING bm25 (id, name, category)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {}, "category": {"fast": true}}'
-);
+USING paradedb (id, name, (category::pdb.unicode_words('columnar=true')));
 
 ANALYZE dist_inh_parent;
 ANALYZE dist_inh_child;

@@ -35,18 +35,7 @@ FROM generate_series(1, 100) AS i;
 -- Create BM25 index with fast fields
 DROP INDEX IF EXISTS benchmark_data_idx CASCADE;
 CREATE INDEX benchmark_data_idx ON benchmark_data 
-USING paradedb (
-    id, 
-    string_field1,
-    string_field2,
-    numeric_field1,
-    numeric_field2,
-    numeric_field3
-) WITH (
-    key_field = 'id',
-    text_fields = '{"string_field1": {"fast": true, "tokenizer": {"type": "keyword"}}, "string_field2": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}, "numeric_field3": {"fast": true}}'
-);
+USING paradedb (id, (string_field1::pdb.literal), (string_field2::pdb.literal), numeric_field1, numeric_field2, numeric_field3);
 -- Force index usage
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
@@ -60,11 +49,11 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
-                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: numeric_field1
    ->  Custom Scan (ParadeDB Base Scan) on benchmark_data
@@ -72,7 +61,7 @@ ORDER BY numeric_field1;
          Index: benchmark_data_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term_set":{"field":"string_field1","terms":["alpha","beta","gamma","delta","epsilon"]}}}},{"with_index":{"query":{"term_set":{"field":"string_field2","terms":["red","blue","green"]}}}}]}}
 (8 rows)
 
 -- Run the query with normal execution
@@ -80,8 +69,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
  numeric_field1 | numeric_field2 | numeric_field3 
 ----------------+----------------+----------------
@@ -104,11 +93,11 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
-                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: numeric_field1
    ->  Custom Scan (ParadeDB Base Scan) on benchmark_data
@@ -117,7 +106,7 @@ ORDER BY numeric_field1;
          Exec Method: ColumnarExecState
          Columnar: numeric_field1, numeric_field2, numeric_field3
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term_set":{"field":"string_field1","terms":["alpha","beta","gamma","delta","epsilon"]}}}},{"with_index":{"query":{"term_set":{"field":"string_field2","terms":["red","blue","green"]}}}}]}}
 (9 rows)
 
 -- Run the query with ColumnarExec (should return same data)
@@ -125,8 +114,8 @@ SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
 WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
+    string_field1 === ARRAY['alpha', 'beta', 'gamma', 'delta', 'epsilon'] AND
+    string_field2 === ARRAY['red', 'blue', 'green']
 ORDER BY numeric_field1;
  numeric_field1 | numeric_field2 | numeric_field3 
 ----------------+----------------+----------------

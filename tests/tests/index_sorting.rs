@@ -56,13 +56,7 @@ fn index_sort_by_desc_multi_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_desc_idx ON test_sort_desc
-        USING paradedb (id, description, rank)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"description": {}}',
-            numeric_fields = '{"rank": {"fast": true}}',
-            sort_by = 'rank DESC NULLS LAST'
-        );
+        USING paradedb (id, description, rank) WITH (sort_by = 'rank DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -85,7 +79,7 @@ fn index_sort_by_desc_multi_segment(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, FORMAT JSON)
         SELECT id, rank FROM test_sort_desc
-        WHERE description @@@ 'Document'
+        WHERE description ||| 'Document'
         ORDER BY rank DESC
     "#
     .fetch_one(&mut conn);
@@ -104,7 +98,7 @@ fn index_sort_by_desc_multi_segment(mut conn: PgConnection) {
     // Query with ORDER BY matching sort_by - triggers sorted path
     let results: Vec<(i32, i32)> = r#"
         SELECT id, rank FROM test_sort_desc
-        WHERE description @@@ 'Document'
+        WHERE description ||| 'Document'
         ORDER BY rank DESC
     "#
     .fetch(&mut conn);
@@ -137,13 +131,7 @@ fn index_sort_by_asc_multi_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_asc_idx ON test_sort_asc
-        USING paradedb (id, description, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"description": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score ASC NULLS FIRST'
-        );
+        USING paradedb (id, description, score) WITH (sort_by = 'score ASC NULLS FIRST');
     "#
     .execute(&mut conn);
 
@@ -165,7 +153,7 @@ fn index_sort_by_asc_multi_segment(mut conn: PgConnection) {
     // Query with ORDER BY matching sort_by
     let results: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_sort_asc
-        WHERE description @@@ 'Item'
+        WHERE description ||| 'Item'
         ORDER BY score ASC
     "#
     .fetch(&mut conn);
@@ -193,13 +181,7 @@ fn index_sort_by_with_limit(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_limit_idx ON test_sort_limit
-        USING paradedb (id, content, priority)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"priority": {"fast": true}}',
-            sort_by = 'priority DESC NULLS LAST'
-        );
+        USING paradedb (id, content, priority) WITH (sort_by = 'priority DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -222,7 +204,7 @@ fn index_sort_by_with_limit(mut conn: PgConnection) {
     // Query with ORDER BY + LIMIT - should get top 10 by priority DESC
     let results: Vec<(i32, i32)> = r#"
         SELECT id, priority FROM test_sort_limit
-        WHERE content @@@ 'Record'
+        WHERE content ||| 'Record'
         ORDER BY priority DESC
         LIMIT 10
     "#
@@ -259,12 +241,7 @@ fn index_without_sort_by_not_sorted(mut conn: PgConnection) {
 
         -- Index WITHOUT sort_by
         CREATE INDEX test_no_sort_idx ON test_no_sort
-        USING paradedb (id, description, value)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"description": {}}',
-            numeric_fields = '{"value": {"fast": true}}'
-        );
+        USING paradedb (id, description, value);
     "#
     .execute(&mut conn);
 
@@ -286,7 +263,7 @@ fn index_without_sort_by_not_sorted(mut conn: PgConnection) {
     // Query WITHOUT ORDER BY
     let results: Vec<(i32, i32)> = r#"
         SELECT id, value FROM test_no_sort
-        WHERE description @@@ 'Entry'
+        WHERE description ||| 'Entry'
     "#
     .fetch(&mut conn);
 
@@ -312,13 +289,7 @@ fn index_sort_by_with_explicit_order_by(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_explicit_order_idx ON test_explicit_order
-        USING paradedb (id, content, rank, name)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}, "name": {"fast": true, "tokenizer": {"type": "raw"}}}',
-            numeric_fields = '{"rank": {"fast": true}}',
-            sort_by = 'rank DESC NULLS LAST'
-        );
+        USING paradedb (id, content, rank, (name::pdb.literal_normalized)) WITH (sort_by = 'rank DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -344,7 +315,7 @@ fn index_sort_by_with_explicit_order_by(mut conn: PgConnection) {
     // Query with explicit ORDER BY that matches sort_by
     let results_match: Vec<(i32, String)> = r#"
         SELECT rank, name FROM test_explicit_order
-        WHERE content @@@ 'fruit'
+        WHERE content ||| 'fruit'
         ORDER BY rank DESC
     "#
     .fetch(&mut conn);
@@ -355,7 +326,7 @@ fn index_sort_by_with_explicit_order_by(mut conn: PgConnection) {
     // Query with explicit ORDER BY that differs from sort_by
     let results_diff: Vec<(i32, String)> = r#"
         SELECT rank, name FROM test_explicit_order
-        WHERE content @@@ 'fruit'
+        WHERE content ||| 'fruit'
         ORDER BY rank ASC
     "#
     .fetch(&mut conn);
@@ -380,13 +351,7 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_sort_updates_idx ON test_sort_updates
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score DESC NULLS LAST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -401,7 +366,7 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
     // Verify initial sorted order with ORDER BY
     let results1: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_sort_updates
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC
     "#
     .fetch(&mut conn);
@@ -420,7 +385,7 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
     // Verify still sorted after insert with ORDER BY
     let results2: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_sort_updates
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC
     "#
     .fetch(&mut conn);
@@ -439,7 +404,7 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
     // Verify sorted after update with ORDER BY
     let results3: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_sort_updates
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC
     "#
     .fetch(&mut conn);
@@ -474,14 +439,14 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
                     USING paradedb (id, content, (sort_col::pdb.literal))
-                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
+                    WITH (sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'zebra'), ('fruit', 'banana')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'cherry'), ('fruit', NULL)",
                 ],
-                "SELECT sort_col FROM test_sort WHERE content @@@ 'fruit' ORDER BY sort_col ASC NULLS FIRST",
+                "SELECT sort_col FROM test_sort WHERE content ||| 'fruit' ORDER BY sort_col ASC NULLS FIRST",
                 vec![
                     None,
                     Some("apple".into()),
@@ -496,14 +461,14 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
                     USING paradedb (id, content, (sort_col::pdb.literal))
-                    WITH (key_field = 'id', sort_by = 'sort_col DESC NULLS LAST');
+                    WITH (sort_by = 'sort_col DESC NULLS LAST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'zebra'), ('fruit', 'banana')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'cherry'), ('fruit', NULL)",
                 ],
-                "SELECT sort_col FROM test_sort WHERE content @@@ 'fruit' ORDER BY sort_col DESC NULLS LAST",
+                "SELECT sort_col FROM test_sort WHERE content ||| 'fruit' ORDER BY sort_col DESC NULLS LAST",
                 vec![
                     Some("zebra".into()),
                     Some("mango".into()),
@@ -518,14 +483,14 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col UUID);
                     CREATE INDEX test_sort_idx ON test_sort
                     USING paradedb (id, content, (sort_col::pdb.literal))
-                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
+                    WITH (sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000002'), ('uuid', '00000000-0000-0000-0000-000000000010')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000001'), ('uuid', NULL)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000003'), ('uuid', '00000000-0000-0000-0000-000000000100')",
                 ],
-                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content @@@ 'uuid' ORDER BY sort_col ASC NULLS FIRST",
+                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content ||| 'uuid' ORDER BY sort_col ASC NULLS FIRST",
                 vec![
                     None,
                     Some("00000000-0000-0000-0000-000000000001".into()),
@@ -540,14 +505,14 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col NUMERIC(30,0));
                     CREATE INDEX test_sort_idx ON test_sort
                     USING paradedb (id, content, sort_col)
-                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
+                    WITH (sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', NULL), ('num', 100000000000000000000000000000), ('num', 5)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', 10), ('num', 1), ('num', 100000000000000000000000000001)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', 500), ('num', 50)",
                 ],
-                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content @@@ 'num' ORDER BY sort_col ASC NULLS FIRST",
+                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content ||| 'num' ORDER BY sort_col ASC NULLS FIRST",
                 vec![
                     None,
                     Some("1".into()),
@@ -630,13 +595,7 @@ fn index_sort_by_parallel_workers(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_parallel_sort_idx ON test_parallel_sort
-        USING paradedb (id, content, rank)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"rank": {"fast": true}}',
-            sort_by = 'rank DESC NULLS LAST'
-        );
+        USING paradedb (id, content, rank) WITH (sort_by = 'rank DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -659,7 +618,7 @@ fn index_sort_by_parallel_workers(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id, rank FROM test_parallel_sort
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY rank DESC
     "#
     .fetch_one(&mut conn);
@@ -677,7 +636,7 @@ fn index_sort_by_parallel_workers(mut conn: PgConnection) {
     // Query with ORDER BY matching sort_by - results should be sorted
     let results: Vec<(i32, i32)> = r#"
         SELECT id, rank FROM test_parallel_sort
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY rank DESC
     "#
     .fetch(&mut conn);
@@ -720,13 +679,7 @@ fn index_sort_by_parallel_with_limit(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_parallel_limit_idx ON test_parallel_limit
-        USING paradedb (id, content, priority)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"priority": {"fast": true}}',
-            sort_by = 'priority DESC NULLS LAST'
-        );
+        USING paradedb (id, content, priority) WITH (sort_by = 'priority DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -749,7 +702,7 @@ fn index_sort_by_parallel_with_limit(mut conn: PgConnection) {
     // Query with ORDER BY + LIMIT - ORDER BY triggers sorted path
     let results: Vec<(i32, i32)> = r#"
         SELECT id, priority FROM test_parallel_limit
-        WHERE content @@@ 'Record'
+        WHERE content ||| 'Record'
         ORDER BY priority DESC
         LIMIT 10
     "#
@@ -788,13 +741,7 @@ fn index_sort_by_single_segment(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_single_segment_idx ON test_single_segment
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score DESC NULLS LAST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -809,7 +756,7 @@ fn index_sort_by_single_segment(mut conn: PgConnection) {
     // Query with ORDER BY and verify sorted
     let results: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_single_segment
-        WHERE content @@@ 'Entry'
+        WHERE content ||| 'Entry'
         ORDER BY score DESC
     "#
     .fetch(&mut conn);
@@ -840,13 +787,7 @@ fn index_sort_by_empty_results(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_empty_sort_idx ON test_empty_sort
-        USING paradedb (id, content, rank)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"rank": {"fast": true}}',
-            sort_by = 'rank DESC NULLS LAST'
-        );
+        USING paradedb (id, content, rank) WITH (sort_by = 'rank DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -861,7 +802,7 @@ fn index_sort_by_empty_results(mut conn: PgConnection) {
     // Query that matches nothing
     let results: Vec<(i32, i32)> = r#"
         SELECT id, rank FROM test_empty_sort
-        WHERE content @@@ 'nonexistent_term_xyz'
+        WHERE content ||| 'nonexistent_term_xyz'
     "#
     .fetch(&mut conn);
 
@@ -884,13 +825,7 @@ fn index_sort_by_null_handling(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_sort_idx ON test_null_sort
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score DESC NULLS LAST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -916,7 +851,7 @@ fn index_sort_by_null_handling(mut conn: PgConnection) {
 
     let results: Vec<(i32, Option<i32>)> = r#"
         SELECT id, score FROM test_null_sort
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC NULLS LAST
     "#
     .fetch(&mut conn);
@@ -971,13 +906,7 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_idx ON test_many_segments
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score DESC NULLS LAST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -1002,7 +931,7 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, FORMAT JSON)
         SELECT id, score FROM test_many_segments
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC
     "#
     .fetch_one(&mut conn);
@@ -1024,7 +953,7 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
     // Query with ORDER BY and verify results are correctly sorted
     let results: Vec<(i32, i32)> = r#"
         SELECT id, score FROM test_many_segments
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC
     "#
     .fetch(&mut conn);
@@ -1074,13 +1003,7 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_parallel_idx ON test_many_segments_parallel
-        USING paradedb (id, content, priority)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"priority": {"fast": true}}',
-            sort_by = 'priority DESC NULLS LAST'
-        );
+        USING paradedb (id, content, priority) WITH (sort_by = 'priority DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -1103,7 +1026,7 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
     // Query with ORDER BY to trigger sorted parallel merge
     let results: Vec<(i32, i32)> = r#"
         SELECT id, priority FROM test_many_segments_parallel
-        WHERE content @@@ 'Record'
+        WHERE content ||| 'Record'
         ORDER BY priority DESC
     "#
     .fetch(&mut conn);
@@ -1142,13 +1065,7 @@ fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_idx ON test_null_zero
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score ASC NULLS FIRST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score ASC NULLS FIRST');
     "#
     .execute(&mut conn);
 
@@ -1170,7 +1087,7 @@ fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
     // ASC NULLS FIRST: expect all NULLs first, then 0s, then positive values
     let results: Vec<(i32, Option<i32>)> = r#"
         SELECT id, score FROM test_null_zero
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score ASC NULLS FIRST
     "#
     .fetch(&mut conn);
@@ -1228,13 +1145,7 @@ fn index_sort_by_null_and_zero_multi_segment_asc(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_ms_asc_idx ON test_null_zero_ms_asc
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score ASC NULLS FIRST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score ASC NULLS FIRST');
     "#
     .execute(&mut conn);
 
@@ -1264,7 +1175,7 @@ fn index_sort_by_null_and_zero_multi_segment_asc(mut conn: PgConnection) {
 
     let results: Vec<(i32, Option<i32>)> = r#"
         SELECT id, score FROM test_null_zero_ms_asc
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score ASC NULLS FIRST
     "#
     .fetch(&mut conn);
@@ -1294,13 +1205,7 @@ fn index_sort_by_null_and_zero_multi_segment_desc(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_null_zero_ms_desc_idx ON test_null_zero_ms_desc
-        USING paradedb (id, content, score)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"score": {"fast": true}}',
-            sort_by = 'score DESC NULLS LAST'
-        );
+        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
     "#
     .execute(&mut conn);
 
@@ -1330,7 +1235,7 @@ fn index_sort_by_null_and_zero_multi_segment_desc(mut conn: PgConnection) {
 
     let results: Vec<(i32, Option<i32>)> = r#"
         SELECT id, score FROM test_null_zero_ms_desc
-        WHERE content @@@ 'Item'
+        WHERE content ||| 'Item'
         ORDER BY score DESC NULLS LAST
     "#
     .fetch(&mut conn);
@@ -1358,13 +1263,7 @@ fn index_sort_by_f32_precision_above_2_24(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_f32_precision_idx ON test_f32_precision
-        USING paradedb (id, content, val)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {}}',
-            numeric_fields = '{"val": {"fast": true}}',
-            sort_by = 'val ASC NULLS FIRST'
-        );
+        USING paradedb (id, content, val) WITH (sort_by = 'val ASC NULLS FIRST');
     "#
     .execute(&mut conn);
 
@@ -1377,7 +1276,7 @@ fn index_sort_by_f32_precision_above_2_24(mut conn: PgConnection) {
 
     let results: Vec<(i32, i64)> = r#"
         SELECT id, val FROM test_f32_precision
-        WHERE content @@@ 'item'
+        WHERE content ||| 'item'
         ORDER BY val ASC
     "#
     .fetch(&mut conn);

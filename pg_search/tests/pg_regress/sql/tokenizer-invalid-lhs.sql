@@ -13,18 +13,18 @@ CREATE INDEX idxinvalid_lhs ON invalid_lhs USING paradedb (
    (t::pdb.simple('alias=simple')),
    (t::pdb.ngram(2, 3, 'alias=ngram_2_3')),
    (t::pdb.ngram(3, 5, 'alias=ngram_3_5'))
-) WITH (key_field = 'id');
+);
 
 -- this one is valid
-SELECT * FROM invalid_lhs WHERE t::text @@@ 'this is a test';
+SELECT * FROM invalid_lhs WHERE t::text ||| 'this is a test';
 
 --
 -- all of these are invalid
 --
-SELECT * FROM invalid_lhs where (t::pdb.literal) @@@ 'This is a TEST';
-SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) @@@ 'This is a TEST';
-SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) @@@ 'This is a TEST';
-SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) @@@ 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.literal) ||| 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ||| 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ||| 'This is a TEST';
+SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ||| 'This is a TEST';
 
 SELECT * FROM invalid_lhs where (t::pdb.literal) &&& 'This is a TEST';
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) &&& 'This is a TEST';
@@ -48,6 +48,6 @@ SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) === 'This is a TEST';
 
 SET paradedb.enable_custom_scan = off;
 SET enable_seqscan = off;
-SELECT * FROM invalid_lhs WHERE (t::pdb.literal) @@@ 'This is a TEST';
+SELECT * FROM invalid_lhs WHERE (t::pdb.literal) ||| 'This is a TEST';
 RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;

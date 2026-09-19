@@ -30,12 +30,7 @@ SELECT 'language_' || i::text, (i % 100)
 FROM generate_series(1, 500) AS i;
 
 CREATE INDEX test_text_agg_idx ON test_text_agg
-USING paradedb (id, name, score)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"fast": true, "tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"score": {}}'
-);
+USING paradedb (id, (name::pdb.simple('columnar=true')), score);
 
 -- =====================================================================
 -- TEST 1: GROUP BY on text field + ORDER BY count()

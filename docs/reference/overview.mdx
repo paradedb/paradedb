@@ -1,0 +1,120 @@
+---
+title: Reference
+description: Detailed syntax for ParadeDB indexes, queries, aggregates, and SQL APIs
+canonical: https://www.paradedb.com/docs/reference/overview
+---
+
+Reference is where the exact ParadeDB syntax lives. Use these pages when you need operators, functions, index options, configuration settings, or the rules that determine whether ParadeDB can accelerate a query.
+
+Most ParadeDB features start with index design. Decide which columns and expressions belong in the ParadeDB index, including text fields, scalar fields used for filtering or sorting, JSON, arrays, composite fields, and vectors. Then choose the query pattern for your workload: full-text search, vector search, hybrid ranking, aggregates, facets, or joins.
+
+If you are new to ParadeDB, start with [Getting Started](/start/install) and
+[Architecture](/concepts/architecture).
+
+## Build the Index
+
+<CardGroup cols={2}>
+  <Card
+    title="Create an Index"
+    icon="database"
+    href="/reference/indexing/create-index"
+  >
+    Create a ParadeDB index and choose the fields it should cover.
+  </Card>
+  <Card
+    title="How the Index Works"
+    icon="diagram-project"
+    href="/concepts/how-the-paradedb-index-works"
+  >
+    Understand the inverted, columnar, vector, and segment structures inside the
+    ParadeDB index.
+  </Card>
+  <Card
+    title="Columnar Storage"
+    icon="table-columns"
+    href="/reference/indexing/columnar"
+  >
+    Make fields available for filtering, sorting, grouping, and aggregates.
+  </Card>
+  <Card
+    title="Specialized Indexing"
+    icon="boxes-stacked"
+    href="/reference/indexing/indexing-expressions"
+  >
+    Index expressions, JSON, arrays, composite fields, and vectors.
+  </Card>
+</CardGroup>
+
+## Query the Index
+
+<CardGroup cols={2}>
+  <Card
+    title="Full-Text / Lexical Search"
+    icon="magnifying-glass"
+    href="/reference/full-text/overview"
+  >
+    Query text with match, term, phrase, proximity, fuzzy matching, regex,
+    filters, sorting, relevance scores, and highlighting.
+  </Card>
+  <Card
+    title="Vector / Semantic Search"
+    icon="vector-square"
+    href="/reference/vector/overview"
+  >
+    Search `vector` values by semantic similarity and tune nearest-neighbor
+    retrieval for larger datasets.
+  </Card>
+  <Card title="Hybrid Search" icon="shuffle" href="/reference/hybrid/overview">
+    Combine BM25 and vector rankings into a single result set with reciprocal
+    rank fusion.
+  </Card>
+</CardGroup>
+
+## Compose Results
+
+<CardGroup cols={2}>
+  <Card
+    title="Filtering and Sorting"
+    icon="filter"
+    href="/reference/filtering/overview"
+  >
+    Push filters and Top K ordering into the same index-backed query.
+  </Card>
+  <Card
+    title="Aggregates and Facets"
+    icon="chart-column"
+    href="/reference/aggregates/overview"
+  >
+    Compute SQL aggregates, buckets, histograms, metrics, and facets from the
+    index.
+  </Card>
+  <Card
+    title="Supported Join Types"
+    icon="diagram-project"
+    href="/reference/joins/overview"
+  >
+    Join search results with relational tables while keeping application data in
+    Postgres.
+  </Card>
+</CardGroup>
+
+## API Surface
+
+<CardGroup cols={2}>
+  <Card
+    title="Operators and Functions"
+    icon="code"
+    href="/reference/operators-and-functions"
+  >
+    Look up query operators, vector operators, filter syntax, and aggregate
+    helpers.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/reference/configuration">
+    Review the settings that control scans, aggregates, vectors, parallelism,
+    and diagnostics.
+  </Card>
+  <Card title="SQL Functions" icon="terminal" href="/reference/sql-functions">
+    Look up callable SQL functions, signatures, compatibility names, and
+    lower-level helpers.
+  </Card>
+</CardGroup>

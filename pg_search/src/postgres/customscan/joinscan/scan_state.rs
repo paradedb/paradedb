@@ -32,8 +32,10 @@
 use std::sync::Arc;
 
 use datafusion::catalog::Session;
-use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{Expr, col};
+use datafusion::common::{DataFusionError, Result, internal_datafusion_err};
+use datafusion::logical_expr::expr::WindowFunction;
+use datafusion::logical_expr::{Expr, Literal, LogicalPlan, WindowFunctionDefinition, col};
+use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -41,12 +43,16 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
 use super::planning::get_source_attno_by_name;
+use super::window_func::{
+    SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAgg, WindowAggIndex,
+};
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -64,6 +70,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
+use crate::schema::SearchFieldType;
 use async_trait::async_trait;
 use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::session_state::SessionStateBuilder;
@@ -84,6 +91,25 @@ fn resolve_var_to_df_col(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<Expr> {
+    // A window-aggregate sentinel Var (from rewrite_window_funcs_to_sentinels)
+    // resolves to the window step's output column — except for
+    // numeric-storage aggregates, whose column values are encoded (scaled
+    // i64, decimal bytes, avg blobs). Native DataFusion math over those
+    // would be wrong, so refuse here: per-node translation then falls back
+    // to the PgExprUdf path, whose window inputs decode via
+    // `JoinClauseMapper::udf_input`.
+    if rti == WINDOW_SENTINEL_VARNO {
+        let index = WindowAggIndex::from_sentinel_attno(attno)?;
+        let window_agg = join_clause.window_aggs.get(index)?;
+        if window_agg
+            .arg_field_type()
+            .is_some_and(|ft| ft.is_numeric())
+        {
+            return None;
+        }
+        let canonical = join_clause.window_aggs.canonical_index(index);
+        return Some(col(canonical.as_col_name()));
+    }
     if let Some(unnest_info) = join_clause.plan.find_lateral_unnest(rti) {
         let source = join_clause
             .plan
@@ -128,6 +154,27 @@ fn resolve_var_or_pruned_null(
         .or_else(|| null_if_source_exists(join_clause, rti))
 }
 
+/// The registered field type of `(rti, attno)` when it is a NUMERIC fast
+/// field. Numeric columns arrive storage-encoded (scaled i64 or decimal
+/// bytes), so they need decode-aware handling wherever raw values would be
+/// consumed.
+fn numeric_fast_field_type(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<SearchFieldType> {
+    join_clause.plan.output_sources().iter().find_map(|source| {
+        let mapped = source.map_var(rti, attno)?;
+        let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
+        match &field_info.field {
+            WhichFastField::Named(_, ft) | WhichFastField::Deferred(_, ft) if ft.is_numeric() => {
+                Some(*ft)
+            }
+            _ => None,
+        }
+    })
+}
+
 /// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
 ///
 /// NOTE: This mapper is used exclusively by [`translate_child_projection_expr`] to
@@ -141,7 +188,43 @@ struct JoinClauseMapper<'a> {
 
 impl<'a> ColumnMapper for JoinClauseMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // NUMERIC fast-field columns are storage-encoded; native DataFusion
+        // math over the raw column would be wrong. Refuse so per-node
+        // translation falls back to the PgExprUdf path, where `udf_input`
+        // supplies the decode. (Deliberately before the pruned-relation
+        // NULL fallback below — a numeric column must not degrade to NULL.)
+        if numeric_fast_field_type(self.join_clause, varno, varattno).is_some() {
+            return None;
+        }
         resolve_var_or_pruned_null(self.join_clause, varno, varattno)
+    }
+
+    fn udf_input(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<(Expr, InputDecode)> {
+        if varno == WINDOW_SENTINEL_VARNO {
+            let index = WindowAggIndex::from_sentinel_attno(varattno)?;
+            let window_agg = self.join_clause.window_aggs.get(index)?;
+            let canonical = self.join_clause.window_aggs.canonical_index(index);
+            return Some((
+                col(canonical.as_col_name()),
+                InputDecode::StorageEncoded {
+                    is_avg: matches!(window_agg.agg_type, SupportedWindowAggType::Avg),
+                    field_type: window_agg.arg_field_type().cloned(),
+                },
+            ));
+        }
+        let field_type = numeric_fast_field_type(self.join_clause, varno, varattno)?;
+        let expr = resolve_var_to_df_col(self.join_clause, varno, varattno)?;
+        Some((
+            expr,
+            InputDecode::StorageEncoded {
+                is_avg: false,
+                field_type: Some(field_type),
+            },
+        ))
     }
 }
 
@@ -290,6 +373,12 @@ pub struct JoinScanState {
     /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
     pub parallel_mode_ok: bool,
+
+    /// Set (at most once) by `build_task_context`'s `on_spill` callback the first time the
+    /// leader's own local execution spills an operator to disk. Mirrors
+    /// `DataFusionAggState::spilled` in AggregateScan -- see its doc comment for why this lives
+    /// here rather than solely in `ParallelScanState`.
+    pub spilled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl JoinScanState {
@@ -314,7 +403,6 @@ impl JoinScanState {
         self.output_batch_col_indices.clear();
         self.launch_timing = None;
         self.stream_built_at = None;
-
         // base_join_clause is only populated (in create_custom_scan_state) when the plan
         // actually has parameters/postgres expressions; None means there's nothing to
         // restore, so the compiler-enforced match replaces the old "left at default and
@@ -359,11 +447,48 @@ impl SolvePostgresExpressions for JoinScanState {
     }
 }
 
+/// Optimizes a plan with the session's rules first and late materialization once those have
+/// settled. DataFusion's rules cannot see through an extension node, so a rewrite they only
+/// reach on a later pass (a semi join under a duplicate-insensitive aggregate, once the
+/// projection above it is trimmed) would be lost to an anchor planted on the first pass.
+/// When an anchor is planted, the session's rules get a last pass over it, as they would
+/// have had in the next pass of one loop; when nothing is planted, the plan stays as it was.
+/// The one way to optimize a logical plan here. `LateMaterializationRule` is not on the
+/// session, so `SessionState::optimize` on its own plants no deferred column: the rule has
+/// to run once the session's rules have settled, since a join DataFusion turns into a semi
+/// join on a later pass would otherwise find the extension node in its way, and the
+/// visibility rule has to see the ctid columns before that. New callers go through here.
+pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
+    let (state, plan) = df.into_parts();
+    let plan = state.optimize(&plan)?;
+    let late_materialization: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![Arc::new(
+        crate::scan::late_materialization::LateMaterializationRule,
+    )];
+    let planted =
+        Optimizer::with_rules(late_materialization).optimize(plan.clone(), &state, |_, _| {})?;
+    if planted == plan {
+        return Ok(planted);
+    }
+    state.optimizer().optimize(planted, &state, |_, _| {})
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
-/// - Late materialization
 /// - `PgSearchQueryPlanner`
-pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
+/// - Registered `pg_search` UDAFs and scalar UDFs
+///
+/// Late materialization is not on the session; [`optimize_logical_plan`] runs it after the
+/// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
+/// columns are still present in the logical plan.
+pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
+    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
+    // worker process. Partitioning is used exclusively for MPP task distribution, never for
+    // intra-task CPU parallelization.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
+
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -372,28 +497,42 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
         .with_config(config)
         .with_default_features();
 
-    // Inject visibility before late materialization so ctid lineage is analyzed
-    // while DeferredCtid columns are still present in the logical plan.
+    builder
+        .aggregate_functions()
+        .get_or_insert_with(Vec::new)
+        .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
+    builder
+        .scalar_functions()
+        .get_or_insert_with(Vec::new)
+        .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
+
     builder = builder
         .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
         .with_optimizer_rule(Arc::new(
             super::range_partitioning_rule::RangePartitioningRule::new(),
         ))
-        .with_optimizer_rule(Arc::new(
-            crate::scan::late_materialization::LateMaterializationRule,
-        ))
         .with_optimizer_rule(Arc::new(PropagateEmptyUnnestRule));
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+    let mut physical_rules =
+        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    let pos = physical_rules
+        .iter()
+        .position(|r| r.name() == "EnsureRequirements")
+        .expect("EnsureRequirements physical optimizer rule not found");
+    physical_rules.insert(pos, co_partitioned_rule);
+    builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning
     // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
     builder
         .with_physical_optimizer_rule(Arc::new(
-            super::range_partitioning_rule::RangeCoPartitionedJoinRule,
+            crate::scan::deferred_placement_rule::DeferredPlacementRule,
         ))
         .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_placement_rule::DeferredPlacementRule,
+            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
         ))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
@@ -422,6 +561,16 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .optimizer
         .hash_join_inlist_pushdown_max_distinct_values =
         crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold_rows =
+        crate::gucs::hash_join_single_partition_threshold_rows() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold =
+        crate::gucs::hash_join_single_partition_threshold() as usize;
     config
         .options_mut()
         .optimizer
@@ -458,7 +607,7 @@ pub async fn build_joinscan_logical_plan(
     let ctx = create_datafusion_session_context();
     let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
-    df.into_optimized_plan()
+    optimize_logical_plan(df)
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.
@@ -522,12 +671,27 @@ pub fn build_task_context(
     plan: &Arc<dyn ExecutionPlan>,
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
+    on_spill: crate::postgres::customscan::datafusion::spill::SpillNotify,
 ) -> Arc<TaskContext> {
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
-    Arc::new(
-        TaskContext::default()
-            .with_session_config(ctx.state().config().clone())
-            .with_runtime(build_runtime_env(memory_pool)),
+    Arc::new(TaskContext::from(ctx).with_runtime(build_runtime_env(memory_pool, on_spill)))
+}
+
+/// Clones `task_ctx` with an updated `SessionConfig`, preserving all function registries
+/// (scalar, aggregate, window, higher-order), session ID, task ID, and runtime environment.
+pub fn clone_task_context_with_config(
+    task_ctx: &TaskContext,
+    session_config: SessionConfig,
+) -> TaskContext {
+    TaskContext::new(
+        task_ctx.task_id(),
+        task_ctx.session_id(),
+        session_config,
+        task_ctx.scalar_functions().clone(),
+        task_ctx.higher_order_functions().clone(),
+        task_ctx.aggregate_functions().clone(),
+        task_ctx.window_functions().clone(),
+        task_ctx.runtime_env(),
     )
 }
 
@@ -690,6 +854,8 @@ fn build_clause_df<'a>(
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
+        let df = apply_window_functions(df, join_clause)?;
+
         // 4. Apply DISTINCT via GROUP BY
         let (df, distinct_col_map) = apply_distinct_group_by(df, join_clause)?;
 
@@ -781,6 +947,10 @@ fn apply_distinct_group_by(
             build::ChildProjection::Expression { pg_expr_string, .. } => {
                 let e = unsafe { translate_child_projection_expr(pg_expr_string, join_clause)? };
                 // Expressions don't participate in sort-step column mapping
+                (e, None)
+            }
+            build::ChildProjection::WindowAgg { .. } => {
+                let e = build_projection_expr(proj, join_clause);
                 (e, None)
             }
             build::ChildProjection::Score { rti } => {
@@ -987,6 +1157,159 @@ fn resolve_orderby_feature(
     }
 }
 
+/// Compute every extracted window aggregate as a `window_agg_N` column.
+/// Driven by `join_clause.window_aggs` rather than the output projection:
+/// an aggregate embedded in an expression has no `ChildProjection::WindowAgg`
+/// entry — only a sentinel Var referencing the column by name.
+fn apply_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> Result<DataFrame> {
+    let mut window_exprs: Vec<Expr> = Vec::new();
+    // Materialize only canonical entries: duplicates share the canonical
+    // column, and identical window expressions in one Window node trip
+    // DataFusion's CSE (see WindowAggList::canonical_index).
+    for (index, info) in join_clause
+        .window_aggs
+        .iter_indexed()
+        .filter(|(index, _)| join_clause.window_aggs.canonical_index(*index) == *index)
+    {
+        let expr = window_expr(info, join_clause)?;
+        if matches!(expr, Expr::WindowFunction(_)) {
+            window_exprs.push(expr.alias(index.as_col_name()));
+        } else {
+            // A plan-time constant (the aggregate of a pruned argument
+            // column): a Window node cannot carry non-window expressions,
+            // so add it as a plain column instead.
+            df = df.with_column(&index.as_col_name(), expr)?;
+        }
+    }
+
+    if window_exprs.is_empty() {
+        return Ok(df);
+    }
+    df.window(window_exprs)
+}
+
+fn window_expr(info: &WindowAgg, join_clause: &JoinCSClause) -> Result<Expr> {
+    use crate::customscan::datafusion::numeric_agg;
+    use datafusion::functions_aggregate::{average, count, min_max, sum};
+
+    let col_expr = match &info.col_info {
+        Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
+            Some(ce) => Some(ce),
+            None => {
+                // The argument's relation participates in the join but was
+                // pruned from the output (e.g. the inner side of an Anti
+                // Join): its values are identically NULL in every output
+                // row, so the aggregate is a plan-time constant — 0 for
+                // COUNT, NULL otherwise. This is the window-input analogue
+                // of the `null_if_source_exists` fallback every other
+                // pruned-column consumer applies.
+                if null_if_source_exists(join_clause, ci.rti).is_some() {
+                    return Ok(match info.agg_type {
+                        SupportedWindowAggType::Count => datafusion::logical_expr::lit(0_i64),
+                        _ => datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null),
+                    });
+                }
+                return Err(internal_datafusion_err!(
+                    "Failed to map column to fast field and column expr. rti: {}, attno: {}",
+                    ci.rti,
+                    ci.attno
+                ));
+            }
+        },
+        None => None,
+    };
+    let numeric_field = numeric_window_field(info.agg_type, info.arg_field_type())?;
+
+    // Match only basic aggregate functions. Missing and filters are not supported in global window
+    // functions
+    //
+    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
+    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
+    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
+    match info.agg_type {
+        SupportedWindowAggType::Sum => {
+            let ce = col_expr.expect("should always have a column expression for SUM");
+            match numeric_field {
+                None => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(sum::sum_udaf()),
+                    vec![ce],
+                ))),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_sum_udaf()),
+                    vec![ce, scale.lit()],
+                ))),
+                Some(_) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_sum_udaf()),
+                    vec![ce],
+                ))),
+            }
+        }
+        SupportedWindowAggType::Avg => {
+            let ce = col_expr.expect("should always have a column expression for AVG");
+            match numeric_field {
+                None => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(average::avg_udaf()),
+                    vec![ce],
+                ))),
+                Some(SearchFieldType::Numeric64(_, scale)) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric64_avg_udaf()),
+                    vec![ce, scale.lit()],
+                ))),
+                Some(_) => Ok(Expr::from(WindowFunction::new(
+                    WindowFunctionDefinition::AggregateUDF(numeric_agg::numeric_bytes_avg_udaf()),
+                    vec![ce],
+                ))),
+            }
+        }
+        SupportedWindowAggType::Min => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::min_udaf()),
+            vec![col_expr.expect("should always have a column expression for MIN")],
+        ))),
+        SupportedWindowAggType::Max => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(min_max::max_udaf()),
+            vec![col_expr.expect("should always have a column expression for MAX")],
+        ))),
+        SupportedWindowAggType::Count => Ok(Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::AggregateUDF(count::count_udaf()),
+            vec![col_expr.expect("should always have a column expression for COUNT")],
+        ))),
+        SupportedWindowAggType::CountStar => Ok(count::count_all_window()),
+    }
+}
+
+/// Determines if the field for this aggregate is a numeric and is supported for pushing
+/// down this aggregate.
+///
+/// Returns:
+/// - `Ok(None)` if the aggregate has no field requirements or this field is not numeric.
+/// - `Ok(Some(_))` if the field is a supported numeric field
+/// - `Err(_)` if the field is an unsupported numeric
+pub fn numeric_window_field(
+    agg_type: SupportedWindowAggType,
+    field_type: Option<&SearchFieldType>,
+) -> Result<Option<&SearchFieldType>> {
+    match (agg_type, field_type) {
+        (SupportedWindowAggType::Count | SupportedWindowAggType::CountStar, _) => Ok(None),
+        (_, Some(ft)) => {
+            let field_type = if ft.is_numeric() {
+                ft
+            } else {
+                return Ok(None);
+            };
+
+            if field_type.numeric_scale().is_none() {
+                return Err(DataFusionError::Plan(
+                    "Non-count window aggregation on an unbounded NUMERIC column is not supported; declare a \
+                     precision and scale to enable aggregate pushdown".to_string(),
+                ));
+            }
+
+            Ok(Some(ft))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column
 /// references from `distinct_col_map` when DISTINCT is active and from the
 /// per-source resolution paths otherwise.
@@ -1046,7 +1369,8 @@ fn apply_output_projection(
             let col_alias = format!("col_{}", i + 1);
             let expr = if !distinct_col_map.is_empty() {
                 match proj {
-                    build::ChildProjection::Expression { .. } => col(&col_alias),
+                    build::ChildProjection::Expression { .. }
+                    | build::ChildProjection::WindowAgg { .. } => col(&col_alias),
                     build::ChildProjection::Score { rti } => {
                         resolve_distinct_col(distinct_col_map, true, *rti, 0)
                             .unwrap_or_else(|| col(&col_alias))
@@ -1112,6 +1436,10 @@ fn build_projection_expr(
                     return make_source_score_col(source);
                 }
             }
+        }
+        ChildProjection::WindowAgg { agg_index } => {
+            let canonical = join_clause.window_aggs.canonical_index(*agg_index);
+            return col(canonical.as_col_name());
         }
         ChildProjection::Column { rti, attno } => {
             if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
@@ -1238,8 +1566,10 @@ fn build_source_df<'a>(
             }
         }
 
-        // When DISTINCT is present, columns referenced by DISTINCT projections
-        // and ORDER BY must be available early for DataFusion's AggregateExec and SortExec.
+        // When DISTINCT is present, indexed expression projections and ORDER BY must be
+        // available early for DataFusion's AggregateExec and SortExec. Plain DISTINCT columns
+        // remain deferred, as DataFusion's LateMaterializationRule anchors a decode below
+        // the AggregateExec (after the join).
         if join_clause.has_distinct {
             if let Some(projections) = &join_clause.output_projection {
                 for proj in projections {

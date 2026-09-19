@@ -55,27 +55,13 @@ INSERT INTO ec_suppliers (category, supplier_name) VALUES
     ('Clothing', 'StyleHouse');
 
 CREATE INDEX ec_products_idx ON ec_products
-USING paradedb (id, description, category, price, (metadata::pdb.literal_normalized))
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, (metadata::pdb.literal_normalized));
 
 CREATE INDEX ec_reviews_idx ON ec_reviews
-USING paradedb (id, category, rating, reviewer)
-WITH (
-    key_field='id',
-    text_fields='{"category": {"fast": true}, "reviewer": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), rating, (reviewer::pdb.unicode_words('columnar=true')));
 
 CREATE INDEX ec_suppliers_idx ON ec_suppliers
-USING paradedb (id, category, supplier_name)
-WITH (
-    key_field='id',
-    text_fields='{"category": {"fast": true}, "supplier_name": {"fast": true}}'
-);
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), (supplier_name::pdb.unicode_words('columnar=true')));
 
 -- =====================================================================
 -- Test 1: Non-unique join key — JOIN on category (many-to-many)
@@ -91,26 +77,26 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
 
 SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
 
 -- Test 1b: GROUP BY with non-unique key
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -119,7 +105,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -128,7 +114,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, MIN(r.rating), MAX(r.rating), MIN(p.price), MAX(p.price)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -142,14 +128,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -158,7 +144,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -174,7 +160,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -182,7 +168,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -192,7 +178,7 @@ SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -206,7 +192,7 @@ SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -214,7 +200,7 @@ SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -224,7 +210,7 @@ SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
 LEFT JOIN ec_reviews r ON p.category = r.category
 LEFT JOIN ec_suppliers s ON p.category = s.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -236,7 +222,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -245,7 +231,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -258,14 +244,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
 
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
 
@@ -274,7 +260,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.metadata -> 'brand'
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
 GROUP BY 1
 ORDER BY 1;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -289,7 +275,7 @@ SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
 
@@ -297,7 +283,7 @@ SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
 
@@ -307,7 +293,7 @@ SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p
 FULL JOIN ec_reviews r ON p.id = r.id
 LEFT JOIN ec_suppliers s ON r.category = s.category
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
 SET paradedb.enable_aggregate_custom_scan TO on;

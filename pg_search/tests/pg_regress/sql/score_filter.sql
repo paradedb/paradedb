@@ -21,7 +21,7 @@ INSERT INTO score_items (id, description) VALUES
 (2, 'Search engines are powerful'),
 (3, 'Tantivy is fast');
 
-CREATE INDEX score_items_idx ON score_items USING paradedb (id, description) WITH (key_field='id');
+CREATE INDEX score_items_idx ON score_items USING paradedb (id, description);
 
 -- =============================================================================
 -- TEST 1: Score filter >= 0 (matches everything)
@@ -30,13 +30,13 @@ CREATE INDEX score_items_idx ON score_items USING paradedb (id, description) WIT
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
 ORDER BY id;
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
 ORDER BY id;
 
@@ -48,13 +48,13 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 0.1
 ORDER BY id;
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 0.1
 ORDER BY id;
 
@@ -65,13 +65,13 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 10.0
 ORDER BY id;
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) > 10.0
 ORDER BY id;
 
@@ -82,14 +82,14 @@ ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
   AND paradedb.score(id) < 100
 ORDER BY id;
 
 SELECT id, description, paradedb.score(id)
 FROM score_items
-WHERE description @@@ 'PostgreSQL'
+WHERE description ||| 'PostgreSQL'
   AND paradedb.score(id) >= 0
   AND paradedb.score(id) < 100
 ORDER BY id;

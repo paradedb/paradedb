@@ -25,14 +25,7 @@ fn test_aggregate_with_mvcc(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "category": {"fast": true, "normalizer": "raw"}
-        }',
-        numeric_fields='{"rating": {"fast": true}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     INSERT INTO paradedb.bm25_search (description, category, rating) VALUES
         ('keyboard', 'Electronics', 4.5),
         ('keyboard', 'Electronics', 3.8),
@@ -74,17 +67,7 @@ fn test_aggregate_without_mvcc(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_paradedb_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
     CREATE INDEX idxbm25_search ON paradedb.bm25_search
-    USING paradedb (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {},
-            "category": {"fast": true, "normalizer": "raw"}
-        }',
-        numeric_fields='{"rating": {"fast": true}}',
-        boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')), rating, in_stock, metadata, created_at, last_updated_date, latest_available_time);
     INSERT INTO paradedb.bm25_search (description, category, rating) VALUES
         ('keyboard', 'Electronics', 4.5),
         ('keyboard', 'Electronics', 3.8),

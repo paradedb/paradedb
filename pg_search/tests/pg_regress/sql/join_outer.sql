@@ -36,19 +36,10 @@ CREATE TABLE outer_pages (
 );
 
 CREATE INDEX outer_files_idx ON outer_files
-USING paradedb (id, title, content)
-WITH (
-    key_field='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 
 CREATE INDEX outer_pages_idx ON outer_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {"fast": true}}'
-);
+USING paradedb (id, file_id, (page_text::pdb.unicode_words('columnar=true')), size_bytes);
 
 -- Two inserts per table, each flushed to its own segment, so the scans
 -- report more than one partition and the distributed planner engages.
@@ -88,20 +79,20 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 -- LEFT with the null-extended region on top (dangling file_ids).
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.file_id DESC, p.id
 LIMIT 10;
 
@@ -109,13 +100,13 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
 
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
 
@@ -123,13 +114,13 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
@@ -140,7 +131,7 @@ LIMIT 10;
 -- fallback plan serializes the index OID into the join filter, which
 -- changes on every run.
 SELECT f.id, p.id AS page_id, p.file_id
-FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id AND f.content @@@ 'Section'
+FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id AND f.content ||| 'Section'
 ORDER BY f.id NULLS LAST, p.id NULLS LAST
 LIMIT 10;
 
@@ -150,13 +141,13 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
@@ -164,13 +155,13 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
 
@@ -180,14 +171,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f
     ON f.id = p.file_id AND p.size_bytes > 2048
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f
     ON f.id = p.file_id AND p.size_bytes > 2048
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
@@ -201,43 +192,43 @@ SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.file_id DESC, p.id
 LIMIT 10;
 
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
 
@@ -245,11 +236,11 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
 
 SELECT COUNT(*)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
 
 -- COUNT(f.id) references the nullable side, so the join survives PG's
 -- join removal and the aggregate runs on the DataFusion backend. The
@@ -257,11 +248,11 @@ WHERE p.page_text @@@ 'Page';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
 
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
 
 DROP TABLE outer_pages;
 DROP TABLE outer_files;

@@ -12,10 +12,9 @@ CREATE UNLOGGED TABLE test_unlogged (
 INSERT INTO test_unlogged (description) VALUES
     ('keyboard'), ('mouse'), ('monitor');
 CREATE INDEX ON test_unlogged
-USING paradedb (id, description)
-WITH (key_field='id');
+USING paradedb (id, description);
 -- Test: search on unlogged table
-SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:keyboard' ORDER BY id;
+SELECT id FROM test_unlogged WHERE description ||| 'keyboard' ORDER BY id;
  id 
 ----
   1
@@ -23,7 +22,7 @@ SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:keyboard' ORDE
 
 -- Test: insert after index creation
 INSERT INTO test_unlogged (description) VALUES ('headphones');
-SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:headphones' ORDER BY id;
+SELECT id FROM test_unlogged WHERE description ||| 'headphones' ORDER BY id;
  id 
 ----
   4
@@ -31,12 +30,12 @@ SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:headphones' OR
 
 -- Test: update
 UPDATE test_unlogged SET description = 'trackpad' WHERE description = 'mouse';
-SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:mouse' ORDER BY id;
+SELECT id FROM test_unlogged WHERE description ||| 'mouse' ORDER BY id;
  id 
 ----
 (0 rows)
 
-SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:trackpad' ORDER BY id;
+SELECT id FROM test_unlogged WHERE description ||| 'trackpad' ORDER BY id;
  id 
 ----
   2
@@ -44,7 +43,7 @@ SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:trackpad' ORDE
 
 -- Test: delete
 DELETE FROM test_unlogged WHERE description = 'trackpad';
-SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:trackpad' ORDER BY id;
+SELECT id FROM test_unlogged WHERE description ||| 'trackpad' ORDER BY id;
  id 
 ----
 (0 rows)

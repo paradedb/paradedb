@@ -26,6 +26,9 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::nodecast;
+use crate::postgres::customscan::score_funcoids;
+use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
@@ -354,6 +357,8 @@ pub enum ChildProjection {
         source_rti: SourceRti,
         field_name: String,
     },
+    /// A window function output column
+    WindowAgg { agg_index: WindowAggIndex },
 }
 
 use crate::index::mvcc::MvccSatisfies;
@@ -362,7 +367,9 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::scan::info::{FieldInfo, RowEstimate};
+use crate::scan::info::RowEstimate;
+
+use super::window_func::{WindowAgg, WindowAggIndex, WindowAggList};
 
 /// Source information collected during planning.
 ///
@@ -378,7 +385,6 @@ pub struct JoinSourceCandidate {
     pub has_search_predicate: bool,
     pub alias: Option<String>,
     pub score_needed: bool,
-    pub fields: Vec<FieldInfo>,
     pub partition_by: Vec<crate::api::FieldName>,
     pub estimate: Option<RowEstimate>,
     pub estimate_from_total_docs: bool,
@@ -396,7 +402,6 @@ impl JoinSourceCandidate {
             has_search_predicate: false,
             alias: None,
             score_needed: false,
-            fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: None,
             estimate_from_total_docs: false,
@@ -522,6 +527,21 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
+    pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
+        let funcoids = score_funcoids();
+        node.any(|node| {
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+                && funcoids.contains(&(*funcexpr).funcid)
+            {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                return args.len() == 1
+                    && nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+                        .is_some_and(|var| self.contains_rti((*var).varno as pg_sys::Index));
+            }
+            false
+        })
+    }
+
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.scan_info.heap_rti == rti
@@ -621,7 +641,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 mvcc_visibility: crate::api::MvccVisibility::default(),
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
-                fields: candidate.fields,
+                fields: Vec::new(),
                 partition_by: candidate.partition_by,
                 estimate: candidate.estimate.ok_or_else(|| {
                     anyhow!(
@@ -1138,7 +1158,7 @@ impl RelNode {
     ///
     /// Returns `true` if all keys are (or were made) valid. Returns `false` if
     /// a pruned reference cannot be resolved to an output-visible equivalent.
-    pub unsafe fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
+    pub fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
         match self {
             RelNode::Scan(_) => true,
             RelNode::Join(j) => {
@@ -1783,7 +1803,7 @@ impl RelNode {
 /// searching PostgreSQL planner equivalence classes and writes it into
 /// `out_rti` and `out_attno`. Returns `true` on success.
 #[inline]
-unsafe fn substitute_pruned_key_side(
+fn substitute_pruned_key_side(
     root: *mut pg_sys::PlannerInfo,
     output_rtis: &[pg_sys::Index],
     pruned_rti: pg_sys::Index,
@@ -1794,34 +1814,36 @@ unsafe fn substitute_pruned_key_side(
     if root.is_null() {
         return false;
     }
+    let root = unsafe { &*root };
 
-    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    let eq_classes = unsafe { PgList::<pg_sys::EquivalenceClass>::from_pg(root.eq_classes) };
     for eqc in eq_classes.iter_ptr() {
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eqc).ec_members);
+        let eqc = unsafe { &*eqc };
+        let members = unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg(eqc.ec_members) };
         let mut contains_pruned = false;
         let mut replacement: Option<(pg_sys::Index, pg_sys::AttrNumber)> = None;
 
         for member in members.iter_ptr() {
-            let mut node = (*member).em_expr.cast::<pg_sys::Node>();
+            let mut node = unsafe { (*member).em_expr.cast::<pg_sys::Node>() };
             while !node.is_null() {
-                match (*node).type_ {
+                match unsafe { (*node).type_ } {
                     pg_sys::NodeTag::T_RelabelType => {
-                        node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                        node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg.cast() };
                     }
                     pg_sys::NodeTag::T_PlaceHolderVar => {
-                        node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                        node = unsafe { (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast() };
                     }
                     _ => break,
                 }
             }
 
-            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+            if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
                 continue;
             }
 
-            let var = node as *mut pg_sys::Var;
-            let rti = (*var).varno as pg_sys::Index;
-            let attno = (*var).varattno;
+            let var = unsafe { &*(node as *mut pg_sys::Var) };
+            let rti = var.varno as pg_sys::Index;
+            let attno = var.varattno;
 
             if rti == pruned_rti && attno == pruned_attno {
                 contains_pruned = true;
@@ -1873,6 +1895,8 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
+    /// List of window aggregates taken by the scan
+    pub window_aggs: WindowAggList,
 }
 
 impl JoinCSClause {
@@ -1883,6 +1907,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
+            window_aggs: WindowAggList::new(Vec::new()),
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1922,6 +1947,11 @@ impl JoinCSClause {
             input: current_plan,
             predicate: expr,
         }));
+        self
+    }
+
+    pub fn with_window_aggs(mut self, window_aggs: Vec<WindowAgg>) -> Self {
+        self.window_aggs = WindowAggList::new(window_aggs);
         self
     }
 
@@ -2071,17 +2101,17 @@ pub fn assign_tagged_queries<'a>(
 /// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
 /// underlying node. Used when extracting `Var` nodes from join conditions
 /// that may have implicit type casts.
-pub unsafe fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if node.is_null() {
             return node;
         }
-        match (*node).type_ {
+        match unsafe { (*node).type_ } {
             pg_sys::NodeTag::T_RelabelType => {
-                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                node = unsafe { (*(node as *mut pg_sys::RelabelType)).arg.cast() };
             }
             pg_sys::NodeTag::T_PlaceHolderVar => {
-                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                node = unsafe { (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast() };
             }
             _ => break,
         }
@@ -2157,39 +2187,42 @@ pub unsafe fn try_extract_equi_key(
 /// When an equivalence class contains a constant (`ec_has_const == true`), PostgreSQL's
 /// optimizer generates a `var = const` restriction for the base relation, pushing it down
 /// to the scan level (see `generate_base_implied_equalities_const` in `equivclass.c`).
-pub unsafe fn var_in_const_ec(
+pub fn var_in_const_ec(
     root: *mut pg_sys::PlannerInfo,
     target_rti: pg_sys::Index,
     target_attno: pg_sys::AttrNumber,
 ) -> Option<(*mut pg_sys::EquivalenceClass, *mut pg_sys::Node)> {
-    if root.is_null() || (*root).eq_classes.is_null() {
+    if root.is_null() || unsafe { (*root).eq_classes.is_null() } {
         return None;
     }
-    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    let root = unsafe { &*root };
+    let eq_classes = unsafe { PgList::<pg_sys::EquivalenceClass>::from_pg(root.eq_classes) };
     for eqc in eq_classes.iter_ptr() {
         let mut canonical = eqc;
-        while !canonical.is_null() && !(*canonical).ec_merged.is_null() {
-            canonical = (*canonical).ec_merged;
+        while !canonical.is_null() && unsafe { !(*canonical).ec_merged.is_null() } {
+            canonical = unsafe { (*canonical).ec_merged };
         }
-        if canonical.is_null() || (*canonical).ec_broken || !(*canonical).ec_has_const {
+        if canonical.is_null() || unsafe { (*canonical).ec_broken || !(*canonical).ec_has_const } {
             continue;
         }
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members);
+        let members =
+            unsafe { PgList::<pg_sys::EquivalenceMember>::from_pg((*canonical).ec_members) };
         let mut var_matched = false;
         let mut const_expr: *mut pg_sys::Node = std::ptr::null_mut();
         for member in members.iter_ptr() {
-            if (*member).em_is_child {
+            let member = unsafe { &*member };
+            if member.em_is_child {
                 continue;
             }
-            if (*member).em_is_const && const_expr.is_null() {
-                const_expr = (*member).em_expr.cast();
+            if member.em_is_const && const_expr.is_null() {
+                const_expr = member.em_expr.cast();
             }
-            let node = strip_node_wrappers((*member).em_expr.cast());
-            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+            let node = strip_node_wrappers(member.em_expr.cast());
+            if node.is_null() || unsafe { (*node).type_ } != pg_sys::NodeTag::T_Var {
                 continue;
             }
-            let var = node as *mut pg_sys::Var;
-            if (*var).varno as pg_sys::Index == target_rti && (*var).varattno == target_attno {
+            let var = unsafe { &*(node as *mut pg_sys::Var) };
+            if var.varno as pg_sys::Index == target_rti && var.varattno == target_attno {
                 var_matched = true;
             }
         }

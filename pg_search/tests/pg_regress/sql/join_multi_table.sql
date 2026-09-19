@@ -53,10 +53,8 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 
 -- Create BM25 indexes on both tables
 -- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
-WITH (key_field = 'id');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, price);
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
@@ -79,7 +77,7 @@ INSERT INTO categories (id, name, description) VALUES
 (302, 'Office', 'Office supplies and equipment'),
 (303, 'Gaming', 'Gaming peripherals and accessories');
 
-CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description) WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name, description);
 
 -- Add category_id to products
 ALTER TABLE products ADD COLUMN category_id INTEGER;
@@ -98,7 +96,7 @@ SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 
@@ -106,7 +104,7 @@ SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 
@@ -125,7 +123,7 @@ SELECT ctid, id, name FROM products ORDER BY id;
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id;
 
 -- =============================================================================
@@ -141,14 +139,14 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+WHERE p.description ||| 'wireless' OR s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -203,14 +201,11 @@ INSERT INTO products (id, name, description, supplier_id, category_id, price) VA
 (207, 'Mouse Pad', 'Large gaming mouse pad', 152, 11, 29.99);
 
 -- Create BM25 indexes
-CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, category_id, price)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, description, supplier_id, category_id, price);
 
-CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country)
-WITH (key_field = 'id');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name, contact_info, country);
 
-CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name)
-WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name);
 
 -- Enable JoinScan
 SET paradedb.enable_join_custom_scan = on;
@@ -224,7 +219,7 @@ SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -232,7 +227,7 @@ SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -244,7 +239,7 @@ SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -252,7 +247,7 @@ SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -263,7 +258,7 @@ SELECT p.name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
 
@@ -271,7 +266,7 @@ SELECT p.name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
 
@@ -281,7 +276,7 @@ SELECT s.name, paradedb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
 
@@ -289,7 +284,7 @@ SELECT s.name, paradedb.score(s.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
-WHERE s.contact_info @@@ 'wireless'
+WHERE s.contact_info ||| 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
 
@@ -317,10 +312,10 @@ INSERT INTO level3 VALUES (2, 2, 'L3-B');
 INSERT INTO level2 VALUES (2, 2, 'L2-B');
 INSERT INTO level1 VALUES (2, 2, 'L1-B');
 
-CREATE INDEX l1_bm25 ON level1 USING paradedb (id, l2_id, name) WITH (key_field='id', numeric_fields='{"l2_id": {"fast": true}}');
-CREATE INDEX l2_bm25 ON level2 USING paradedb (id, l3_id, name) WITH (key_field='id', numeric_fields='{"l3_id": {"fast": true}}');
-CREATE INDEX l3_bm25 ON level3 USING paradedb (id, l4_id, name) WITH (key_field='id', numeric_fields='{"l4_id": {"fast": true}}');
-CREATE INDEX l4_bm25 ON level4 USING paradedb (id, name, description) WITH (key_field='id');
+CREATE INDEX l1_bm25 ON level1 USING paradedb (id, l2_id, name);
+CREATE INDEX l2_bm25 ON level2 USING paradedb (id, l3_id, name);
+CREATE INDEX l3_bm25 ON level3 USING paradedb (id, l4_id, name);
+CREATE INDEX l4_bm25 ON level4 USING paradedb (id, name, description);
 
 -- Join 4 tables, driving predicate on level4
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -329,7 +324,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l4.description @@@ 'deepest'
+WHERE l4.description ||| 'deepest'
 ORDER BY l1.id
 LIMIT 5;
 
@@ -338,7 +333,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l4.description @@@ 'deepest'
+WHERE l4.description ||| 'deepest'
 ORDER BY l1.id
 LIMIT 5;
 
@@ -353,7 +348,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+WHERE l1.name ### 'L1-A' AND l4.description ||| 'deepest'
 ORDER BY l1.id
 LIMIT 5;
 
@@ -362,7 +357,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+WHERE l1.name ### 'L1-A' AND l4.description ||| 'deepest'
 ORDER BY l1.id
 LIMIT 5;
 
@@ -373,7 +368,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+WHERE l2.name ### 'L2-B' AND l3.name ### 'L3-B'
 ORDER BY l1.id
 LIMIT 5;
 
@@ -382,7 +377,7 @@ FROM level1 l1
 JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
-WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+WHERE l2.name ### 'L2-B' AND l3.name ### 'L3-B'
 ORDER BY l1.id
 LIMIT 5;
 

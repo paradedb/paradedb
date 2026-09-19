@@ -53,8 +53,7 @@ VALUES
     (19, NULL,                                                      NULL,                                                      'null category');
 CREATE INDEX issue_4906_ltree_idx
 ON issue_4906_ltree
-USING paradedb (id, category, title)
-WITH (key_field = 'id');
+USING paradedb (id, category, title);
 ANALYZE issue_4906_ltree;
 -- Force the planner to choose Custom Scan when we ask for it via `pdb.all()`.
 -- enable_custom_scan_without_operator stays OFF throughout, so the only thing
@@ -192,7 +191,7 @@ WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To
 
 -- 5. Compare pushed `<@` with existing ParadeDB ltree facet query path.
 --    This asserts that `<@` lowering is semantically equivalent to the existing
---    `category @@@ 'Top.Science'` facet search path.
+--    `category @@@ pdb.term('Top.Science')` facet search path.
 SELECT
     (
         SELECT array_agg(id ORDER BY id)
@@ -202,7 +201,7 @@ SELECT
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
-        WHERE category @@@ 'Top.Science'
+        WHERE category @@@ pdb.term('Top.Science')
     ) AS ltree_descendant_pushdown_matches_facet_query_top_science;
 WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_4906_ltree)
  ltree_descendant_pushdown_matches_facet_query_top_science 
@@ -249,7 +248,7 @@ SELECT
     ) = (
         SELECT array_agg(id ORDER BY id)
         FROM issue_4906_ltree
-        WHERE category @@@ 'Top.Science.Astronomy'
+        WHERE category @@@ pdb.term('Top.Science.Astronomy')
     ) AS ltree_desc_pushdown_matches_facet_query_top_science_astron;
 WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_4906_ltree)
  ltree_desc_pushdown_matches_facet_query_top_science_astron 
@@ -405,7 +404,6 @@ VALUES
 CREATE INDEX issue_4906_ltree_partial_idx
 ON issue_4906_ltree_partial
 USING paradedb (id, category, title)
-WITH (key_field = 'id')
 WHERE is_indexed;
 ANALYZE issue_4906_ltree_partial;
 SET enable_seqscan = off;

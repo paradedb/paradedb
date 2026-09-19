@@ -24,6 +24,8 @@ pub mod projections;
 mod scan_state;
 pub(crate) mod telemetry;
 
+use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::node::NodeExt;
 use cost::{
     CostMemo, DriveCost, ScanParallelismInputs, WorkerDecisionReason, WorkerPathPolicy,
     costable_drive_cost, decide_scan_parallelism, estimate_path_cost, parallel_divisor,
@@ -46,7 +48,7 @@ use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::uses_scores;
+
 use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets,
 };
@@ -70,9 +72,7 @@ use crate::postgres::customscan::orderby::{
 use crate::postgres::customscan::parallel::{
     RowEstimate, compute_nworkers, max_useful_workers, segment_view,
 };
-use crate::postgres::customscan::projections::{
-    inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
-};
+use crate::postgres::customscan::projections::{inject_placeholders, pullout_funcexprs};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, extract_join_predicates, extract_quals, is_subplan,
     optimize_quals_with_heap_expr,
@@ -106,22 +106,20 @@ pub struct BaseScan;
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
     ///
-    /// This function handles three distinct execution scenarios:
+    /// This function handles two distinct execution scenarios:
     ///
-    /// 1. **Leader Execution** (`ParallelWorkerNumber == -1`):
-    ///    The scan is running in the main backend process. It uses `MvccSatisfies::Snapshot`
-    ///    to see all segments visible to the current transaction's snapshot.
+    /// 1. **Parallel-Aware Participant** (leader or worker with `parallel_state`):
+    ///    The scan is part of a `parallel_aware` path (Partial Scan). Participants divide the
+    ///    segments the leader published in shared memory, so every one of them replays that
+    ///    segment view with `MvccSatisfies::ParallelWorker`.
     ///
-    /// 2. **Parallel-Aware Worker** (Worker with `parallel_state`):
-    ///    The scan is part of a `parallel_aware` path (Partial Scan). Workers coordinate
-    ///    via shared memory (DSM) to divide segments. It uses `MvccSatisfies::ParallelWorker`
-    ///    to ensure it only queries segments explicitly identified and pinned by the leader.
-    ///
-    /// 3. **Replicated Worker** (Worker with NO `parallel_state`):
-    ///    The scan is `parallel_safe` but NOT `parallel_aware`. This happens when a serial
-    ///    scan runs inside a worker context (e.g., on the inner side of a Parallel Hash Join).
-    ///    In this case, every worker executes the full scan independently using its own
-    ///    transaction snapshot (`MvccSatisfies::Snapshot`).
+    /// 2. **Serial or Replicated Scan** (no `parallel_state`):
+    ///    Either the main backend running a serial path, or a `parallel_safe` but not
+    ///    `parallel_aware` scan inside a worker (e.g. the inner side of a Parallel Hash Join).
+    ///    Each such scan reads the full data set on its own, so it opens with
+    ///    `MvccSatisfies::Snapshot`. The leader's very first open falls here too: it runs from
+    ///    `estimate_dsm_custom_scan`, before any DSM is attached, and it is the open the
+    ///    published view is captured from.
     pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
@@ -146,19 +144,16 @@ impl BaseScan {
             search_query_input.clone(),
             need_scores,
             unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // the leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else if let Some(parallel_state) = state.custom_state().parallel_state() {
-                    // the workers have their own rules, which is literally every segment
-                    // this is because the workers pick a specific segment to query that
-                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                    // visibility test due to concurrent merges/garbage collects
+                if let Some(parallel_state) = state.custom_state().parallel_state() {
+                    // Claims come out of the published view, so a participant has to resolve that
+                    // exact set. The leader needs this as much as a worker does: a
+                    // `Gather`/`Gather Merge` re-scans its child on the first `ExecProcNode`,
+                    // which re-opens the leader's reader after it published, and a `::Snapshot`
+                    // open lists only what is undeleted at that moment.
                     MvccSatisfies::ParallelWorker(segment_view(parallel_state))
                 } else {
-                    // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
-                    // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).
-                    // In this case, we behave like a normal snapshot scan.
+                    // Not a parallel-aware scan: this process reads the whole data set on its own,
+                    // against its own snapshot.
                     MvccSatisfies::Snapshot
                 }
             },
@@ -399,15 +394,12 @@ impl BaseScan {
 /// entry itself is pdb.agg(), the planner hook did not replace it (e.g. not a
 /// TopK query), and we reject it. Recursive detection is only for window_agg()
 /// placeholders because plan_custom_path deserializes those recursively later.
-pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
-    use pgrx::pg_guard;
-    use pgrx::pg_sys::expression_tree_walker;
-
-    if root.is_null() || (*root).parse.is_null() {
+pub(super) fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
+    if root.is_null() || unsafe { (*root).parse.is_null() } {
         return false;
     }
 
-    let parse = (*root).parse;
+    let parse = unsafe { &*(*root).parse };
     let window_agg_func_oid = window_agg_oid();
 
     // If functions don't exist yet (e.g., during extension creation), skip check
@@ -416,14 +408,14 @@ pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerIn
     }
 
     let paradedb_agg_func_oid = crate::api::agg_funcoid();
-    if !(*parse).targetList.is_null() {
-        let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+    if !parse.targetList.is_null() {
+        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList) };
         for te in target_list.iter_ptr() {
-            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) else {
+            let Some(func_expr) = (unsafe { nodecast!(FuncExpr, T_FuncExpr, (*te).expr) }) else {
                 continue;
             };
 
-            let func_oid = (*func_expr).funcid.to_u32();
+            let func_oid = unsafe { (*func_expr).funcid }.to_u32();
             if func_oid == window_agg_func_oid.to_u32() {
                 return true;
             }
@@ -439,54 +431,7 @@ pub(super) unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerIn
         }
     }
 
-    struct Context {
-        window_agg_func_oid: u32,
-        found: bool,
-    }
-
-    // window_agg() can appear nested inside CASE expressions, arithmetic,
-    // coercions, etc. The deserialize_window_agg_placeholders pass that runs
-    // later in plan_custom_path walks the tree recursively; this detector must
-    // do the same so the cost-model gate matches that pass's reality.
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let context = data.cast::<Context>();
-        if (*context).found {
-            return true;
-        }
-
-        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let func_oid = (*func_expr).funcid.to_u32();
-            if func_oid == (*context).window_agg_func_oid {
-                (*context).found = true;
-                return true;
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    let mut context = Context {
-        window_agg_func_oid: window_agg_func_oid.to_u32(),
-        found: false,
-    };
-
-    if !(*parse).targetList.is_null() {
-        expression_tree_walker(
-            (*parse).targetList.cast(),
-            Some(walker),
-            (&mut context as *mut Context).cast(),
-        );
-    }
-
-    context.found
+    parse.targetList.contains_functions(&[window_agg_func_oid])
 }
 
 /// Classification of any set-returning function found in the target list,
@@ -524,19 +469,25 @@ impl TargetListSrf {
 /// argument is a ParadeDB snippet placeholder function is treated as safe;
 /// everything else — arbitrary `unnest` of a user expression, or any other
 /// SRF — is unsafe so LIMIT pushdown stops above the scan.
-unsafe fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
-    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
+fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
+    if root.is_null()
+        || unsafe { (*root).parse.is_null() }
+        || unsafe { (*(*root).parse).targetList.is_null() }
+    {
         return TargetListSrf::None;
     }
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    let target_list =
+        unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList) };
     let mut found_safe = false;
     for te in target_list.iter_ptr() {
-        if (*te).expr.is_null() || !pg_sys::expression_returns_set((*te).expr.cast()) {
+        let te = unsafe { &*te };
+        if te.expr.is_null() || !unsafe { pg_sys::expression_returns_set(te.expr.cast()) } {
             continue;
         }
-        match nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+        match unsafe { nodecast!(FuncExpr, T_FuncExpr, te.expr) } {
             Some(func_expr)
-                if is_unnest_func((*func_expr).funcid) && unnest_arg_is_paradedb_srf(func_expr) =>
+                if is_unnest_func(unsafe { (*func_expr).funcid })
+                    && unsafe { unnest_arg_is_paradedb_srf(func_expr) } =>
             {
                 found_safe = true
             }
@@ -724,7 +675,7 @@ impl CustomScan for BaseScan {
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
-            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
+            let maybe_needs_const_projections = target_list.maybe_needs_const_projections();
 
             //
             // look for quals we can support.  we do this first so that we can get out early if this
@@ -1327,140 +1278,135 @@ impl CustomScan for BaseScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        unsafe {
-            builder.custom_state().heaprelid = builder
-                .custom_private()
-                .heaprelid()
-                .expect("heaprelid should have a value");
-            builder.custom_state().indexrelid = builder
-                .custom_private()
-                .indexrelid()
-                .expect("indexrelid should have a value");
+        builder.custom_state().heaprelid = builder
+            .custom_private()
+            .heaprelid()
+            .expect("heaprelid should have a value");
+        builder.custom_state().indexrelid = builder
+            .custom_private()
+            .indexrelid()
+            .expect("indexrelid should have a value");
 
-            builder
-                .custom_state()
-                .open_relations(pg_sys::AccessShareLock as _);
+        builder
+            .custom_state()
+            .open_relations(pg_sys::AccessShareLock as _);
 
-            builder.custom_state().execution_rti =
-                (*builder.args().cscan).scan.scanrelid as pg_sys::Index;
+        builder.custom_state().execution_rti =
+            unsafe { (*builder.args().cscan).scan.scanrelid } as pg_sys::Index;
 
-            builder.custom_state().exec_method_type =
-                builder.custom_private().exec_method_type().clone();
+        builder.custom_state().exec_method_type =
+            builder.custom_private().exec_method_type().clone();
 
-            builder.custom_state().targetlist_len = builder.target_list().len();
+        builder.custom_state().targetlist_len = builder.target_list().len();
 
-            builder.custom_state().segment_count = builder.custom_private().segment_count();
-            builder.custom_state().worker_selection_reason =
-                builder.custom_private().worker_selection_reason();
-            builder.custom_state().var_attname_lookup = builder
-                .custom_private()
-                .var_attname_lookup()
-                .as_ref()
-                .cloned()
-                .expect("should have an attribute name lookup");
+        builder.custom_state().segment_count = builder.custom_private().segment_count();
+        builder.custom_state().worker_selection_reason =
+            builder.custom_private().worker_selection_reason();
+        builder.custom_state().var_attname_lookup = builder
+            .custom_private()
+            .var_attname_lookup()
+            .as_ref()
+            .cloned()
+            .expect("should have an attribute name lookup");
 
-            let score_funcoids = score_funcoids();
-            let snippet_funcoids = snippet_funcoids();
-            let snippets_funcoids = snippets_funcoids();
-            let snippet_positions_funcoids = snippet_positions_funcoids();
+        let score_funcoids = score_funcoids();
+        let snippet_funcoids = snippet_funcoids();
+        let snippets_funcoids = snippets_funcoids();
+        let snippet_positions_funcoids = snippet_positions_funcoids();
 
-            builder.custom_state().score_funcoids = score_funcoids;
-            builder.custom_state().snippet_funcoids = snippet_funcoids;
-            builder.custom_state().snippets_funcoids = snippets_funcoids;
-            builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-            builder.custom_state().need_scores = uses_scores(
-                builder.target_list().as_ptr().cast(),
-                score_funcoids,
-                builder.custom_state().execution_rti,
-            );
+        builder.custom_state().score_funcoids = score_funcoids;
+        builder.custom_state().snippet_funcoids = snippet_funcoids;
+        builder.custom_state().snippets_funcoids = snippets_funcoids;
+        builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
+        builder.custom_state().need_scores = builder
+            .target_list()
+            .as_ptr()
+            .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
 
-            // Store join snippet predicates in the scan state
-            builder.custom_state().join_predicates =
-                builder.custom_private().join_predicates().clone();
+        // Store join snippet predicates in the scan state
+        builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
 
-            // Store window aggregates in the scan state
-            let window_aggs = builder.custom_private().window_aggregates().clone();
-            builder.custom_state().window_aggregates = window_aggs;
+        // Store window aggregates in the scan state
+        let window_aggs = builder.custom_private().window_aggregates().clone();
+        builder.custom_state().window_aggregates = window_aggs;
 
-            // store our query into our custom state too
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
-            builder
-                .custom_state()
-                .set_base_search_query_input(base_query);
+        // store our query into our custom state too
+        let base_query = builder
+            .custom_private()
+            .query()
+            .clone()
+            .expect("should have a SearchQueryInput");
+        builder
+            .custom_state()
+            .set_base_search_query_input(base_query);
 
-            if builder.custom_state().need_scores {
-                let state = builder.custom_state();
-                // Pre-compute enhanced score query if we have join predicates that could affect scoring
-                let mut enhanced_score_query = None;
-                if let Some(ref join_predicate) = state.join_predicates {
-                    // Check the ORIGINAL base query for this relation, not the modified search_query_input
-                    // which may contain simplified join predicates from other relations
-                    let original_base_query = state.base_search_query_input();
+        if builder.custom_state().need_scores {
+            let state = builder.custom_state();
+            // Pre-compute enhanced score query if we have join predicates that could affect scoring
+            let mut enhanced_score_query = None;
+            if let Some(ref join_predicate) = state.join_predicates {
+                // Check the ORIGINAL base query for this relation, not the modified search_query_input
+                // which may contain simplified join predicates from other relations
+                let original_base_query = state.base_search_query_input();
 
-                    // Only enhance scoring if the base query doesn't already have search predicates
-                    // If base query has @@@ conditions, it already provides scoring context
-                    if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
-                        // Combine base query with join predicate using Boolean structure
-                        // This provides enhanced search context for scoring while maintaining
-                        // the same filtering behavior as the base query
-                        enhanced_score_query = Some(SearchQueryInput::Boolean {
-                            must: vec![original_base_query.clone()],
-                            should: vec![join_predicate.clone()],
-                            must_not: vec![],
-                            minimum_should_match: None,
-                        });
-                    }
-                }
-
-                // Store enhanced score query for use during search execution
-                // This will be None for single-table queries, which is correct
-                if let Some(enhanced_score_query) = enhanced_score_query {
-                    builder
-                        .custom_state()
-                        .set_base_search_query_input(enhanced_score_query);
+                // Only enhance scoring if the base query doesn't already have search predicates
+                // If base query has @@@ conditions, it already provides scoring context
+                if !base_query_has_search_predicates(original_base_query, state.indexrelid) {
+                    // Combine base query with join predicate using Boolean structure
+                    // This provides enhanced search context for scoring while maintaining
+                    // the same filtering behavior as the base query
+                    enhanced_score_query = Some(SearchQueryInput::Boolean {
+                        must: vec![original_base_query.clone()],
+                        should: vec![join_predicate.clone()],
+                        must_not: vec![],
+                        minimum_should_match: None,
+                    });
                 }
             }
 
-            let node = builder.target_list().as_ptr().cast();
-            builder.custom_state().planning_rti = builder
-                .custom_private()
-                .range_table_index()
-                .expect("range table index should have been set");
-            builder.custom_state().snippet_generators = uses_snippets(
-                builder.custom_state().planning_rti,
-                &builder.custom_state().var_attname_lookup,
-                node,
-                snippet_funcoids,
-                snippets_funcoids,
-                snippet_positions_funcoids,
-            )
-            .into_iter()
-            .map(|snippet_type| (snippet_type, None))
-            .collect();
-
-            builder.custom_state().ambulkdelete_epoch =
-                builder.custom_private().ambulkdelete_epoch();
-
-            assign_exec_method(&mut builder);
-
-            let state = builder.build();
-
-            // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
-            // (matching what begin_custom_scan will use via table_slot_callbacks).
-            // This ensures ExecInitQual compiles plan.qual expressions for the
-            // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            {
-                (*state).csstate.slotOps =
-                    pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+            // Store enhanced score query for use during search execution
+            // This will be None for single-table queries, which is correct
+            if let Some(enhanced_score_query) = enhanced_score_query {
+                builder
+                    .custom_state()
+                    .set_base_search_query_input(enhanced_score_query);
             }
-
-            state
         }
+
+        let node = builder.target_list().as_ptr().cast();
+        builder.custom_state().planning_rti = builder
+            .custom_private()
+            .range_table_index()
+            .expect("range table index should have been set");
+        builder.custom_state().snippet_generators = uses_snippets(
+            builder.custom_state().planning_rti,
+            &builder.custom_state().var_attname_lookup,
+            node,
+            snippet_funcoids,
+            snippets_funcoids,
+            snippet_positions_funcoids,
+        )
+        .into_iter()
+        .map(|snippet_type| (snippet_type, None))
+        .collect();
+
+        builder.custom_state().ambulkdelete_epoch = builder.custom_private().ambulkdelete_epoch();
+
+        assign_exec_method(&mut builder);
+
+        let state = builder.build();
+
+        // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
+        // (matching what begin_custom_scan will use via table_slot_callbacks).
+        // This ensures ExecInitQual compiles plan.qual expressions for the
+        // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        unsafe {
+            (*state).csstate.slotOps =
+                pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+        }
+
+        state
     }
 
     fn explain_custom_scan(
@@ -1680,6 +1626,7 @@ impl CustomScan for BaseScan {
             {
                 let plan = state.csstate.ss.ps.plan;
                 if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.subPlan = std::ptr::null_mut();
                     state.csstate.ss.ps.qual =
                         pg_sys::ExecInitQual((*plan).qual, state.planstate());
                 }
@@ -1707,6 +1654,16 @@ impl CustomScan for BaseScan {
         if state.custom_state().search_reader.is_some() {
             state.custom_state_mut().reset_exec_results();
         }
+        // A merge can retire a segment the shared work queue still hands out, and a retired
+        // segment stays readable only while something pins it. `TopKScanExecState` happens to
+        // keep a reader clone through `reset_exec_results`, but the normal and columnar methods
+        // do not, so hold the pins until this function returns, which is after the replacement
+        // reader has taken its own.
+        let _pins = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .map(SearchIndexReader::segment_pins);
         drop(state.custom_state_mut().search_reader.take());
         state.custom_state_mut().bitmap_cell = None;
         if let Some(bitmap_exec) = state.custom_state_mut().bitmap_exec.as_mut() {
@@ -1848,7 +1805,7 @@ impl CustomScan for BaseScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Leader-only: last chance to read DSM before Postgres destroys it.
         let scan_state = state.custom_state_mut();
-        if let Some(parallel) = scan_state.parallel
+        if let Some(parallel) = scan_state.parallel.take()
             && parallel.is_leader()
         {
             parallel.finalize_explain(&mut scan_state.telemetry);
@@ -1860,7 +1817,7 @@ impl CustomScan for BaseScan {
         // Leader: do not touch DSM — Shutdown already ran (or serial path).
         {
             let scan_state = state.custom_state_mut();
-            if let Some(parallel) = scan_state.parallel
+            if let Some(parallel) = scan_state.parallel.take()
                 && !parallel.is_leader()
             {
                 parallel.publish_telemetry(&scan_state.telemetry);
@@ -1995,59 +1952,20 @@ unsafe fn window_limit_pushdown_is_safe(parse: *mut pg_sys::Query) -> bool {
 /// Returns true if every window function in `parse` derives solely from a row's position in the
 /// window ordering (`row_number`, `rank`, `dense_rank`).
 unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
-    use pgrx::pg_guard;
-
-    struct Context {
-        position_only: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-        let ctx = context.cast::<Context>();
-
-        if let Some(wfunc) = nodecast!(WindowFunc, T_WindowFunc, node)
-            && !matches!(
-                (*wfunc).winfnoid.to_u32(),
-                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
-            )
-        {
-            (*ctx).position_only = false;
-            return true;
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
     let Some(parse) = parse.as_ref() else {
         return false;
     };
     if parse.targetList.is_null() {
         return false;
     }
-
-    let mut context = Context {
-        position_only: true,
-    };
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
-    for te in tlist.iter_ptr() {
-        if (*te).expr.is_null() {
-            continue;
-        }
-        walker(
-            (*te).expr.cast::<pg_sys::Node>(),
-            addr_of_mut!(context).cast::<core::ffi::c_void>(),
-        );
-        if !context.position_only {
-            return false;
-        }
-    }
-    context.position_only
+    !parse.targetList.any(|node| {
+        nodecast!(WindowFunc, T_WindowFunc, node).is_some_and(|wfunc| {
+            !matches!(
+                (*wfunc).winfnoid.to_u32(),
+                pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
+            )
+        })
+    })
 }
 
 ///
@@ -2580,7 +2498,7 @@ unsafe fn inject_window_aggregate_placeholders(
 //
 // TODO: This duplication could potentially be eliminated by moving to UPPERREL_WINDOW handling.
 // See https://github.com/paradedb/paradedb/issues/3455
-unsafe fn replace_window_agg_with_const(
+fn replace_window_agg_with_const(
     node: *mut pg_sys::Node,
     window_agg_procid: pg_sys::Oid,
     result_type_oid: pg_sys::Oid,
@@ -2590,28 +2508,31 @@ unsafe fn replace_window_agg_with_const(
     }
 
     // Check if this is the window_agg FuncExpr
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if (*funcexpr).funcid == window_agg_procid {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        let funcexpr = unsafe { &*funcexpr };
+        if funcexpr.funcid == window_agg_procid {
             // Found it! Replace with a Const node
-            let const_node = pg_sys::makeConst(
-                result_type_oid,
-                -1,
-                pg_sys::DEFAULT_COLLATION_OID,
-                if result_type_oid == pg_sys::INT8OID {
-                    8
-                } else {
-                    -1
-                },
-                pg_sys::Datum::null(),
-                true,                               // constisnull
-                result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
-            );
+            let const_node = unsafe {
+                pg_sys::makeConst(
+                    result_type_oid,
+                    -1,
+                    pg_sys::DEFAULT_COLLATION_OID,
+                    if result_type_oid == pg_sys::INT8OID {
+                        8
+                    } else {
+                        -1
+                    },
+                    pg_sys::Datum::null(),
+                    true,                               // constisnull
+                    result_type_oid == pg_sys::INT8OID, // constbyval (true for INT8)
+                )
+            };
 
             return (const_node.cast(), Some(const_node));
         }
 
         // Not window_agg, but might have window_agg as an argument
-        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
         let mut new_args = PgList::<pg_sys::Node>::new();
         let mut found_const = None;
         let mut modified = false;
@@ -2631,14 +2552,16 @@ unsafe fn replace_window_agg_with_const(
 
         if modified {
             // Create a new FuncExpr with modified arguments
-            let new_funcexpr = pg_sys::makeFuncExpr(
-                (*funcexpr).funcid,
-                (*funcexpr).funcresulttype,
-                new_args.into_pg(),
-                (*funcexpr).funccollid,
-                (*funcexpr).inputcollid,
-                (*funcexpr).funcformat,
-            );
+            let new_funcexpr = unsafe {
+                pg_sys::makeFuncExpr(
+                    funcexpr.funcid,
+                    funcexpr.funcresulttype,
+                    new_args.into_pg(),
+                    funcexpr.funccollid,
+                    funcexpr.inputcollid,
+                    funcexpr.funcformat,
+                )
+            };
             return (new_funcexpr.cast(), found_const);
         }
     }
@@ -2979,28 +2902,26 @@ unsafe fn is_left_join_lateral(
 }
 
 /// Recursively check if a node contains a LEFT JOIN LATERAL pattern
-unsafe fn has_left_join_lateral_pattern(
-    node: *mut pg_sys::Node,
-    query: *mut pg_sys::Query,
-) -> bool {
+fn has_left_join_lateral_pattern(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
     if node.is_null() {
         return false;
     }
 
-    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+        let join_expr = unsafe { &*join_expr };
         // Check if this is a LEFT JOIN
-        if (*join_expr).jointype == pg_sys::JoinType::JOIN_LEFT {
+        if join_expr.jointype == pg_sys::JoinType::JOIN_LEFT {
             // Check if the right side has LATERAL
-            if is_lateral_subquery((*join_expr).rarg, query) {
+            if is_lateral_subquery(join_expr.rarg, query) {
                 return true;
             }
         }
 
         // Recursively check nested joins
-        if has_left_join_lateral_pattern((*join_expr).larg, query) {
+        if has_left_join_lateral_pattern(join_expr.larg, query) {
             return true;
         }
-        if has_left_join_lateral_pattern((*join_expr).rarg, query) {
+        if has_left_join_lateral_pattern(join_expr.rarg, query) {
             return true;
         }
     }
@@ -3009,28 +2930,29 @@ unsafe fn has_left_join_lateral_pattern(
 }
 
 /// Check if a node represents a LATERAL subquery
-unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
+fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
     if node.is_null() || query.is_null() {
         return false;
     }
 
     // Check if it's a RangeTblRef pointing to a LATERAL RTE
-    if let Some(rtref) = nodecast!(RangeTblRef, T_RangeTblRef, node) {
-        let rtable = (*query).rtable;
+    if let Some(rtref) = unsafe { nodecast!(RangeTblRef, T_RangeTblRef, node) } {
+        let rtable = unsafe { (*query).rtable };
         if !rtable.is_null() {
-            let rte = pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable);
-            if !rte.is_null() && (*rte).lateral {
+            let rte = unsafe { pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable) };
+            if !rte.is_null() && unsafe { (*rte).lateral } {
                 return true;
             }
         }
     }
 
     // For nested joins, recursively check
-    if let Some(join_expr) = nodecast!(JoinExpr, T_JoinExpr, node) {
-        if is_lateral_subquery((*join_expr).larg, query) {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+        let join_expr = unsafe { &*join_expr };
+        if is_lateral_subquery(join_expr.larg, query) {
             return true;
         }
-        if is_lateral_subquery((*join_expr).rarg, query) {
+        if is_lateral_subquery(join_expr.rarg, query) {
             return true;
         }
     }
@@ -3058,27 +2980,8 @@ unsafe fn where_clause_only_references_left(
         return true; // No WHERE clause means it only references left
     };
 
-    // Walk the quals to check if they only reference our relation
-    #[pgrx::pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let rti = *(data as *const pg_sys::Index);
-            // If we find a Var that's not from our relation, return true (fail)
-            if (*var).varno as i32 != rti as i32 && (*var).varno > 0 {
-                return true;
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    // If walker returns true, it found a reference to another relation
-    !walker(quals, &rti as *const _ as *mut _)
+    !quals.any(|node| {
+        nodecast!(Var, T_Var, node)
+            .is_some_and(|var| (*var).varno as i32 != rti as i32 && (*var).varno > 0)
+    })
 }

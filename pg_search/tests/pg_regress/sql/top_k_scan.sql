@@ -67,33 +67,7 @@ FROM generate_series(1, 10000) i;
 
 -- Create a search index with various field types
 CREATE INDEX records_search_idx ON records
-USING paradedb (
-    id, notes, flow_type, tenant_id, state, source_id, 
-    is_active, metadata, value_range, time_period, created_at, updated_at, 
-    tags, process_method, currency_code, recipient_id, 
-    rule_id, link_count2, removed_at, amount_value
-) WITH (
-    key_field = 'id',
-    text_fields = '{
-        "notes": { 
-            "normalizer": "lowercase", 
-            "tokenizer": { "max_gram": 3, "min_gram": 3, "prefix_only": false, "type": "ngram" }
-        },
-        "flow_type": { "fast": true, "tokenizer": {"type": "keyword"} },
-        "tenant_id": { "tokenizer": {"type": "keyword"} },
-        "recipient_id": { "tokenizer": {"type": "keyword"} },
-        "source_id": { "tokenizer": {"type": "keyword"} },
-        "rule_id": { "tokenizer": {"type": "keyword"} },
-        "tags": { "fast": true, "tokenizer": {"type": "keyword"} },
-        "state": { "fast": true, "tokenizer": {"type": "keyword"} },
-        "currency_code": { "tokenizer": {"type": "keyword"} },
-        "process_method": { "fast": true, "tokenizer": {"type": "keyword"} }
-    }',
-    json_fields = '{ 
-        "metadata": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, 
-        "metadata_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "metadata" } 
-    }'
-);
+USING paradedb (id, (notes::pdb.ngram(3, 3, 'prefix_only=false', 'normalizer=lowercase')), (flow_type::pdb.literal), (tenant_id::pdb.literal), (state::pdb.literal), (source_id::pdb.literal), is_active, (metadata::pdb.literal_normalized('normalizer=lowercase')), value_range, time_period, created_at, updated_at, (tags::pdb.literal), (process_method::pdb.literal), (currency_code::pdb.literal), (recipient_id::pdb.literal), (rule_id::pdb.literal), link_count2, removed_at, amount_value, (metadata::pdb.simple('alias=metadata_words', 'normalizer=lowercase', 'columnar=true')));
 
 \echo '======== EXECUTION METHOD TESTS ========'
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
@@ -103,7 +77,7 @@ USING paradedb (
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes, tenant_id
 FROM records
-WHERE notes @@@ 'check'
+WHERE notes ||| 'check'
 ORDER BY id
 LIMIT 25;
 
@@ -114,7 +88,7 @@ SELECT id, tenant_id, source_id, notes, is_active, time_period
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND NOT (source_id @@@ 'IN [source-1 source-2 source-3]')
+  AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
   AND (NOT id @@@ paradedb.exists('removed_at'))
@@ -129,7 +103,7 @@ SELECT id, tenant_id, source_id, notes, is_active, time_period
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND NOT (source_id @@@ 'IN [source-1 source-2 source-3]')
+  AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
   AND (NOT id @@@ paradedb.exists('removed_at'))
@@ -159,7 +133,7 @@ LIMIT 25;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes
 FROM records
-WHERE NOT source_id @@@ 'IN [source-1 source-2 source-3]'
+WHERE NOT source_id === ARRAY['source-1', 'source-2', 'source-3']
 ORDER BY id
 LIMIT 25;
 
@@ -197,7 +171,7 @@ SELECT id, tenant_id, source_id, recipient_id, currency_code,
 FROM records
 WHERE tenant_id = 'tenant-1'
   AND is_active = TRUE
-  AND NOT (source_id @@@ 'IN [source-1 source-2 source-3]')
+  AND NOT (source_id === ARRAY['source-1', 'source-2', 'source-3'])
   AND (id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)))
   AND (NOT id @@@ paradedb.exists('removed_at'))
@@ -257,4 +231,4 @@ ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
 DROP INDEX IF EXISTS records_search_idx;
 DROP TABLE IF EXISTS records;
 
-\i common/common_cleanup.sql 
+\i common/common_cleanup.sql

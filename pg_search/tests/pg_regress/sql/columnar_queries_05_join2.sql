@@ -27,16 +27,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxusers ON users USING paradedb (id, name, color, age)
-WITH (
-key_field = 'id',
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxusers_name ON users (name);
 CREATE INDEX idxusers_color ON users (color);
 CREATE INDEX idxusers_age ON users (age);
@@ -62,16 +53,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxproducts ON products USING paradedb (id, name, color, age)
-WITH (
-key_field = 'id',
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxproducts_name ON products (name);
 CREATE INDEX idxproducts_color ON products (color);
 CREATE INDEX idxproducts_age ON products (age);
@@ -97,16 +79,7 @@ SELECT
     (20 + mod(s.a, 80))::text
 FROM generate_series(1, 10000) as s(a);
 
-CREATE INDEX idxorders ON orders USING paradedb (id, name, color, age)
-WITH (
-key_field = 'id',
-text_fields = '
-            {
-                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "color": { "tokenizer": { "type": "keyword" }, "fast": true },
-                "age": { "tokenizer": { "type": "keyword" }, "fast": true }
-            }'
-);
+CREATE INDEX idxorders ON orders USING paradedb (id, (name::pdb.literal), (color::pdb.literal), (age::pdb.literal));
 CREATE INDEX idxorders_name ON orders (name);
 CREATE INDEX idxorders_color ON orders (color);
 CREATE INDEX idxorders_age ON orders (age);
@@ -116,12 +89,12 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 
 vacuum;
 SET paradedb.enable_columnar_exec = false;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
+SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
 
 SET paradedb.enable_columnar_exec = true;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
-SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
+SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color ||| 'blue') AND (users.name ||| 'bob') LIMIT 10;
 
 RESET enable_hashjoin;
 RESET enable_memoize;

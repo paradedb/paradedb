@@ -41,7 +41,7 @@ CREATE INDEX products_bm25_idx ON products USING paradedb (
     id,
     name,
     description
-) WITH (key_field = 'id');
+);
 -- Test Case 1: Query using only indexed columns - should return proper scores
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
@@ -49,10 +49,10 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+WHERE name ||| 'Apple' OR description ||| 'smartphone'
 ORDER BY score DESC;
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -60,7 +60,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (8 rows)
 
 SELECT 
@@ -68,7 +68,7 @@ SELECT
     name,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+WHERE name ||| 'Apple' OR description ||| 'smartphone'
 ORDER BY score DESC;
  id |      name       |   score   
 ----+-----------------+-----------
@@ -86,11 +86,11 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -98,7 +98,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}]}},"always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}]}},"always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -107,7 +107,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND category_name = 'Electronics'
 ORDER BY score DESC;
  id |      name      | category_name |   score   
@@ -124,11 +124,11 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -137,7 +137,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -146,7 +146,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
  id |      name       | category_name |   score   
@@ -166,11 +166,11 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -179,7 +179,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -188,7 +188,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR category_name = 'Electronics'
 ORDER BY score DESC;
  id |      name       | category_name |   score   
@@ -208,7 +208,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
             QUERY PLAN            
@@ -224,7 +224,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+WHERE (name ||| 'Apple' AND description ||| 'smartphone')
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -237,11 +237,11 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running' 
+WHERE description ||| 'running'
   AND price < 200.00
 ORDER BY score DESC;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -249,7 +249,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(price < 200.00)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(price < 200.00)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -258,7 +258,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running' 
+WHERE description ||| 'running'
   AND price < 200.00
 ORDER BY score DESC;
  id |       name        | price  |   score   
@@ -276,11 +276,11 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology' 
+WHERE description ||| 'technology'
   AND in_stock = true
 ORDER BY score DESC;
-                                                                                                                                          QUERY PLAN                                                                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -288,7 +288,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"in_stock"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"in_stock"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -297,7 +297,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology' 
+WHERE description ||| 'technology'
   AND in_stock = true
 ORDER BY score DESC;
  id |       name        | in_stock |   score   
@@ -313,11 +313,11 @@ SELECT
     description,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'MacBook' 
-  AND description @@@ 'laptop'
+WHERE name ||| 'MacBook'
+  AND description ||| 'laptop'
 ORDER BY score DESC;
-                                                                                                                                                    QUERY PLAN                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -325,7 +325,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"MacBook","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"MacBook","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (8 rows)
 
 SELECT 
@@ -334,8 +334,8 @@ SELECT
     description,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'MacBook' 
-  AND description @@@ 'laptop'
+WHERE name ||| 'MacBook'
+  AND description ||| 'laptop'
 ORDER BY score DESC;
  id |    name     |               description               |  score   
 ----+-------------+-----------------------------------------+----------
@@ -352,12 +352,12 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'shoes' OR description @@@ 'running')
+WHERE (name ||| 'shoes' OR description ||| 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -365,7 +365,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"always_filters":[{"heap_filter":"(price >= 100.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"always_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"always_filters":[{"heap_filter":"(category_name = 'Footwear'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}]}},"always_filters":[{"heap_filter":"(price >= 100.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}]}},"always_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}]}},"always_filters":[{"heap_filter":"(category_name = 'Footwear'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -375,7 +375,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'shoes' OR description @@@ 'running')
+WHERE (name ||| 'shoes' OR description ||| 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC; 
@@ -397,13 +397,13 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_id = 1
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -411,7 +411,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(category_id = 1)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(category_id = 1)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -422,7 +422,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND category_id = 1
   AND price > 500.00
   AND category_name = 'Electronics'
@@ -442,14 +442,14 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'smartphone'
+WHERE description ||| 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -457,7 +457,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 500.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price > 800.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 500.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price > 800.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -467,7 +467,7 @@ SELECT
     in_stock,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'smartphone'
+WHERE description ||| 'smartphone'
   AND (
     (price < 500.00 AND in_stock = true) OR 
     (price > 800.00 AND category_name = 'Electronics')
@@ -487,11 +487,11 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -499,7 +499,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -508,7 +508,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
  id |       name        | rating |   score   
@@ -526,11 +526,11 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-                                                                                                                                       QUERY PLAN                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -538,7 +538,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"phone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -547,7 +547,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
  id |     name     | tags |   score   
@@ -562,11 +562,11 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
-                                                                                                                                QUERY PLAN                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -575,7 +575,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"phone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -584,7 +584,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name ||| 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
  id |     name      | tags |   score   
@@ -602,11 +602,11 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -614,7 +614,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(tags IS NOT NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(tags IS NOT NULL)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -623,7 +623,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
  id |      name       |        tags        |   score   
@@ -642,15 +642,15 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND (
     price < 100.00 OR 
     category_name = 'Electronics' OR
     in_stock = false
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -658,7 +658,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -668,7 +668,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND (
     price < 100.00 OR 
     category_name = 'Electronics' OR
@@ -689,11 +689,11 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-                                                                                                                                             QUERY PLAN                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -701,7 +701,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(price > 1000.00)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"running","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(price > 1000.00)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -710,7 +710,7 @@ SELECT
     price,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'running'
+WHERE description ||| 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
  id | name | price | score 
@@ -758,11 +758,11 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-                                                                                                                                                  QUERY PLAN                                                                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                        QUERY PLAN                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -770,7 +770,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"('apple'::text = ANY (tags))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"('apple'::text = ANY (tags))"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -779,7 +779,7 @@ SELECT
     tags,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'Apple'
+WHERE description ||| 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
  id |      name       |        tags        |   score   
@@ -797,11 +797,11 @@ SELECT
     created_at,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple'
+WHERE name ||| 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -809,7 +809,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -818,7 +818,7 @@ SELECT
     created_at,
     pdb.score(id) as score
 FROM products 
-WHERE name @@@ 'Apple'
+WHERE name ||| 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
  id |      name       |        created_at        |   score   
@@ -838,13 +838,13 @@ SELECT
     category_id,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
   AND price <= 200.00
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -852,7 +852,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(rating > '4'::double precision)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(category_id = 2)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(rating > '4'::double precision)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(category_id = 2)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -863,7 +863,7 @@ SELECT
     category_id,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
   AND price <= 200.00
   AND rating > 4.0
   AND category_id = 2
@@ -883,11 +883,11 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -895,7 +895,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(category_name ~~ 'Elect%'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(category_name ~~ 'Elect%'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -904,7 +904,7 @@ SELECT
     category_name,
     pdb.score(id) as score
 FROM products 
-WHERE description @@@ 'technology'
+WHERE description ||| 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
  id | name | category_name | score 
@@ -922,15 +922,15 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND (
     (price > 500.00 AND in_stock = true) OR
     (price < 300.00 AND rating >= 4.0) OR
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -938,7 +938,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 300.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > '4.5'::double precision)"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"name","value":"Apple","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"smartphone","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 300.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > '4.5'::double precision)"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -949,7 +949,7 @@ SELECT
     rating,
     pdb.score(id) as score
 FROM products 
-WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+WHERE (name ||| 'Apple' OR description ||| 'smartphone')
   AND (
     (price > 500.00 AND in_stock = true) OR
     (price < 300.00 AND rating >= 4.0) OR

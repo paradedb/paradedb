@@ -17,11 +17,10 @@ INSERT INTO mock_items (description, metadata) VALUES
 ('Speaker', '{"price": 80, "color": "white", "in_stock": true}');
 -- CASE 1: fast, default tokenizer
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+USING paradedb (id, description, category, rating, in_stock, created_at, (metadata::pdb.unicode_words('columnar=true')), weight_range);
 -- basic FTS query
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white'
+WHERE metadata->>'color' ||| 'white'
 ORDER BY id LIMIT 5;
      description      | color | price 
 ----------------------+-------+-------
@@ -34,10 +33,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white'
+WHERE metadata->>'color' ||| 'white'
 ORDER BY id LIMIT 5;
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -46,12 +45,12 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- basic FTS query with subscript operator
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata['color'] @@@ 'white'
+WHERE metadata['color'] ||| 'white'
 ORDER BY id LIMIT 5;
      description      | color | price 
 ----------------------+-------+-------
@@ -64,10 +63,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata['color'] @@@ 'white'
+WHERE metadata['color'] ||| 'white'
 ORDER BY id LIMIT 5;
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -76,12 +75,12 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100
+WHERE metadata->>'color' ||| 'white' AND (metadata->>'price')::int > 100
 ORDER BY id LIMIT 5;
  description | color | price 
 -------------+-------+-------
@@ -90,10 +89,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100
+WHERE metadata->>'color' ||| 'white' AND (metadata->>'price')::int > 100
 ORDER BY id LIMIT 5;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                        QUERY PLAN                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -102,12 +101,12 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null}}]}}
 (9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NOT NULL
+WHERE metadata->>'color' ||| 'white' AND metadata->>'price' IS NOT NULL
 ORDER BY id LIMIT 5;
   description   | ?column? | price 
 ----------------+----------+-------
@@ -118,10 +117,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NOT NULL
+WHERE metadata->>'color' ||| 'white' AND metadata->>'price' IS NOT NULL
 ORDER BY id LIMIT 5;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -130,12 +129,12 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"metadata.price"}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"exists":{"field":"metadata.price"}}]}}
 (9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NULL
+WHERE metadata->>'color' ||| 'white' AND metadata->>'price' IS NULL
 ORDER BY id LIMIT 5;
      description      | ?column? | price 
 ----------------------+----------+-------
@@ -146,10 +145,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NULL
+WHERE metadata->>'color' ||| 'white' AND metadata->>'price' IS NULL
 ORDER BY id LIMIT 5;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                    QUERY PLAN                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -158,12 +157,12 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"metadata.price"}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"metadata.price"}}]}}]}}
 (9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'in_stock')::boolean IS TRUE
+WHERE metadata->>'color' ||| 'white' AND (metadata->>'in_stock')::boolean IS TRUE
 ORDER BY id LIMIT 5;
   description   | ?column? | in_stock 
 ----------------+----------+----------
@@ -174,10 +173,10 @@ ORDER BY id LIMIT 5;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'in_stock')::boolean IS TRUE
+WHERE metadata->>'color' ||| 'white' AND (metadata->>'in_stock')::boolean IS TRUE
 ORDER BY id LIMIT 5;
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -186,7 +185,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"metadata.in_stock","value":true}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"metadata.color","value":"white","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"term":{"field":"metadata.in_stock","value":true}}]}}
 (9 rows)
 
 -- without keyword, we can't push down to term set
@@ -249,8 +248,8 @@ ORDER BY id LIMIT 5;
 (9 rows)
 
 -- CASE 2: fast, keyword tokenizer
-ALTER INDEX search_idx SET (json_fields='{"metadata": {"fast": true, "tokenizer": {"type": "keyword"}}}');
-REINDEX INDEX search_idx;
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items USING paradedb (id, description, category, rating, in_stock, created_at, (metadata::pdb.literal), weight_range);
 -- with keyword, should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items

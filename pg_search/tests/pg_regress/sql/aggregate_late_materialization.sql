@@ -1,12 +1,11 @@
--- Coverage for the aggregate late-materialization path behind
--- paradedb.enable_aggregate_late_materialization. Default off keeps aggregates
--- eager; this flips it on so the deferred path (serial and MPP) does not rot.
+-- An aggregate over a join keeps its string group key deferred through the join
+-- and checks visibility in the scan. A deleted row must not reach the groups,
+-- serial or MPP.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
-SET paradedb.enable_aggregate_late_materialization TO on;
 
 CREATE TABLE alm_products (
     id SERIAL PRIMARY KEY,
@@ -20,41 +19,36 @@ CREATE TABLE alm_tags (
     tag_name TEXT
 );
 
-INSERT INTO alm_products (description, category, price) VALUES
-    ('laptop fast', 'Electronics', 999.99),
-    ('laptop gaming', 'Electronics', 1299.99),
-    ('shoes running', 'Sports', 89.99),
-    ('shoes trail', 'Sports', 119.99),
-    ('jacket winter', 'Clothing', 129.99);
-INSERT INTO alm_tags (product_id, tag_name) VALUES
-    (1, 'tech'), (2, 'tech'), (3, 'fitness'), (4, 'fitness'), (5, 'outdoor');
+-- Three categories over many rows, so the aggregate groups on their ordinals.
+INSERT INTO alm_products (description, category, price)
+SELECT (ARRAY['laptop fast', 'shoes running', 'jacket winter'])[1 + i % 3] || ' ' || i,
+       (ARRAY['Electronics', 'Sports', 'Clothing'])[1 + i % 3],
+       (i % 7) * 10 + 9.99
+FROM generate_series(1, 60) AS i;
+INSERT INTO alm_tags (product_id, tag_name)
+SELECT id, (ARRAY['tech', 'fitness', 'outdoor'])[1 + id % 3] FROM alm_products;
 
 CREATE INDEX alm_products_idx ON alm_products
-USING bm25 (id, description, category, price)
-WITH (key_field='id', text_fields='{"description": {}, "category": {"fast": true}}', numeric_fields='{"price": {"fast": true}}');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price);
 CREATE INDEX alm_tags_idx ON alm_tags
-USING bm25 (id, product_id, tag_name)
-WITH (key_field='id', numeric_fields='{"product_id": {"fast": true}}', text_fields='{"tag_name": {"fast": true}}');
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
 
 -- Delete a matched row so visibility actually filters. The deleted product must
 -- not appear in the aggregate.
 DELETE FROM alm_products WHERE id = 2;
 
--- Serial: the deferred path puts a VisibilityFilterExec above the join.
--- `product_id` is not the tags index's key field, so a product's row fans out
--- once per tag and nothing above the join stops after a fixed number of rows.
--- The scan decodes `category` once per product rather than once per joined row.
+-- Serial.
 SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -67,7 +61,7 @@ SET parallel_tuple_cost TO 0;
 
 SELECT p.category, COUNT(*)
 FROM alm_products p JOIN alm_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -95,11 +89,9 @@ FROM generate_series(1, 60) AS i;
 INSERT INTO alm_views (post_id) SELECT id FROM alm_posts;
 
 CREATE INDEX alm_posts_idx ON alm_posts
-USING bm25 (id, title, author, labels)
-WITH (key_field='id', text_fields='{"title": {}, "author": {"fast": true}, "labels": {"fast": true}}');
+USING paradedb (id, title, (author::pdb.unicode_words('columnar=true')), (labels::pdb.unicode_words('columnar=true')));
 CREATE INDEX alm_views_idx ON alm_views
-USING bm25 (id, post_id)
-WITH (key_field='id', numeric_fields='{"post_id": {"fast": true}}');
+USING paradedb (id, post_id);
 
 SET max_parallel_workers_per_gather TO 0;
 -- Pinned so the shape under test does not depend on what the placement rule picks.
@@ -107,11 +99,11 @@ SET paradedb.defer_string_decode TO on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"terms": {"field": "p.author", "order": {"_key": "asc"}, "size": 10}, "aggs": {"by_label": {"terms": {"field": "p.labels", "order": {"_key": "asc"}, "size": 10}}}}')
 FROM alm_posts p JOIN alm_views v ON p.id = v.post_id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 RESET paradedb.defer_string_decode;
 DROP TABLE alm_posts, alm_views;

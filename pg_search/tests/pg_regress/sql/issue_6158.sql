@@ -41,9 +41,9 @@ INSERT INTO numeric64_dynamic_build VALUES
     (3, 106.25, 'wanted');
 
 CREATE INDEX numeric64_dynamic_probe_idx ON numeric64_dynamic_probe
-USING paradedb (id, amount, body) WITH (key_field = 'id');
+USING paradedb (id, amount, body);
 CREATE INDEX numeric64_dynamic_build_idx ON numeric64_dynamic_build
-USING paradedb (id, amount, body) WITH (key_field = 'id');
+USING paradedb (id, amount, body);
 ANALYZE numeric64_dynamic_probe;
 ANALYZE numeric64_dynamic_build;
 
@@ -54,7 +54,7 @@ FROM (
     SELECT p.id
     FROM numeric64_dynamic_build b
     JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -79,7 +79,7 @@ FROM issue_6158_explain_analyze_lines(
     'SELECT p.id
      FROM numeric64_dynamic_build b
      JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-     WHERE b.body @@@ ''wanted''
+     WHERE b.body ||| ''wanted''
      ORDER BY p.id
      LIMIT 10'
 ) AS line;
@@ -113,7 +113,7 @@ FROM (
     SELECT p.id
     FROM numeric64_dynamic_build b
     JOIN numeric64_dynamic_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -151,9 +151,9 @@ INSERT INTO numeric64_edge_build VALUES
     (13, -0.01, -1, 'wanted');
 
 CREATE INDEX numeric64_edge_probe_idx ON numeric64_edge_probe
-USING paradedb (id, amount, whole, body) WITH (key_field = 'id');
+USING paradedb (id, amount, whole, body);
 CREATE INDEX numeric64_edge_build_idx ON numeric64_edge_build
-USING paradedb (id, amount, whole, body) WITH (key_field = 'id');
+USING paradedb (id, amount, whole, body);
 ANALYZE numeric64_edge_probe;
 ANALYZE numeric64_edge_build;
 
@@ -163,7 +163,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -173,7 +173,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.whole = p.whole
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -186,7 +186,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.amount = p.amount
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;
@@ -196,7 +196,7 @@ FROM (
     SELECT p.id
     FROM numeric64_edge_build b
     JOIN numeric64_edge_probe p ON b.whole = p.whole
-    WHERE b.body @@@ 'wanted'
+    WHERE b.body ||| 'wanted'
     ORDER BY p.id
     LIMIT 10
 ) matched;

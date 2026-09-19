@@ -29,13 +29,7 @@ fn aborted_segments_not_visible(mut conn: PgConnection) {
         INSERT INTO test_table (value) VALUES ('committed');
 
         CREATE INDEX idxtest_table ON public.test_table
-        USING paradedb (id, value)
-        WITH (
-            key_field = 'id',
-            text_fields = '{
-                "value": {}
-            }'
-        );
+        USING paradedb (id, value);
     "#
     .execute(&mut conn);
 
@@ -58,11 +52,11 @@ fn aborted_segments_not_visible(mut conn: PgConnection) {
 
     // and even tho this will search both segments, it will not return the row from the aborted xact
     let (count,) =
-        "SELECT count(*) FROM test_table WHERE value @@@ 'aborted'".fetch_one::<(i64,)>(&mut conn);
+        "SELECT count(*) FROM test_table WHERE value ||| 'aborted'".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 
     // because it's supposed to only return rows from live segments
-    let (count,) = "SELECT count(*) FROM test_table WHERE value @@@ 'committed'"
+    let (count,) = "SELECT count(*) FROM test_table WHERE value ||| 'committed'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

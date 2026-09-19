@@ -62,28 +62,13 @@ INSERT INTO agg_nonequi_tiers (description, tier_name, threshold_price) VALUES
     ('Tier 3 luxury threshold', 'gold', 500.00);
 
 CREATE INDEX agg_nonequi_products_idx ON agg_nonequi_products
-USING paradedb (id, description, category, price, rating)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "category": {"fast": true}}',
-    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
 
 CREATE INDEX agg_nonequi_promos_idx ON agg_nonequi_promos
-USING paradedb (id, description, promo_code, min_price, max_price, min_rating)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "promo_code": {"fast": true}}',
-    numeric_fields = '{"min_price": {"fast": true}, "max_price": {"fast": true}, "min_rating": {"fast": true}}'
-);
+USING paradedb (id, description, (promo_code::pdb.unicode_words('columnar=true')), min_price, max_price, min_rating);
 
 CREATE INDEX agg_nonequi_tiers_idx ON agg_nonequi_tiers
-USING paradedb (id, description, tier_name, threshold_price)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "tier_name": {"fast": true}}',
-    numeric_fields = '{"threshold_price": {"fast": true}}'
-);
+USING paradedb (id, description, (tier_name::pdb.unicode_words('columnar=true')), threshold_price);
 
 -- =============================================================================
 -- SECTION 1: Scalar Aggregates over Non-Equi INNER JOINs (no GROUP BY)
@@ -94,36 +79,36 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket');
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket');
 
 -- Test 1.2: MIN, MAX over pure non-equi inequality (rating >= min_rating)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
-WHERE pr.description @@@ 'tech OR gala';
+WHERE (pr.description ||| 'tech' OR pr.description ||| 'gala');
 
 SELECT MIN(p.price), MAX(p.price), COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.rating >= pr.min_rating
-WHERE pr.description @@@ 'tech OR gala';
+WHERE (pr.description ||| 'tech' OR pr.description ||| 'gala');
 
 -- Test 1.3: Mixed equi and non-equi join condition (category = promo_code AND price <= max_price)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
-WHERE p.description @@@ 'keyboard OR laptop';
+WHERE (p.description ||| 'keyboard' OR p.description ||| 'laptop');
 
 SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
-WHERE p.description @@@ 'keyboard OR laptop';
+WHERE (p.description ||| 'keyboard' OR p.description ||| 'laptop');
 
 -- =============================================================================
 -- SECTION 2: Aggregates with GROUP BY and HAVING
@@ -134,14 +119,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
 
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
 
@@ -150,7 +135,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*), AVG(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR jacket OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
@@ -158,7 +143,7 @@ ORDER BY p.category;
 SELECT p.category, COUNT(*), AVG(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR jacket OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description ||| 'shoes')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
@@ -172,26 +157,26 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price > pr.max_price
-WHERE p.description @@@ 'laptop OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 SELECT COUNT(*), COUNT(pr.id), SUM(p.price)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price > pr.max_price
-WHERE p.description @@@ 'laptop OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 -- Test 3.2: LEFT JOIN with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*), COUNT(pr.id)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*), COUNT(pr.id)
 FROM agg_nonequi_products p
 LEFT JOIN agg_nonequi_promos pr ON p.price > pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -205,7 +190,7 @@ SELECT t.tier_name, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
 JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
-WHERE p.description @@@ 'laptop OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'keyboard')
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
 
@@ -213,7 +198,7 @@ SELECT t.tier_name, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.category = pr.promo_code AND p.price <= pr.max_price
 JOIN agg_nonequi_tiers t ON p.price >= t.threshold_price
-WHERE p.description @@@ 'laptop OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'keyboard')
 GROUP BY t.tier_name
 ORDER BY t.tier_name;
 
@@ -226,20 +211,20 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket');
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR jacket';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket');
 
 -- Test 5.2: GROUP BY aggregate parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
 
@@ -247,7 +232,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT pr.promo_code, COUNT(*), SUM(p.price)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.price >= pr.min_price AND p.price <= pr.max_price
-WHERE p.description @@@ 'laptop OR shoes OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'keyboard')
 GROUP BY pr.promo_code
 ORDER BY pr.promo_code;
 
@@ -264,12 +249,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT COUNT(*)
 FROM agg_nonequi_products p
 JOIN agg_nonequi_promos pr ON p.unindexed_stock < pr.min_rating
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- =============================================================================
 -- CLEANUP

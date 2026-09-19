@@ -42,35 +42,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb ((id::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb ((id::pdb.literal), (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb ((id::pdb.literal), (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -113,47 +87,51 @@ SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
 JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures' AND f.title ||| 'Receipt' AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
    Sort Key: d.id, p.fileid, p.id
-   ->  Hash Join
-         Hash Cond: (f.documentid = d.id)
-         ->  Nested Loop
-               Join Filter: (f.id = p.fileid)
-               ->  Custom Scan (ParadeDB Base Scan) on files f
-                     Table: files
-                     Index: files_search
-                     Exec Method: ColumnarExecState
-                     Columnar: documentid, file_path, id, title
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on pages p
-                     Table: pages
-                     Index: pages_search
-                     Exec Method: ColumnarExecState
-                     Columnar: fileid, id, page_number
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Base Scan) on documents d
-                     Table: documents
-                     Index: documents_search
-                     Exec Method: ColumnarExecState
-                     Columnar: id, parents
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+   Presorted Key: d.id
+   ->  Nested Loop
+         Join Filter: (f.id = p.fileid)
+         ->  Merge Join
+               Merge Cond: (d.id = f.documentid)
+               ->  Sort
+                     Sort Key: d.id
+                     ->  Custom Scan (ParadeDB Base Scan) on documents d
+                           Table: documents
+                           Index: documents_search
+                           Exec Method: ColumnarExecState
+                           Columnar: id, parents
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+               ->  Sort
+                     Sort Key: f.documentid
+                     ->  Custom Scan (ParadeDB Base Scan) on files f
+                           Table: files
+                           Index: files_search
+                           Exec Method: ColumnarExecState
+                           Columnar: documentid, file_path, id, title
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"Receipt","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         ->  Custom Scan (ParadeDB Base Scan) on pages p
+               Table: pages
+               Index: pages_search
+               Exec Method: ColumnarExecState
+               Columnar: fileid, id, page_number
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"Socienty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(32 rows)
 
 -- Test complex join
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
 JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
+WHERE d.parents ||| 'Factures' AND f.title ||| 'Receipt' AND p.content ||| 'Socienty'
 ORDER BY d.id, f.id, p.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
   id  | parents  |  title  |     file_path      | fileid | page_number 
@@ -166,7 +144,7 @@ SELECT pages.fileId, pages.page_number, pages.content
 FROM documents 
 JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
+WHERE documents.parents ||| 'Factures' AND files.title ||| 'Receipt' AND pages.content ||| 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
  fileid | page_number |                       content                       
@@ -179,31 +157,30 @@ SELECT pages.fileId, pages.page_number, pages.content
 FROM documents 
 JOIN files ON documents.id = files.documentId
 JOIN pages ON pages.fileId = files.id
-WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
+WHERE documents.parents ||| 'Factures' AND files.title ||| 'Receipt' AND pages.content ||| 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (documents INNER files) INNER pages
    Join Cond: pages.fileid = files.id, documents.id = files.documentid
    Limit: 10
    Order By: pages.fileid asc, pages.page_number asc
    DataFusion Physical Plan: 
-     : TantivyDecodeExec: decode=[content]
-     :   ProjectionExec: expr=[fileid@2 as col_1, page_number@3 as col_2, content@4 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@5 as ctid_2]
-     :     SortExec: TopK(fetch=10), expr=[fileid@2 ASC NULLS LAST, page_number@3 ASC NULLS LAST], preserve_partitioning=[false]
-     :       VisibilityFilterExec: tables=[documents, files, pages]
-     :         TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fileid@0)], projection=[ctid_0@0, ctid_1@2, fileid@3, page_number@4, content@5, ctid_2@6]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, documentid@1)], projection=[ctid_0@1, id@2, ctid_1@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+     : ProjectionExec: expr=[fileid@3 as col_1, page_number@4 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[fileid@3 ASC NULLS LAST, page_number@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[documents, files, pages]
+     :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, fileid@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@3, fileid@4, page_number@5]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentid@2)], projection=[ctid_0@0, ctid_1@2, id@3]
      :             CooperativeExec
-     :               PgSearchScan: table=pages, segments=1, fetch=[content], dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+     :               PgSearchScan: table=documents, segments=1, query={"with_index":{"query":{"match":{"field":"parents","value":"Factures","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=files, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"Receipt","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=pages, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"content","value":"Socienty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 \i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

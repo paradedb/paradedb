@@ -34,8 +34,7 @@ fn reltuples_are_set(mut conn: PgConnection) {
         panic!("expected reltuples to be <= 0.0.")
     }
 
-    "CREATE INDEX idxreltuptest ON reltuptest USING paradedb (x, md5) WITH (key_field='x')"
-        .execute(&mut conn);
+    "CREATE INDEX idxreltuptest ON reltuptest USING paradedb (x, md5)".execute(&mut conn);
     let (reltuples,) = "SELECT reltuples FROM pg_class WHERE oid = 'reltuptest'::regclass::oid"
         .fetch_one::<(f32,)>(&mut conn);
     assert_eq!(reltuples, 1024.0);
@@ -46,10 +45,10 @@ fn direct_or_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     for query in &[
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard OR category:electronics')",
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' OR category ||| 'electronics'",
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR bm25_search @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR category ||| 'electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 
@@ -79,10 +78,10 @@ fn direct_and_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     for query in &[
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard AND category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ pdb.parse('description:keyboard AND category:electronics')",
+        "SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND category ||| 'electronics'",
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND bm25_search @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND category ||| 'electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 
@@ -108,7 +107,9 @@ fn direct_and_queries(mut conn: PgConnection) {
 fn direct_sql_mix(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (description, ) = "SELECT description FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' AND id = 2".fetch_one::<(String,)>(&mut conn);
+    let (description,) =
+        "SELECT description FROM paradedb.bm25_search WHERE description ||| 'keyboard' AND id = 2"
+            .fetch_one::<(String,)>(&mut conn);
 
     assert_eq!(description, "Plastic Keyboard");
 }
@@ -120,7 +121,7 @@ fn explain_row_estimate(mut conn: PgConnection) {
 
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description ||| 'keyboard'".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
         .get(0)
         .unwrap()

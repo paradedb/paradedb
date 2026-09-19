@@ -38,13 +38,13 @@ CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
-) WITH (key_field = 'id');
+);
 CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
-) WITH (key_field = 'id');
+);
 -- Commented out for now because it has an oid in the output, which changes on every run
 -- Show the problematic query plan
 -- This query causes predicates to be split between scan filters and join filters
@@ -55,7 +55,7 @@ CREATE INDEX ON books USING paradedb (
 --     pdb.score(b.id) as book_score
 -- FROM books b
 -- JOIN authors a ON b.author_id = a.id
--- WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+-- WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'));
 -- Execute the query to show the score issue
 -- Currently, this returns null/zero scores for author_score
 -- even though 'Rowling' should contribute to the BM25 score calculation
@@ -66,7 +66,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
@@ -86,7 +86,7 @@ SELECT
     a.name as author_name,
     pdb.score(a.id) as author_score
 FROM authors a
-WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
+WHERE a.name ||| 'Rowling' AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY a.id;
  author_id | author_name  | author_score 
 -----------+--------------+--------------
@@ -98,7 +98,7 @@ SELECT
     b.id as book_id,
     pdb.score(b.id) as book_score
 FROM books b
-WHERE b.content @@@ 'test'
+WHERE b.content ||| 'test'
 ORDER BY b.id;
  book_id | book_score 
 ---------+------------
@@ -118,7 +118,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
+WHERE a.name ||| 'Rowling' AND b.content ||| 'test'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score | book_score 
@@ -135,7 +135,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -146,7 +146,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score | book_score 
@@ -162,7 +162,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -173,7 +173,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
@@ -193,7 +193,7 @@ SELECT
     a.name as author_name,
     pdb.score(a.id) as author_score
 FROM authors a 
-WHERE a.name @@@ 'Rowling'
+WHERE a.name ||| 'Rowling'
 ORDER BY a.id;
   query_type  | author_id | author_name  | author_score 
 --------------+-----------+--------------+--------------
@@ -208,7 +208,7 @@ SELECT
     pdb.score(a.id) as author_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE a.name @@@ 'Rowling'
+WHERE a.name ||| 'Rowling'
 ORDER BY a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  query_type | author_id | author_name  | author_score 
@@ -226,7 +226,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score | book_score 
@@ -247,7 +247,7 @@ SELECT
     COALESCE(pdb.score(b.id), 0) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
+WHERE (a.name ||| 'Christie' OR b.content ||| 'test') AND a.age > 60
 ORDER BY a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
@@ -262,7 +262,7 @@ SELECT
     pdb.score(b.id) as book_score_2     -- Should be same as book_score_1
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
+WHERE (b.content ||| 'function' OR a.name ||| 'King') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
@@ -283,10 +283,10 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY pdb.score(a.id) DESC, pdb.score(b.id) DESC, b.id, a.id
 GROUP BY b.id, a.id;
-ERROR:  syntax error at or near "GROUP" at character 314
+ERROR:  syntax error at or near "GROUP" at character 345
 -- Test combining scores and snippets to show they should be consistent
 -- Both should reflect the same search context
 SELECT
@@ -298,7 +298,7 @@ SELECT
     pdb.snippet(b.content) as book_snippet
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+WHERE (b.content ||| 'test' OR a.name ||| 'Rowling') AND a.age @@@ pdb.range(int4range(50, NULL, '(]'))
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id |   author_name   | author_score |   author_snippet    | book_score |                                                                       book_snippet                                                                       
@@ -315,7 +315,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a,
 SELECT b.id, a.name, pdb.score(a.id) as author_score, pdb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  id |     name     | author_score | book_score 
@@ -328,7 +328,7 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a,
 SELECT b.id, a.name, pdb.score(a.id) as author_score, pdb.score(b.id) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+WHERE (a.name ||| 'King' OR b.content ||| 'scoring')
 ORDER BY a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  id |     name     | author_score | book_score 
@@ -339,4 +339,4 @@ WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a,
 
 -- Cleanup
 DROP TABLE IF EXISTS books;
-DROP TABLE IF EXISTS authors; 
+DROP TABLE IF EXISTS authors;

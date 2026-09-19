@@ -46,18 +46,18 @@ CREATE INDEX ON authors USING paradedb (
     id,
     name,
     age
-) WITH (key_field = 'id');
+);
 CREATE INDEX ON books USING paradedb (
     id,
     author_id,
     content,
     titles
-) WITH (key_field = 'id');
+);
 CREATE INDEX ON reviews USING paradedb (
     id,
     book_id,
     review
-) WITH (key_field = 'id');
+);
 SELECT
     b.id as book_id,
     a.id as author_id,
@@ -67,7 +67,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+WHERE b.content ||| 'test' OR a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -89,7 +89,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
+WHERE b.content ||| 'test' OR NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -110,7 +110,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
+WHERE NOT(b.content ||| 'test') OR a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -128,7 +128,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
+WHERE NOT(b.content ||| 'test') OR NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -149,7 +149,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+WHERE b.content ||| 'test' AND a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -166,7 +166,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
+WHERE b.content ||| 'test' AND NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id | author_snippet | author_positions | author_score | book_score 
@@ -186,7 +186,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
+WHERE NOT(b.content ||| 'test') AND a.name ||| 'Rowling'
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
@@ -203,7 +203,7 @@ SELECT
     pdb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
+WHERE NOT(b.content ||| 'test') AND NOT(a.name ||| 'Rowling')
 ORDER BY b.id, a.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  book_id | author_id | author_snippet | author_positions | author_score | book_score 
@@ -219,7 +219,7 @@ WITH book_snippets AS (
         pdb.score(b.id) as book_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
-    WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+    WHERE b.content ||| 'test' AND a.name ||| 'Rowling'
 )
 SELECT
     bs.*,
@@ -229,7 +229,7 @@ SELECT
     pdb.score(r.id) as review_score
 FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
-WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
+WHERE r.review ||| 'test' AND r.review ||| 'snippet'
 ORDER BY bs.book_id, r.id;
 WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: a, b, r)
  book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |    review_positions     | review_score 
@@ -251,10 +251,10 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 LEFT JOIN reviews r ON r.book_id = b.id
-WHERE b.content @@@ 'test'
-    OR a.name @@@ 'Rowling'
-    OR r.review @@@ 'test'
-    OR r.review @@@ 'snippet'
+WHERE b.content ||| 'test'
+    OR a.name ||| 'Rowling'
+    OR r.review ||| 'test'
+    OR r.review ||| 'snippet'
 ORDER BY b.id, r.id;
 WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
  book_id |                                                                       book_snippet                                                                       |         book_positions          |   author_snippet    | author_positions |                                               review_snippet                                                |         review_positions         | book_score | author_score | review_score 

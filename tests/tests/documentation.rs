@@ -51,15 +51,14 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
     "#
     .execute(&mut conn);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
+    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating > 2
     ORDER BY description
     LIMIT 5"#
         .fetch(&mut conn);
@@ -72,7 +71,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String, f32)> = r#"
     SELECT description, rating, category, pdb.score(id)
     FROM mock_items
-    WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
+    WHERE description ||| 'shoes' OR category ||| 'footwear' AND rating > 2
     ORDER BY score DESC, description
     LIMIT 5"#
         .fetch(&mut conn);
@@ -91,7 +90,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '"white shoes"~1'
+    WHERE description ### 'white shoes'::pdb.slop(1)
     LIMIT 5"#
         .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -110,8 +109,7 @@ fn quickstart(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -149,7 +147,7 @@ fn quickstart(mut conn: PgConnection) {
     SELECT o.order_id, o.customer_name, m.description
     FROM orders o
     JOIN mock_items m ON o.product_id = m.id
-    WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+    WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'shoes'
     ORDER BY order_id
     LIMIT 5
     "#
@@ -236,15 +234,14 @@ fn full_text_search(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, String, i32)> = r#"
     SELECT id, description, rating
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ '>3'
+    WHERE description ||| 'shoes' AND rating > 3
     ORDER BY id
     "#
     .fetch(&mut conn);
@@ -255,7 +252,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -264,7 +261,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'keyboard' OR category @@@ 'toy'
+    WHERE description ||| 'keyboard' OR category ||| 'toy'
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -273,7 +270,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '(shoes running -white)'
+    WHERE description @@@ pdb.parse_with_field('(shoes running -white)')
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -282,7 +279,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '"plastic keyboard"'
+    WHERE description ### 'plastic keyboard'
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -291,7 +288,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '"ergonomic keyboard"~1'
+    WHERE description ### 'ergonomic keyboard'::pdb.slop(1)
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -300,7 +297,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '"plastic keyb"*'
+    WHERE description @@@ pdb.parse_with_field('"plastic keyb"*')
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -309,7 +306,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating > 2
+    WHERE description ||| 'shoes' AND rating > 2
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -317,7 +314,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ '>2'
+    WHERE description ||| 'shoes' AND rating > 2
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -326,7 +323,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ '4'
+    WHERE description ||| 'shoes' AND rating = 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -334,7 +331,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ '>=4'
+    WHERE description ||| 'shoes' AND rating >= 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -343,7 +340,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND created_at @@@ '"2023-04-20T16:38:02Z"'
+    WHERE description ||| 'shoes' AND created_at = '2023-04-20 16:38:02'::timestamp
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -352,7 +349,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND in_stock @@@ 'true'
+    WHERE description ||| 'shoes' AND in_stock = true
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -361,7 +358,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ '[1 TO 4]'
+    WHERE description ||| 'shoes' AND rating BETWEEN 1 AND 4
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -369,14 +366,14 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND created_at @@@ '[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]'
+    WHERE description ||| 'shoes' AND created_at BETWEEN '2020-01-31'::timestamp AND '2024-01-31'::timestamp
     "#.fetch(&mut conn);
     assert_eq!(rows.len(), 3);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ '[book TO camera]'
+    WHERE description @@@ pdb.parse_with_field('[book TO camera]')
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 8);
@@ -385,7 +382,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND rating @@@ 'IN [2 3 4]'
+    WHERE description ||| 'shoes' AND rating IN (2, 3, 4)
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -394,7 +391,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     LIMIT 1 OFFSET 2
     "#
     .fetch(&mut conn);
@@ -404,7 +401,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, pdb.score(id)
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     LIMIT 5
     "#
     .fetch(&mut conn);
@@ -423,8 +420,7 @@ fn full_text_search(mut conn: PgConnection) {
     REFERENCES mock_items(id);
 
     CREATE INDEX orders_idx ON orders
-    USING paradedb (order_id, customer_name)
-    WITH (key_field='order_id');
+    USING paradedb (order_id, customer_name);
     "#
     .execute(&mut conn);
 
@@ -432,7 +428,7 @@ fn full_text_search(mut conn: PgConnection) {
     SELECT o.order_id, pdb.score(o.order_id) + pdb.score(m.id) as score
     FROM orders o
     JOIN mock_items m ON o.product_id = m.id
-    WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
+    WHERE o.customer_name ||| 'Johnson' AND (m.description ||| 'shoes' OR m.description ||| 'running')
     ORDER BY score DESC, o.order_id
     LIMIT 5
     "#
@@ -443,7 +439,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, pdb.snippet(description)
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     LIMIT 5
     "#
     .fetch(&mut conn);
@@ -452,7 +448,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     LIMIT 5
     "#
     .fetch(&mut conn);
@@ -464,7 +460,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String, f32)> = r#"
         SELECT description, rating, category, pdb.score(id)
         FROM mock_items
-        WHERE description @@@ 'shoes'
+        WHERE description ||| 'shoes'
         ORDER BY score DESC
         LIMIT 5
     "#
@@ -478,7 +474,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     ORDER BY rating DESC
     LIMIT 5
     "#
@@ -496,7 +492,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String, f32)> = r#"
     SELECT description, rating, category, pdb.score(id)
     FROM mock_items
-    WHERE category @@@ 'electronics'
+    WHERE category ||| 'electronics'
     ORDER BY score DESC, rating DESC
     LIMIT 5
     "#
@@ -512,7 +508,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, pdb.score(id)
     FROM mock_items
-    WHERE description @@@ 'shoes^2' OR category @@@ 'footwear'
+    WHERE description ||| 'shoes'::pdb.boost(2) OR category ||| 'footwear'
     ORDER BY score DESC
     LIMIT 5
     "#
@@ -528,7 +524,7 @@ fn full_text_search(mut conn: PgConnection) {
     let rows: Vec<(i32, f64)> = r#"
     SELECT id, pdb.score(id) * COALESCE(rating, 1) as score
     FROM mock_items
-    WHERE description @@@ 'shoes'
+    WHERE description ||| 'shoes'
     ORDER BY score DESC
     LIMIT 5
     "#
@@ -552,8 +548,7 @@ fn match_query(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
     "#
     .execute(&mut conn);
 
@@ -662,8 +657,7 @@ fn term_level_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata, weight_range);
     "#
     .execute(&mut conn);
 
@@ -1077,8 +1071,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -1189,8 +1182,7 @@ fn json_queries(mut conn: PgConnection) {
 
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
+    USING paradedb (id, description, category, rating, in_stock, created_at, (metadata::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -1267,8 +1259,7 @@ fn json_arrays(mut conn: PgConnection) {
     //
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, metadata);
     "#
     .execute(&mut conn);
 
@@ -1326,8 +1317,7 @@ fn custom_enum(mut conn: PgConnection) {
     INSERT INTO mock_items (color) VALUES ('red'), ('green'), ('blue');
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, color, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, color, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -1386,8 +1376,7 @@ fn compound_queries(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -1858,8 +1847,7 @@ fn autocomplete(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -1920,18 +1908,14 @@ fn autocomplete(mut conn: PgConnection) {
     r#"
     DROP INDEX search_idx;
     CREATE INDEX ngrams_idx ON public.mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}}}'
-    );
+    USING paradedb (id, (description::pdb.ngram(3, 3, 'prefix_only=false')));
     "#
     .execute(&mut conn);
 
     // Ngram term
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE description @@@ 'sho'
+    WHERE description ||| 'sho'
     ORDER BY rating DESC
     "#
     .fetch(&mut conn);
@@ -1959,8 +1943,7 @@ fn hybrid_search(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
 
     CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -1978,7 +1961,7 @@ fn hybrid_search(mut conn: PgConnection) {
         FROM (
             SELECT id, pdb.score(id) AS score
             FROM mock_items
-            WHERE description @@@ 'keyboard'
+            WHERE description ||| 'keyboard'
             ORDER BY pdb.score(id) DESC
             LIMIT 20
         ) AS bm25_score
@@ -2091,15 +2074,13 @@ fn concurrent_indexing(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating);
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
-    USING paradedb (id, description, category, rating, in_stock)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock);
     "#
     .execute(&mut conn);
 
@@ -2112,7 +2093,7 @@ fn concurrent_indexing(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE description @@@ 'shoes' AND id @@@ 'in_stock:true'
+    WHERE description ||| 'shoes' AND in_stock = true
     ORDER BY rating DESC
     "#
     .fetch(&mut conn);
@@ -2128,8 +2109,7 @@ fn schema(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -2159,8 +2139,7 @@ fn index_size(mut conn: PgConnection) {
     );
 
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category, rating, in_stock, created_at, metadata)
-    WITH (key_field='id');
+    USING paradedb (id, description, category, rating, in_stock, created_at, metadata);
     "#
     .execute(&mut conn);
 
@@ -2183,108 +2162,56 @@ fn field_configuration(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.ngram(2, 3, 'prefix_only=false')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, category)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
-            },
-            "category": {
-                "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.ngram(2, 3, 'prefix_only=false')), (category::pdb.ngram(2, 3, 'prefix_only=false')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "fast": true,
-            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.ngram(2, 3, 'prefix_only=false', 'columnar=true')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, metadata)
-    WITH (
-    key_field = 'id',
-    json_fields = '{
-        "metadata": {
-        "fast": true
-        }
-    }'
-    );
+    USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, rating)
-    WITH (
-        key_field = 'id',
-        numeric_fields = '{
-            "rating": {"fast": true}
-        }'
-    );
+    USING paradedb (id, rating);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, in_stock)
-    WITH (
-    key_field = 'id',
-    boolean_fields = '{
-        "in_stock": {"fast": true}
-    }'
-    );
+    USING paradedb (id, in_stock);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, created_at)
-    WITH (
-    key_field = 'id'
-    );
+    USING paradedb (id, created_at);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, weight_range)
-    WITH (key_field='id');
+    USING paradedb (id, weight_range);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
@@ -2302,148 +2229,70 @@ fn available_tokenizers(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "whitespace"}}
-        }'
-    );
+    USING paradedb (id, (description::pdb.whitespace));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "default"}
-            }
-        }'
-    );
+    USING paradedb (id, description);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "whitespace"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.whitespace));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "raw"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.literal_normalized));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "regex", "pattern": "\\W+"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.regex_pattern('\W+')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.ngram(2, 3, 'prefix_only=false')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "source_code"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.source_code));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "chinese_compatible"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.chinese_compatible));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "chinese_lindera"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.lindera(chinese)));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field = 'id',
-        text_fields = '{
-            "description": {
-            "tokenizer": {"type": "icu"}
-            }
-        }'
-    );
+    USING paradedb (id, (description::pdb.icu));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
@@ -2464,15 +2313,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     // Test multiple tokenizers for the same field
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "whitespace"}},
-            "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}, "column": "description"},
-            "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}
-        }'
-    );
+    USING paradedb (id, (description::pdb.whitespace), (description::pdb.ngram(3, 3, 'prefix_only=false', 'alias=description_ngram')), (description::pdb.simple('stemmer=english', 'alias=description_stem')));
     "#
     .execute(&mut conn);
 
@@ -2513,39 +2354,21 @@ fn token_filters(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "stemmer": "English"}}
-        }'
-    );
+    USING paradedb (id, (description::pdb.simple('stemmer=english')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "remove_long": 255}}
-        }'
-    );
+    USING paradedb (id, (description::pdb.simple('remove_long=255')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"tokenizer": {"type": "default", "lowercase": false}}
-        }'
-    );
+    USING paradedb (id, (description::pdb.simple('lowercase=false')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
@@ -2563,33 +2386,21 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description, rating)
-    WITH (
-        key_field = 'id',
-        text_fields ='{
-            "description": {"fast": true}
-        }'
-    );
+    USING paradedb (id, (description::pdb.simple('columnar=true')), rating);
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, category)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "category": {"fast": true, "normalizer": "raw"}
-        }'
-    );
+    USING paradedb (id, (category::pdb.unicode_words('normalizer=raw', 'columnar=true')));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);
 }
 
 #[rstest]
-fn record(mut conn: PgConnection) {
+fn word_tokenizer(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_paradedb_test_table(
       schema_name => 'public',
@@ -2600,13 +2411,7 @@ fn record(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING paradedb (id, description)
-    WITH (
-        key_field='id',
-        text_fields='{
-            "description": {"record": "freq"}
-        }'
-    );
+    USING paradedb (id, (description::pdb.unicode_words));
     DROP INDEX search_idx;
     "#
     .execute(&mut conn);

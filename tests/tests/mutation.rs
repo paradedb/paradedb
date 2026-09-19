@@ -58,8 +58,7 @@ fn setup(conn: &mut PgConnection, mutable_segment_rows: usize) {
     SET paradedb.global_mutable_segment_rows TO 0;
     DROP TABLE IF EXISTS test_table;
     CREATE TABLE test_table (id SERIAL8 PRIMARY KEY, message TEXT);
-    CREATE INDEX idx_test_table ON test_table USING paradedb (id, message)
-    WITH (key_field = 'id', text_fields='{{"message": {{ "tokenizer": {{"type": "default"}} }} }}', mutable_segment_rows={mutable_segment_rows});
+    CREATE INDEX idx_test_table ON test_table USING paradedb (id, (message::pdb.simple)) WITH (mutable_segment_rows={mutable_segment_rows});
     ANALYZE test_table;
     "#)
     .execute(conn);
@@ -125,7 +124,7 @@ async fn mutable_segment_correctness(database: Db) {
                 }
             }
 
-            let count_query = r#"SELECT COUNT(*) FROM test_table WHERE message @@@ 'cheese';"#;
+            let count_query = r#"SELECT COUNT(*) FROM test_table WHERE message ||| 'cheese';"#;
             let (result_count,): (i64,) = count_query.fetch_one(&mut conn);
 
             let expected_count = model.iter().filter(|(_, m)| matches!(m, Message::Match)).count() as i64;

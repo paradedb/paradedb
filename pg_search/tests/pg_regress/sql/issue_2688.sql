@@ -46,59 +46,57 @@ DROP INDEX IF EXISTS records_no_fast_idx;
 CREATE INDEX records_no_fast_idx ON data_records
 USING paradedb (
     id, title, category, price, in_stock, created_at, valid_period, quantity_range, tags
-) WITH (
-    key_field = 'id'
 );
 
 SELECT id, title, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY valid_period
 LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY valid_period
 LIMIT 10;
 
 SELECT id, title, quantity_range
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range
 LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, quantity_range
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range
 LIMIT 10;
 
 SELECT id, title, quantity_range, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, quantity_range, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
 
 SELECT id, title, price, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, price, valid_period
 FROM data_records
-WHERE title @@@ 'product'
+WHERE title ||| 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
 

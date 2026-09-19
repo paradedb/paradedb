@@ -49,28 +49,10 @@ CREATE TABLE jsd_par_exclusions (
 SET paradedb.global_mutable_segment_rows = 0;
 
 CREATE INDEX jsd_par_items_idx ON jsd_par_items
-USING paradedb (id, name, alt_name, category)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
-    }',
-    target_segment_count = 64,
-    background_layer_sizes = '0'
-);
+USING paradedb (id, (name::pdb.literal), (alt_name::pdb.literal), (category::pdb.literal_normalized('lowercase=false', 'normalizer=lowercase'))) WITH (target_segment_count = 64, background_layer_sizes = '0');
 
 CREATE INDEX jsd_par_exclusions_idx ON jsd_par_exclusions
-USING paradedb (id, pattern)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }',
-    target_segment_count = 64,
-    background_layer_sizes = '0'
-);
+USING paradedb (id, (pattern::pdb.literal)) WITH (target_segment_count = 64, background_layer_sizes = '0');
 
 -- Batched inserts → multiple segments on the partitioning side. Each
 -- 1000-row batch triggers a segment flush under
@@ -120,7 +102,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
 
@@ -132,7 +114,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
 
@@ -146,7 +128,7 @@ WHERE NOT EXISTS (
     WHERE e.id @@@ paradedb.all()
       AND (e.pattern = i.name OR e.pattern = i.alt_name)
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id DESC
 LIMIT 5000;
 
@@ -190,7 +172,7 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
 
@@ -206,7 +188,7 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
 
@@ -224,7 +206,7 @@ WHERE EXISTS (
           OR e.pattern = i.category
       )
 )
-AND i.id @@@ 'category:"target"'
+AND i.category ### 'target'
 ORDER BY i.id ASC
 LIMIT 5000;
 

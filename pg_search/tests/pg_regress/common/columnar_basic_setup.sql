@@ -23,19 +23,7 @@ CREATE TABLE mixed_numeric_string_test (
 );
 
 -- Create index with both numeric and string fast fields
-CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_test_search ON mixed_numeric_string_test USING paradedb ((id::pdb.literal), numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 
 -- Insert sample data
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
@@ -43,4 +31,4 @@ INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, strin
 ('mix2', 200, 20000, 'Banana', 'Yellow', 'Fruit', 'This is a yellow banana'),
 ('mix3', 300, 30000, 'Carrot', 'Orange', 'Vegetable', 'This is an orange carrot'),
 ('mix4', 400, 40000, 'Donut', 'Brown', 'Dessert', 'This is a chocolate donut'),
-('mix5', 500, 50000, 'Egg', 'White', 'Protein', 'This is a white egg'); 
+('mix5', 500, 50000, 'Egg', 'White', 'Protein', 'This is a white egg');

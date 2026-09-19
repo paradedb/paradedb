@@ -15,9 +15,9 @@ DROP TABLE IF EXISTS pc_big, pc_small CASCADE;
 CREATE TABLE pc_big   (id bigint PRIMARY KEY, state text);
 CREATE TABLE pc_small (id bigint PRIMARY KEY, series_id bigint, user_id text);
 CREATE INDEX pc_big_idx ON pc_big USING paradedb (id, state)
-  WITH (key_field = 'id', target_segment_count = '3', mutable_segment_rows = '0');
+  WITH (target_segment_count = '3', mutable_segment_rows = '0');
 CREATE INDEX pc_small_idx ON pc_small USING paradedb (id, series_id, user_id)
-  WITH (key_field = 'id', target_segment_count = '3');
+  WITH (target_segment_count = '3');
 -- Two separate statements, so pc_big ends up with two immutable segments.
 INSERT INTO pc_big SELECT g, 'active' FROM generate_series(1, 50) g;
 INSERT INTO pc_big SELECT g, 'merged' FROM generate_series(51, 80) g;
@@ -31,8 +31,8 @@ WHERE le.id @@@ paradedb.term('user_id', 'u1')
   AND sv.id @@@ paradedb.term('state', 'merged')
 ORDER BY le.id
 LIMIT 5;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=8)
    Relation Tree: le INNER sv
    Join Cond: sv.id = le.series_id
@@ -40,17 +40,16 @@ LIMIT 5;
    Order By: le.id asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     : │   SortPreservingMergeExec: [id@0 ASC NULLS LAST], fetch=5
-     : │     SortExec: TopK(fetch=5), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[true]
-     : │       VisibilityFilterExec: tables=[le, sv]
-     : │         TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     : │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, series_id@1)], projection=[id@2, ctid_0@4, ctid_1@1]
-     : │             CoalescePartitionsExec
-     : │               [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
-     : │             RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-     : │               DistributedLeafExec:
-     : │                 t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
+     : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     : │     VisibilityFilterExec: tables=[le, sv]
+     : │       TantivyFetchExec: fetch=[ctid_0, ctid_1]
+     : │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, series_id@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     : │           CoalescePartitionsExec
+     : │             [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=2
+     : │           CooperativeExec
+     : │             DistributedLeafExec:
+     : │               t0: PgSearchScan: table=le, segments=1, dynamic_filters=2, query={"with_index":{"query":{"term":{"field":"user_id","value":"u1"}}}}
      : └──────────────────────────────────────────────────
      :   ┌───── Stage 1 ── tasks=2, partitions=2
      :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
@@ -58,7 +57,7 @@ LIMIT 5;
      :   │     t0: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
      :   │     t1: PgSearchScan: table=sv, segments=2, query={"with_index":{"query":{"term":{"field":"state","value":"merged"}}}}
      :   └──────────────────────────────────────────────────
-(25 rows)
+(24 rows)
 
 SELECT le.id
 FROM pc_small le

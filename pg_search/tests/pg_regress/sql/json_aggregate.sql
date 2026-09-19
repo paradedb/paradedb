@@ -30,14 +30,7 @@ INSERT INTO json_agg_test (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_agg ON json_agg_test
-USING paradedb (id, metadata, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{
-        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
-        "data": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
 
 -- Test simple COUNT with JSON field filter
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -297,11 +290,7 @@ INSERT INTO json_deep_agg (nested_data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_deep_agg ON json_deep_agg
-USING paradedb (id, nested_data)
-WITH (
-    key_field = 'id',
-    json_fields = '{"nested_data": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (nested_data::pdb.unicode_words('columnar=true')));
 
 -- Test COUNT on deeply nested path (4 levels deep)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -351,11 +340,7 @@ INSERT INTO json_mixed_agg (doc) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_mixed_agg ON json_mixed_agg
-USING paradedb (id, doc)
-WITH (
-    key_field = 'id',
-    json_fields = '{"doc": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (doc::pdb.unicode_words('columnar=true')));
 
 -- Test COUNT by document type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -435,11 +420,7 @@ INSERT INTO json_array_agg (data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_array_agg ON json_array_agg
-USING paradedb (id, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 
 -- Test COUNT on documents with specific tags
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -462,54 +443,8 @@ SELECT COUNT(*)
 FROM json_array_agg 
 WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
 
--- =========================================
--- Test 14: Special characters and edge cases
--- =========================================
-
--- Create table with special JSON keys
-CREATE TABLE json_special_agg (
-    id SERIAL PRIMARY KEY,
-    payload JSONB
-);
-
--- Insert data with special characters
-INSERT INTO json_special_agg (payload) VALUES
-    ('{"user-profile": {"first_name": "John", "email@work": "john@company.com", "settings.theme": "dark"}}'),
-    ('{"user-profile": {"first_name": "Jane", "email@work": "jane@company.com", "settings.theme": "light"}}'),
-    ('{"api-response": {"status_code": 200, "response.time": 150, "cache-hit": true}}'),
-    ('{"api-response": {"status_code": 404, "response.time": 50, "cache-hit": false}}');
-
--- Create BM25 index
-CREATE INDEX idx_json_special_agg ON json_special_agg
-USING paradedb (id, payload)
-WITH (
-    key_field = 'id',
-    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
-
--- Test COUNT with special character fields
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
-
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
-
--- Test COUNT on API responses
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
-
-SELECT COUNT(*) 
-FROM json_special_agg 
-WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
-
 -- Clean up
 DROP TABLE json_agg_test;
 DROP TABLE json_deep_agg;
 DROP TABLE json_mixed_agg;
 DROP TABLE json_array_agg;
-DROP TABLE json_special_agg;

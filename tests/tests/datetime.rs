@@ -24,7 +24,7 @@ use tests::fixtures::*;
 fn datetime_microsecond(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP);
-    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t);
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079776Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079777Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079778Z');
@@ -40,7 +40,8 @@ fn datetime_microsecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079777Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.079777Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.079777Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries
@@ -55,7 +56,7 @@ fn datetime_microsecond(mut conn: PgConnection) {
 fn datetime_term_millisecond(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP(3));
-    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t);
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.078Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.079Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.08Z');
@@ -73,19 +74,22 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.079Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.079Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.079Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.078001Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.078001Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.078001Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries
@@ -106,7 +110,7 @@ fn datetime_term_millisecond(mut conn: PgConnection) {
 fn datetime_term_second(mut conn: PgConnection) {
     r#"
     CREATE TABLE ts (id SERIAL, t TIMESTAMP(0));
-    CREATE INDEX ts_idx on ts using paradedb (id, t) with (key_field = 'id');
+    CREATE INDEX ts_idx on ts using paradedb (id, t);
     INSERT INTO ts (t) values ('2025-01-28T18:19:14Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:14.1Z');
     INSERT INTO ts (t) values ('2025-01-28T18:19:15Z');
@@ -123,7 +127,8 @@ fn datetime_term_second(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT id FROM ts WHERE t = '2025-01-28T18:19:14.1Z'::timestamp".fetch(&mut conn);
     let rows: Vec<(i32,)> =
-        r#"SELECT id FROM ts WHERE t @@@ '"2025-01-28T18:19:14.1Z"'"#.fetch(&mut conn);
+        r#"SELECT id FROM ts WHERE t @@@ pdb.parse_with_field('"2025-01-28T18:19:14.1Z"')"#
+            .fetch(&mut conn);
     assert_eq!(rows, expected);
 
     // Range queries
@@ -169,7 +174,7 @@ fn datetime_wide_range(
         INSERT INTO wide_range (v) VALUES ({val_future});
         INSERT INTO wide_range (v) VALUES ({val_past});
         INSERT INTO wide_range (v) VALUES ({val_mid});
-        CREATE INDEX wide_range_idx ON wide_range USING paradedb (id, v) WITH (key_field = 'id');
+        CREATE INDEX wide_range_idx ON wide_range USING paradedb (id, v);
         "#
     )
     .execute(&mut conn);

@@ -20,7 +20,7 @@ INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
 INSERT INTO test (message, severity) VALUES ('wine a', 6);
 INSERT INTO test (message, severity) VALUES ('cheese a', 7);
 -- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
-CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (key_field = 'id');
+CREATE INDEX idxtest ON test USING paradedb (id, message, severity);
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
 DECLARE
    current_txid bigint;
@@ -39,9 +39,9 @@ $$;
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+select assert(count(*), 8), count(*) from (select id from test where message ||| 'beer' order by severity) x limit 8;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Aggregate
          ->  Sort
@@ -52,19 +52,19 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
                      Exec Method: ColumnarExecState
                      Columnar: severity
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"message","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
-select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
+select assert(count(*), 8), count(*) from (select id from test where message ||| 'beer' order by severity) x limit 8;
  assert | count 
 --------+-------
  t      |     8
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+select assert(count(*), 8), count(*), max(id) from (select id from test where message ||| 'beer' order by severity) x limit 8;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Aggregate
          ->  Sort
@@ -75,19 +75,19 @@ select assert(count(*), 8), count(*), max(id) from (select id from test where me
                      Exec Method: ColumnarExecState
                      Columnar: id, severity
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"message","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
-select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
+select assert(count(*), 8), count(*), max(id) from (select id from test where message ||| 'beer' order by severity) x limit 8;
  assert | count | max 
 --------+-------+-----
  t      |     8 |  11
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message ||| 'beer' order by severity) x limit 8;
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Aggregate
          ->  Sort
@@ -98,10 +98,10 @@ select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from tes
                      Exec Method: ColumnarExecState
                      Columnar: severity
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"message","value":"beer","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
-select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
+select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message ||| 'beer' order by severity) x limit 8;
  assert | count | max 
 --------+-------+-----
  t      |     8 |  12

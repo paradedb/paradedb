@@ -21,8 +21,7 @@ VALUES
 -- Create ParadeDB index
 CREATE INDEX booltest_simple_idx
     ON booltest_simple
-    USING paradedb (id, description)
-    WITH (key_field = 'id');
+    USING paradedb (id, description);
 -- Force ParadeDB planner path
 SET enable_seqscan = off;
 SET enable_indexscan = off;
@@ -32,21 +31,21 @@ SET paradedb.enable_filter_pushdown = on;
 EXPLAIN (COSTS OFF)
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE;
-                                                                                                                                        QUERY PLAN                                                                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on booltest_simple
    Table: booltest_simple
    Index: booltest_simple_idx
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"hello","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"(flag IS TRUE)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"always_filters":[{"heap_filter":"(flag IS TRUE)"}]}}]}}
 (6 rows)
 
 SELECT *
 FROM booltest_simple
-WHERE description @@@ 'hello'
+WHERE description ||| 'hello'
   AND flag IS TRUE
 ORDER BY id;
  id | description | flag 

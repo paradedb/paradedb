@@ -42,35 +42,9 @@ CREATE TABLE pages (
     FOREIGN KEY (fileId) REFERENCES files(id)
 );
 -- Create BM25 indexes with fast fields
-CREATE INDEX documents_search ON documents USING paradedb (
-    id,
-    title,
-    parents,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "parents": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX files_search ON files USING paradedb (
-    id,
-    documentId,
-    title,
-    file_path,
-    file_size
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "documentid": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"tokenizer": {"type": "default"}, "fast": true}, "file_path": {"tokenizer": {"type": "default"}, "fast": true}}'
-);
-CREATE INDEX pages_search ON pages USING paradedb (
-    id,
-    fileId,
-    content,
-    page_number
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "fileid": {"tokenizer": {"type": "keyword"}, "fast": true}, "content": {"tokenizer": {"type": "default"}, "fast": true}}',
-    numeric_fields = '{"page_number": {"fast": true}}'
-);
+CREATE INDEX documents_search ON documents USING paradedb ((id::pdb.literal), (title::pdb.simple('columnar=true')), (parents::pdb.simple('columnar=true')), (content::pdb.simple('columnar=true')));
+CREATE INDEX files_search ON files USING paradedb ((id::pdb.literal), (documentid::pdb.literal), (title::pdb.simple('columnar=true')), (file_path::pdb.simple('columnar=true')), file_size);
+CREATE INDEX pages_search ON pages USING paradedb ((id::pdb.literal), (fileid::pdb.literal), (content::pdb.simple('columnar=true')), page_number);
 -- Insert sample data for documents
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc1', 'Invoice 2023', 'This is an invoice for services rendered in 2023', 'Factures'),
@@ -109,10 +83,10 @@ Test: ORDER BY with columnar storage
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT fileId, page_number
 FROM pages
-WHERE content @@@ 'Socienty'
+WHERE content ||| 'Socienty'
 ORDER BY fileid, page_number;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fileid, page_number
    ->  Custom Scan (ParadeDB Base Scan) on pages
@@ -121,13 +95,13 @@ ORDER BY fileid, page_number;
          Exec Method: ColumnarExecState
          Columnar: fileid, page_number
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"Socienty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- Execute query and verify results are ordered
 SELECT fileId, page_number
 FROM pages
-WHERE content @@@ 'Socienty'
+WHERE content ||| 'Socienty'
 ORDER BY fileid, page_number;
  fileid | page_number 
 --------+-------------

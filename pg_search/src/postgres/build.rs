@@ -60,57 +60,53 @@ pub extern "C-unwind" fn ambuild(
 
     // ensure we only allow one ParadeDB index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
-    unsafe {
-        let index_tuple = &(*index_relation.rd_index);
-        let is_reindex = !index_tuple.indisvalid;
-        let is_concurrent = (*index_info).ii_Concurrent;
+    let index_tuple = unsafe { &*index_relation.rd_index };
+    let is_reindex = !index_tuple.indisvalid;
+    let is_concurrent = unsafe { (*index_info).ii_Concurrent };
 
-        if !is_reindex {
-            for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-                if existing_index.oid() == index_relation.oid() {
-                    // the index we're about to build already exists on the table.
-                    continue;
-                }
+    if !is_reindex {
+        for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
+            if existing_index.oid() == index_relation.oid() {
+                // the index we're about to build already exists on the table.
+                continue;
+            }
 
-                if (*existing_index.rd_rel).relam.is_paradedb_am() && !is_concurrent {
-                    panic!("a relation may only have one ParadeDB index");
-                }
+            let rd_rel = unsafe { &*existing_index.rd_rel };
+            if rd_rel.relam.is_paradedb_am() && !is_concurrent {
+                panic!("a relation may only have one ParadeDB index");
             }
         }
     }
 
-    unsafe {
-        let heap_tuples = build_index(
-            heap_relation,
-            index_relation.clone(),
-            (*index_info).ii_Concurrent,
-        )
+    let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)
         .unwrap_or_else(|e| panic!("{e}"));
 
-        pgrx::debug1!("build_index: flushing buffers");
+    pgrx::debug1!("build_index: flushing buffers");
 
-        // if we're configured to defer WAL logging, now is the time to do it
-        if deferred_wal && needs_wal {
-            let nblocks =
-                pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+    // if we're configured to defer WAL logging, now is the time to do it
+    if deferred_wal && needs_wal {
+        let nblocks = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM)
+        };
 
-            pgrx::debug1!(
-                "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes",
-                nblocks as usize * pg_sys::BLCKSZ as usize
-            );
+        pgrx::debug1!(
+            "{heap_tuples} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes",
+            nblocks as usize * pg_sys::BLCKSZ as usize
+        );
 
-            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
-        }
-
-        if needs_wal {
-            custom_rmgr::emit_init_record();
-        }
-
-        let mut result = PgBox::<pg_sys::IndexBuildResult>::alloc0();
-        result.heap_tuples = heap_tuples;
-        result.index_tuples = heap_tuples;
-        result.into_pg()
+        unsafe {
+            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true)
+        };
     }
+
+    if needs_wal {
+        custom_rmgr::emit_init_record();
+    }
+
+    let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
+    result.heap_tuples = heap_tuples;
+    result.index_tuples = heap_tuples;
+    result.into_pg()
 }
 
 #[pg_guard]
@@ -534,10 +530,8 @@ mod tests {
     fn a_non_fast_partition_key_is_rejected() {
         Spi::run(
             r#"
-            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX unroutable_key_idx ON unroutable_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": false}}');
+            CREATE TABLE unroutable_key (id BIGSERIAL PRIMARY KEY, tenant_id TEXT, name TEXT);
+            CREATE INDEX unroutable_key_idx ON unroutable_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -552,9 +546,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE mixed_key (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
-            CREATE INDEX mixed_key_idx ON mixed_key USING bm25 (id, tenant_id, name)
-                WITH (partition_by = 'tenant_id, name', target_segment_count = 4,
-                      numeric_fields = '{"tenant_id": {"fast": true}}');
+            CREATE INDEX mixed_key_idx ON mixed_key USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, name', target_segment_count = 4);
             "#,
         )
         .unwrap();
@@ -567,9 +559,7 @@ mod tests {
         Spi::run(
             r#"
             CREATE TABLE normalized_sort (id BIGSERIAL PRIMARY KEY, name TEXT);
-            CREATE INDEX normalized_sort_idx ON normalized_sort USING bm25 (id, name)
-                WITH (sort_by = 'name ASC NULLS FIRST',
-                      text_fields = '{"name": {"fast": true, "normalizer": "lowercase"}}');
+            CREATE INDEX normalized_sort_idx ON normalized_sort USING paradedb (id, (name::pdb.unicode_words('normalizer=lowercase', 'columnar=true'))) WITH (sort_by = 'name ASC NULLS FIRST');
             INSERT INTO normalized_sort (name)
             SELECT 'Lorem Ipsum ' || i FROM generate_series(1, 500) i;
             "#,

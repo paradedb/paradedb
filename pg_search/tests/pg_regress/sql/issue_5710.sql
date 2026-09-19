@@ -20,8 +20,7 @@ INSERT INTO issue_5710_repro (id, group_id, label, created_at) VALUES
 -- return it. Without this, top_hits errors on docvalue_fields resolution
 -- rather than on the sort validator we are testing.
 CREATE INDEX issue_5710_idx ON issue_5710_repro
-    USING paradedb (id, group_id, (label::pdb.literal), created_at)
-    WITH (key_field = 'id');
+    USING paradedb (id, group_id, (label::pdb.literal), created_at);
 
 -- Case 1: sort on a text field must raise a clear error.
 -- Before the fix, this returned three hits each with "sort": [null] and no

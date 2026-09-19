@@ -80,19 +80,7 @@ VALUES ('apple', 'apple', 'Electronics', 'apple', 10),
         50
     );
 
-CREATE INDEX collation_test_idx ON collation_test USING paradedb (
-    id,
-    name_c,
-    name_icu,
-    name_case_insensitive,
-    name_default,
-    priority
-)
-WITH (
-        key_field = 'id',
-        text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}, "name_case_insensitive": {"indexed": true, "fast": true}, "name_default": {"indexed": true, "fast": true}}',
-        numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
-    );
+CREATE INDEX collation_test_idx ON collation_test USING paradedb (id, (name_c::pdb.unicode_words('columnar=true')), (name_icu::pdb.unicode_words('columnar=true')), (name_case_insensitive::pdb.unicode_words('columnar=true')), (name_default::pdb.unicode_words('columnar=true')), priority);
 
 ANALYZE collation_test;
 
@@ -288,13 +276,7 @@ VALUES ('berlin', 3600000),
     ('Delhi', 32000000),
     ('edmonton', 1000000);
 
-CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, city, population)
-WITH (
-        key_field = 'id',
-        text_fields = '{"city": {"indexed": true, "fast": true}}',
-        numeric_fields = '{"population": {"indexed": true, "fast": true}}',
-        sort_by = 'city ASC NULLS FIRST'
-    );
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test USING paradedb (id, (city::pdb.unicode_words('columnar=true')), population) WITH (sort_by = 'city ASC NULLS FIRST');
 
 ANALYZE collation_sortby_test;
 
@@ -398,23 +380,9 @@ VALUES (1, 1, 'TechCorp'),
     (4, 4, 'FurniPro'),
     (5, 5, 'TechCorp');
 
-CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (
-    id,
-    name_c,
-    name_icu,
-    description
-)
-WITH (
-        key_field = 'id',
-        text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
-    );
+CREATE INDEX collation_join_products_idx ON collation_join_products USING paradedb (id, (name_c::pdb.unicode_words('columnar=true')), (name_icu::pdb.unicode_words('columnar=true')), description);
 
-CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, supplier_name)
-WITH (
-        key_field = 'id',
-        text_fields = '{"supplier_name": {"fast": true}}',
-        numeric_fields = '{"product_id": {"fast": true}}'
-    );
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers USING paradedb (id, product_id, (supplier_name::pdb.unicode_words('columnar=true')));
 
 ANALYZE collation_join_products;
 
@@ -425,7 +393,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_c, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name_c
 LIMIT 5;
 
@@ -434,7 +402,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_icu, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.name_icu
 LIMIT 5;
 
@@ -443,7 +411,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.name_c, s.supplier_name
 FROM collation_join_products p
 JOIN collation_join_suppliers s ON p.id = s.product_id
-WHERE p.description @@@ 'wireless'
+WHERE p.description ||| 'wireless'
 ORDER BY p.id
 LIMIT 5;
 

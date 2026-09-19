@@ -75,7 +75,10 @@ run_psql_file() {
     printf '%s\n' "$output" >&2
   fi
 
-  if grep -Eq '(^|:) WARNING:' <<<"$output"; then
+  # Published 0.25 docs require key_field; the 0.26 test extension warns on it.
+  # TODO: Remove this exception once key_field is removed from the docs.
+  if grep -E '(^|:) WARNING:' <<<"$output" |
+    grep -Ev 'WARNING:  key_field is deprecated as of 0\.26\.0 and is a no-op; it no longer needs to be provided$' >/dev/null; then
     return 1
   fi
 }
@@ -90,12 +93,10 @@ drop_snippet_indexes() {
 
 python3 "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
-
 sql_pass_count=0
 sql_fail_count=0
 if [[ $ORMS =~ "sql" ]]; then
   run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
-
 
   while IFS= read -r snippet_file; do
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
@@ -135,7 +136,7 @@ if [[ $ORMS =~ "django" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+    if ! grep -Eq 'schema_editor\.add_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -146,8 +147,7 @@ if [[ $ORMS =~ "django" ]]; then
 # Source: $rel_snippet
 PY
       cat "$snippet_file"
-    } | "$PYTHON_BIN" - >/dev/null
-    then
+    } | "$PYTHON_BIN" - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       django_pass_count=$((django_pass_count + 1))
     else
@@ -173,7 +173,7 @@ if [[ $ORMS =~ "rails" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'add_paradedb_index' "$snippet_file"; then
+    if ! grep -Eq 'add_paradedb_index|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -185,9 +185,9 @@ if [[ $ORMS =~ "rails" ]]; then
 RUBY
       cat "$snippet_file"
     } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
-        GEM_HOME="$RUBY_GEM_HOME" \
-        GEM_PATH="$RUBY_GEM_HOME" \
-        ruby - >/dev/null; then
+      GEM_HOME="$RUBY_GEM_HOME" \
+      GEM_PATH="$RUBY_GEM_HOME" \
+      ruby - >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       rails_pass_count=$((rails_pass_count + 1))
     else
@@ -197,7 +197,6 @@ RUBY
     fi
   done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
 fi
-
 
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
@@ -217,7 +216,7 @@ if [[ $ORMS =~ "sqlalchemy" ]]; then
 
     drop_snippet_indexes
 
-    if ! grep -Fq 'idx.create' "$snippet_file"; then
+    if ! grep -Eq 'idx\.create|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 
@@ -257,7 +256,7 @@ if [[ $ORMS =~ "drizzle" ]]; then
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
 
-    if ! grep -Fq 'paradedbIndex' "$snippet_file"; then
+    if ! grep -Eq 'paradedbIndex|CREATE INDEX' "$snippet_file"; then
       create_snippet_indexes
     fi
 

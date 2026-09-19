@@ -105,15 +105,9 @@ INSERT INTO tags (article_id, tag_name) VALUES
     (15, 'graphql'), (15, 'api'), (15, 'technology');
 
 -- Create BM25 indexes with fast field for sorting
-CREATE INDEX articles_bm25_idx ON articles USING paradedb (id, title, content, created_at) WITH (
-    key_field = 'id',
-    text_fields = '{
-        "title": { "fast": true, "tokenizer": {"type": "default"} },
-        "content": { "tokenizer": {"type": "default"} }
-    }'
-);
-CREATE INDEX comments_bm25_idx ON comments USING paradedb (id, content) WITH (key_field = 'id');
-CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, expertise) WITH (key_field = 'id');
+CREATE INDEX articles_bm25_idx ON articles USING paradedb (id, (title::pdb.simple('columnar=true')), (content::pdb.simple), created_at);
+CREATE INDEX comments_bm25_idx ON comments USING paradedb (id, content);
+CREATE INDEX authors_bm25_idx ON authors USING paradedb (id, name, bio, expertise);
 
 -- =============================================================================
 -- TEST 1: Basic LEFT JOIN LATERAL with Top K optimization (should use Top K)
@@ -135,7 +129,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -155,7 +149,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -176,7 +170,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC;
 
 -- Execute to verify results work without LIMIT
@@ -193,7 +187,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC;
 
 -- =============================================================================
@@ -211,7 +205,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) c ON true
-WHERE a.content @@@ 'database' 
+WHERE a.content ||| 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -228,7 +222,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) c ON true
-WHERE a.content @@@ 'database' 
+WHERE a.content ||| 'database'
   AND c.comment_count > 5
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -244,7 +238,7 @@ SELECT
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -256,7 +250,7 @@ SELECT
     au.name as author_name
 FROM articles a
 LEFT JOIN authors au ON a.author_id = au.id
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -280,7 +274,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'machine learning'
+WHERE a.content ||| 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
 
@@ -298,7 +292,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'machine learning'
+WHERE a.content ||| 'machine learning'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 10;
 
@@ -318,7 +312,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) latest ON true
-WHERE a.content @@@ 'cloud'
+WHERE a.content ||| 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
 
@@ -334,7 +328,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) latest ON true
-WHERE a.content @@@ 'cloud'
+WHERE a.content ||| 'cloud'
 ORDER BY a.created_at DESC
 LIMIT 5;
 
@@ -359,7 +353,7 @@ LEFT JOIN LATERAL (
     FROM tags t
     WHERE t.article_id = a.id
 ) tag_list ON true
-WHERE a.content @@@ 'database security'
+WHERE a.content ||| 'database security'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
@@ -380,7 +374,7 @@ LEFT JOIN LATERAL (
     FROM tags t
     WHERE t.article_id = a.id
 ) tag_list ON true
-WHERE a.content @@@ 'database security'
+WHERE a.content ||| 'database security'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
@@ -400,7 +394,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) recent_activity ON true
-WHERE a.content @@@ 'machine learning' 
+WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -418,7 +412,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) recent_activity ON true
-WHERE a.content @@@ 'machine learning' 
+WHERE a.content ||| 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
@@ -443,7 +437,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
     HAVING COUNT(*) > 0
 ) comment_info ON true
-WHERE a.content @@@ 'encryption'
+WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -462,7 +456,7 @@ LEFT JOIN LATERAL (
     WHERE c.article_id = a.id
     HAVING COUNT(*) > 0
 ) comment_info ON true
-WHERE a.content @@@ 'encryption'
+WHERE a.content ||| 'encryption'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -483,7 +477,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -499,7 +493,7 @@ LEFT JOIN LATERAL (
     FROM comments c
     WHERE c.article_id = a.id
 ) stats ON true
-WHERE a.content @@@ 'technology'
+WHERE a.content ||| 'technology'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -528,7 +522,7 @@ LEFT JOIN (
         )
     ) comment_stats ON true
 ) ON a.author_id = au.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -550,7 +544,7 @@ LEFT JOIN (
         )
     ) comment_stats ON true
 ) ON a.author_id = au.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
@@ -585,7 +579,7 @@ LEFT JOIN LATERAL (
         WHERE c.author_name = au.name
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
@@ -613,7 +607,7 @@ LEFT JOIN LATERAL (
         WHERE c.author_name = au.name
     ) comment_stats ON true
 ) complex ON a.author_id = complex.id
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
@@ -636,7 +630,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 
@@ -655,7 +649,7 @@ LEFT JOIN LATERAL (
     ORDER BY c.created_at DESC
     LIMIT 1
 ) latest_comment ON true
-WHERE a.content @@@ 'database'
+WHERE a.content ||| 'database'
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 3;
 

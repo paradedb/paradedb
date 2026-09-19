@@ -7,12 +7,11 @@ INSERT INTO whole_row_search VALUES
     ('SKU-2', 'wireless keyboard', 'shoes'),
     ('SKU-3', 'cotton shirt', 'apparel');
 CREATE INDEX whole_row_search_idx ON whole_row_search
-USING paradedb (sku, description, category)
-WITH (text_fields = '{"sku": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+USING paradedb ((sku::pdb.literal), description, category);
 
 -- Bare terms search across indexed fields instead of the key field.
-SELECT sku FROM whole_row_search AS t WHERE t @@@ 'shoes' ORDER BY sku;
-SELECT sku FROM whole_row_search AS t WHERE t @@@ 'shoes'::pdb.query ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('shoes') ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('shoes')::pdb.query ORDER BY sku;
 SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('shoes') ORDER BY sku;
 SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse('description:shoes') ORDER BY sku;
 SELECT sku FROM whole_row_search AS t
@@ -40,7 +39,9 @@ SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.term('shoes')::pdb.boost(2
 SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.prox_clause('running', 0, 'shoes');
 
 -- A raw array is not a complete proximity clause.
+\set VERBOSITY terse
 SELECT sku FROM whole_row_search AS t WHERE t @@@ ARRAY['shoes', 'keyboard'];
+\set VERBOSITY default
 
 SET plan_cache_mode = force_generic_plan;
 PREPARE whole_row_query(pdb.query) AS
@@ -57,7 +58,7 @@ EXECUTE whole_row_query(pdb.all());
 DEALLOCATE whole_row_query;
 
 PREPARE whole_row_text(text) AS
-SELECT sku FROM whole_row_search AS t WHERE t @@@ $1 ORDER BY sku;
+SELECT sku FROM whole_row_search AS t WHERE t @@@ pdb.parse($1) ORDER BY sku;
 EXECUTE whole_row_text('shoes');
 EXECUTE whole_row_text('description:keyboard');
 DEALLOCATE whole_row_text;

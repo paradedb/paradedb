@@ -5,9 +5,8 @@ CALL paradedb.create_paradedb_test_table(
   table_name => 'mock_items'
 );
 
-CREATE INDEX search_idx ON mock_items USING paradedb (id, (description::pdb.literal), rating) WITH (key_field = id);
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * from mock_items where rating @@@ '4';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ 'IN [1 2]';
+CREATE INDEX search_idx ON mock_items USING paradedb (id, (description::pdb.literal), rating);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ pdb.term_set(ARRAY[1, 2]);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating = 4;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating IN (1, 2);
 

@@ -45,42 +45,15 @@ CREATE TABLE js_parallel_distinct_orders (
 
 CREATE INDEX js_parallel_distinct_users_idx
 ON js_parallel_distinct_users
-USING paradedb (id, uuid, name, age)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 
 CREATE INDEX js_parallel_distinct_products_idx
 ON js_parallel_distinct_products
-USING paradedb (id, uuid, name, age)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 
 CREATE INDEX js_parallel_distinct_orders_idx
 ON js_parallel_distinct_orders
-USING paradedb (id, uuid, name, age)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
-        "name": { "tokenizer": { "type": "keyword" }, "fast": true }
-    }',
-    numeric_fields = '{ "age": { "fast": true } }',
-    target_segment_count = 2
-);
+USING paradedb (id, (uuid::pdb.literal), (name::pdb.literal), age) WITH (target_segment_count = 2);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -149,8 +122,8 @@ SELECT DISTINCT u.id, u.name, p.id, o.id
 FROM js_parallel_distinct_users u
 JOIN js_parallel_distinct_products p ON u.id = p.id
 JOIN js_parallel_distinct_orders o ON p.age = o.age
-WHERE u.name @@@ 'bob'
-  AND p.name @@@ 'bob'
+WHERE u.name ||| 'bob'
+  AND p.name ||| 'bob'
 ORDER BY u.id, p.id, o.id
 LIMIT 48;
 
@@ -161,8 +134,8 @@ FROM (
     FROM js_parallel_distinct_users u
     JOIN js_parallel_distinct_products p ON u.id = p.id
     JOIN js_parallel_distinct_orders o ON p.age = o.age
-    WHERE u.name @@@ 'bob'
-      AND p.name @@@ 'bob'
+    WHERE u.name ||| 'bob'
+      AND p.name ||| 'bob'
     ORDER BY u.id, p.id, o.id
     LIMIT 48
 ) q;

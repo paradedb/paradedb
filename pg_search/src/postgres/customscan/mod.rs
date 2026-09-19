@@ -19,6 +19,8 @@
 
 #![allow(clippy::tabs_in_doc_comments)]
 
+use crate::postgres::node::NodeExt;
+
 use parking_lot::Mutex;
 use pgrx::{IntoDatum, PgList, PgMemoryContexts, direct_function_call, pg_sys};
 
@@ -41,6 +43,7 @@ mod hook;
 pub mod joinscan;
 pub mod limit_offset;
 pub mod mpp;
+pub(crate) mod node;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;
@@ -352,7 +355,7 @@ impl CreateUpperPathsHookArgs {
 
     /// The statically-known `LIMIT + OFFSET` of the query, or `None` when there
     /// is no LIMIT or its value is parameterized (not known at planning time).
-    pub unsafe fn limit_plus_offset(&self) -> Option<usize> {
+    pub fn limit_plus_offset(&self) -> Option<usize> {
         limit_offset::LimitOffset::from_parse(self.root().parse).and_then(|lo| lo.static_fetch())
     }
 
@@ -403,8 +406,6 @@ impl CreateUpperPathsHookArgs {
     /// Tantivy backend, which classifies and declines them with its own messages;
     /// the DataFusion backend cannot take them either.
     pub unsafe fn has_numeric_aggregate(&self) -> bool {
-        use pgrx::pg_guard;
-
         let parse = self.root().parse;
         if parse.is_null() || (*parse).targetList.is_null() {
             return false;
@@ -415,38 +416,13 @@ impl CreateUpperPathsHookArgs {
                 .is_some_and(|var| (*var).vartype == pg_sys::NUMERICOID)
         }
 
-        struct WalkerContext {
-            found: bool,
-        }
-
-        #[pg_guard]
-        unsafe extern "C-unwind" fn numeric_aggref_walker(
-            node: *mut pg_sys::Node,
-            context: *mut core::ffi::c_void,
-        ) -> bool {
-            if node.is_null() {
-                return false;
-            }
-            let ctx = &mut *(context as *mut WalkerContext);
-            if (*node).type_ == pg_sys::NodeTag::T_Aggref {
-                let aggref = node as *mut pg_sys::Aggref;
-                let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-                for arg in agg_args.iter_ptr() {
-                    if is_direct_numeric_var((*arg).expr as *mut pg_sys::Node) {
-                        ctx.found = true;
-                        return true;
-                    }
-                }
-            }
-            pg_sys::expression_tree_walker(node, Some(numeric_aggref_walker), context)
-        }
-
-        let mut context = WalkerContext { found: false };
-        numeric_aggref_walker(
-            (*parse).targetList as *mut pg_sys::Node,
-            std::ptr::addr_of_mut!(context).cast(),
-        );
-        if context.found {
+        if (*parse).targetList.any(|node| {
+            crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
+                PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
+                    .iter_ptr()
+                    .any(|arg| is_direct_numeric_var((*arg).expr.cast()))
+            })
+        }) {
             return true;
         }
 

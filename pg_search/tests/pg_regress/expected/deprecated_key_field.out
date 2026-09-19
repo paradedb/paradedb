@@ -1,0 +1,40 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- The deprecated key_field option warns but is otherwise ignored.
+CREATE TABLE deprecated_key_field (id integer, description text);
+INSERT INTO deprecated_key_field VALUES (NULL, 'keyboard'), (1, 'keyboard');
+CREATE INDEX deprecated_key_field_idx ON deprecated_key_field
+USING paradedb (description) WITH (key_field = 'id');
+WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
+SET enable_seqscan = off;
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
+ id | description 
+----+-------------
+    | keyboard
+  1 | keyboard
+(2 rows)
+
+DROP INDEX deprecated_key_field_idx;
+CREATE INDEX deprecated_key_field_idx ON deprecated_key_field
+USING paradedb (description) WITH (key_field = 'nonexistent');
+WARNING:  key_field is deprecated as of 0.26.0 and is a no-op; it no longer needs to be provided
+INSERT INTO deprecated_key_field VALUES (NULL, 'keyboard');
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
+ id | description 
+----+-------------
+    | keyboard
+    | keyboard
+  1 | keyboard
+(3 rows)
+
+DROP INDEX deprecated_key_field_idx;
+CREATE INDEX deprecated_key_field_idx ON deprecated_key_field USING paradedb (description);
+SELECT * FROM deprecated_key_field WHERE description ||| 'keyboard' ORDER BY id NULLS FIRST;
+ id | description 
+----+-------------
+    | keyboard
+    | keyboard
+  1 | keyboard
+(3 rows)
+
+RESET enable_seqscan;
+DROP TABLE deprecated_key_field;

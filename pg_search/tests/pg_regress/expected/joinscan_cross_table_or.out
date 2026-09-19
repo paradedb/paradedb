@@ -1,5 +1,5 @@
 -- Regression test for issue 5177.
--- When `WHERE` has a cross-table OR like `(u.name @@@ 'bob') OR (p.name @@@ 'bob')`
+-- When `WHERE` has a cross-table OR like `(u.name ||| 'bob') OR (p.name ||| 'bob')`
 -- and PG pushes that OR into an inner sub-join's `joinrestrictinfo`, the outer
 -- JoinScan's path reconstruction silently dropped `RestrictInfo` clauses that
 -- contain `@@@`. The cross-table OR was then lost and the WHERE was effectively
@@ -13,17 +13,11 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
-CREATE INDEX idxusers ON users USING paradedb (id, name)
-  WITH (key_field = 'id',
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+CREATE INDEX idxusers ON users USING paradedb (id, (name::pdb.literal));
 CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);
-CREATE INDEX idxproducts ON products USING paradedb (id, name, age)
-  WITH (key_field = 'id',
-        text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-        numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxproducts ON products USING paradedb (id, (name::pdb.literal), age);
 CREATE TABLE orders (id INTEGER PRIMARY KEY, age INTEGER);
-CREATE INDEX idxorders ON orders USING paradedb (id, age)
-  WITH (key_field = 'id', numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX idxorders ON orders USING paradedb (id, age);
 -- Joinable on users.id = products.id and products.age = orders.age.
 -- For each (u, p, o) triple, only some satisfy `u.name='bob' OR p.name='bob'`.
 INSERT INTO users (id, name) VALUES
@@ -79,39 +73,39 @@ SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
-   OR (products.name @@@ 'bob')
+WHERE (users.name ||| 'bob') AND (NOT (products.name ||| 'bob'))
+   OR (products.name ||| 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
-                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: orders INNER (products INNER users)
    Join Cond: products.age = orders.age, users.id = products.id
-   Join Predicate: ((users:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}} AND products:{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}) OR products:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
+   Join Predicate: ((users:{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} AND products:{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}) OR products:{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 20
    Order By: users.id asc, orders.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[BM25 as col_1, id@5 as col_2, name@6 as col_3, id@2 as col_4, name@3 as col_5, id@0 as col_6, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1, ctid_2@7 as ctid_2]
-     :   SortExec: TopK(fetch=20), expr=[id@5 ASC NULLS LAST, id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[BM25 as col_1, id@5 as col_2, NULL as col_3, id@3 as col_4, NULL as col_5, id@1 as col_6, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   SortExec: TopK(fetch=20), expr=[id@5 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[orders, products, users]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1, ctid_2]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@0)], filter=__users_2_tag_0@2 AND __products_1_tag_0@0 OR __products_1_tag_1@1, projection=[id@0, ctid_0@1, id@2, name@3, ctid_1@4, id@7, name@8, ctid_2@9]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@2, age@1)], projection=[id@6, ctid_0@8, id@0, name@1, ctid_1@3, __products_1_tag_0@4, __products_1_tag_1@5]
-     :             FilterExec: __products_1_tag_0@4 OR __products_1_tag_1@5
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, id@1)], filter=__users_2_tag_0@2 AND __products_1_tag_0@0 OR __products_1_tag_1@1, projection=[ctid_0@0, id@1, ctid_1@2, id@3, ctid_2@6, id@7]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@5, id@7, ctid_1@0, id@2, __products_1_tag_0@3, __products_1_tag_1@4]
+     :             FilterExec: __products_1_tag_0@3 OR __products_1_tag_1@4
      :               CooperativeExec
-     :                 PgSearchScan: table=products, segments=1, eager=[name], query={"boolean":{"should":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}, tag_0={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}]}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :                 PgSearchScan: table=products, segments=1, query={"boolean":{"should":[{"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}},{"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}, tag_0={"with_index":{"query":{"boolean":{"must":[{"const_score":{"query":{"exists":{"field":"name"}},"score":0.0}}],"must_not":[{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}, tag_1={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=orders, segments=1, dynamic_filters=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=users, segments=1, eager=[name], dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=users, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"bob","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (20 rows)
 
 SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
-   OR (products.name @@@ 'bob')
+WHERE (users.name ||| 'bob') AND (NOT (products.name ||| 'bob'))
+   OR (products.name ||| 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
  source | uid | uname | pid | pname | oid 
 --------+-----+-------+-----+-------+-----

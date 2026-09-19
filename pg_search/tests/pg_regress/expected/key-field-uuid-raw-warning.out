@@ -5,10 +5,4 @@ CREATE TABLE public.key_field_uuid_raw
     metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 CREATE INDEX test_search_index on public.key_field_uuid_raw
-    USING paradedb (id, metadata_json)
-    WITH (
-    key_field = id,
-    json_fields='{
-"metadata_json": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } },
-"metadata_json_new": { "fast": true, "tokenizer": { "type": "keyword", "lowercase": true }, "column": "metadata_json" }
-}', numeric_fields = '{}');
+    USING paradedb (id, (metadata_json::pdb.literal_normalized('normalizer=lowercase')), (metadata_json::pdb.literal('alias=metadata_json_new')));

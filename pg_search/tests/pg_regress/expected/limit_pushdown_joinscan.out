@@ -77,11 +77,9 @@ FROM generate_series(1, 10) i;
 -- lj_excluded_emails and lj_job_openings intentionally have NO BM25 index
 -- so JoinScan cannot absorb them and must bail out for Tests 8, 9, 12.
 CREATE INDEX lj_companies_bm25 ON lj_companies
-USING paradedb (id, name)
-WITH (key_field = 'id');
+USING paradedb (id, name);
 CREATE INDEX lj_people_bm25 ON lj_people
-USING paradedb (id, company_id, name, dept_id, email, seniority_slug)
-WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}, "dept_id": {"fast": true}}');
+USING paradedb (id, company_id, name, dept_id, email, seniority_slug);
 -- No BM25 index on lj_excluded_contacts — must remain non-BM25 for Test 13.
 ANALYZE;
 -- ============================================================
@@ -199,11 +197,11 @@ LIMIT 26;
    Limit: 26
    Order By: c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, NULL as col_2, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
-     :   SortExec: TopK(fetch=26), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=26), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[c, p]
      :       TantivyFetchExec: fetch=[ctid_0, ctid_1]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@0)], projection=[id@0, ctid_0@1, ctid_1@3]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
      :           CooperativeExec

@@ -45,49 +45,43 @@ INSERT INTO test_multi_stopwords (content) VALUES
 
 -- Create index with multiple stopwords languages (English and French)
 CREATE INDEX idx_multi_stopwords_bm25 ON test_multi_stopwords
-    USING paradedb (id, content)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "content": {"tokenizer": {"type": "default", "stopwords_language": ["English", "French"]}}
-    }'
-);
+    USING paradedb (id, (content::pdb.simple('stopwords_language=english,french')));
 
 -- Test 1: Search for English stopword "the" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'the';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'the';
 
 -- Test 2: Search for French stopword "le" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'le';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'le';
 
 -- Test 3: Search for non-stopword "quick" - should return rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'quick';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'quick';
 
 -- Test 4: Search for non-stopword "renard" - should return rows  
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'renard';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'renard';
 
 -- Test 5: Search for English stopword "and" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'and';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'and';
 
 -- Test 6: Search for French stopword "et" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'et';
 
-SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
+SELECT id, content FROM test_multi_stopwords WHERE content ||| 'et';
 
 -- Clean up
 DROP TABLE test_multi_stopwords;
@@ -105,25 +99,19 @@ INSERT INTO test_single_stopwords (content) VALUES
 
 -- Single language as string (backwards compatible)
 CREATE INDEX idx_single_stopwords_bm25 ON test_single_stopwords
-    USING paradedb (id, content)
-    WITH (
-    key_field = 'id',
-    text_fields ='{
-        "content": {"tokenizer": {"type": "default", "stopwords_language": "English"}}
-    }'
-);
+    USING paradedb (id, (content::pdb.simple('stopwords_language=english')));
 
 -- Test: Search for "the" (English stopword) - should return 0 rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'the';
 
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'the';
 
 -- Test: Search for "quick" (not a stopword) - should return 1 row
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'quick';
 
-SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
+SELECT id, content FROM test_single_stopwords WHERE content ||| 'quick';
 
 -- Clean up
 DROP TABLE test_single_stopwords;

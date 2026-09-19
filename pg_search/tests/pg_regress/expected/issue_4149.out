@@ -32,15 +32,7 @@ SELECT
 FROM generate_series(1, ceil(:rows / 8.0)::int) AS s(i);
 CREATE INDEX documents_bm25
 ON documents
-USING paradedb (row_id, file_id, file_title, doc_title, doc_parents)
-WITH (
-  key_field = 'row_id',
-  text_fields = '{
-    "file_title":  { "tokenizer": { "type": "default" }, "fast": true },
-    "doc_title":   { "tokenizer": { "type": "default" }, "fast": true },
-    "doc_parents": { "tokenizer": { "type": "default" }, "fast": true }
-  }'
-);
+USING paradedb (row_id, file_id, (file_title::pdb.simple('columnar=true')), (doc_title::pdb.simple('columnar=true')), (doc_parents::pdb.simple('columnar=true')));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
   t.file_id,
@@ -48,12 +40,12 @@ SELECT
   paradedb.score(t.row_id) AS score
 FROM documents t
 WHERE
-  t.doc_parents @@@ 'PARENT_GROUP'
-  AND (t.file_title @@@ 'Title' OR t.doc_title @@@ 'Title')
+  t.doc_parents ||| 'PARENT_GROUP'
+  AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;
-                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: file_id, file_title, (paradedb.score(row_id))
    ->  Custom Scan (ParadeDB Base Scan) on public.documents t
@@ -65,7 +57,7 @@ LIMIT 10;
          Scores: true
             TopK Order By: pdb.score() desc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"doc_parents","query_string":"PARENT_GROUP","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"file_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"doc_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"doc_parents","value":"PARENT_GROUP","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"with_index":{"query":{"match":{"field":"file_title","value":"Title","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"doc_title","value":"Title","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}]}}
 (12 rows)
 
 SELECT
@@ -74,8 +66,8 @@ SELECT
   paradedb.score(t.row_id) AS score
 FROM documents t
 WHERE
-  t.doc_parents @@@ 'PARENT_GROUP'
-  AND (t.file_title @@@ 'Title' OR t.doc_title @@@ 'Title')
+  t.doc_parents ||| 'PARENT_GROUP'
+  AND (t.file_title ||| 'Title' OR t.doc_title ||| 'Title')
 ORDER BY score DESC
 LIMIT 10;
  file_id |  file_title   |   score   

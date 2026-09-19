@@ -12,20 +12,19 @@ INSERT INTO fieldnorms_test VALUES
 
 CREATE INDEX fieldnorms_test_idx
 ON fieldnorms_test
-USING paradedb (content)
-WITH (key_field = 'id');
+USING paradedb (content);
 
 SELECT
     id,
     paradedb.score(id)
 FROM fieldnorms_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
 
 WITH scores AS (
     SELECT paradedb.score(id) as s
     FROM fieldnorms_test
-    WHERE content @@@ 'test'
+    WHERE content ||| 'test'
 )
 SELECT (MAX(s) - MIN(s)) < 0.00001 as scores_are_identical FROM scores;
 

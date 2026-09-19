@@ -32,24 +32,7 @@ CREATE TABLE corner_case_test (
     content TEXT
 );
 -- Create BM25 index with fast fields for all columns
-CREATE INDEX corner_case_search ON corner_case_test USING paradedb (
-    id,
-    empty_string,
-    very_long_string,
-    special_chars,
-    extreme_large,
-    extreme_small,
-    float_value,
-    zero_value,
-    negative_value,
-    bool_field,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "empty_string": {"tokenizer": {"type": "default"}, "fast": true}, "very_long_string": {"tokenizer": {"type": "default"}, "fast": true}, "special_chars": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"extreme_large": {"fast": true}, "extreme_small": {"fast": true}, "float_value": {"fast": true}, "zero_value": {"fast": true}, "negative_value": {"fast": true}}',
-    boolean_fields = '{"bool_field": {"fast": true}}'
-);
+CREATE INDEX corner_case_search ON corner_case_test USING paradedb ((id::pdb.literal), (empty_string::pdb.simple('columnar=true')), (very_long_string::pdb.simple('columnar=true')), (special_chars::pdb.simple('columnar=true')), extreme_large, extreme_small, float_value, zero_value, negative_value, bool_field, (content::pdb.simple));
 -- Insert extreme test data
 INSERT INTO corner_case_test (
     id, 
@@ -94,13 +77,7 @@ CREATE TABLE nullable_test (
     numeric_field INTEGER,
     content TEXT
 );
-CREATE INDEX nullable_search ON nullable_test USING paradedb (
-    id, string_field, numeric_field, content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field": {"fast": true}}'
-);
+CREATE INDEX nullable_search ON nullable_test USING paradedb ((id::pdb.literal), (string_field::pdb.simple('columnar=true')), numeric_field, (content::pdb.simple));
 INSERT INTO nullable_test (id, string_field, numeric_field, content) VALUES
 ('null1', NULL, NULL, 'null test case'),
 ('null2', 'not null', 42, 'null test case');
@@ -114,23 +91,11 @@ CREATE TABLE mixed_numeric_string_test (
     string_field3 TEXT NOT NULL,
     content TEXT
 );
-CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING paradedb (
-    id,
-    numeric_field1,
-    numeric_field2,
-    string_field1,
-    string_field2,
-    string_field3,
-    content
-) WITH (
-    key_field = 'id',
-    text_fields = '{"id": {"tokenizer": {"type": "keyword"}, "fast": true}, "string_field1": {"tokenizer": {"type": "default"}, "fast": true}, "string_field2": {"tokenizer": {"type": "default"}, "fast": true}, "string_field3": {"tokenizer": {"type": "default"}, "fast": true}, "content": {"tokenizer": {"type": "default"}}}',
-    numeric_fields = '{"numeric_field1": {"fast": true}, "numeric_field2": {"fast": true}}'
-);
+CREATE INDEX mixed_string_edge_search ON mixed_numeric_string_test USING paradedb ((id::pdb.literal), numeric_field1, numeric_field2, (string_field1::pdb.simple('columnar=true')), (string_field2::pdb.simple('columnar=true')), (string_field3::pdb.simple('columnar=true')), (content::pdb.simple));
 INSERT INTO mixed_numeric_string_test (id, numeric_field1, numeric_field2, string_field1, string_field2, string_field3, content) VALUES
 ('edge1', 1, 1, '', 'empty_first', 'test', 'edge case test'),
 ('edge2', 2, 2, 'special_chars_!@#$%^&*()', 'test', 'test', 'edge case test'),
-('edge3', 3, 3, repeat('very_long_string_', 10), 'test', 'test', 'edge case test'); 
+('edge3', 3, 3, repeat('very_long_string_', 10), 'test', 'test', 'edge case test');
 \echo 'Test: Corner cases and edge values'
 Test: Corner cases and edge values
 \echo 'Test: Empty strings'
@@ -139,10 +104,10 @@ Test: Empty strings
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, empty_string
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
@@ -151,13 +116,13 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: empty_string, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- Test handling of empty strings
 SELECT id, empty_string
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
     id    |    empty_string     
 ----------+---------------------
@@ -174,10 +139,10 @@ Test: Very long strings
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
@@ -185,12 +150,12 @@ ORDER BY id;
          Index: corner_case_search
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
     id    | long_string_length 
 ----------+--------------------
@@ -207,10 +172,10 @@ Test: Special characters
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, special_chars
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
@@ -219,12 +184,12 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: id, special_chars
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, special_chars
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
     id    |        special_chars        
 ----------+-----------------------------
@@ -241,10 +206,10 @@ Test: Extreme numeric values
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, extreme_large, extreme_small
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
@@ -253,13 +218,13 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: extreme_large, extreme_small, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- Test handling of extreme numeric values
 SELECT id, extreme_large, extreme_small
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
     id    |    extreme_large    |    extreme_small     
 ----------+---------------------+----------------------
@@ -276,10 +241,10 @@ Test: Boolean values
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, bool_field
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
@@ -288,12 +253,12 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Columnar: bool_field, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT id, bool_field
 FROM corner_case_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
     id    | bool_field 
 ----------+------------

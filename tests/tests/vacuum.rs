@@ -24,7 +24,7 @@ use tests::fixtures::*;
 #[rstest]
 fn manual_vacuum(mut conn: PgConnection) {
     fn count_func(conn: &mut PgConnection) -> i64 {
-        "select count(*)::bigint from sadvac WHERE sadvac @@@ 'data:test';".fetch_one::<(i64,)>(conn).0
+        "select count(*)::bigint from sadvac WHERE data ||| 'test';".fetch_one::<(i64,)>(conn).0
     }
     
     // originally, this test uncovered a problem at ROW_COUNT=103, but now that the problem is
@@ -45,8 +45,7 @@ fn manual_vacuum(mut conn: PgConnection) {
 
     "
     CREATE INDEX idxsadvac ON public.sadvac
-    USING paradedb (id, data)
-    WITH (key_field = 'id');
+    USING paradedb (id, data);
     ".execute(&mut conn);
     assert_eq!(count_func(&mut conn), ROW_COUNT, "post create index");
 

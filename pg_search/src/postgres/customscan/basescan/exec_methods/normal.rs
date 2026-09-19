@@ -51,18 +51,15 @@ impl Default for NormalScanExecState {
 
 impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        unsafe {
-            self.heaprel = state.heaprel.clone();
-            self.slot = pg_sys::MakeTupleTableSlot(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
-            // Use the visibility map only when we have no columns to project AND no
-            // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack
-            // the full scan tuple descriptor that ExecQual requires.
-            self.can_use_visibility_map =
-                state.targetlist_len == 0 && (*cstate).ss.ps.qual.is_null();
-        }
+        let cstate = unsafe { &*cstate };
+        self.heaprel = state.heaprel.clone();
+        self.slot = unsafe {
+            pg_sys::MakeTupleTableSlot(cstate.ss.ps.ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual)
+        };
+        // Use the visibility map only when we have no columns to project AND no
+        // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack
+        // the full scan tuple descriptor that ExecQual requires.
+        self.can_use_visibility_map = state.targetlist_len == 0 && cstate.ss.ps.qual.is_null();
     }
 
     fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
@@ -97,14 +94,14 @@ impl ExecMethod for NormalScanExecState {
             None => ExecState::Eof,
 
             // we have a row, and we're set up such that we can check it with the visibility map
-            Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
+            Some((scored, doc_address)) if self.can_use_visibility_map => {
                 let searcher = state.search_reader.as_ref().unwrap().searcher();
                 let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
 
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(ctid, &mut tid);
 
-                let blockno = item_pointer_get_block_number(&tid);
+                let blockno = unsafe { item_pointer_get_block_number(&tid) };
                 // We only use `is_block_all_visible` here to determine if we can emit a virtual
                 // tuple. If not all rows on the block are visible, we return `FromHeap`, which
                 // will cause the consumer to perform a full visibility check by fetching from
@@ -115,9 +112,12 @@ impl ExecMethod for NormalScanExecState {
                     // everything on this block is visible
 
                     let slot = self.slot;
-                    (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                    (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                    (*slot).tts_nvalid = 0;
+                    {
+                        let slot = unsafe { &mut *slot };
+                        slot.tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                        slot.tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                        slot.tts_nvalid = 0;
+                    }
 
                     ExecState::Virtual { slot }
                 } else {
@@ -129,7 +129,7 @@ impl ExecMethod for NormalScanExecState {
                         doc_address,
                     }
                 }
-            },
+            }
 
             // otherwise we'll always fetch from the heap
             Some((scored, doc_address)) => {

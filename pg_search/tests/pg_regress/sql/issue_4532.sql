@@ -50,16 +50,16 @@ INSERT INTO products VALUES
     (300, 3, 'A boring thing');
 
 CREATE INDEX regions_idx ON regions
-USING paradedb (id, name) WITH (key_field = 'id');
+USING paradedb (id, name);
 
 CREATE INDEX companies_idx ON companies
-USING paradedb (id, region_id, name) WITH (key_field = 'id');
+USING paradedb (id, region_id, name);
 
 CREATE INDEX departments_idx ON departments
-USING paradedb (id, company_id, name) WITH (key_field = 'id');
+USING paradedb (id, company_id, name);
 
 CREATE INDEX products_idx ON products
-USING paradedb (id, company_id, description) WITH (key_field = 'id');
+USING paradedb (id, company_id, description);
 
 SET paradedb.enable_join_custom_scan = on;
 
@@ -77,10 +77,10 @@ WHERE p.company_id IN (
     WHERE c.id IN (
         SELECT d.company_id
         FROM departments d
-        WHERE d.name @@@ 'Engineering'
+        WHERE d.name ||| 'Engineering'
     )
 )
-AND p.description @@@ 'widget OR gadget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 10;
 
@@ -92,10 +92,10 @@ WHERE p.company_id IN (
     WHERE c.id IN (
         SELECT d.company_id
         FROM departments d
-        WHERE d.name @@@ 'Engineering'
+        WHERE d.name ||| 'Engineering'
     )
 )
-AND p.description @@@ 'widget OR gadget OR gizmo'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo')
 ORDER BY p.id
 LIMIT 10;
 
@@ -105,7 +105,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id, p.description
 FROM products p
-WHERE p.description @@@ 'widget OR gadget OR gizmo OR boring'
+WHERE (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 AND EXISTS (
     SELECT 1
     FROM companies c
@@ -114,7 +114,7 @@ AND EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Marketing'
+        AND d.name ||| 'Marketing'
     )
 )
 ORDER BY p.id
@@ -122,7 +122,7 @@ LIMIT 10;
 
 SELECT p.id, p.description
 FROM products p
-WHERE p.description @@@ 'widget OR gadget OR gizmo OR boring'
+WHERE (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 AND EXISTS (
     SELECT 1
     FROM companies c
@@ -131,7 +131,7 @@ AND EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Marketing'
+        AND d.name ||| 'Marketing'
     )
 )
 ORDER BY p.id
@@ -144,7 +144,7 @@ LIMIT 10;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id, p.description
 FROM products p
-WHERE p.description @@@ 'widget OR gadget OR gizmo OR boring'
+WHERE (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 AND EXISTS (
     SELECT 1
     FROM companies c
@@ -153,13 +153,13 @@ AND EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Engineering'
+        AND d.name ||| 'Engineering'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Marketing'
+        AND d.name ||| 'Marketing'
     )
 )
 ORDER BY p.id
@@ -167,7 +167,7 @@ LIMIT 10;
 
 SELECT p.id, p.description
 FROM products p
-WHERE p.description @@@ 'widget OR gadget OR gizmo OR boring'
+WHERE (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 AND EXISTS (
     SELECT 1
     FROM companies c
@@ -176,13 +176,13 @@ AND EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Engineering'
+        AND d.name ||| 'Engineering'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM departments d
         WHERE d.company_id = c.id
-        AND d.name @@@ 'Marketing'
+        AND d.name ||| 'Marketing'
     )
 )
 ORDER BY p.id
@@ -197,9 +197,9 @@ FROM products p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies c
-    WHERE c.name @@@ 'Acme'
+    WHERE c.name ||| 'Acme'
 )
-AND p.description @@@ 'widget OR gadget'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget')
 ORDER BY p.id
 LIMIT 10;
 
@@ -208,9 +208,9 @@ FROM products p
 WHERE p.company_id IN (
     SELECT c.id
     FROM companies c
-    WHERE c.name @@@ 'Acme'
+    WHERE c.name ||| 'Acme'
 )
-AND p.description @@@ 'widget OR gadget'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget')
 ORDER BY p.id
 LIMIT 10;
 
@@ -226,15 +226,15 @@ WHERE p.company_id IN (
     WHERE c.region_id IN (
         SELECT r.id
         FROM regions r
-        WHERE r.name @@@ 'America'
+        WHERE r.name ||| 'America'
     )
     AND c.id IN (
         SELECT d.company_id
         FROM departments d
-        WHERE d.name @@@ 'Engineering'
+        WHERE d.name ||| 'Engineering'
     )
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
 
@@ -246,15 +246,15 @@ WHERE p.company_id IN (
     WHERE c.region_id IN (
         SELECT r.id
         FROM regions r
-        WHERE r.name @@@ 'America'
+        WHERE r.name ||| 'America'
     )
     AND c.id IN (
         SELECT d.company_id
         FROM departments d
-        WHERE d.name @@@ 'Engineering'
+        WHERE d.name ||| 'Engineering'
     )
 )
-AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
+AND (p.description ||| 'widget' OR p.description ||| 'gadget' OR p.description ||| 'gizmo' OR p.description ||| 'boring')
 ORDER BY p.id
 LIMIT 10;
 

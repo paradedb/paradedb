@@ -105,13 +105,16 @@ jobs:
           cache_save: ${{ github.event_name == 'schedule' && github.ref_name == github.event.repository.default_branch }}
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v11
+        uses: paradedb/actions/apt-install@v13
         with:
           packages: >-
             --no-install-recommends
             lsof build-essential clang lld flex bison pkg-config ca-certificates git
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
-            libcurl4-openssl-dev libopenblas-dev
+            libcurl4-openssl-dev libopenblas-dev gdb
+
+      - name: Enable Crash Dumps
+        run: ./.github/scripts/setup_crashdumps.sh
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
@@ -349,6 +352,12 @@ jobs:
             echo "===== last ${MAX_LINES} of ${TOTAL} lines; full log in the postgres-log-* artifact ====="
           fi
           tail -n "$MAX_LINES" "$LOG"
+
+      - name: Print Crashdump Stacktrace
+        if: always()
+        env:
+          PG_VERSION: ${{ matrix.pg_version }}
+        run: ./.github/scripts/render_crashdump.sh
 
       - name: Upload Postgres Log Artifact
         if: failure()

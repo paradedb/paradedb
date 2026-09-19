@@ -15,16 +15,14 @@ INSERT INTO snippet_test (content) VALUES
 CREATE INDEX ON snippet_test USING paradedb (
     id,
     content
-) WITH (
-    key_field = 'id'
 );
 
-SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snippet_test WHERE content ||| 'test';
+SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content ||| 'test';
+SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content ||| 'test';
+SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content ||| 'test';
 
-SELECT paradedb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
-SELECT paradedb.snippets(content) FROM snippet_test WHERE content @@@ 'test';
+SELECT paradedb.snippet_positions(content) FROM snippet_test WHERE content ||| 'test';
+SELECT paradedb.snippets(content) FROM snippet_test WHERE content ||| 'test';
 
 DROP TABLE snippet_test;

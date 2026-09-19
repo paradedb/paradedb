@@ -28,10 +28,8 @@ INSERT INTO products_4531 VALUES
     (4, 'Doohicky','Another widget',  2),
     (5, 'Thingamajig', 'Yet another widget', 999);
 
-CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id)
-    WITH (key_field='id', numeric_fields='{"supplier_id": {"fast": true}}');
-CREATE INDEX ON suppliers_4531 USING paradedb (id, name)
-    WITH (key_field='id');
+CREATE INDEX ON products_4531 USING paradedb (id, name, description, supplier_id);
+CREATE INDEX ON suppliers_4531 USING paradedb (id, name);
 
 -- ============================================================
 -- Test 1: The original failing pattern — OR IS NULL
@@ -42,14 +40,14 @@ CREATE INDEX ON suppliers_4531 USING paradedb (id, name)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
 -- Actual query execution
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
@@ -61,13 +59,13 @@ ORDER BY p.id DESC LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
 ORDER BY p.id DESC LIMIT 10;
 
@@ -80,7 +78,7 @@ UPDATE products_4531 SET supplier_id = NULL;
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
@@ -97,7 +95,7 @@ DELETE FROM suppliers_4531;
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
@@ -113,13 +111,13 @@ INSERT INTO products_4531 VALUES (6, 'NullWidget', 'A null widget', NULL);
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 
@@ -130,7 +128,7 @@ SET paradedb.enable_join_custom_scan = off;
 
 SELECT p.id
 FROM products_4531 p
-WHERE p.description @@@ 'widget'
+WHERE p.description ||| 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
 

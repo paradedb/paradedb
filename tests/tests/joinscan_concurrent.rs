@@ -96,16 +96,10 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         (106, 'Jacket', 'wireless heated outerwear', 3);
 
     -- items index: id (key), name (fast), content, category_id (fast), version (fast)
-    CREATE INDEX items_bm25_idx ON items USING paradedb (id, name, content, category_id, version)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
-            numeric_fields = '{"category_id": {"fast": true}, "version": {"fast": true}}'
-        );
+    CREATE INDEX items_bm25_idx ON items USING paradedb (id, (name::pdb.literal_normalized), content, category_id, version);
 
     -- categories needs BM25 index with fast fields for all columns used in query
-    CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, name)
-        WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}');
+    CREATE INDEX categories_bm25_idx ON categories USING paradedb (id, (name::pdb.literal_normalized));
     "#
     .execute(&mut setup_conn);
 
@@ -115,7 +109,7 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         r#"SELECT i.id, i.name, c.name, i.version
            FROM items i
            JOIN categories c ON i.category_id = c.id
-           WHERE i.content @@@ 'wireless'
+           WHERE i.content ||| 'wireless'
            ORDER BY i.id
            LIMIT 10"#,
     );
@@ -125,7 +119,7 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         r#"SELECT i.id, i.name, c.name
            FROM items i
            JOIN categories c ON i.category_id = c.id
-           WHERE i.content @@@ 'book'
+           WHERE i.content ||| 'book'
            ORDER BY i.id
            LIMIT 10"#,
     );
@@ -202,7 +196,7 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
                     SELECT i.id, i.name, c.name, i.version
                     FROM items i
                     JOIN categories c ON i.category_id = c.id
-                    WHERE i.content @@@ 'wireless'
+                    WHERE i.content ||| 'wireless'
                     ORDER BY i.id
                     LIMIT 10
                 "#
@@ -243,7 +237,7 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
                     SELECT i.id, i.name, c.name
                     FROM items i
                     JOIN categories c ON i.category_id = c.id
-                    WHERE i.content @@@ 'book'
+                    WHERE i.content ||| 'book'
                     ORDER BY i.id
                     LIMIT 10
                 "#
@@ -376,16 +370,10 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
         (2, 'Gadget', 'wired gadget tool', 2);
 
     -- products index: id (key), name (fast), content, supplier_id (fast)
-    CREATE INDEX products_bm25_idx ON products USING paradedb (id, name, content, supplier_id)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
-            numeric_fields = '{"supplier_id": {"fast": true}}'
-        );
+    CREATE INDEX products_bm25_idx ON products USING paradedb (id, (name::pdb.literal_normalized), content, supplier_id);
 
     -- suppliers needs BM25 index with fast fields for all columns used in query
-    CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, name)
-        WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}');
+    CREATE INDEX suppliers_bm25_idx ON suppliers USING paradedb (id, (name::pdb.literal_normalized));
     "#
     .execute(&mut setup_conn);
 
@@ -394,7 +382,7 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
         SELECT p.id, p.name, s.name
         FROM products p
         JOIN suppliers s ON p.supplier_id = s.id
-        WHERE p.content @@@ 'wireless'
+        WHERE p.content ||| 'wireless'
         ORDER BY p.id
         LIMIT 10
     "#;
@@ -455,16 +443,10 @@ async fn joinscan_rapid_updates_stress(database: Db) -> Result<()> {
         (3, 'wired gamma', 1);
 
     -- stress_items index: id (key), content (fast text), ref_id (fast), counter (fast)
-    CREATE INDEX stress_items_bm25_idx ON stress_items USING paradedb (id, content, ref_id, counter)
-        WITH (
-            key_field = 'id',
-            text_fields = '{"content": {"fast": true}}',
-            numeric_fields = '{"ref_id": {"fast": true}, "counter": {"fast": true}}'
-        );
+    CREATE INDEX stress_items_bm25_idx ON stress_items USING paradedb (id, (content::pdb.unicode_words('columnar=true')), ref_id, counter);
 
     -- stress_refs needs BM25 index with fast fields for all columns used in query
-    CREATE INDEX stress_refs_bm25_idx ON stress_refs USING paradedb (id, ref_name)
-        WITH (key_field = 'id', text_fields = '{"ref_name": {"fast": true, "tokenizer": {"type": "raw"}}}');
+    CREATE INDEX stress_refs_bm25_idx ON stress_refs USING paradedb (id, (ref_name::pdb.literal_normalized));
     "#
     .execute(&mut setup_conn);
 
@@ -473,7 +455,7 @@ async fn joinscan_rapid_updates_stress(database: Db) -> Result<()> {
         SELECT si.id, si.content, sr.ref_name, si.counter
         FROM stress_items si
         JOIN stress_refs sr ON si.ref_id = sr.id
-        WHERE si.content @@@ 'wireless'
+        WHERE si.content ||| 'wireless'
         ORDER BY si.id
         LIMIT 10
     "#;

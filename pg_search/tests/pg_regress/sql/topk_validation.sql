@@ -13,21 +13,13 @@ CALL paradedb.create_paradedb_test_table(
 -- Scenario 1: Index WITHOUT lower() but query uses lower() in ORDER BY
 -- This should trigger a warning when planner_warnings is enabled
 CREATE INDEX products_base_idx ON test_products
-USING paradedb (id, description, category, rating)
-WITH (
-    key_field='id',
-    text_fields='{
-        "category": {"fast": true, "tokenizer": {"type": "raw"}},
-        "description": {"fast": false}
-    }',
-    numeric_fields='{"rating": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.literal_normalized), rating);
 
 -- Test 1: Validation OFF - should not warn
 \echo 'Test 1: Validation OFF (no warning expected)'
 SET paradedb.planner_warnings = 'off';
 SELECT id, description FROM test_products
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
 ORDER BY description  -- Missing fast field
 LIMIT 5;
 
@@ -35,43 +27,32 @@ LIMIT 5;
 \echo 'Test 2: Validation WARNING - warning expected (ORDER BY not columnar)'
 SET paradedb.planner_warnings = 'warning';
 SELECT id, description FROM test_products
-WHERE description @@@ 'shoes'
+WHERE description ||| 'shoes'
 ORDER BY description  -- Not marked as fast
 LIMIT 5;
 
 -- Test 3: Proper Top K - should NOT warn
 \echo 'Test 3: Valid Top K query (no warning expected)'
 SELECT id, category,rating FROM test_products
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 ORDER BY rating DESC  -- rating is fast
 LIMIT 5;
 
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
-USING paradedb (id, description, category, rating, created_at, last_updated_date)
-WITH (
-    key_field='id',
-    text_fields='{
-        "category": {"tokenizer": {"type": "keyword"}, "fast": true},
-        "description": {"tokenizer": {"type": "keyword"}, "fast": true}
-    }',
-    numeric_fields='{"rating": {"fast": true}}'
-);
+USING paradedb (id, (description::pdb.literal), (category::pdb.literal), rating, created_at, last_updated_date);
 
 \echo 'Test 4: Too many ORDER BY columns (warning expected)'
 SELECT id FROM test_products
-WHERE category @@@ 'electronics'
+WHERE category ||| 'electronics'
 ORDER BY rating DESC, created_at DESC, id DESC, category DESC, description DESC, last_updated_date DESC  -- 6 columns, max is 5
 LIMIT 10;
 
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;
 CREATE INDEX products_lower_idx ON test_products
-USING paradedb (id, description, (lower(category)::pdb.literal), rating)
-WITH (
-    key_field='id'
-);
+USING paradedb (id, description, (lower(category)::pdb.literal), rating);
 
 \echo 'Test 5a: ORDER BY with lower() - should use Top K (no warning)'
 SELECT id, category FROM test_products

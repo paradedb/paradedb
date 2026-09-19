@@ -48,19 +48,9 @@ fn setup_join_tables(conn: &mut PgConnection) {
         (4, 'outdoor'),
         (5, 'tech'), (5, 'kids');
     CREATE INDEX products_idx ON products
-    USING paradedb (id, description, category, price, rating)
-    WITH (
-        key_field='id',
-        text_fields='{"description": {}, "category": {"fast": true}}',
-        numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-    );
+    USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, rating);
     CREATE INDEX tags_idx ON tags
-    USING paradedb (id, product_id, tag_name)
-    WITH (
-        key_field='id',
-        numeric_fields='{"product_id": {"fast": true}}',
-        text_fields='{"tag_name": {"fast": true}}'
-    );
+    USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')));
     SET paradedb.enable_aggregate_custom_scan TO on;
     "#
     .execute(conn);
@@ -75,7 +65,7 @@ fn test_join_aggregate_count(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -91,7 +81,7 @@ fn test_join_aggregate_sum_avg(mut conn: PgConnection) {
         SELECT COUNT(*), SUM(p.price), AVG(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64, f64, f64)>(&mut conn);
 
@@ -116,7 +106,7 @@ fn test_join_aggregate_min_max(mut conn: PgConnection) {
         SELECT MIN(p.price), MAX(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(f64, f64)>(&mut conn);
 
@@ -139,7 +129,7 @@ fn test_join_aggregate_empty_result(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'nonexistent_xyz'
+        WHERE p.description ||| 'nonexistent_xyz'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -150,7 +140,7 @@ fn test_join_aggregate_empty_result(mut conn: PgConnection) {
         SELECT SUM(p.price), AVG(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'nonexistent_xyz'
+        WHERE p.description ||| 'nonexistent_xyz'
     "#
     .fetch_one::<(Option<f64>, Option<f64>)>(&mut conn);
 
@@ -167,7 +157,7 @@ fn test_join_aggregate_parity_with_postgres(mut conn: PgConnection) {
         SELECT COUNT(*), SUM(p.price), MIN(p.price), MAX(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64, f64, f64, f64)>(&mut conn);
 
@@ -178,7 +168,7 @@ fn test_join_aggregate_parity_with_postgres(mut conn: PgConnection) {
         SELECT COUNT(*), SUM(p.price), MIN(p.price), MAX(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64, f64, f64, f64)>(&mut conn);
 
@@ -215,7 +205,7 @@ fn test_join_aggregate_after_insert(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -235,7 +225,7 @@ fn test_join_aggregate_after_insert(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -254,7 +244,7 @@ fn test_join_aggregate_after_delete(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -265,7 +255,7 @@ fn test_join_aggregate_after_delete(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -278,7 +268,7 @@ fn test_join_aggregate_after_delete(mut conn: PgConnection) {
 
 /// Regression test for cross-table NOT predicate being silently dropped.
 ///
-/// `NOT (a.name @@@ 'bob' AND b.name @@@ 'bob')` spans both tables and
+/// `NOT (a.name ||| 'bob' AND b.name ||| 'bob')` spans both tables and
 /// cannot be pushed to individual table scans. The DataFusion aggregate path
 /// must apply it as a post-join filter; without that, the count is too high.
 ///
@@ -307,10 +297,8 @@ fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
         SELECT (ARRAY['apple','banana','cherry','date','elderberry','fig','grape','honeydew','kiwi'])
                [floor(random()*9+1)::int]
         FROM generate_series(1, 10);
-    CREATE INDEX users_idx ON users USING paradedb (id, name)
-    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
-    CREATE INDEX items_idx ON items USING paradedb (id, name)
-    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    CREATE INDEX users_idx ON users USING paradedb (id, (name::pdb.literal));
+    CREATE INDEX items_idx ON items USING paradedb (id, (name::pdb.literal));
     "#
     .execute(&mut conn);
 
@@ -332,7 +320,7 @@ fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
     let explain_lines: Vec<(String,)> = r#"
         EXPLAIN SELECT COUNT(*)
         FROM users u JOIN items i ON u.id = i.id
-        WHERE NOT ((u.name @@@ 'bob') AND (i.name @@@ 'bob'))
+        WHERE NOT ((u.name ||| 'bob') AND (i.name ||| 'bob'))
     "#
     .fetch::<(String,)>(&mut conn);
     let explain = explain_lines
@@ -349,7 +337,7 @@ fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
     let (bm25_count,) = r#"
         SELECT COUNT(*)
         FROM users u JOIN items i ON u.id = i.id
-        WHERE NOT ((u.name @@@ 'bob') AND (i.name @@@ 'bob'))
+        WHERE NOT ((u.name ||| 'bob') AND (i.name ||| 'bob'))
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -373,7 +361,7 @@ fn test_join_aggregate_having_count(mut conn: PgConnection) {
         SELECT p.category, COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'toy')
         GROUP BY p.category
         HAVING COUNT(*) > 2
         ORDER BY p.category
@@ -386,7 +374,7 @@ fn test_join_aggregate_having_count(mut conn: PgConnection) {
         SELECT p.category, COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'toy')
         GROUP BY p.category
         HAVING COUNT(*) > 2
         ORDER BY p.category
@@ -415,7 +403,7 @@ fn test_join_aggregate_having_sum(mut conn: PgConnection) {
         SELECT p.category, COUNT(*), SUM(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'toy')
         GROUP BY p.category
         HAVING SUM(p.price) > 500
         ORDER BY p.category
@@ -428,7 +416,7 @@ fn test_join_aggregate_having_sum(mut conn: PgConnection) {
         SELECT p.category, COUNT(*), SUM(p.price)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'toy')
         GROUP BY p.category
         HAVING SUM(p.price) > 500
         ORDER BY p.category
@@ -467,11 +455,7 @@ fn setup_reviews_table(conn: &mut PgConnection) {
     );
     INSERT INTO reviews (product_id, score) VALUES (1, 5), (1, 4), (2, 3), (3, 4), (4, 3);
     CREATE INDEX reviews_idx ON reviews
-    USING paradedb (id, product_id, score)
-    WITH (
-        key_field='id',
-        numeric_fields='{"product_id": {"fast": true}, "score": {"fast": true}}'
-    );
+    USING paradedb (id, product_id, score);
     "#
     .execute(conn);
 }
@@ -487,7 +471,7 @@ fn test_join_aggregate_3table_count(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -497,7 +481,7 @@ fn test_join_aggregate_3table_count(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -519,7 +503,7 @@ fn test_join_aggregate_3table_group_by(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
         GROUP BY p.category
         ORDER BY p.category
     "#
@@ -531,7 +515,7 @@ fn test_join_aggregate_3table_group_by(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
         GROUP BY p.category
         ORDER BY p.category
     "#
@@ -558,7 +542,7 @@ fn test_join_aggregate_3table_having(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
         GROUP BY p.category
         HAVING COUNT(*) > 2
         ORDER BY p.category
@@ -571,7 +555,7 @@ fn test_join_aggregate_3table_having(mut conn: PgConnection) {
         FROM products p
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
-        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket')
         GROUP BY p.category
         HAVING COUNT(*) > 2
         ORDER BY p.category
@@ -603,12 +587,7 @@ fn test_join_aggregate_4table(mut conn: PgConnection) {
     INSERT INTO suppliers (product_id, supplier_name) VALUES
         (1, 'TechCorp'), (2, 'GameInc'), (3, 'SportCo');
     CREATE INDEX suppliers_idx ON suppliers
-    USING paradedb (id, product_id, supplier_name)
-    WITH (
-        key_field='id',
-        numeric_fields='{"product_id": {"fast": true}}',
-        text_fields='{"supplier_name": {"fast": true}}'
-    );
+    USING paradedb (id, product_id, (supplier_name::pdb.unicode_words('columnar=true')));
     "#
     .execute(&mut conn);
 
@@ -619,7 +598,7 @@ fn test_join_aggregate_4table(mut conn: PgConnection) {
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
         JOIN suppliers s ON p.id = s.product_id
-        WHERE p.description @@@ 'laptop OR shoes'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
         GROUP BY p.category
         ORDER BY p.category
     "#
@@ -632,7 +611,7 @@ fn test_join_aggregate_4table(mut conn: PgConnection) {
         JOIN tags t ON p.id = t.product_id
         JOIN reviews r ON p.id = r.product_id
         JOIN suppliers s ON p.id = s.product_id
-        WHERE p.description @@@ 'laptop OR shoes'
+        WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
         GROUP BY p.category
         ORDER BY p.category
     "#
@@ -657,7 +636,7 @@ fn test_join_aggregate_sum_distinct(mut conn: PgConnection) {
         SELECT SUM(DISTINCT t.product_id)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -666,7 +645,7 @@ fn test_join_aggregate_sum_distinct(mut conn: PgConnection) {
         SELECT SUM(DISTINCT t.product_id)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -685,7 +664,7 @@ fn test_join_aggregate_cross_join_falls_back(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         CROSS JOIN tags t
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -694,7 +673,7 @@ fn test_join_aggregate_cross_join_falls_back(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         CROSS JOIN tags t
-        WHERE p.description @@@ 'laptop'
+        WHERE p.description ||| 'laptop'
     "#
     .fetch_one::<(i64,)>(&mut conn);
 
@@ -718,7 +697,7 @@ fn test_explain_aggregate_join_with_heap_filter(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop' AND p.description ILIKE '%laptop%'
+        WHERE p.description ||| 'laptop' AND p.description ILIKE '%laptop%'
     "#
     .fetch::<(String,)>(&mut conn);
     let explain = explain_lines
@@ -745,7 +724,7 @@ fn test_explain_aggregate_join_with_heap_filter(mut conn: PgConnection) {
         SELECT COUNT(*)
         FROM products p
         JOIN tags t ON p.id = t.product_id
-        WHERE p.description @@@ 'laptop' AND p.description ILIKE '%laptop%'
+        WHERE p.description ||| 'laptop' AND p.description ILIKE '%laptop%'
     "#
     .fetch::<(String,)>(&mut conn);
     let analyze = analyze_lines

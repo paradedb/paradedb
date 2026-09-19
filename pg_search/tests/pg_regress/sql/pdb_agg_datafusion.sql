@@ -31,22 +31,22 @@ CREATE TABLE pa_tags (
 );
 
 CREATE INDEX pa_products_idx ON pa_products
-USING paradedb (id, description, category, brand, price, rating, created_at, in_stock, metadata, price_num)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "category": {"fast": true}, "brand": {"fast": true}, "cat_kw": {"column": "category", "fast": true, "tokenizer": {"type": "keyword"}}}',
-    numeric_fields = '{"price": {"fast": true}, "rating": {"fast": true}, "price_num": {"fast": true}}',
-    boolean_fields = '{"in_stock": {"fast": true}}',
-    json_fields = '{"metadata": {"fast": true}}'
+USING paradedb (
+    id,
+    description,
+    (category::pdb.unicode_words('columnar=true')),
+    (brand::pdb.unicode_words('columnar=true')),
+    (category::pdb.literal('alias=cat_kw')),
+    price,
+    rating,
+    created_at,
+    in_stock,
+    (metadata::pdb.simple('columnar=true')),
+    price_num
 );
 
 CREATE INDEX pa_tags_idx ON pa_tags
-USING paradedb (id, product_id, tag_name, weight)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{"product_id": {"fast": true}, "weight": {"fast": true}}',
-    text_fields = '{"tag_name": {"fast": true}}'
-);
+USING paradedb (id, product_id, (tag_name::pdb.unicode_words('columnar=true')), weight);
 
 -- Two batches per table so each index has several segments, which the MPP
 -- section needs to spread work across producers.
@@ -88,13 +88,13 @@ ANALYZE pa_tags;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -102,24 +102,24 @@ ORDER BY p.category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"tags": {"terms": {"field": "tag_name", "size": 2}, "aggs": {"w": {"sum": {"field": "weight"}}}}, "uniq_brands": {"cardinality": {"field": "brand"}}, "avg_price": {"avg": {"field": "price"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"tags": {"terms": {"field": "tag_name", "size": 2}, "aggs": {"w": {"sum": {"field": "weight"}}}}, "uniq_brands": {"cardinality": {"field": "brand"}}, "avg_price": {"avg": {"field": "price"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 -- Test 1.3: standard aggregates alongside pdb.agg(), with HAVING
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.category, COUNT(*), SUM(t.weight), pdb.agg('{"terms": {"field": "tag_name"}}') AS tags
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
 
 SELECT p.category, COUNT(*), SUM(t.weight), pdb.agg('{"terms": {"field": "tag_name"}}') AS tags
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
@@ -127,12 +127,12 @@ ORDER BY p.category;
 -- Test 1.4: order by a metric sub-aggregation, min_doc_count, size
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"total_w": "desc"}, "min_doc_count": 2, "size": 2}, "aggs": {"total_w": {"sum": {"field": "weight"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 -- Test 1.5: per-aggregate FILTER, applied to the buckets and their metrics alike
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"w": {"sum": {"field": "weight"}}}}') FILTER (WHERE t.weight > 5)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -140,17 +140,17 @@ ORDER BY p.category;
 SELECT pdb.agg('{"terms": {"field": "in_stock"}, "aggs": {"first": {"min": {"field": "created_at"}}, "last": {"max": {"field": "created_at"}}}}'),
        pdb.agg('{"terms": {"field": "created_at", "size": 3, "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.7: missing on a numeric key
 SELECT pdb.agg('{"terms": {"field": "rating", "missing": 0, "order": {"_key": "desc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.8: ORDER BY an aggregate with LIMIT stays correct without TopK pushdown
 SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 ORDER BY COUNT(*) DESC, p.category
 LIMIT 2;
@@ -159,16 +159,16 @@ LIMIT 2;
 -- Tantivy backend's `missing` sentinel gives it one
 SELECT pdb.agg('{"terms": {"field": "rating", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.10: a `missing` literal takes the column's type
 SELECT pdb.agg('{"terms": {"field": "tag_name", "missing": 0}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT pdb.agg('{"terms": {"field": "rating", "missing": "none"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 1.11: cardinality on a float field counts exactly; bool and datetime
 -- take the HLL
@@ -176,69 +176,69 @@ SELECT pdb.agg('{"cardinality": {"field": "price"}}'),
        pdb.agg('{"cardinality": {"field": "in_stock"}}'),
        pdb.agg('{"cardinality": {"field": "created_at"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.12: an aliased index field resolves by its index name
 SELECT pdb.agg('{"terms": {"field": "cat_kw", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.13: `min_doc_count: 0` has no grouped-scan equivalent, and `size: 0`
 -- keeps no buckets
 SELECT pdb.agg('{"terms": {"field": "tag_name", "min_doc_count": 0}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT pdb.agg('{"terms": {"field": "tag_name", "size": 0}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 1.14: a self-join resolves each side through its alias
 SELECT pdb.agg('{"terms": {"field": "a.category"}}'), pdb.agg('{"cardinality": {"field": "b.brand"}}')
 FROM pa_products a JOIN pa_products b ON a.category = b.category
-WHERE a.description @@@ 'laptop';
+WHERE a.description ||| 'laptop';
 
 -- Test 1.15: a LEFT JOIN's unmatched side lands in the NULL bucket
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.product_id AND t.weight > 5
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.16: terms on a text-valued JSON sub-field, alone and under a JSON
 -- GROUP BY expression
 SELECT pdb.agg('{"terms": {"field": "metadata.color", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT p.metadata->>'color' AS color, pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.metadata->>'color'
 ORDER BY color;
 
 -- A JSON sub-field holding numbers is turned down at plan time
 SELECT pdb.agg('{"terms": {"field": "metadata.qty"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.17: NUMERIC fields as metrics and as terms keys
 SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price_num"}}, "mean": {"avg": {"field": "price_num"}}, "lo": {"min": {"field": "price_num"}}, "hi": {"max": {"field": "price_num"}}, "n": {"cardinality": {"field": "price_num"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "desc"}, "size": 3}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- Test 1.18: terms on the GROUP BY column itself, and two GROUP BY columns
 SELECT p.category, pdb.agg('{"terms": {"field": "category"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT p.category, p.in_stock, pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category, p.in_stock
 ORDER BY p.category, p.in_stock;
 
@@ -247,13 +247,13 @@ ORDER BY p.category, p.in_stock;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY DATE(p.created_at)
 ORDER BY day;
 
 SELECT DATE(p.created_at) AS day, COUNT(*), pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY DATE(p.created_at)
 ORDER BY day;
 
@@ -261,16 +261,16 @@ ORDER BY day;
 -- sentinel is a valid timestamp and must not be rewritten into one
 SELECT pdb.agg('{"terms": {"field": "created_at", "order": {"_key": "asc"}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT pdb.agg('{"terms": {"field": "created_at", "order": {"_key": "asc"}}}')
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes';
+WHERE (description ||| 'laptop' OR description ||| 'shoes');
 
 -- Test 1.21: `missing` on metrics fills in the NULL rating
 SELECT pdb.agg('{"terms": {"field": "category", "order": {"_key": "asc"}}, "aggs": {"mean": {"avg": {"field": "rating", "missing": 1}}, "lo": {"min": {"field": "rating", "missing": 1}}, "hi": {"max": {"field": "rating", "missing": 9}}, "n": {"value_count": {"field": "rating", "missing": 1}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- =====================================================================
 -- SECTION 2: empty inputs
@@ -280,34 +280,34 @@ WHERE p.description @@@ 'laptop OR shoes';
 -- at 0 and the other aggregates NULL
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), pdb.agg('{"sum": {"field": "weight"}}'), pdb.agg('{"avg": {"field": "weight"}}'), COUNT(*), COUNT(DISTINCT t.weight), SUM(t.weight)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent';
+WHERE p.description ||| 'nonexistent';
 
 -- Test 2.2: grouped query over no rows answers with no rows
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent'
+WHERE p.description ||| 'nonexistent'
 GROUP BY p.category;
 
 -- Test 2.3: HAVING judges the scalar row, including the one made for an
 -- empty input
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), COUNT(*)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent'
+WHERE p.description ||| 'nonexistent'
 HAVING COUNT(*) > 0;
 
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}'), COUNT(*)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'nonexistent'
+WHERE p.description ||| 'nonexistent'
 HAVING COUNT(*) = 0;
 
 SELECT pdb.agg('{"sum": {"field": "weight"}}'), COUNT(*)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 HAVING COUNT(*) < 3;
 
 SELECT pdb.agg('{"sum": {"field": "weight"}}'), COUNT(*)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop'
+WHERE p.description ||| 'laptop'
 HAVING COUNT(*) > 3;
 
 -- =====================================================================
@@ -317,22 +317,22 @@ HAVING COUNT(*) > 3;
 -- Test 3.1: a field name present in both tables must be qualified
 SELECT pdb.agg('{"cardinality": {"field": "id"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 SELECT pdb.agg('{"cardinality": {"field": "p.id"}}'), pdb.agg('{"value_count": {"field": "t.id"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 3.2: an aggregation the backend does not run is an error, not a fallback
 SELECT pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- Test 3.3: raw visibility skips the heap check; nothing is deleted here so the
 -- result matches
 SELECT p.category, pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, 'raw')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -341,10 +341,10 @@ BEGIN;
 DELETE FROM pa_tags WHERE tag_name = 'gaming';
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 SELECT pdb.agg('{"terms": {"field": "tag_name"}}'::jsonb, 'raw')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 ROLLBACK;
 
 -- Test 3.5: `threshold` is one decision for the whole join, judged on the
@@ -356,18 +356,18 @@ SET LOCAL paradedb.visibility_threshold TO 10;
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
        pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 SET LOCAL paradedb.visibility_threshold TO 1000;
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'threshold'),
        pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}'::jsonb, 'threshold')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 ROLLBACK;
 
 -- Test 3.6: conflicting visibility settings are rejected
 SELECT pdb.agg('{"sum": {"field": "weight"}}'::jsonb, 'raw'), pdb.agg('{"sum": {"field": "price"}}'::jsonb)
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
+WHERE p.description ||| 'laptop';
 
 -- =====================================================================
 -- SECTION 4: single table routed to DataFusion
@@ -378,13 +378,13 @@ WHERE p.description @@@ 'laptop';
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
@@ -394,13 +394,13 @@ SET paradedb.max_term_agg_buckets TO 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}, "aggs": {"total": {"sum": {"field": "price"}}}}'), pdb.agg('{"sum": {"field": "price"}}'), COUNT(*)
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
@@ -409,20 +409,20 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"range": {"field": "price", "ranges": [{"to": 100}]}}')
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, pdb.agg('{"sum": {"field": "metadata.qty"}}')
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
@@ -433,37 +433,57 @@ RESET paradedb.max_term_agg_buckets;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"sum": {"field": "price_num"}}'), pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}')
 FROM pa_products
-WHERE description @@@ 'laptop OR shoes'
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
 GROUP BY category
 ORDER BY category;
 
 SELECT category, pdb.agg('{"sum": {"field": "price_num"}}'), pdb.agg('{"terms": {"field": "price_num", "order": {"_key": "asc"}}}')
 FROM pa_products
+WHERE (description ||| 'laptop' OR description ||| 'shoes')
+GROUP BY category
+ORDER BY category;
+
+-- Test 4.5: every nested pdb.agg() participates in routing. The first request
+-- is Tantivy-compatible, but the second reads NUMERIC and must route the whole
+-- expression to DataFusion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
 WHERE description @@@ 'laptop OR shoes'
 GROUP BY category
 ORDER BY category;
 
--- Test 4.5: a spec written for a join keeps working when the planner reduces
+SELECT category,
+       pdb.agg('{"terms": {"field": "brand", "order": {"_key": "asc"}}}')
+       || pdb.agg('{"sum": {"field": "price_num"}}') AS combined
+FROM pa_products
+WHERE description @@@ 'laptop OR shoes'
+GROUP BY category
+ORDER BY category;
+
+-- Test 4.6: a spec written for a join keeps working when the planner reduces
 -- the join to one table, so the alias qualifier is accepted there too
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.category", "order": {"_key": "asc"}}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT pdb.agg('{"terms": {"field": "p.category", "order": {"_key": "asc"}}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
--- Test 4.6: the same reduced join on the NUMERIC route, which rebuilds the
+-- Test 4.7: the same reduced join on the NUMERIC route, which rebuilds the
 -- join tree from the parse tree and has to skip the removed side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 SELECT pdb.agg('{"sum": {"field": "p.price_num"}}')
 FROM pa_products p LEFT JOIN pa_tags t ON p.id = t.id
-WHERE p.description @@@ 'laptop OR shoes';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes');
 
 -- =====================================================================
 -- SECTION 5: MPP
@@ -478,7 +498,7 @@ SET paradedb.mpp_min_rows TO 0;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 ORDER BY p.category;
 
@@ -490,23 +510,23 @@ SET parallel_tuple_cost TO 0;
 
 SELECT p.category, COUNT(*), pdb.agg('{"terms": {"field": "tag_name"}, "aggs": {"u": {"cardinality": {"field": "weight"}}, "s": {"sum": {"field": "weight"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard'
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard')
 GROUP BY p.category
 ORDER BY p.category;
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"u": {"cardinality": {"field": "brand"}}}}')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 
 -- The leader's visibility decision reaches the workers
 BEGIN;
 DELETE FROM pa_tags WHERE tag_name = 'gaming';
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'transaction')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 SELECT pdb.agg('{"terms": {"field": "tag_name", "order": {"_key": "asc"}}}'::jsonb, 'raw')
 FROM pa_products p JOIN pa_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR keyboard';
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'keyboard');
 ROLLBACK;
 
 DROP TABLE pa_products, pa_tags CASCADE;
@@ -535,27 +555,10 @@ CREATE TABLE pa_posts (
 );
 
 CREATE INDEX pa_authors_idx ON pa_authors
-USING paradedb (id, name, reputation, tags)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "name": {"fast": true},
-        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }',
-    numeric_fields = '{"reputation": {"fast": true}}'
-);
+USING paradedb (id, (name::pdb.unicode_words('columnar=true')), reputation, (tags::pdb.literal));
 
 CREATE INDEX pa_posts_idx ON pa_posts
-USING paradedb (id, author_id, title, category, tags, views)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{"author_id": {"fast": true}, "views": {"fast": true}}',
-    text_fields = '{
-        "title": {},
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
-        "tags": {"fast": true, "tokenizer": {"type": "keyword"}}
-    }'
-);
+USING paradedb (id, author_id, title, (category::pdb.literal), (tags::pdb.literal), views);
 
 SET paradedb.global_mutable_segment_rows = 0;
 
@@ -581,76 +584,76 @@ ANALYZE pa_posts;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.2: terms on array field with metric sub-aggregations
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"avg_views": {"avg": {"field": "p.views"}}, "total_views": {"sum": {"field": "p.views"}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.3: outer scalar terms with inner array terms
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"terms": {"field": "a.name", "order": {"_key": "asc"}}, "aggs": {"by_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.4: outer array terms with inner scalar terms
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}, "aggs": {"by_author": {"terms": {"field": "a.name", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.5: array terms with size and min_doc_count
 SELECT pdb.agg('{"terms": {"field": "p.tags", "size": 2, "min_doc_count": 2, "order": {"_count": "desc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.6: array terms alongside SQL GROUP BY and standard aggregates
 SELECT a.name, COUNT(*), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}') AS tags
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post'
+WHERE p.title ||| 'post'
 GROUP BY a.name
 ORDER BY a.name;
 
 -- Test 6.7: metric aggregation on array field returns an error
 SELECT pdb.agg('{"sum": {"field": "p.tags"}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"cardinality": {"field": "p.tags"}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.8: nested terms over multiple array fields across joins (sequential unnesting)
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"terms": {"field": "a.tags", "order": {"_key": "asc"}}, "aggs": {"by_post_tag": {"terms": {"field": "p.tags", "order": {"_key": "asc"}}}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.9: single-table pdb.agg on array field stays on Tantivy even when
 -- ORDER BY aggregate and LIMIT would otherwise favor DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
 FROM pa_posts
-WHERE title @@@ 'post'
+WHERE title ||| 'post'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 5;
 
 SELECT category, COUNT(*), pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
 FROM pa_posts
-WHERE title @@@ 'post'
+WHERE title ||| 'post'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 5;
@@ -662,12 +665,12 @@ SET paradedb.max_term_agg_buckets TO 1;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
 FROM pa_posts
-WHERE title @@@ 'post'
+WHERE title ||| 'post'
 GROUP BY category;
 
 SELECT category, pdb.agg('{"terms": {"field": "tags", "order": {"_key": "asc"}}}')
 FROM pa_posts
-WHERE title @@@ 'post'
+WHERE title ||| 'post'
 GROUP BY category;
 
 RESET paradedb.max_term_agg_buckets;
@@ -676,13 +679,13 @@ RESET paradedb.max_term_agg_buckets;
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post'
+WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
 
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post'
+WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
 
@@ -691,22 +694,21 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 LEFT JOIN LATERAL unnest(p.tags) AS u(tag) ON true
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 -- Test 6.13: wrapped aggregate and JSON operator on pdb.agg over join
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 SELECT COALESCE(SUM(p.views), 0), pdb.agg('{"terms": {"field": "p.tags", "order": {"_key": "asc"}}}')->'buckets'
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
-WHERE p.title @@@ 'post';
+WHERE p.title ||| 'post';
 
 DROP TABLE pa_posts, pa_authors CASCADE;
-

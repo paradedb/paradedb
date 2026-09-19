@@ -33,7 +33,6 @@ INSERT INTO sorted_scan_test (content, category, priority, score) VALUES
 CREATE INDEX sorted_scan_test_idx ON sorted_scan_test
 USING paradedb (id, content, category, priority, score)
 WITH (
-    key_field = 'id',
     sort_by = 'priority DESC NULLS LAST',
     mutable_segment_rows = 5
 );
@@ -57,10 +56,10 @@ ANALYZE sorted_scan_test;
 \echo 'Test 1.1: ORDER BY matching sort_by exactly (DESC NULLS LAST) - no Sort node'
 Test 1.1: ORDER BY matching sort_by exactly (DESC NULLS LAST) - no Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -69,16 +68,16 @@ ORDER BY priority DESC NULLS LAST;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 \echo 'Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected'
 Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -87,16 +86,16 @@ ORDER BY priority DESC;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 \echo 'Test 1.3: ORDER BY ASC (opposite direction) - Sort node expected'
 Test 1.3: ORDER BY ASC (opposite direction) - Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority ASC NULLS FIRST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -105,28 +104,28 @@ ORDER BY priority ASC NULLS FIRST;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 \echo 'Test 1.4: No ORDER BY clause - Unsorted path chosen'
 Test 1.4: No ORDER BY clause - Unsorted path chosen
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE content ||| 'searchable';
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
    Table: sorted_scan_test
    Index: sorted_scan_test_idx
    Exec Method: ColumnarExecState
    Columnar: id, priority
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (7 rows)
 
 \echo 'Test 1.5: Verify correct data order when sorted path is used'
 Test 1.5: Verify correct data order when sorted path is used
 SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
  id | priority 
 ----+----------
@@ -181,10 +180,10 @@ SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE sorted_scan_test SET (parallel_workers = 2);
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST, id ASC;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -195,16 +194,16 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Exec Method: ColumnarExecState
                Columnar: id, priority
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 \echo 'Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected'
 Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
    ->  Sort
@@ -215,7 +214,7 @@ ORDER BY priority DESC NULLS LAST;
                Exec Method: ColumnarExecState
                Columnar: id, priority
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 RESET enable_incremental_sort;
@@ -231,10 +230,10 @@ SET max_parallel_workers_per_gather = 0;
 Test 1.8: ORDER BY prefix + extra key (single worker) - Incremental Sort expected
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST, id ASC;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST, id
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -243,17 +242,17 @@ ORDER BY priority DESC NULLS LAST, id ASC;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 RESET enable_incremental_sort;
 \echo 'Test 1.9: ORDER BY non-prefix (single worker) - Sort expected'
 Test 1.9: ORDER BY non-prefix (single worker) - Sort expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY id ASC, priority DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id, priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -262,7 +261,7 @@ ORDER BY id ASC, priority DESC NULLS LAST;
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 -- =============================================================================
@@ -285,14 +284,14 @@ INSERT INTO asc_sort_test (description, value) VALUES
     ('item six', 10);
 CREATE INDEX asc_sort_test_idx ON asc_sort_test
 USING paradedb (id, description, value)
-WITH (key_field = 'id', sort_by = 'value ASC NULLS FIRST');
+WITH (sort_by = 'value ASC NULLS FIRST');
 \echo 'Test 2.1: ORDER BY ASC NULLS FIRST (exact match)'
 Test 2.1: ORDER BY ASC NULLS FIRST (exact match)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC NULLS FIRST;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on asc_sort_test
@@ -300,16 +299,16 @@ ORDER BY value ASC NULLS FIRST;
          Index: asc_sort_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 \echo 'Test 2.2: ORDER BY ASC only (default NULLS LAST for ASC) - Sort node expected'
 Test 2.2: ORDER BY ASC only (default NULLS LAST for ASC) - Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value
    ->  Custom Scan (ParadeDB Base Scan) on asc_sort_test
@@ -317,13 +316,13 @@ ORDER BY value ASC;
          Index: asc_sort_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 \echo 'Test 2.3: Verify NULLs appear first with ASC NULLS FIRST'
 Test 2.3: Verify NULLs appear first with ASC NULLS FIRST
 SELECT id, value FROM asc_sort_test
-WHERE description @@@ 'item'
+WHERE description ||| 'item'
 ORDER BY value ASC NULLS FIRST;
  id | value 
 ----+-------
@@ -345,10 +344,10 @@ DROP TABLE asc_sort_test CASCADE;
 \echo 'Test 3.1: SELECT content only, ORDER BY priority'
 Test 3.1: SELECT content only, ORDER BY priority
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT content FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -356,13 +355,13 @@ ORDER BY priority DESC NULLS LAST;
          Index: sorted_scan_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 \echo 'Test 3.2: Verify results are correctly ordered even when priority not selected'
 Test 3.2: Verify results are correctly ordered even when priority not selected
 SELECT content FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
           content           
 ----------------------------
@@ -400,7 +399,7 @@ ORDER BY priority DESC NULLS LAST;
 \echo 'Test 3.3: SELECT id only, ORDER BY priority'
 Test 3.3: SELECT id only, ORDER BY priority
 SELECT id FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST;
  id 
 ----
@@ -445,9 +444,9 @@ ORDER BY priority DESC NULLS LAST;
 \echo 'Test 4.1: INTEGER field sorting (using main table priority column)'
 Test 4.1: INTEGER field sorting (using main table priority column)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'searchable' ORDER BY priority DESC NULLS LAST;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
@@ -456,10 +455,10 @@ SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER B
          Exec Method: ColumnarExecState
          Columnar: id, priority
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'searchable' ORDER BY priority DESC NULLS LAST;
  id | priority 
 ----+----------
   5 |      200
@@ -506,11 +505,11 @@ INSERT INTO dtype_float_test (content, rating) VALUES
     ('movie a', 8.5), ('movie b', 7.2), ('movie c', 9.1), ('movie d', 6.8), ('movie e', 8.9);
 CREATE INDEX dtype_float_test_idx ON dtype_float_test
 USING paradedb (id, content, rating)
-WITH (key_field = 'id', sort_by = 'rating DESC NULLS LAST');
+WITH (sort_by = 'rating DESC NULLS LAST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, rating FROM dtype_float_test WHERE content ||| 'movie' ORDER BY rating DESC NULLS LAST;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on dtype_float_test
@@ -519,10 +518,10 @@ SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY ratin
          Exec Method: ColumnarExecState
          Columnar: id, rating
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"movie","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"movie","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
+SELECT id, rating FROM dtype_float_test WHERE content ||| 'movie' ORDER BY rating DESC NULLS LAST;
  id | rating 
 ----+--------
   3 |    9.1
@@ -550,11 +549,11 @@ INSERT INTO dtype_ts_test (content, created_at) VALUES
     ('event e', '2024-02-28 12:00:00');
 CREATE INDEX dtype_ts_test_idx ON dtype_ts_test
 USING paradedb (id, content, created_at)
-WITH (key_field = 'id', sort_by = 'created_at DESC NULLS LAST');
+WITH (sort_by = 'created_at DESC NULLS LAST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, created_at FROM dtype_ts_test WHERE content ||| 'event' ORDER BY created_at DESC NULLS LAST;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: created_at DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on dtype_ts_test
@@ -563,10 +562,10 @@ SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY crea
          Exec Method: ColumnarExecState
          Columnar: created_at, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"event","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"event","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
+SELECT id, created_at FROM dtype_ts_test WHERE content ||| 'event' ORDER BY created_at DESC NULLS LAST;
  id |        created_at        
 ----+--------------------------
   4 | Mon Jun 10 16:45:00 2024
@@ -594,11 +593,11 @@ INSERT INTO dtype_date_test (content, event_date) VALUES
     ('appointment e', '2024-04-25');
 CREATE INDEX dtype_date_test_idx ON dtype_date_test
 USING paradedb (id, content, event_date)
-WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
+WITH (sort_by = 'event_date ASC NULLS FIRST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, event_date FROM dtype_date_test WHERE content ||| 'appointment' ORDER BY event_date ASC NULLS FIRST;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: event_date NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on dtype_date_test
@@ -607,10 +606,10 @@ SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER
          Exec Method: ColumnarExecState
          Columnar: event_date, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"appointment","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"appointment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
+SELECT id, event_date FROM dtype_date_test WHERE content ||| 'appointment' ORDER BY event_date ASC NULLS FIRST;
  id | event_date 
 ----+------------
   4 | 01-10-2024
@@ -639,13 +638,13 @@ INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
     ('uuid', '00000000-0000-0000-0000-000000000100');
 CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
 USING paradedb (id, content, (uuid_col::pdb.literal))
-WITH (key_field = 'id', sort_by = 'uuid_col ASC NULLS FIRST');
+WITH (sort_by = 'uuid_col ASC NULLS FIRST');
 -- Select the native UUID column (no ::text cast) so ORDER BY resolves to the
 -- base Var and matches the index pathkey on uuid_col.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content ||| 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: uuid_col NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on dtype_uuid_test
@@ -654,10 +653,10 @@ SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_
          Exec Method: ColumnarExecState
          Columnar: id, uuid_col
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"uuid","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"uuid","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content ||| 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
  id |               uuid_col               
 ----+--------------------------------------
   4 | 
@@ -689,11 +688,11 @@ INSERT INTO dtype_numeric_test (content, amount) VALUES
     ('num', 50);
 CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
 USING paradedb (id, content, amount)
-WITH (key_field = 'id', sort_by = 'amount ASC NULLS FIRST');
+WITH (sort_by = 'amount ASC NULLS FIRST');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT id, amount FROM dtype_numeric_test WHERE content ||| 'num' ORDER BY amount ASC NULLS FIRST;
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: amount NULLS FIRST
    ->  Custom Scan (ParadeDB Base Scan) on dtype_numeric_test
@@ -702,10 +701,10 @@ SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amoun
          Exec Method: ColumnarExecState
          Columnar: amount, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"num","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"num","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
-SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
+SELECT id, amount FROM dtype_numeric_test WHERE content ||| 'num' ORDER BY amount ASC NULLS FIRST;
  id |             amount             
 ----+--------------------------------
   1 |                               
@@ -736,8 +735,8 @@ Test 5.1: Empty result set
 INSERT INTO edge_case_test (content, value) VALUES ('searchable', 100);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
-SELECT id, value FROM edge_case_test WHERE content @@@ 'nonexistent' ORDER BY value DESC NULLS LAST;
+WITH (sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content ||| 'nonexistent' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
 (0 rows)
@@ -756,8 +755,8 @@ INSERT INTO edge_case_test (content, value) VALUES
     ('doc epsilon', 100);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
-SELECT id, value FROM edge_case_test WHERE content @@@ 'doc' ORDER BY value DESC NULLS LAST;
+WITH (sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content ||| 'doc' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   3 |   100
@@ -779,8 +778,8 @@ INSERT INTO edge_case_test (content, value) VALUES
     ('item three', NULL);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
-SELECT id, value FROM edge_case_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+WITH (sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   1 |      
@@ -797,8 +796,8 @@ Test 5.4: Single row result
 INSERT INTO edge_case_test (content, value) VALUES ('unique', 42), ('other', 99);
 CREATE INDEX edge_case_test_idx ON edge_case_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
-SELECT id, value FROM edge_case_test WHERE content @@@ 'unique' ORDER BY value DESC NULLS LAST;
+WITH (sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content ||| 'unique' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   1 |    42
@@ -816,7 +815,7 @@ SELECT 'searchable document ' || i, 'docs', 1000 - i, 5.0 - (i * 0.1)
 FROM generate_series(1, 20) AS i;
 \echo 'Test 6.1: LIMIT 5'
 Test 6.1: LIMIT 5
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 5;
  id | priority 
 ----+----------
  30 |      999
@@ -828,7 +827,7 @@ SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY 
 
 \echo 'Test 6.2: LIMIT 5 OFFSET 5'
 Test 6.2: LIMIT 5 OFFSET 5
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5 OFFSET 5;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 5 OFFSET 5;
  id | priority 
 ----+----------
  35 |      994
@@ -840,7 +839,7 @@ SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY 
 
 \echo 'Test 6.3: FETCH FIRST 3 ROWS ONLY'
 Test 6.3: FETCH FIRST 3 ROWS ONLY
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST FETCH FIRST 3 ROWS ONLY;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST FETCH FIRST 3 ROWS ONLY;
  id | priority 
 ----+----------
  30 |      999
@@ -850,7 +849,7 @@ SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY 
 
 \echo 'Test 6.4: LIMIT larger than result set'
 Test 6.4: LIMIT larger than result set
-SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 100;
+SELECT id, priority FROM sorted_scan_test WHERE content ||| 'document' ORDER BY priority DESC NULLS LAST LIMIT 100;
  id | priority 
 ----+----------
  30 |      999
@@ -889,7 +888,7 @@ CREATE TABLE multi_segment_test (
 );
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
 -- Insert batches to create multiple segments
 INSERT INTO multi_segment_test (content, priority)
 SELECT 'searchable batch1 item ' || i, 100 + (i % 5)
@@ -903,7 +902,7 @@ FROM generate_series(1, 15) AS i;
 \echo 'Test 7.1: Results from multiple segments should be globally sorted'
 Test 7.1: Results from multiple segments should be globally sorted
 SELECT id, priority FROM multi_segment_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority DESC NULLS LAST
 LIMIT 10;
  id | priority 
@@ -928,7 +927,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM multi_segment_test
-        WHERE content @@@ 'searchable'
+        WHERE content ||| 'searchable'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order
@@ -949,7 +948,7 @@ DROP INDEX multi_segment_test_idx;
 TRUNCATE multi_segment_test RESTART IDENTITY;
 CREATE INDEX multi_segment_test_idx ON multi_segment_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
+WITH (sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
 -- Insert interleaved values across segments
 INSERT INTO multi_segment_test (content, priority) VALUES ('item', 10);
 INSERT INTO multi_segment_test (content, priority) VALUES ('item', 2);
@@ -971,7 +970,7 @@ INSERT INTO multi_segment_test (content, priority) VALUES ('item', 16);
 \echo 'Test 8.1: Interleaved inserts should be globally sorted'
 Test 8.1: Interleaved inserts should be globally sorted
 SELECT id, priority FROM multi_segment_test
-WHERE content @@@ 'item'
+WHERE content ||| 'item'
 ORDER BY priority ASC NULLS FIRST;
  id | priority 
 ----+----------
@@ -1000,7 +999,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM multi_segment_test
-        WHERE content @@@ 'item'
+        WHERE content ||| 'item'
         ORDER BY priority ASC NULLS FIRST
     ) sub
 ) check_order
@@ -1025,7 +1024,7 @@ CREATE TABLE mod_test (
 );
 CREATE INDEX mod_test_idx ON mod_test
 USING paradedb (id, content, value)
-WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+WITH (sort_by = 'value DESC NULLS LAST');
 -- Initial data
 INSERT INTO mod_test (content, value) VALUES
     ('item alpha', 50),
@@ -1033,7 +1032,7 @@ INSERT INTO mod_test (content, value) VALUES
     ('item gamma', 70);
 \echo 'Test 9.1: Initial order'
 Test 9.1: Initial order
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   3 |    70
@@ -1044,7 +1043,7 @@ SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULL
 \echo 'Test 9.2: After INSERT of new highest value'
 Test 9.2: After INSERT of new highest value
 INSERT INTO mod_test (content, value) VALUES ('item delta', 100);
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   4 |   100
@@ -1056,7 +1055,7 @@ SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULL
 \echo 'Test 9.3: After UPDATE to change order'
 Test 9.3: After UPDATE to change order
 UPDATE mod_test SET value = 999 WHERE id = 2;
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   2 |   999
@@ -1068,7 +1067,7 @@ SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULL
 \echo 'Test 9.4: After DELETE of highest value'
 Test 9.4: After DELETE of highest value
 DELETE FROM mod_test WHERE id = 2;
-SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+SELECT id, value FROM mod_test WHERE content ||| 'item' ORDER BY value DESC NULLS LAST;
  id | value 
 ----+-------
   4 |   100
@@ -1096,14 +1095,14 @@ INSERT INTO exec_method_test (content, fast_field, non_fast_field) VALUES
     ('searchable three', 150, 'description three');
 CREATE INDEX exec_method_test_idx ON exec_method_test
 USING paradedb (id, content, fast_field)
-WITH (key_field = 'id', sort_by = 'fast_field DESC NULLS LAST');
+WITH (sort_by = 'fast_field DESC NULLS LAST');
 \echo 'Test 10.1: Fast fields only - should use sorted path (no Sort node)'
 Test 10.1: Fast fields only - should use sorted path (no Sort node)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fast_field DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -1112,16 +1111,16 @@ ORDER BY fast_field DESC NULLS LAST;
          Exec Method: ColumnarExecState
          Columnar: fast_field, id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 \echo 'Test 10.2: Non-fast field included - should add Sort node'
 Test 10.2: Non-fast field included - should add Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, non_fast_field, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fast_field DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -1129,17 +1128,17 @@ ORDER BY fast_field DESC NULLS LAST;
          Index: exec_method_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 \echo 'Test 10.3: With enable_columnar_exec OFF - should add Sort node'
 Test 10.3: With enable_columnar_exec OFF - should add Sort node
 SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fast_field DESC NULLS LAST
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -1147,7 +1146,7 @@ ORDER BY fast_field DESC NULLS LAST;
          Index: exec_method_test_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (8 rows)
 
 SET paradedb.enable_columnar_exec = true;
@@ -1159,7 +1158,7 @@ DROP TABLE exec_method_test CASCADE;
 === SECTION 11: Aggregates with Sorted Index ===
 \echo 'Test 11.1: MAX aggregate'
 Test 11.1: MAX aggregate
-SELECT MAX(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT MAX(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
  max 
 -----
  999
@@ -1167,7 +1166,7 @@ SELECT MAX(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
 
 \echo 'Test 11.2: MIN aggregate'
 Test 11.2: MIN aggregate
-SELECT MIN(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT MIN(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
  min 
 -----
   11
@@ -1175,7 +1174,7 @@ SELECT MIN(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
 
 \echo 'Test 11.3: SUM aggregate'
 Test 11.3: SUM aggregate
-SELECT SUM(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT SUM(priority) FROM sorted_scan_test WHERE content ||| 'searchable';
   sum  
 -------
  20953
@@ -1183,7 +1182,7 @@ SELECT SUM(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
 
 \echo 'Test 11.4: COUNT aggregate'
 Test 11.4: COUNT aggregate
-SELECT COUNT(*) FROM sorted_scan_test WHERE content @@@ 'searchable';
+SELECT COUNT(*) FROM sorted_scan_test WHERE content ||| 'searchable';
  count 
 -------
     49
@@ -1198,7 +1197,7 @@ SELECT COUNT(*) FROM sorted_scan_test WHERE content @@@ 'searchable';
 \echo 'Test 12.1: ORDER BY opposite direction (ASC when index is DESC)'
 Test 12.1: ORDER BY opposite direction (ASC when index is DESC)
 SELECT id, priority FROM sorted_scan_test
-WHERE content @@@ 'searchable'
+WHERE content ||| 'searchable'
 ORDER BY priority ASC;
  id | priority 
 ----+----------
@@ -1261,7 +1260,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM sorted_scan_test
-        WHERE content @@@ 'searchable'
+        WHERE content ||| 'searchable'
         ORDER BY priority ASC
     ) sub
 ) check_order
@@ -1285,8 +1284,7 @@ CREATE TABLE no_sortby_test (
 );
 -- Index WITHOUT sort_by option
 CREATE INDEX no_sortby_test_idx ON no_sortby_test
-USING paradedb (id, content, value)
-WITH (key_field = 'id');
+USING paradedb (id, content, value);
 INSERT INTO no_sortby_test (content, value) VALUES
     ('test data one', 5),
     ('test data two', 3),
@@ -1303,10 +1301,10 @@ INSERT INTO no_sortby_test (content, value) VALUES
 \echo 'Test 13.1: ORDER BY with no sort_by - Sort node expected'
 Test 13.1: ORDER BY with no sort_by - Sort node expected
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, value FROM no_sortby_test
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY value DESC;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value DESC
    ->  Custom Scan (ParadeDB Base Scan) on no_sortby_test
@@ -1315,7 +1313,7 @@ ORDER BY value DESC;
          Exec Method: ColumnarExecState
          Columnar: id, value
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 DROP TABLE no_sortby_test CASCADE;
@@ -1335,7 +1333,7 @@ CREATE TABLE parallel_sorted_test (
 );
 CREATE INDEX parallel_sorted_test_idx ON parallel_sorted_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 -- Insert enough data across multiple segments for meaningful parallel test
 INSERT INTO parallel_sorted_test (content, priority)
 SELECT 'searchable document batch1 ' || i, 900 + (i % 100)
@@ -1377,10 +1375,10 @@ SET enable_gathermerge = on;
 SET cpu_index_tuple_cost = 0.05;
 ALTER TABLE parallel_sorted_test SET (parallel_workers = 4);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 4
    ->  Sort
@@ -1391,7 +1389,7 @@ ORDER BY priority DESC NULLS LAST;
                Exec Method: ColumnarExecState
                Columnar: id, priority
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"document","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 \echo 'Test 14.3: Verify parallel sorted results are correctly ordered'
@@ -1402,7 +1400,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM parallel_sorted_test
-        WHERE content @@@ 'document'
+        WHERE content ||| 'document'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order
@@ -1415,7 +1413,7 @@ WHERE prev_priority IS NOT NULL AND priority > prev_priority;
 \echo 'Test 14.4: Parallel sorted scan with LIMIT'
 Test 14.4: Parallel sorted scan with LIMIT
 SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST
 LIMIT 10;
  id  | priority 
@@ -1436,10 +1434,10 @@ LIMIT 10;
 Test 14.5: Parallel sorted scan with prefix pathkeys uses Incremental Sort
 SET enable_incremental_sort = on;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST, id ASC;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 4
    ->  Sort
@@ -1450,7 +1448,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Exec Method: ColumnarExecState
                Columnar: id, priority
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"content","value":"document","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
 RESET enable_incremental_sort;
@@ -1477,7 +1475,7 @@ CREATE TABLE lazy_checkout_test (
 );
 CREATE INDEX lazy_checkout_test_idx ON lazy_checkout_test
 USING paradedb (id, content, priority)
-WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+WITH (sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
 -- Insert multiple batches to create segments
 INSERT INTO lazy_checkout_test (content, priority)
 SELECT 'searchable document batch1 ' || i, 900 + (i % 10)
@@ -1502,7 +1500,7 @@ FROM paradedb.index_info('lazy_checkout_test_idx');
 \echo 'Test 15.2: Multi-segment sorted scan results'
 Test 15.2: Multi-segment sorted scan results
 SELECT id, priority FROM lazy_checkout_test
-WHERE content @@@ 'document'
+WHERE content ||| 'document'
 ORDER BY priority DESC NULLS LAST
 FETCH FIRST 20 ROWS ONLY;
  id | priority 
@@ -1537,7 +1535,7 @@ FROM (
     SELECT priority, LAG(priority) OVER () as prev_priority
     FROM (
         SELECT priority FROM lazy_checkout_test
-        WHERE content @@@ 'document'
+        WHERE content ||| 'document'
         ORDER BY priority DESC NULLS LAST
     ) sub
 ) check_order

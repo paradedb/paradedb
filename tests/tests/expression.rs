@@ -26,7 +26,7 @@ fn expression_paradedb_func(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, (lower(description)::pdb.simple)) WITH (key_field='id');
+        USING paradedb (id, (lower(description)::pdb.simple));
 
     INSERT INTO paradedb.index_config (description) VALUES ('Test description');
     "#
@@ -37,7 +37,7 @@ fn expression_paradedb_func(mut conn: PgConnection) {
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
-    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) @@@ 'test'"
+    let (count,) = "SELECT count(*) FROM paradedb.index_config WHERE lower(description) ||| 'test'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
@@ -48,7 +48,7 @@ fn expression_paradedb_op(mut conn: PgConnection) {
     CALL paradedb.create_paradedb_test_table(table_name => 'index_config', schema_name => 'paradedb');
 
     CREATE INDEX index_config_index ON paradedb.index_config
-        USING paradedb (id, ((description || ' with cats')::pdb.simple)) WITH (key_field='id');
+        USING paradedb (id, ((description || ' with cats')::pdb.simple));
 
     INSERT INTO paradedb.index_config (description) VALUES ('Test description');
     "#
@@ -56,12 +56,12 @@ fn expression_paradedb_op(mut conn: PgConnection) {
 
     // All entries in the index should match, since all of them now have cats.
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'cats'"
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') ||| 'cats'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 42);
     // Inserted test value still should too.
     let (count,) =
-        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') @@@ 'description'"
+        "SELECT count(*) FROM paradedb.index_config WHERE (description || ' with cats') ||| 'description'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
@@ -72,22 +72,22 @@ fn expression_conflicting_query_string(mut conn: PgConnection) {
     CREATE TABLE expression_test (id SERIAL PRIMARY KEY, firstname TEXT, lastname TEXT);
 
     CREATE INDEX expression_test_idx ON expression_test
-        USING paradedb (id, (lower(firstname)::pdb.simple), (lower(lastname)::pdb.simple)) WITH (key_field='id');
+        USING paradedb (id, (lower(firstname)::pdb.simple), (lower(lastname)::pdb.simple));
 
     INSERT INTO expression_test (firstname, lastname) VALUES ('John', 'Doe');
     "#
     .execute(&mut conn);
 
-    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john'"
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(firstname) ||| 'john'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
-    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(lastname) @@@ 'doe'"
+    let (count,) = "SELECT count(*) FROM expression_test WHERE lower(lastname) ||| 'doe'"
         .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 
     let (count,) =
-        "SELECT count(*) FROM expression_test WHERE lower(firstname) @@@ 'john' AND lower(lastname) @@@ 'doe'"
+        "SELECT count(*) FROM expression_test WHERE lower(firstname) ||| 'john' AND lower(lastname) ||| 'doe'"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }

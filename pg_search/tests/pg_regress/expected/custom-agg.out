@@ -41,24 +41,19 @@ INSERT INTO logs (description, severity, category, response_time, unindexed_metr
     ('Unauthorized access attempt', 'warning', 'security', 20, 169, 403, '2024-01-01 10:09:00'),
     ('Invalid authentication token', 'error', 'security', 15, 170, 401, '2024-01-01 10:14:00'),
     ('Suspicious activity detected', 'critical', 'security', 25, 171, 403, '2024-01-01 10:19:00');
-CREATE INDEX logs_idx ON logs USING paradedb (id, description, severity, category, response_time, status_code, timestamp)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "severity": {"fast": true}, "category": {"fast": true}}',
-    numeric_fields = '{"response_time": {"fast": true}, "status_code": {"fast": true}}'
-);
+CREATE INDEX logs_idx ON logs USING paradedb (id, description, (severity::pdb.unicode_words('columnar=true')), (category::pdb.unicode_words('columnar=true')), response_time, status_code, timestamp);
 -- Test 1: Simple custom agg with terms aggregation (without search query - should fail gracefully or not be intercepted)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -66,7 +61,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |                                                                       agg                                                                        
 -------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -80,7 +75,7 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -95,12 +90,12 @@ ORDER BY timestamp DESC LIMIT 10;
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
  id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |             agg              
 ----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------
@@ -119,14 +114,14 @@ SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*), CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -136,7 +131,7 @@ SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   | count |                                                                       agg                                                                        
 -------------+-------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -151,13 +146,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Aggregate Definition: {"0":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}}}
 (6 rows)
@@ -165,7 +160,7 @@ WHERE description @@@ 'error';
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
               agg              
 -------------------------------
  {"value": 2443.6666666666665}
@@ -178,7 +173,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- This query is expected to fail because FILTER with OVER is not yet supported
@@ -186,7 +181,7 @@ ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with win
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Test 6: EXPLAIN query to show custom agg is recognized
@@ -195,14 +190,14 @@ SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*), CUSTOM_AGG({"max":{"field":"response_time"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -212,7 +207,7 @@ SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   | count |        agg         
 -------------+-------+--------------------
@@ -310,25 +305,25 @@ ORDER BY timestamp DESC LIMIT 10;
 -- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
 SELECT *, pdb.agg('{"buckets": {"terms": {"field": "category"}}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() received JSON with 'buckets' key. Remove the 'buckets' wrapper - pdb.agg() expects a single aggregation definition. Example: {"terms": {"field": "country"}} instead of {"buckets": {"terms": {"field": "country"}}}
 -- Test 10: Error handling - non-object JSON (should fail fast)
 SELECT *, pdb.agg('"invalid"'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() expects a JSON object representing a Tantivy aggregation. Example: {"terms": {"field": "country"}}
 -- Test 11: Error handling - invalid aggregation type (should fail fast)
 SELECT *, pdb.agg('{"invalid_agg_type": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  Failed to deserialize custom aggregate: unknown variant `invalid_agg_type`, expected one of `range`, `histogram`, `date_histogram`, `terms`, `filter`, `composite`, `multi_terms`, `avg`, `value_count`, `max`, `min`, `stats`, `extended_stats`, `sum`, `percentiles`, `top_hits`, `cardinality`
 -- Test 12: Error handling - pdb.agg() with FILTER clause (should fail at planner hook)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- =====================================================================
@@ -338,14 +333,14 @@ ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with win
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100},{"to":1000,"from":100},{"from":1000}]}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"to":100.0},{"from":100.0,"to":1000.0},{"from":1000.0}]}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -353,7 +348,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"range": {"field": "response_time", "ranges": [{"to": 100}, {"from": 100, "to": 1000}, {"from": 1000}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |                                                                                        agg                                                                                        
 -------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -367,20 +362,20 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                    QUERY PLAN                                                                                                    
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"histogram":{"field":"response_time","interval":100}})
      Aggregate Definition: {"0":{"histogram":{"extended_bounds":null,"field":"response_time","hard_bounds":null,"interval":100.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":null,"offset":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"histogram": {"field": "response_time", "interval": 100}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": 0.0, "doc_count": 3}, {"key": 100.0, "doc_count": 1}, {"key": 200.0, "doc_count": 0}, {"key": 300.0, "doc_count": 0}, {"key": 400.0, "doc_count": 0}, {"key": 500.0, "doc_count": 0}, {"key": 600.0, "doc_count": 0}, {"key": 700.0, "doc_count": 0}, {"key": 800.0, "doc_count": 0}, {"key": 900.0, "doc_count": 0}, {"key": 1000.0, "doc_count": 0}, {"key": 1100.0, "doc_count": 0}, {"key": 1200.0, "doc_count": 0}, {"key": 1300.0, "doc_count": 0}, {"key": 1400.0, "doc_count": 0}, {"key": 1500.0, "doc_count": 1}, {"key": 1600.0, "doc_count": 0}, {"key": 1700.0, "doc_count": 0}, {"key": 1800.0, "doc_count": 0}, {"key": 1900.0, "doc_count": 0}, {"key": 2000.0, "doc_count": 0}, {"key": 2100.0, "doc_count": 0}, {"key": 2200.0, "doc_count": 0}, {"key": 2300.0, "doc_count": 0}, {"key": 2400.0, "doc_count": 0}, {"key": 2500.0, "doc_count": 0}, {"key": 2600.0, "doc_count": 0}, {"key": 2700.0, "doc_count": 0}, {"key": 2800.0, "doc_count": 0}, {"key": 2900.0, "doc_count": 0}, {"key": 3000.0, "doc_count": 1}, {"key": 3100.0, "doc_count": 0}, {"key": 3200.0, "doc_count": 0}, {"key": 3300.0, "doc_count": 0}, {"key": 3400.0, "doc_count": 0}, {"key": 3500.0, "doc_count": 0}, {"key": 3600.0, "doc_count": 0}, {"key": 3700.0, "doc_count": 0}, {"key": 3800.0, "doc_count": 0}, {"key": 3900.0, "doc_count": 0}, {"key": 4000.0, "doc_count": 0}, {"key": 4100.0, "doc_count": 0}, {"key": 4200.0, "doc_count": 0}, {"key": 4300.0, "doc_count": 0}, {"key": 4400.0, "doc_count": 0}, {"key": 4500.0, "doc_count": 0}, {"key": 4600.0, "doc_count": 0}, {"key": 4700.0, "doc_count": 0}, {"key": 4800.0, "doc_count": 0}, {"key": 4900.0, "doc_count": 0}, {"key": 5000.0, "doc_count": 0}, {"key": 5100.0, "doc_count": 0}, {"key": 5200.0, "doc_count": 0}, {"key": 5300.0, "doc_count": 0}, {"key": 5400.0, "doc_count": 0}, {"key": 5500.0, "doc_count": 0}, {"key": 5600.0, "doc_count": 0}, {"key": 5700.0, "doc_count": 0}, {"key": 5800.0, "doc_count": 0}, {"key": 5900.0, "doc_count": 0}, {"key": 6000.0, "doc_count": 0}, {"key": 6100.0, "doc_count": 0}, {"key": 6200.0, "doc_count": 0}, {"key": 6300.0, "doc_count": 0}, {"key": 6400.0, "doc_count": 0}, {"key": 6500.0, "doc_count": 0}, {"key": 6600.0, "doc_count": 0}, {"key": 6700.0, "doc_count": 0}, {"key": 6800.0, "doc_count": 0}, {"key": 6900.0, "doc_count": 0}, {"key": 7000.0, "doc_count": 0}, {"key": 7100.0, "doc_count": 0}, {"key": 7200.0, "doc_count": 0}, {"key": 7300.0, "doc_count": 0}, {"key": 7400.0, "doc_count": 0}, {"key": 7500.0, "doc_count": 0}, {"key": 7600.0, "doc_count": 0}, {"key": 7700.0, "doc_count": 0}, {"key": 7800.0, "doc_count": 0}, {"key": 7900.0, "doc_count": 0}, {"key": 8000.0, "doc_count": 0}, {"key": 8100.0, "doc_count": 0}, {"key": 8200.0, "doc_count": 0}, {"key": 8300.0, "doc_count": 0}, {"key": 8400.0, "doc_count": 0}, {"key": 8500.0, "doc_count": 0}, {"key": 8600.0, "doc_count": 0}, {"key": 8700.0, "doc_count": 0}, {"key": 8800.0, "doc_count": 0}, {"key": 8900.0, "doc_count": 0}, {"key": 9000.0, "doc_count": 0}, {"key": 9100.0, "doc_count": 0}, {"key": 9200.0, "doc_count": 0}, {"key": 9300.0, "doc_count": 0}, {"key": 9400.0, "doc_count": 0}, {"key": 9500.0, "doc_count": 0}, {"key": 9600.0, "doc_count": 0}, {"key": 9700.0, "doc_count": 0}, {"key": 9800.0, "doc_count": 0}, {"key": 9900.0, "doc_count": 0}, {"key": 10000.0, "doc_count": 1}]}
@@ -390,14 +385,14 @@ WHERE description @@@ 'error';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"stats":{"field":"response_time"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"stats":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -405,7 +400,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"stats": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |                                        agg                                         
 -------------+------------------------------------------------------------------------------------
@@ -419,20 +414,20 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"min":{"field":"response_time"}})
      Aggregate Definition: {"0":{"min":{"field":"response_time","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"min": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
       agg       
 ----------------
  {"value": 2.0}
@@ -442,20 +437,20 @@ WHERE description @@@ 'error';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"max":{"field":"status_code"}})
      Aggregate Definition: {"0":{"max":{"field":"status_code","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"max": {"field": "status_code"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
        agg        
 ------------------
  {"value": 504.0}
@@ -465,14 +460,14 @@ WHERE description @@@ 'error';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"value_count": {"field": "status_code"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"status_code"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"status_code","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -480,7 +475,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"value_count": {"field": "status_code"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |      agg       
 -------------+----------------
@@ -499,14 +494,14 @@ SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}},"1":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -516,7 +511,7 @@ SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |         avg_response          |                                                                severity_breakdown                                                                
 -------------+-------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -531,13 +526,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
 FROM logs
-WHERE description @@@ 'error';
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"max":{"field":"status_code"}})
      Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}},"1":{"max":{"field":"status_code","missing":null}}}
 (6 rows)
@@ -545,7 +540,7 @@ WHERE description @@@ 'error';
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"max": {"field": "status_code"}}'::jsonb) AS max_status
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
          avg_response         |    max_status    
 ------------------------------+------------------
  {"value": 2101.714285714286} | {"value": 504.0}
@@ -559,14 +554,14 @@ SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
                                                                                                                                       QUERY PLAN                                                                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*), SUM(response_time), CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"response_time","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"response_time","missing":null}},"2":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -578,7 +573,7 @@ SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) AS avg_response,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) AS severity_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   | total_count | total_response_time |         avg_response          |                                                                severity_breakdown                                                                
 -------------+-------------+---------------------+-------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -595,20 +590,20 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error' AND status_code >= 500;
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error' AND status_code >= 500;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error' AND status_code >= 500;
+WHERE description ||| 'error' AND status_code >= 500;
                                                                                                             agg                                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "application", "doc_count": 2}, {"key": "database", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -618,20 +613,20 @@ WHERE description @@@ 'error' AND status_code >= 500;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error' OR description @@@ 'timeout';
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error' OR description ||| 'timeout';
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}}]}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"timeout","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error' OR description @@@ 'timeout';
+WHERE description ||| 'error' OR description ||| 'timeout';
         agg        
 -------------------
  {"value": 2464.0}
@@ -641,14 +636,14 @@ WHERE description @@@ 'error' OR description @@@ 'timeout';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+WHERE (description ||| 'error' AND status_code >= 500) OR (description ||| 'timeout' AND response_time > 1000)
 GROUP BY category;
-                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"timeout","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"response_time","lower_bound":{"excluded":1000},"upper_bound":null}}]}}]}}
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}}]}},{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"timeout","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"response_time","lower_bound":{"excluded":1000},"upper_bound":null}}]}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -656,7 +651,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error' AND status_code >= 500) OR (description @@@ 'timeout' AND response_time > 1000)
+WHERE (description ||| 'error' AND status_code >= 500) OR (description ||| 'timeout' AND response_time > 1000)
 GROUP BY category;
   category   |                                                                       agg                                                                        
 -------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -673,20 +668,20 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'nonexistent_term_xyz';
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'nonexistent_term_xyz';
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"nonexistent_term_xyz","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'nonexistent_term_xyz';
+WHERE description ||| 'nonexistent_term_xyz';
                                      agg                                     
 -----------------------------------------------------------------------------
  {"buckets": [], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -696,14 +691,14 @@ WHERE description @@@ 'nonexistent_term_xyz';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'nonexistent_term_xyz'
+WHERE description ||| 'nonexistent_term_xyz'
 GROUP BY category;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term_xyz","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"nonexistent_term_xyz","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -711,7 +706,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'nonexistent_term_xyz'
+WHERE description ||| 'nonexistent_term_xyz'
 GROUP BY category;
  category | agg 
 ----------+-----
@@ -724,7 +719,7 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category, severity
 ORDER BY category, severity;
                                                                                                                                                QUERY PLAN                                                                                                                                               
@@ -732,7 +727,7 @@ ORDER BY category, severity;
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, severity, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category, severity
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"severity","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -740,7 +735,7 @@ ORDER BY category, severity;
 
 SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category, severity
 ORDER BY category, severity;
   category   | severity |        agg         
@@ -756,15 +751,15 @@ ORDER BY category, severity;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text), category
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -772,7 +767,7 @@ ORDER BY category;
 
 SELECT pdb.agg('{"terms": {"field": "severity"}}'::jsonb), category
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category;
                                                                        agg                                                                        |  category   
@@ -792,7 +787,7 @@ SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
        pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -807,14 +802,14 @@ ORDER BY timestamp DESC LIMIT 10;
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response,
        pdb.agg('{"max": {"field": "status_code"}}'::jsonb) OVER () AS max_status
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
  id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |         avg_response         |    max_status    
 ----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------+------------------
@@ -833,7 +828,7 @@ SELECT *,
        COUNT(*) OVER () AS total_count,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                    
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -848,14 +843,14 @@ ORDER BY timestamp DESC LIMIT 10;
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *,
        COUNT(*) OVER () AS total_count,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS category_breakdown
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
  id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         | total_count |                                                                                                     category_breakdown                                                                                                     
 ----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -873,7 +868,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY response_time DESC LIMIT 5;
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -888,13 +883,13 @@ ORDER BY response_time DESC LIMIT 5;
          Scores: false
             TopK Order By: response_time desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER () AS avg_response
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY response_time DESC LIMIT 5;
  id |        description         | severity | category | response_time | unindexed_metric | status_code |        timestamp         |         avg_response         
 ----+----------------------------+----------+----------+---------------+------------------+-------------+--------------------------+------------------------------
@@ -912,15 +907,15 @@ ORDER BY response_time DESC LIMIT 5;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category DESC;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","order":{"_key":"desc"},"segment_size":65000,"size":65000}}}
@@ -928,7 +923,7 @@ ORDER BY category DESC;
 
 SELECT category, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category DESC;
   category   |              agg              
@@ -943,7 +938,7 @@ ORDER BY category DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category, severity
 ORDER BY category ASC, severity DESC;
                                                                                                                                                QUERY PLAN                                                                                                                                                
@@ -951,7 +946,7 @@ ORDER BY category ASC, severity DESC;
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, severity, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category, severity
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"severity","order":{"_key":"desc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -959,7 +954,7 @@ ORDER BY category ASC, severity DESC;
 
 SELECT category, severity, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category, severity
 ORDER BY category ASC, severity DESC;
   category   | severity |        agg         
@@ -977,25 +972,25 @@ ORDER BY category ASC, severity DESC;
 -- Test 34: pdb.agg() with FILTER on indexed field (GROUP BY)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category,
-       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity ||| 'error')
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category
-     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"severity","lenient":null,"query_string":"error"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}},"type":"FilterQuery"}}}
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"match":{"conjunction_mode":false,"distance":null,"field":"severity","prefix":null,"tokenizer":null,"transposition_cost_one":null,"value":"error"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"match":{"conjunction_mode":false,"distance":null,"field":"description","prefix":null,"tokenizer":null,"transposition_cost_one":null,"value":"error"}}}},"type":"FilterQuery"}}}
 (7 rows)
 
 SELECT category,
-       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity @@@ 'error')
+       pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE severity ||| 'error')
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |       agg        
 -------------+------------------
@@ -1010,23 +1005,23 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"severity"}})
      Group By: category
-     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}},"type":"FilterQuery"}}}
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"match":{"conjunction_mode":false,"distance":null,"field":"description","prefix":null,"tokenizer":null,"transposition_cost_one":null,"value":"error"}}}},"type":"FilterQuery"}}}
 (7 rows)
 
 SELECT category,
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb) FILTER (WHERE status_code >= 500)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |                                                                       agg                                                                        
 -------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1042,24 +1037,24 @@ SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}}), CUSTOM_AGG({"avg":{"field":"response_time"}})
      Group By: category
-     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":null,"upper_bound":{"excluded":500}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}},"1":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"description","lenient":null,"query_string":"error"}}}},"type":"FilterQuery"}}}
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"status_code","lower_bound":null,"upper_bound":{"excluded":500}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}},"1":{"avg":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"match":{"conjunction_mode":false,"distance":null,"field":"description","prefix":null,"tokenizer":null,"transposition_cost_one":null,"value":"error"}}}},"type":"FilterQuery"}}}
 (7 rows)
 
 SELECT category,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code >= 500) AS avg_5xx,
        pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) FILTER (WHERE status_code < 500) AS avg_4xx
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |      avg_5xx       |     avg_4xx     
 -------------+--------------------+-----------------
@@ -1076,20 +1071,20 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'error') AND (NOT (description ||| 'error'));
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
+WHERE (description ||| 'error') AND (NOT (description ||| 'error'));
                                      agg                                     
 -----------------------------------------------------------------------------
  {"buckets": [], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1099,20 +1094,20 @@ WHERE (description @@@ 'error') AND (NOT (description @@@ 'error'));
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
-                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'error') OR (NOT (description ||| 'error'));
+                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}]}}}}]}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"boolean":{"must":["all"],"must_not":[{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}]}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"response_time"}})
      Aggregate Definition: {"0":{"avg":{"field":"response_time","missing":null}}}
 (6 rows)
 
 SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
 FROM logs
-WHERE (description @@@ 'error') OR (NOT (description @@@ 'error'));
+WHERE (description ||| 'error') OR (NOT (description ||| 'error'));
              agg              
 ------------------------------
  {"value": 1274.409090909091}
@@ -1186,13 +1181,13 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
     {"from": 1000, "key": "slow"}
 ]}}'::jsonb) AS response_time_buckets
 FROM logs
-WHERE description @@@ 'error';
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}})
      Aggregate Definition: {"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"key":"fast","to":100.0},{"from":100.0,"key":"medium","to":1000.0},{"from":1000.0,"key":"slow"}]}}}
 (6 rows)
@@ -1203,7 +1198,7 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
     {"from": 1000, "key": "slow"}
 ]}}'::jsonb) AS response_time_buckets
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                             response_time_buckets                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
@@ -1219,7 +1214,7 @@ SELECT category,
            {"from": 1000, "key": "slow"}
        ]}}'::jsonb) AS response_time_buckets
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category;
                                                                                                                                                 QUERY PLAN                                                                                                                                                
@@ -1227,7 +1222,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: category, pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"key":"fast","to":100.0},{"from":100.0,"key":"medium","to":1000.0},{"from":1000.0,"key":"slow"}]}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1240,7 +1235,7 @@ SELECT category,
            {"from": 1000, "key": "slow"}
        ]}}'::jsonb) AS response_time_buckets
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category
 ORDER BY category;
   category   |                                                                            response_time_buckets                                                                             
@@ -1298,13 +1293,13 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"from": 500, "to": 600, "key": "5xx"}
        ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                                                                                 QUERY PLAN                                                                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}}), CUSTOM_AGG({"range":{"field":"status_code","ranges":[{"to":500,"key":"4xx","from":400},{"to":600,"key":"5xx","from":500}]}})
      Aggregate Definition: {"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"key":"fast","to":100.0},{"from":100.0,"key":"medium","to":1000.0},{"from":1000.0,"key":"slow"}]}},"1":{"range":{"field":"status_code","keyed":false,"ranges":[{"from":400.0,"key":"4xx","to":500.0},{"from":500.0,"key":"5xx","to":600.0}]}}}
 (6 rows)
@@ -1319,7 +1314,7 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"from": 500, "to": 600, "key": "5xx"}
        ]}}'::jsonb) AS status_code_buckets
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                             response_time_buckets                                                                             |                                                                                                          status_code_buckets                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]} | {"buckets": [{"to": 400.0, "key": "*-400", "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 1}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 6}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
@@ -1335,7 +1330,7 @@ SELECT *,
            {"from": 1000, "key": "slow"}
        ]}}'::jsonb) OVER () AS response_time_distribution
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1350,7 +1345,7 @@ ORDER BY timestamp DESC LIMIT 10;
          Scores: false
             TopK Order By: timestamp desc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *,
@@ -1360,7 +1355,7 @@ SELECT *,
            {"from": 1000, "key": "slow"}
        ]}}'::jsonb) OVER () AS response_time_distribution
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
  id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |                                                                          response_time_distribution                                                                          
 ----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1381,7 +1376,7 @@ SET paradedb.enable_aggregate_custom_scan TO off;
 -- Should still work because pdb.agg() is an explicit opt-in
 SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                             agg                                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1390,7 +1385,7 @@ WHERE description @@@ 'error';
 -- Test 47: pdb.agg() with GROUP BY should also work when GUC is disabled
 SELECT category, pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 GROUP BY category;
   category   |                                                                       agg                                                                        
 -------------+--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1406,7 +1401,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_custom_scan TO off;
 SELECT COUNT(*) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC LIMIT 10;
  count 
 -------
@@ -1506,7 +1501,7 @@ LIMIT 1;
 SET paradedb.enable_filter_pushdown TO off;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error' AND description = 'Database connection error'
+WHERE description ||| 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
 ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that cannot be pushed down, and paradedb.enable_filter_pushdown is disabled
@@ -1514,7 +1509,7 @@ ERROR:  Cannot execute window aggregate: WHERE clause contains predicates that c
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error' AND description = 'Database connection error'
+WHERE description ||| 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
  id |        description        |                                                      agg                                                       
@@ -1529,7 +1524,7 @@ SET paradedb.enable_filter_pushdown TO off;
 SET paradedb.enable_filter_pushdown TO on;
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE description @@@ 'error'
+WHERE description ||| 'error'
 ORDER BY timestamp DESC
 LIMIT 1;
  id |        description        |                                                                                                            agg                                                                                                             
@@ -1560,20 +1555,20 @@ ERROR:  Cannot execute window aggregate: WHERE clause contains subqueries which 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description ||| 'error';
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"composite":{"size":10,"sources":[{"my_category":{"terms":{"field":"category"}}}]}})
      Aggregate Definition: {"0":{"composite":{"size":10,"sources":[{"my_category":{"terms":{"field":"category","missing_bucket":false,"missing_order":"default","order":"asc"}}}]}}}
 (6 rows)
 
 SELECT pdb.agg('{"composite": {"size": 10, "sources": [{"my_category": {"terms": {"field": "category"}}}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                                                        agg                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": {"my_category": "api"}, "doc_count": 1}, {"key": {"my_category": "application"}, "doc_count": 2}, {"key": {"my_category": "database"}, "doc_count": 3}, {"key": {"my_category": "network"}, "doc_count": 1}], "after_key": {"my_category": "str:network"}}
@@ -1583,20 +1578,20 @@ WHERE description @@@ 'error';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                                                             QUERY PLAN                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.logs
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: logs_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"composite":{"size":2,"sources":[{"my_category":{"terms":{"field":"category"}}},{"my_severity":{"terms":{"field":"severity"}}}]}})
      Aggregate Definition: {"0":{"composite":{"size":2,"sources":[{"my_category":{"terms":{"field":"category","missing_bucket":false,"missing_order":"default","order":"asc"}}},{"my_severity":{"terms":{"field":"severity","missing_bucket":false,"missing_order":"default","order":"asc"}}}]}}}
 (6 rows)
 
 SELECT pdb.agg('{"composite": {"size": 2, "sources": [{"my_category": {"terms": {"field": "category"}}}, {"my_severity": {"terms": {"field": "severity"}}}]}}'::jsonb)
 FROM logs
-WHERE description @@@ 'error';
+WHERE description ||| 'error';
                                                                                                                               agg                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": {"my_category": "api", "my_severity": "critical"}, "doc_count": 1}, {"key": {"my_category": "application", "my_severity": "critical"}, "doc_count": 2}], "after_key": {"my_category": "str:application", "my_severity": "str:critical"}}
@@ -1634,26 +1629,21 @@ INSERT INTO products (description, category, brand, rating, price) VALUES
     ('Summer jacket', 'Clothing', 'Patagonia', 3, 129.99),
     ('Toy laptop', 'Toys', 'Fisher Price', 3, 29.99);
 CREATE INDEX products_idx ON products
-USING paradedb (id, description, category, brand, rating, price)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}, "brand": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), (brand::pdb.unicode_words('columnar=true')), rating, price);
 -- Test 52: GROUP BY with two columns creates NESTED terms aggregations
 -- This groups first by category, then within each category bucket, groups by brand
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, brand, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand
 ORDER BY category, brand;
-                                                                                                                                         QUERY PLAN                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, brand, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: COUNT(*), AVG(price)
      Group By: category, brand
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1661,7 +1651,7 @@ ORDER BY category, brand;
 
 SELECT category, brand, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand
 ORDER BY category, brand;
   category   |    brand     | count |   avg   
@@ -1678,15 +1668,15 @@ ORDER BY category, brand;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, brand, rating, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand, rating
 ORDER BY category, brand, rating;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, brand, rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: COUNT(*), AVG(price)
      Group By: category, brand, rating
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1694,7 +1684,7 @@ ORDER BY category, brand, rating;
 
 SELECT category, brand, rating, COUNT(*), AVG(price)
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand, rating
 ORDER BY category, brand, rating;
   category   |    brand     | rating | count |   avg   
@@ -1712,20 +1702,20 @@ ORDER BY category, brand, rating;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                                                                                                                                                                                                                                 agg                                                                                                                                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5, "brand_breakdown": {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Corsair", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Logitech", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Toys", "doc_count": 1, "brand_breakdown": {"buckets": [{"key": "Fisher Price", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1735,20 +1725,20 @@ WHERE description @@@ 'laptop OR keyboard';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                                      QUERY PLAN                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"aggs":{"rating_breakdown":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"aggs":{"rating_breakdown":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"rating_breakdown": {"terms": {"field": "rating"}}}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5, "brand_breakdown": {"buckets": [{"key": "Apple", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Corsair", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Dell", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "HP", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 3, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Logitech", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 4, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Toys", "doc_count": 1, "brand_breakdown": {"buckets": [{"key": "Fisher Price", "doc_count": 1, "rating_breakdown": {"buckets": [{"key": 3, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1762,13 +1752,13 @@ SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}}), CUSTOM_AGG({"terms":{"field":"brand"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}}}
 (6 rows)
@@ -1777,7 +1767,7 @@ SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                  category_breakdown                                                                 |                                                                                                                                        brand_breakdown                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5}, {"key": "Toys", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Corsair", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Logitech", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1790,13 +1780,13 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}}), CUSTOM_AGG({"terms":{"field":"brand"}}), CUSTOM_AGG({"avg":{"field":"price"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}},"2":{"avg":{"field":"price","missing":null}}}
 (6 rows)
@@ -1806,7 +1796,7 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                  category_breakdown                                                                 |                                                                                                                                        brand_breakdown                                                                                                                                        |          avg_price           
 ----------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5}, {"key": "Toys", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Corsair", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Logitech", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"value": 593.3233333333334}
@@ -1820,15 +1810,15 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"brand"}}), COUNT(*)
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"brand"}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1839,7 +1829,7 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
   category   |                                                                                                                   brand_breakdown                                                                                                                    | count 
@@ -1857,15 +1847,15 @@ SELECT
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
     COUNT(*) AS count
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"brand"}}), CUSTOM_AGG({"avg":{"field":"rating"}}), COUNT(*)
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"brand"}},"1":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1877,7 +1867,7 @@ SELECT
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
     COUNT(*) AS count
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY category;
   category   |                                                                                                                   brand_breakdown                                                                                                                    |   avg_rating   | count 
@@ -1890,20 +1880,20 @@ ORDER BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                                                                                       agg                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "avg_price": {"value": 705.99}, "doc_count": 5, "max_rating": {"value": 5.0}}, {"key": "Toys", "avg_price": {"value": 29.99}, "doc_count": 1, "max_rating": {"value": 3.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1914,15 +1904,15 @@ WHERE description @@@ 'laptop OR keyboard';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, brand, AVG(price) AS avg_price, MAX(rating) AS max_rating
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand
 ORDER BY category, brand;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, brand, pdb.agg_fn('AVG'::text), pdb.agg_fn('MAX'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: AVG(price), MAX(rating)
      Group By: category, brand
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -1930,7 +1920,7 @@ ORDER BY category, brand;
 
 SELECT category, brand, AVG(price) AS avg_price, MAX(rating) AS max_rating
 FROM products
-WHERE description @@@ 'laptop OR keyboard'
+WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category, brand
 ORDER BY category, brand;
   category   |    brand     | avg_price | max_rating 
@@ -1947,20 +1937,20 @@ ORDER BY category, brand;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                                                                                                                                                                                                                                                                                                                                                                                                                           agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5, "brand_breakdown": {"buckets": [{"key": "Apple", "avg_price": {"value": 1299.99}, "doc_count": 1, "max_rating": {"value": 5.0}}, {"key": "Corsair", "avg_price": {"value": 149.99}, "doc_count": 1, "max_rating": {"value": 5.0}}, {"key": "Dell", "avg_price": {"value": 1499.99}, "doc_count": 1, "max_rating": {"value": 5.0}}, {"key": "HP", "avg_price": {"value": 499.99}, "doc_count": 1, "max_rating": {"value": 3.0}}, {"key": "Logitech", "avg_price": {"value": 79.99}, "doc_count": 1, "max_rating": {"value": 4.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Toys", "doc_count": 1, "brand_breakdown": {"buckets": [{"key": "Fisher Price", "avg_price": {"value": 29.99}, "doc_count": 1, "max_rating": {"value": 3.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -1974,13 +1964,13 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}}), CUSTOM_AGG({"terms":{"field":"brand"}}), CUSTOM_AGG({"terms":{"field":"rating"}})
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}},"2":{"terms":{"field":"rating"}}}
 (6 rows)
@@ -1990,7 +1980,7 @@ SELECT
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                      categories                                                                     |                                                                                                                                            brands                                                                                                                                             |                                                                            ratings                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "doc_count": 5}, {"key": "Toys", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "Apple", "doc_count": 1}, {"key": "Corsair", "doc_count": 1}, {"key": "Dell", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 1}, {"key": "HP", "doc_count": 1}, {"key": "Logitech", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": 5, "doc_count": 3}, {"key": 3, "doc_count": 2}, {"key": 4, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -2000,20 +1990,20 @@ WHERE description @@@ 'laptop OR keyboard';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: pdb.agg_fn('pdb.agg'::text)
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
      Applies to Aggregates: CUSTOM_AGG({"aggs":{"brands":{"aggs":{"ratings":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
      Aggregate Definition: {"0":{"aggs":{"brands":{"aggs":{"ratings":{"terms":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
 (6 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brands": {"terms": {"field": "brand"}, "aggs": {"ratings": {"terms": {"field": "rating"}}}}}}'::jsonb) AS nested_breakdown
 FROM products
-WHERE description @@@ 'laptop OR keyboard';
+WHERE (description ||| 'laptop' OR description ||| 'keyboard');
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        nested_breakdown                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": "Electronics", "brands": {"buckets": [{"key": "Apple", "ratings": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}, {"key": "Corsair", "ratings": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}, {"key": "Dell", "ratings": {"buckets": [{"key": 5, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}, {"key": "HP", "ratings": {"buckets": [{"key": 3, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}, {"key": "Logitech", "ratings": {"buckets": [{"key": 4, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 5}, {"key": "Toys", "brands": {"buckets": [{"key": "Fisher Price", "ratings": {"buckets": [{"key": 3, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
@@ -2052,12 +2042,7 @@ INSERT INTO mvcc_test (description, category, value) VALUES
     ('Test item five', 'C', 500);
 -- Create index BEFORE deleting - so deleted docs remain in the index
 CREATE INDEX mvcc_test_idx ON mvcc_test
-USING paradedb (id, description, category, value)
-WITH (
-    key_field = 'id',
-    text_fields = '{"description": {}, "category": {"fast": true}}',
-    numeric_fields = '{"value": {"fast": true}}'
-);
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), value);
 -- Delete some rows - docs remain in Tantivy index until merge
 DELETE FROM mvcc_test WHERE id IN (4, 5);
 -- Now we have:
@@ -2068,7 +2053,7 @@ DELETE FROM mvcc_test WHERE id IN (4, 5);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2083,12 +2068,12 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |    avg_value     
 ----+-----------------+----------+-------+------------------
@@ -2102,7 +2087,7 @@ ORDER BY id DESC LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2117,12 +2102,12 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |    avg_value     
 ----+-----------------+----------+-------+------------------
@@ -2136,7 +2121,7 @@ ORDER BY id DESC LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                 QUERY PLAN                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2151,12 +2136,12 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_value
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |    avg_value     
 ----+-----------------+----------+-------+------------------
@@ -2169,7 +2154,7 @@ ORDER BY id DESC LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS category_counts
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                   QUERY PLAN                                                                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2184,12 +2169,12 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS category_counts
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |                                                                           category_counts                                                                           
 ----+-----------------+----------+-------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2205,7 +2190,7 @@ SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_no_mvcc,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2220,14 +2205,14 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_no_mvcc,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |   avg_no_mvcc    |                                                                            terms_no_mvcc                                                                            
 ----+-----------------+----------+-------+------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2242,7 +2227,7 @@ SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_with_mvcc,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
 ERROR:  pdb.agg() calls have contradicting visibility settings: 'transaction' and 'raw'. All pdb.agg() calls in a query must use the same visibility value, and omitting the argument selects 'transaction'.
 -- Test 67c: Multiple pdb.agg() - default (true) mixed with explicit false should also ERROR
@@ -2250,7 +2235,7 @@ SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_default,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS terms_no_mvcc
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
 ERROR:  pdb.agg() calls have contradicting visibility settings: 'transaction' and 'raw'. All pdb.agg() calls in a query must use the same visibility value, and omitting the argument selects 'transaction'.
 -- Test 67d: Multiple pdb.agg() - all with default (true) should work fine
@@ -2258,7 +2243,7 @@ SELECT *,
        pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_default,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS terms_default
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |   avg_default    |                                                             terms_default                                                             
 ----+-----------------+----------+-------+------------------+---------------------------------------------------------------------------------------------------------------------------------------
@@ -2270,7 +2255,7 @@ ORDER BY id DESC LIMIT 3;
 -- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should work
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 GROUP BY category;
  category |       agg        
 ----------+------------------
@@ -2283,14 +2268,14 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true)
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 GROUP BY category;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_test
    Output: category, pdb.agg_fn('AGG'::text)
    Index: mvcc_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: CUSTOM_AGG({"avg":{"field":"value"}})
      Group By: category
      Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"value","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
@@ -2298,7 +2283,7 @@ GROUP BY category;
 
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true)
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 GROUP BY category;
  category |       agg        
 ----------+------------------
@@ -2309,7 +2294,7 @@ GROUP BY category;
 -- Test 68c: pdb.agg() in GROUP BY context with default (no second arg) should work
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb)
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 GROUP BY category;
  category |       agg        
 ----------+------------------
@@ -2321,7 +2306,7 @@ GROUP BY category;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from": 200, "to": 400}, {"from": 400}]}}'::jsonb, false) OVER () AS value_ranges
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
                                                                                                                                                              QUERY PLAN                                                                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2336,12 +2321,12 @@ ORDER BY id DESC LIMIT 3;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (12 rows)
 
 SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from": 200, "to": 400}, {"from": 400}]}}'::jsonb, false) OVER () AS value_ranges
 FROM mvcc_test
-WHERE description @@@ 'test'
+WHERE description ||| 'test'
 ORDER BY id DESC LIMIT 3;
  id |   description   | category | value |                                                                                 value_ranges                                                                                  
 ----+-----------------+----------+-------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2369,7 +2354,7 @@ INSERT INTO test_window_order VALUES
 (1, 'A', 10),
 (2, 'B', 10),
 (3, 'C', 20);
-CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id) WITH (key_field='id');
+CREATE INDEX idx_window_order ON test_window_order USING paradedb (id, name, group_id);
 -- NOTE: This query can _not_ be pushed down, because `name` is not fast/columnar.
 SELECT
     COUNT(*) OVER(),
@@ -2412,8 +2397,7 @@ INSERT INTO agg_param_test (description, category)
 SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
 FROM generate_series(1, 100) AS i;
 CREATE INDEX agg_param_test_idx ON agg_param_test
-USING paradedb (id, description, category)
-WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')));
 -- Baseline: constant JSON literal pushes through AggregateScan.
 SELECT pdb.agg('{"terms":{"field":"category"}}'::jsonb) IS NOT NULL AS got_result
 FROM agg_param_test
@@ -2456,12 +2440,12 @@ DROP TABLE agg_param_test;
 --- pdb.agg inside CTE with outer GROUP BY on non-BM25 table ---
 CREATE TABLE cte_bm25_logs (id INT, description TEXT, category TEXT);
 INSERT INTO cte_bm25_logs VALUES (1, 'error event', 'cat1'), (2, 'warning event', 'cat2');
-CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING bm25 (id, description, category) WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX cte_bm25_logs_idx ON cte_bm25_logs USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')));
 CREATE TABLE cte_plain_tbl (cat TEXT);
 INSERT INTO cte_plain_tbl VALUES ('cat1'), ('cat2');
 WITH facets AS (
     SELECT id, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () AS agg
-    FROM cte_bm25_logs WHERE description @@@ 'error' ORDER BY id DESC LIMIT 1
+    FROM cte_bm25_logs WHERE description ||| 'error' ORDER BY id DESC LIMIT 1
 )
 SELECT p.cat, count(*), (SELECT f.agg FROM facets f LIMIT 1)
 FROM cte_plain_tbl p

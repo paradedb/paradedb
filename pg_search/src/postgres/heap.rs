@@ -174,33 +174,33 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
-        unsafe {
-            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-            if blockno >= self.nblocks {
-                self.invisible_tuple_count += 1;
-                return None;
-            }
-            self.heap_tuple_check_count += 1;
+        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        if blockno >= self.nblocks {
+            self.invisible_tuple_count += 1;
+            return None;
+        }
+        self.heap_tuple_check_count += 1;
 
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
+        utils::u64_to_item_pointer(ctid, &mut self.tid);
 
-            let mut call_again = false;
-            let mut all_dead = false;
-            let found = pg_sys::table_index_fetch_tuple(
+        let mut call_again = false;
+        let mut all_dead = false;
+        let found = unsafe {
+            pg_sys::table_index_fetch_tuple(
                 self.scan,
                 &mut self.tid,
                 self.snapshot,
                 slot,
                 &mut call_again,
                 &mut all_dead,
-            );
+            )
+        };
 
-            if found {
-                Some(func((*self.scan).rel))
-            } else {
-                self.invisible_tuple_count += 1;
-                None
-            }
+        if found {
+            Some(func(unsafe { (*self.scan).rel }))
+        } else {
+            self.invisible_tuple_count += 1;
+            None
         }
     }
 

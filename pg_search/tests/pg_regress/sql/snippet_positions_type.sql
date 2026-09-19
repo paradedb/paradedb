@@ -35,8 +35,7 @@ INSERT INTO snippet_type_test (content) VALUES
     ('Another test with multiple test occurrences');
 
 CREATE INDEX snippet_type_test_idx ON snippet_type_test
-USING paradedb (id, content)
-WITH (key_field = 'id');
+USING paradedb (id, content);
 
 -- Test the actual usage and output
 SELECT 
@@ -44,7 +43,7 @@ SELECT
     pdb.snippet_positions(content) as positions,
     pg_typeof(pdb.snippet_positions(content)) as actual_type
 FROM snippet_type_test 
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
 
 -- Test that we can treat it as a 2D array
@@ -56,9 +55,8 @@ SELECT
     array_length(pdb.snippet_positions(content), 1) as num_positions,
     array_length(pdb.snippet_positions(content), 2) as inner_dimension
 FROM snippet_type_test 
-WHERE content @@@ 'test'
+WHERE content ||| 'test'
 ORDER BY id;
 
 -- Cleanup
 DROP TABLE snippet_type_test CASCADE;
-

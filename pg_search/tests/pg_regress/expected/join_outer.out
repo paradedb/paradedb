@@ -30,18 +30,9 @@ CREATE TABLE outer_pages (
     size_bytes INTEGER
 );
 CREATE INDEX outer_files_idx ON outer_files
-USING paradedb (id, title, content)
-WITH (
-    key_field='id',
-    text_fields='{"title": {"fast": true}, "content": {}}'
-);
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
 CREATE INDEX outer_pages_idx ON outer_pages
-USING paradedb (id, file_id, page_text, size_bytes)
-WITH (
-    key_field='id',
-    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
-    text_fields='{"page_text": {"fast": true}}'
-);
+USING paradedb (id, file_id, (page_text::pdb.unicode_words('columnar=true')), size_bytes);
 -- Two inserts per table, each flushed to its own segment, so the scans
 -- report more than one partition and the distributed planner engages.
 SET paradedb.global_mutable_segment_rows = 0;
@@ -72,11 +63,11 @@ SET max_parallel_workers_per_gather TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.file_id, f.title
    Relation Tree: p LEFT f
@@ -84,20 +75,20 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, file_id@1 as col_2, title@3 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@1)], projection=[id@3, file_id@4, ctid_0@5, title@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@2, file_id@3, id@4, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query="all"
+     :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | file_id |  title  
@@ -117,7 +108,7 @@ LIMIT 10;
 -- LEFT with the null-extended region on top (dangling file_ids).
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.file_id DESC, p.id
 LIMIT 10;
  id  | file_id | title 
@@ -138,11 +129,11 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title, p.id
    Relation Tree: f LEFT p
@@ -150,20 +141,20 @@ LIMIT 10;
    Limit: 10
    Order By: f.id asc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, title@1 as col_2, id@3 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[f]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, file_id@1)], projection=[id@0, title@1, ctid_0@2, id@3, ctid_1@5]
+     :         HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, file_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=2, eager=[title], query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=f, segments=2, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
 (16 rows)
 
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
  id |  title  | page_id 
@@ -184,11 +175,11 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.file_id, f.title
    Relation Tree: p LEFT f
@@ -196,20 +187,20 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, file_id@1 as col_2, title@3 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@1)], projection=[id@3, file_id@4, ctid_0@5, title@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@2, file_id@3, id@4, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query="all"
+     :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | file_id |  title  
@@ -233,7 +224,7 @@ LIMIT 10;
 -- fallback plan serializes the index OID into the join filter, which
 -- changes on every run.
 SELECT f.id, p.id AS page_id, p.file_id
-FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id AND f.content @@@ 'Section'
+FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id AND f.content ||| 'Section'
 ORDER BY f.id NULLS LAST, p.id NULLS LAST
 LIMIT 10;
 WARNING:  JoinScan not used: search operators in join ON clause are not supported (tables: f, p)
@@ -257,11 +248,11 @@ WARNING:  JoinScan not used: search operators in join ON clause are not supporte
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, p.id, p.file_id
    Relation Tree: p LEFT f
@@ -269,20 +260,20 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, id@0 as col_2, file_id@1 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@4 as col_1, id@2 as col_2, file_id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@1)], projection=[id@2, file_id@3, ctid_0@4, id@0, ctid_1@1]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@2, file_id@3, id@4, ctid_1@0, id@1]
      :           CooperativeExec
      :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | page_id | file_id 
@@ -303,11 +294,11 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.file_id
    Relation Tree: p ANTI f
@@ -315,20 +306,20 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, file_id@1 as col_2, ctid_0@2 as ctid_0]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
      :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, file_id@1)]
      :           CooperativeExec
      :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (16 rows)
 
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
  id  | file_id 
@@ -351,11 +342,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f
     ON f.id = p.file_id AND p.size_bytes > 2048
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.file_id, f.title
    Relation Tree: p LEFT f
@@ -364,21 +355,21 @@ LIMIT 10;
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, file_id@1 as col_2, title@3 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p]
      :       TantivyFetchExec: fetch=[ctid_0]
-     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@1)], filter=size_bytes@0 > 2048, projection=[id@3, file_id@4, ctid_0@6, title@1, ctid_1@2]
+     :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], filter=size_bytes@0 > 2048, projection=[ctid_0@2, file_id@3, id@5, ctid_1@0]
      :           CooperativeExec
-     :             PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query="all"
+     :             PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :             PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f
     ON f.id = p.file_id AND p.size_bytes > 2048
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | file_id | title 
@@ -403,11 +394,11 @@ SET max_parallel_workers_per_gather TO 4;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.file_id, f.title
    Relation Tree: p LEFT f
@@ -416,35 +407,32 @@ LIMIT 10;
    Order By: p.id asc
    DataFusion Physical Plan: 
      : ┌───── DistributedExec
-     : │ CoalescePartitionsExec
-     : │   RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
-     : │     ProjectionExec: expr=[id@0 as col_1, file_id@1 as col_2, title@3 as col_3, ctid_0@2 as ctid_0, ctid_1@4 as ctid_1]
-     : │       SortPreservingMergeExec: [id@0 ASC NULLS LAST], fetch=10
-     : │         [Stage 2] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
+     : │ ProjectionExec: expr=[id@2 as col_1, file_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : │   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=8
-     :   │ SortExec: TopK(fetch=10), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[true]
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
+     :   │ SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p]
      :   │     TantivyFetchExec: fetch=[ctid_0]
-     :   │       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@1)], projection=[id@3, file_id@4, ctid_0@5, title@1, ctid_1@2]
+     :   │       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@1, file_id@1)], projection=[ctid_0@2, file_id@3, id@4, ctid_1@0]
      :   │         CoalescePartitionsExec
      :   │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :   │         RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-     :   │           DistributedLeafExec:
-     :   │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-     :   │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :   │         DistributedLeafExec:
+     :   │           t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │           t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=4
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :     │   DistributedLeafExec:
-     :     │     t0: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query="all"
-     :     │     t1: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query="all"
+     :     │     t0: PgSearchScan: table=f, segments=2, visibility=eager, query="all"
+     :     │     t1: PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
-(32 rows)
+(29 rows)
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | file_id |  title  
@@ -463,7 +451,7 @@ LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.file_id DESC, p.id
 LIMIT 10;
  id  | file_id | title 
@@ -482,7 +470,7 @@ LIMIT 10;
 
 SELECT f.id, f.title, p.id AS page_id
 FROM outer_files f LEFT JOIN outer_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 ORDER BY f.id, p.id
 LIMIT 10;
  id |  title  | page_id 
@@ -501,7 +489,7 @@ LIMIT 10;
 
 SELECT p.id, p.file_id, f.title
 FROM outer_files f RIGHT JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | file_id |  title  
@@ -520,7 +508,7 @@ LIMIT 10;
 
 SELECT f.id, p.id AS page_id, p.file_id
 FROM outer_files f FULL JOIN outer_pages p ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page'
+WHERE p.page_text ||| 'Page'
 ORDER BY p.id
 LIMIT 10;
  id | page_id | file_id 
@@ -539,7 +527,7 @@ LIMIT 10;
 
 SELECT p.id, p.file_id
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page' AND f.id IS NULL
+WHERE p.page_text ||| 'Page' AND f.id IS NULL
 ORDER BY p.id
 LIMIT 10;
  id  | file_id 
@@ -560,20 +548,20 @@ LIMIT 10;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
-                                                                    QUERY PLAN                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE p.page_text ||| 'Page';
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.outer_pages p
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: outer_pages_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
 
 SELECT COUNT(*)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
  count 
 -------
   1000
@@ -585,11 +573,11 @@ WHERE p.page_text @@@ 'Page';
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE p.page_text ||| 'Page';
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT'::text)
+   Output: (count(f.id))
    Backend: DataFusion
    Indexes: outer_pages_idx (p), outer_files_idx (f)
    Aggregates: COUNT(id)
@@ -597,17 +585,16 @@ WHERE p.page_text @@@ 'Page';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(f_1.id) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 2 ── tasks=2, partitions=8
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(f_1.id) as agg_0]
      :   │   HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, file_id@0)], projection=[id@0]
      :   │     CoalescePartitionsExec
      :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :   │     RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-     :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
-     :   │         t1: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"page_text","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"page_text","value":"Page","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
      :     ┌───── Stage 1 ── tasks=2, partitions=4
      :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
@@ -615,11 +602,11 @@ WHERE p.page_text @@@ 'Page';
      :     │     t0: PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :     │     t1: PgSearchScan: table=f, segments=2, visibility=eager, query="all"
      :     └──────────────────────────────────────────────────
-(27 rows)
+(26 rows)
 
 SELECT COUNT(f.id)
 FROM outer_pages p LEFT JOIN outer_files f ON f.id = p.file_id
-WHERE p.page_text @@@ 'Page';
+WHERE p.page_text ||| 'Page';
  count 
 -------
    750

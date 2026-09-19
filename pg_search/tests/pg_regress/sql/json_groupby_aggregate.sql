@@ -28,14 +28,7 @@ INSERT INTO json_test_single (metadata, data) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_single ON json_test_single
-USING paradedb (id, metadata, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{
-        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
-        "data": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
 
 -- Test single JSON field GROUP BY with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -72,11 +65,7 @@ INSERT INTO json_test_multiple (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_multiple ON json_test_multiple
-USING paradedb (id, metadata)
-WITH (
-    key_field = 'id',
-    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 
 -- Test multiple JSON field GROUP BY with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -119,11 +108,7 @@ INSERT INTO json_test_aggregates (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_aggregates ON json_test_aggregates
-USING paradedb (id, metadata)
-WITH (
-    key_field = 'id',
-    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 
 -- Test JSON field GROUP BY with COUNT with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -243,11 +228,7 @@ INSERT INTO json_test_nulls (metadata) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_nulls ON json_test_nulls
-USING paradedb (id, metadata)
-WITH (
-    key_field = 'id',
-    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')));
 
 -- Test JSON GROUP BY with NULL handling
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -284,11 +265,7 @@ INSERT INTO ledger_transactions (metadata_json, amount) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_ledger_json ON ledger_transactions
-USING paradedb (id, metadata_json, amount)
-WITH (
-    key_field = 'id',
-    json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (metadata_json::pdb.unicode_words('columnar=true')), amount);
 
 -- Test the original example query with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -327,11 +304,7 @@ INSERT INTO json_test_deep (config) VALUES
 
 -- Create BM25 index with nested JSON fields
 CREATE INDEX idx_json_deep ON json_test_deep
-USING paradedb (id, config)
-WITH (
-    key_field = 'id',
-    json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (config::pdb.unicode_words('columnar=true')));
 
 -- Test GROUP BY on deeply nested field (3 levels deep)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -385,11 +358,7 @@ INSERT INTO json_test_mixed (data) VALUES
 
 -- Create BM25 index 
 CREATE INDEX idx_json_mixed ON json_test_mixed
-USING paradedb (id, data)
-WITH (
-    key_field = 'id',
-    json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (data::pdb.unicode_words('columnar=true')));
 
 -- Test GROUP BY on heterogeneous structures - group by type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -464,11 +433,7 @@ INSERT INTO json_test_operators (payload) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_operators ON json_test_operators
-USING paradedb (id, payload)
-WITH (
-    key_field = 'id',
-    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (payload::pdb.unicode_words('columnar=true')));
 
 -- Test mixing -> and ->> operators in GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -544,11 +509,7 @@ INSERT INTO json_test_complex (document) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_complex ON json_test_complex
-USING paradedb (id, document)
-WITH (
-    key_field = 'id',
-    json_fields = '{"document": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (document::pdb.unicode_words('columnar=true')));
 
 -- Test GROUP BY on nested system and category
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -618,11 +579,7 @@ INSERT INTO json_test_reconstruction (config) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_reconstruction ON json_test_reconstruction
-USING paradedb (id, config)
-WITH (
-    key_field = 'id',
-    json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (config::pdb.unicode_words('columnar=true')));
 
 -- GROUP BY intermediate JSON object
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -713,14 +670,7 @@ INSERT INTO json_test_multi_subfields (user_profile, order_details) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_multi_subfields ON json_test_multi_subfields
-USING paradedb (id, user_profile, order_details)
-WITH (
-    key_field = 'id',
-    json_fields = '{
-        "user_profile": {"indexed": true, "fast": true, "expand_dots": true},
-        "order_details": {"indexed": true, "fast": true, "expand_dots": true}
-    }'
-);
+USING paradedb (id, (user_profile::pdb.unicode_words('columnar=true')), (order_details::pdb.unicode_words('columnar=true')));
 
 -- Test 1: Two subfields from the same JSON field (user_profile)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -849,11 +799,7 @@ INSERT INTO json_test_special (content) VALUES
 
 -- Create BM25 index
 CREATE INDEX idx_json_special ON json_test_special
-USING paradedb (id, content)
-WITH (
-    key_field = 'id',
-    json_fields = '{"content": {"indexed": true, "fast": true, "expand_dots": true}}'
-);
+USING paradedb (id, (content::pdb.unicode_words('columnar=true')));
 
 -- Test GROUP BY with special characters in JSON keys
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

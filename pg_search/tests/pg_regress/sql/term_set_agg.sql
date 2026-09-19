@@ -30,12 +30,10 @@ INSERT INTO plants (genus_id, name) VALUES
 (3, 'Siberian Crabapple');
 
 CREATE INDEX plants_idx ON plants
-USING paradedb (id, genus_id, name)
-WITH (key_field = id);
+USING paradedb (id, genus_id, name);
 
 CREATE INDEX genus_idx ON genus
-USING paradedb (id, name)
-WITH (key_field = id);
+USING paradedb (id, name);
 
 --
 -- Test 1: Basic CTE query
@@ -44,7 +42,7 @@ WITH (key_field = id);
 WITH genus_terms AS (
   SELECT pdb.term_set(id) as terms
   FROM genus
-  WHERE genus.name @@@ 'oak'
+  WHERE genus.name ||| 'oak'
 )
 SELECT plants.id, plants.name
 FROM plants, genus_terms
@@ -64,7 +62,7 @@ FROM paradedb.aggregate(
     (
       SELECT pdb.term_set(id)
       FROM genus
-      WHERE genus.name @@@ 'oak'
+      WHERE genus.name ||| 'oak'
     )
   ),
   '{"count":{"value_count":{"field":"genus_id"}}}'
@@ -78,7 +76,7 @@ FROM paradedb.aggregate(
 WITH genus_terms AS (
   SELECT pdb.term_set(id) as terms
   FROM genus
-  WHERE genus.name @@@ 'bamboo'
+  WHERE genus.name ||| 'bamboo'
 )
 SELECT plants.id, plants.name
 FROM plants, genus_terms
@@ -93,7 +91,7 @@ ORDER BY plants.id;
 WITH genus_terms AS (
   SELECT pdb.term_set(name) as terms
   FROM genus
-  WHERE genus.name @@@ 'oak'
+  WHERE genus.name ||| 'oak'
 )
 SELECT 1;
 

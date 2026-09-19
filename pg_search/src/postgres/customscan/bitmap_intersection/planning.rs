@@ -20,6 +20,7 @@
 //! covered-HeapFilter query rewrite.
 
 use crate::gucs;
+use crate::nodecast;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
@@ -33,8 +34,46 @@ pub struct BitmapPlanner {
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     bm25_oid: pg_sys::Oid,
-    heap_exprs: Vec<*mut pg_sys::Node>,
+    heap_exprs: Vec<Coverable>,
     bm25_row_estimate: Option<f64>,
+}
+
+/// One thing a bitmap can cover: a heap predicate in AND position, or a
+/// disjunction whose every arm is one. A single arm's bitmap cannot reject rows
+/// (the row may satisfy another arm), but the union of all the arms' bitmaps is a
+/// necessary condition of the query, so a disjunction is covered whole.
+enum Coverable {
+    Clause(*mut pg_sys::Node),
+    Disjunction {
+        /// The OR itself, built with `make_orclause` over `arms` so it compares
+        /// equal to the planner's own OR restriction; costed and deparsed as one.
+        node: *mut pg_sys::Node,
+        arms: Vec<*mut pg_sys::Node>,
+    },
+}
+
+impl Coverable {
+    /// A disjunction over `arms`, when every arm is a heap predicate and there are
+    /// at least two of them.
+    unsafe fn disjunction(arms: impl Iterator<Item = Option<*mut pg_sys::Node>>) -> Option<Self> {
+        let arms = arms.collect::<Option<Vec<_>>>()?;
+        if arms.len() < 2 {
+            return None;
+        }
+        let mut list = PgList::<pg_sys::Node>::new();
+        for arm in &arms {
+            list.push(*arm);
+        }
+        let node = unsafe { pg_sys::make_orclause(list.into_pg()) }.cast();
+        Some(Self::Disjunction { node, arms })
+    }
+
+    /// The single node this coverable is matched and costed as.
+    fn node(&self) -> *mut pg_sys::Node {
+        match self {
+            Self::Clause(node) | Self::Disjunction { node, .. } => *node,
+        }
+    }
 }
 
 struct HarvestedClause {
@@ -113,10 +152,11 @@ impl HarvestedBitmap {
 }
 
 impl BitmapPlanner {
-    /// Collect the expr node of every `Qual::HeapExpr` reachable through top-level AND
-    /// structure. Returns `None` when there is nothing to cover, or when a HeapExpr
-    /// appears under OR/NOT, where its bitmap could not be used to reject rows.
-    /// (Covering OR clauses at whole-rinfo granularity via BitmapOr is future work.)
+    /// Collect every coverable reachable through top-level AND structure: each
+    /// `Qual::HeapExpr`, and each OR whose arms are all HeapExprs, taken whole.
+    /// Returns `None` when there is nothing to cover, or when a HeapExpr appears
+    /// under NOT or under an OR with a non-heap arm, where its bitmap could not be
+    /// used to reject rows.
     pub fn from_query(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
@@ -124,14 +164,29 @@ impl BitmapPlanner {
         quals: &Qual,
         bm25_row_estimate: Option<f64>,
     ) -> Option<Self> {
-        fn collect(qual: &Qual, out: &mut Vec<*mut pg_sys::Node>) -> bool {
+        fn collect(qual: &Qual, out: &mut Vec<Coverable>) -> bool {
             match qual {
                 Qual::HeapExpr { expr_node, .. } => {
-                    out.push(*expr_node);
+                    out.push(Coverable::Clause(*expr_node));
                     true
                 }
                 Qual::And(qs) => qs.iter().all(|q| collect(q, out)),
-                Qual::Or(_) | Qual::Not(_) => !qual.contains_heap_expr(),
+                Qual::Or(arms) => {
+                    let disjunction = unsafe {
+                        Coverable::disjunction(arms.iter().map(|arm| match arm {
+                            Qual::HeapExpr { expr_node, .. } => Some(*expr_node),
+                            _ => None,
+                        }))
+                    };
+                    match disjunction {
+                        Some(disjunction) => {
+                            out.push(disjunction);
+                            true
+                        }
+                        None => !qual.contains_heap_expr(),
+                    }
+                }
+                Qual::Not(_) => !qual.contains_heap_expr(),
                 _ => true,
             }
         }
@@ -151,8 +206,11 @@ impl BitmapPlanner {
 
     /// Like `from_query`, but for callers that only have the built `SearchQueryInput`
     /// (the Aggregate Scan). HeapFilter expressions are collected through AND-position
-    /// structure (`must` chains and score-neutral wrappers); a HeapFilter under
-    /// `should`/`must_not` disqualifies for the same reason OR/NOT do in `from_query`.
+    /// structure (`must` chains and score-neutral wrappers). A `should` made only of
+    /// single-filter HeapFilters, with nothing in `must` or `must_not` to make its
+    /// arms optional, is the built form of an all-heap OR and is collected as a
+    /// disjunction; any other HeapFilter under `should`/`must_not` disqualifies for
+    /// the same reason a mixed OR or a NOT does in `from_query`.
     pub fn from_search_query(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
@@ -160,7 +218,7 @@ impl BitmapPlanner {
         query: &SearchQueryInput,
         bm25_row_estimate: Option<f64>,
     ) -> Option<Self> {
-        unsafe fn collect(sqi: &SearchQueryInput, out: &mut Vec<*mut pg_sys::Node>) -> bool {
+        unsafe fn collect(sqi: &SearchQueryInput, out: &mut Vec<Coverable>) -> bool {
             unsafe {
                 match sqi {
                     SearchQueryInput::HeapFilter {
@@ -171,7 +229,7 @@ impl BitmapPlanner {
                         for filter in always_filters {
                             let node = filter.get_expression_node();
                             if !node.is_null() {
-                                out.push(node);
+                                out.push(Coverable::Clause(node));
                             }
                         }
                         collect(indexed_query, out)
@@ -180,13 +238,43 @@ impl BitmapPlanner {
                         must,
                         should,
                         must_not,
-                        ..
+                        minimum_should_match,
                     } => {
-                        must.iter().all(|q| collect(q, out))
-                            && !should
-                                .iter()
-                                .chain(must_not.iter())
-                                .any(|q| q.has_heap_filters())
+                        if !must.iter().all(|q| collect(q, out))
+                            || must_not.iter().any(|q| q.has_heap_filters())
+                        {
+                            return false;
+                        }
+                        if !should.iter().any(|q| q.has_heap_filters()) {
+                            return true;
+                        }
+                        let required = must.is_empty()
+                            && must_not.is_empty()
+                            && minimum_should_match.is_none_or(|n| n == 1);
+                        let disjunction = required
+                            .then(|| {
+                                Coverable::disjunction(should.iter().map(|arm| match arm {
+                                    SearchQueryInput::HeapFilter {
+                                        always_filters,
+                                        recheck_filters,
+                                        uses_tid_bitmap: false,
+                                        ..
+                                    } if always_filters.len() == 1
+                                        && recheck_filters.is_empty() =>
+                                    {
+                                        Some(always_filters[0].get_expression_node())
+                                    }
+                                    _ => None,
+                                }))
+                            })
+                            .flatten();
+                        match disjunction {
+                            Some(disjunction) => {
+                                out.push(disjunction);
+                                true
+                            }
+                            None => false,
+                        }
                     }
                     SearchQueryInput::Boost { query, .. }
                     | SearchQueryInput::ConstScore { query, .. }
@@ -303,7 +391,6 @@ impl BitmapPlanner {
                         }
                     }
                     unsupported => {
-                        // TODO: `BitmapOr` is not supported yet
                         pgrx::debug1!(
                             "[bitmap_intersection] skipping BitmapHeapPath: bitmapqual contains {:?}",
                             unsupported
@@ -353,12 +440,24 @@ impl BitmapPlanner {
     unsafe fn build_bitmap_path(&self) -> Option<(*mut pg_sys::BitmapHeapPath, f64)> {
         unsafe {
             let mut candidates = Vec::new();
-            for ioi in PgList::<pg_sys::IndexOptInfo>::from_pg((*self.rel).indexlist).iter_ptr() {
-                let Some(candidate) = self.candidate(ioi) else {
-                    continue;
-                };
+            let indexes = PgList::<pg_sys::IndexOptInfo>::from_pg((*self.rel).indexlist);
+            let disjunctions = self
+                .heap_exprs
+                .iter()
+                .enumerate()
+                .filter_map(|(pos, c)| match c {
+                    Coverable::Disjunction { node, arms } => Some((pos, *node, arms)),
+                    Coverable::Clause(_) => None,
+                });
+            let found = indexes
+                .iter_ptr()
+                .filter_map(|ioi| self.candidate(ioi))
+                .chain(disjunctions.filter_map(|(pos, node, arms)| {
+                    self.disjunction_candidate(pos, node, arms, &indexes)
+                }));
+            for candidate in found {
                 // With no ParadeDB-side estimate there is nothing to score against, so
-                // the first workable index is taken unscored and uncombined.
+                // the first workable bitmap is taken unscored and uncombined.
                 if self.bm25_row_estimate.is_none() {
                     return Some((self.heap_path(candidate.path), candidate.build_cost));
                 }
@@ -510,6 +609,95 @@ impl BitmapPlanner {
         }
     }
 
+    /// Score a disjunction as an intersection source: a `BitmapOr` over one
+    /// `IndexPath` per arm, each arm on the cheapest index that answers it, as
+    /// core's `generate_bitmap_or_paths` builds them. `None` when the planner holds
+    /// no OR restriction for this disjunction, when any arm is a conjunction or has
+    /// no index, or when the union would overflow `work_mem`.
+    unsafe fn disjunction_candidate(
+        &self,
+        pos: usize,
+        node: *mut pg_sys::Node,
+        arms: &[*mut pg_sys::Node],
+        indexes: &PgList<pg_sys::IndexOptInfo>,
+    ) -> Option<Candidate> {
+        unsafe {
+            // The OR restriction is the one whose clause is this disjunction; its
+            // `orclause` carries a RestrictInfo per arm, which is what index matching
+            // and `restriction_is_securely_promotable` want.
+            let restriction = PgList::<pg_sys::RestrictInfo>::from_pg((*self.rel).baserestrictinfo)
+                .iter_ptr()
+                .find(|ri| {
+                    pg_sys::restriction_is_or_clause(*ri)
+                        && pg_sys::equal((**ri).clause.cast(), node.cast())
+                })?;
+            let orclause = nodecast!(BoolExpr, T_BoolExpr, (*restriction).orclause)?;
+            let mut paths = PgList::<pg_sys::Path>::new();
+            let mut names = Vec::new();
+            for arm in PgList::<pg_sys::Node>::from_pg((*orclause).args).iter_ptr() {
+                // A conjunctive arm arrives as a nested BoolExpr, which would need its
+                // own BitmapAnd; only single-clause arms are built.
+                let arm_ri = nodecast!(RestrictInfo, T_RestrictInfo, arm)?;
+                if !arms
+                    .iter()
+                    .any(|a| pg_sys::equal((*arm_ri).clause.cast(), (*a).cast()))
+                {
+                    return None;
+                }
+                let (path, name) = self.cheapest_arm_path(arm_ri, indexes)?;
+                paths.push(path);
+                names.push(name);
+            }
+            let path = pg_sys::create_bitmap_or_path(self.root, self.rel, paths.into_pg()).cast();
+            let index_name = names.join(" | ");
+            let (build_cost, selectivity) = self.bitmap_tree_cost(path);
+            if self.overflows_work_mem(selectivity) {
+                pgrx::debug1!(
+                    "[bitmap_intersection] disjunction over {index_name}: bitmap would overflow work_mem, skipping"
+                );
+                return None;
+            }
+            Some(Candidate {
+                path,
+                index_name,
+                build_cost,
+                selectivity,
+                covers: vec![pos],
+            })
+        }
+    }
+
+    /// The cheapest `IndexPath` answering one arm of a disjunction, with its index
+    /// name, across every usable index.
+    unsafe fn cheapest_arm_path(
+        &self,
+        arm: *mut pg_sys::RestrictInfo,
+        indexes: &PgList<pg_sys::IndexOptInfo>,
+    ) -> Option<(*mut pg_sys::Path, String)> {
+        unsafe {
+            let mut best: Option<(f64, *mut pg_sys::Path, pg_sys::Oid)> = None;
+            for ioi in indexes.iter_ptr() {
+                if !self.usable_index(ioi) {
+                    continue;
+                }
+                let Some(iclause) = IndexClause::from_clause(self.root, arm, ioi) else {
+                    continue;
+                };
+                let path = self.index_path(ioi, vec![iclause]).cast();
+                let (cost, _) = self.bitmap_tree_cost(path);
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_cost, ..)| cost < *best_cost)
+                {
+                    best = Some((cost, path, (*ioi).indexoid));
+                }
+            }
+            best.map(|(_, path, indexoid)| {
+                (path, PgSearchRelation::open(indexoid).name().to_string())
+            })
+        }
+    }
+
     /// Whether this index can feed the intersection at all: not the ParadeDB index
     /// itself, able to produce a bitmap, real, and not partial (a partial index
     /// would need predicate-implication checks).
@@ -582,8 +770,8 @@ impl BitmapPlanner {
 
             let mut qual_cost = pg_sys::QualCost::default();
             let mut exprs = PgList::<pg_sys::Node>::new();
-            for expr in &self.heap_exprs {
-                exprs.push(*expr);
+            for coverable in &self.heap_exprs {
+                exprs.push(coverable.node());
             }
             pg_sys::cost_qual_eval(&mut qual_cost, exprs.into_pg(), self.root);
 
@@ -630,7 +818,7 @@ impl BitmapPlanner {
         unsafe {
             self.heap_exprs
                 .iter()
-                .position(|expr| pg_sys::equal(clause.cast(), (*expr).cast()))
+                .position(|coverable| pg_sys::equal(clause.cast(), coverable.node().cast()))
         }
     }
 

@@ -1152,29 +1152,10 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             format!("datasets/{}/queries", args.dataset)
         }
     };
-    let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
-        .with_context(|| "Failed to read queries directory")?
-        .map(|entry| {
-            let entry = entry.with_context(|| "Failed to read directory entry")?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) != Some("sql") {
-                // Not a query file.
-                return Ok(None);
-            }
-            Ok(Some(path))
-        })
-        .collect();
-    let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
-    query_paths.sort_unstable();
-
-    // Parse each query file once (reused below for execution). Resolve their `{{ param }}` references
+    // Parse each query once (reused below for execution). Resolve their `{{ param }}` references
     // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
     // templating used for index DDL.
-    let parsed_queries: Vec<(String, String)> = query_paths
-        .iter()
-        .flat_map(|p| benchmark_queries(p))
-        .collect();
+    let parsed_queries = load_benchmark_queries(Path::new(&queries_dir))?;
     // Expand any query declaring a sweep into one entry per recall target, measured against the
     // index just built. Swept entries come back fully substituted; the rest still hold `{{ }}`
     // references and are resolved below.
@@ -1736,10 +1717,43 @@ fn write_benchmark_results_md(
 ///
 /// Return a Vec of the query strings contained in the given file path.
 ///
+/// Strip line comments and flatten a SQL statement onto one line, but keep the interior of
+/// dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its newlines).
+/// Splitting on `$$` alternates outside/inside (even = outside, odd = inside); flatten only the outside.
+fn parse_sql_statement(statement: &str) -> String {
+    statement
+        .split("$$")
+        .enumerate()
+        .map(|(i, seg)| {
+            if i % 2 == 1 {
+                seg.to_owned()
+            } else {
+                seg.split('\n')
+                    .map(|line| line.split("--").next().unwrap().trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("$$")
+        .trim()
+        .to_owned()
+}
+
+/// Parse a single query file, which may contain session GUC SET statements followed by the query.
+fn single_query(file: &Path) -> String {
+    let content = std::fs::read_to_string(file)
+        .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
+    parse_sql_statement(&content)
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_owned()
+}
+
 /// Strips comments and flattens each query onto a single line.
 ///
 /// Will only split on semicolons with trailing newlines, which allows for applying GUCs to queries.
-///
 fn queries(file: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
@@ -1747,27 +1761,7 @@ fn queries(file: &Path) -> Vec<String> {
     content
         .split(";\n")
         .filter_map(|query| {
-            // Strip line comments and flatten each statement onto one line, but keep the interior of
-            // dollar-quoted ($$...$$) blocks verbatim (e.g. a TOML index `options` that needs its
-            // newlines). Splitting on `$$` alternates outside/inside (even = outside, odd = inside);
-            // flatten only the outside. Files without `$$` are a single segment, unchanged.
-            let query = query
-                .split("$$")
-                .enumerate()
-                .map(|(i, seg)| {
-                    if i % 2 == 1 {
-                        seg.to_owned()
-                    } else {
-                        seg.split('\n')
-                            .map(|line| line.split("--").next().unwrap().trim())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("$$")
-                .trim()
-                .to_owned();
+            let query = parse_sql_statement(query);
             if query.is_empty() { None } else { Some(query) }
         })
         .collect()
@@ -1816,6 +1810,75 @@ fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
             (query_type, query)
         })
         .collect()
+}
+
+/// Load all benchmark queries from `queries_dir`.
+///
+/// Queries can be structured in two ways:
+/// 1. A nested directory `queries/{query_name}/` containing one or more `*.sql` variant files
+///    (e.g. `postgres.sql`, `hash_partitioned.sql`, `range_partitioned.sql`) alongside optional
+///    documentation like `README.md`. When multiple variants exist, each is labeled
+///    `{query_name} - {variant_stem}`. When a single variant exists, it is labeled `{query_name}`.
+/// 2. A flat `queries/{query_name}.sql` file, supported for single queries or legacy files.
+///    If a directory of the same stem exists, the directory takes precedence over the flat file.
+fn load_benchmark_queries(queries_dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
+    let mut entries: Vec<_> = std::fs::read_dir(queries_dir)
+        .with_context(|| {
+            format!(
+                "Failed to read queries directory `{}`",
+                queries_dir.display()
+            )
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| "Failed to read directory entry")?;
+    entries.sort_by_key(|e| e.path());
+
+    let mut queries = Vec::new();
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            let query_name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+
+            let mut sql_files: Vec<_> = std::fs::read_dir(&path)
+                .with_context(|| format!("Failed to read query directory `{}`", path.display()))?
+                .collect::<Result<Vec<_>, _>>()
+                .with_context(|| "Failed to read directory entry")?
+                .into_iter()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("sql"))
+                .collect();
+            sql_files.sort_unstable();
+
+            let multi_variants = sql_files.len() > 1;
+            for sql_path in sql_files {
+                let stem = sql_path.file_stem().unwrap_or_default().to_string_lossy();
+                let query_type = if multi_variants {
+                    format!("{query_name} - {stem}")
+                } else if stem == "default" || stem == "query" || stem == query_name {
+                    query_name.clone()
+                } else {
+                    format!("{query_name} - {stem}")
+                };
+
+                let query = single_query(&sql_path);
+                if !query.is_empty() {
+                    queries.push((query_type, query));
+                }
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            // If a directory with the same stem exists, the directory supersedes this file.
+            if path.with_extension("").is_dir() {
+                continue;
+            }
+            queries.extend(benchmark_queries(&path));
+        }
+    }
+
+    Ok(queries)
 }
 
 async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {
@@ -1934,7 +1997,11 @@ async fn execute_query_multiple_times(
     let mut window = Window::new(3);
     let mut results = QueryRunResults::default();
 
-    let measured_query = query.split(";").last().unwrap().trim();
+    let measured_query = query
+        .split(';')
+        .map(str::trim)
+        .rfind(|s| !s.is_empty())
+        .unwrap();
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
@@ -2420,5 +2487,34 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn parse_sql_statement_strips_comments_and_preserves_dollar_quotes() {
+        let sql = r#"
+-- Line comment 1
+SET work_mem TO '4GB'; -- Inline comment
+SET paradedb.options = $$
+multiline
+options
+$$;
+SELECT * FROM table;
+"#;
+        assert_eq!(
+            parse_sql_statement(sql),
+            "SET work_mem TO '4GB'; SET paradedb.options =$$\nmultiline\noptions\n$$; SELECT * FROM table;"
+        );
+    }
+
+    #[test]
+    fn load_benchmark_queries_stackoverflow() {
+        let queries = load_benchmark_queries(Path::new("datasets/stackoverflow/queries")).unwrap();
+        assert_eq!(queries.len(), 125);
+        assert!(
+            queries
+                .iter()
+                .any(|(name, _)| name == "join_disjunctive_local_sort - postgres")
+        );
+        assert!(queries.iter().any(|(name, _)| name == "highlighting"));
     }
 }

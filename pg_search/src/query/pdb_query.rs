@@ -284,6 +284,25 @@ pub mod pdb {
             )]
             upper_bound: Bound<PdbOwnedValue>,
         },
+        /// A range whose bounds are already in the index's stored form, so the
+        /// `range` conversion takes them as given instead of converting them the way it
+        /// converts values a user typed. Range partitioning builds this from the split
+        /// points a partitioned build sampled and stored: a `numeric(10,2)` split point
+        /// arrives as the scaled `I64` `123` for `1.23`, and a `NumericBytes` split
+        /// point as the lexicographic `Bytes` the column stores. Neither bound carries
+        /// an ambiguity: both are exactly the values the terms are compared against.
+        StoredRange {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<PdbOwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<PdbOwnedValue>,
+        },
         RangeContains {
             #[serde(
                 serialize_with = "serialize_bound",
@@ -646,6 +665,16 @@ impl pdb::Query {
                 lower_bound,
                 upper_bound,
             )?,
+            pdb::Query::StoredRange {
+                lower_bound,
+                upper_bound,
+            } => stored_range(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
@@ -711,6 +740,7 @@ impl pdb::Query {
             | pdb::Query::TermSet { .. }
             | pdb::Query::FuzzyTerm { .. }
             | pdb::Query::Range { .. }
+            | pdb::Query::StoredRange { .. }
             | pdb::Query::RangeContains { .. }
             | pdb::Query::RangeIntersects { .. }
             | pdb::Query::RangeTerm { .. }
@@ -1628,6 +1658,72 @@ fn range(
             check_range_bounds(typeoid, lower_bound, upper_bound, index_created_by_version)?
         }
     };
+
+    let lower_bound = match lower_bound {
+        Bound::Included(value) => Bound::Included(value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            field.path().as_deref(),
+            index_created_by_version,
+        )?),
+        Bound::Excluded(value) => Bound::Excluded(value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            field.path().as_deref(),
+            index_created_by_version,
+        )?),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+
+    let upper_bound = match upper_bound {
+        Bound::Included(value) => Bound::Included(value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            field.path().as_deref(),
+            index_created_by_version,
+        )?),
+        Bound::Excluded(value) => Bound::Excluded(value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            field.path().as_deref(),
+            index_created_by_version,
+        )?),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+
+    Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+}
+
+/// Builds the tantivy query for [`pdb::Query::StoredRange`]: a range whose bounds are
+/// already in the index's stored form.
+///
+/// Unlike [`range`], no user-input conversion runs: a bound is turned into a term as it
+/// stands. That is what makes the sampled split points of range partitioning cut where
+/// they declare they do a `Numeric64` bound arrives as the scaled `I64` the column
+/// stores (scaling it again would move the executed bound `10^scale` times higher than
+/// the declared split point), and a `NumericBytes` bound arrives as the lexicographic
+/// `Bytes` the term dictionary compares (converting them like user input errors out
+/// with "Cannot convert non-numeric value").
+///
+/// The caller must not pass [`PdbOwnedValue::Null`] bounds: [`RangePartitioning::
+/// partition_bounds`](crate::scan::range_partitioning::RangePartitioning::partition_bounds)
+/// maps NULL split points to [`Bound::Unbounded`] or an empty partition before it builds
+/// this query.
+fn stored_range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(

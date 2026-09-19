@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Range-partitioned joins on NUMERIC fields no longer silently drop rows from middle partitions. The partition bounds were being double-converted, causing incorrect range queries.

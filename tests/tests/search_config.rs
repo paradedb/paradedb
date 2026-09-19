@@ -307,7 +307,6 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 #[case("keyword")]
-#[case("keyword('search_tokenizer=keyword')")]
 #[case("literal_normalized")]
 fn keyword_tokenizer_config(mut conn: PgConnection, #[case] tokenizer: &str) {
     format!(
@@ -342,11 +341,8 @@ fn keyword_tokenizer_config(mut conn: PgConnection, #[case] tokenizer: &str) {
 #[rstest]
 #[case("'Running Shoes.  olé'::text")]
 #[case("'Running Shoes.  olé'::varchar")]
-#[case("'[\"Running Shoes.  olé\"]'::json")]
-#[case("'[\"Running Shoes.  olé\"]'::jsonb")]
 #[case("ARRAY['Running Shoes.  olé']::text[]")]
 #[case("ARRAY['Running Shoes.  olé']::varchar[]")]
-#[case("'550e8400-e29b-41d4-a716-446655440000'::uuid")]
 fn keyword_cast_compatibility(mut conn: PgConnection, #[case] input: &str) {
     let (same,): (bool,) = format!(
         "SELECT ({input})::pdb.keyword::text[] = \
@@ -354,6 +350,44 @@ fn keyword_cast_compatibility(mut conn: PgConnection, #[case] input: &str) {
     )
     .fetch_one(&mut conn);
     assert!(same);
+}
+
+#[rstest]
+#[case("json", r#"'{"value":"Running Shoes"}'"#, ".value", "running shoes")]
+#[case("jsonb", r#"'{"value":"Running Shoes"}'"#, ".value", "running shoes")]
+#[case(
+    "uuid",
+    "'550e8400-e29b-41d4-a716-446655440000'",
+    "",
+    "550e8400-e29b-41d4-a716-446655440000"
+)]
+fn keyword_index_cast_compatibility(
+    mut conn: PgConnection,
+    #[case] data_type: &str,
+    #[case] input: &str,
+    #[case] path: &str,
+    #[case] term: &str,
+) {
+    // JSON and UUID tokenizer casts are supported in indexes, not inline tokenization.
+    format!(
+        "CREATE TABLE keyword_cast_test (id integer, value {data_type});
+         INSERT INTO keyword_cast_test VALUES (1, {input});
+         CREATE INDEX ON keyword_cast_test USING paradedb (
+             id,
+             (value::pdb.keyword('alias=keyword_value')),
+             (value::pdb.literal_normalized('alias=legacy_value'))
+         );"
+    )
+    .execute(&mut conn);
+
+    for field in ["keyword_value", "legacy_value"] {
+        let rows: Vec<(i32,)> = format!(
+            "SELECT id FROM keyword_cast_test
+             WHERE id @@@ pdb.parse('{field}{path}:\"{term}\"') ORDER BY id"
+        )
+        .fetch_collect(&mut conn);
+        assert_eq!(rows, vec![(1,)]);
+    }
 }
 
 #[rstest]

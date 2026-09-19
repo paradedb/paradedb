@@ -69,6 +69,7 @@ use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
 use crate::scan::deferred_encode::is_deferred_field;
@@ -200,6 +201,10 @@ pub struct PgSearchScanPlan {
     /// exposes one local partition and maps `execute(0)` back to this global partition.
     pub(crate) assigned_partition: Option<usize>,
     pub(crate) scan_mode: crate::scan::ScanMode,
+    /// Fallback ExprContext guard created during dispatch decode when heap filters are present
+    /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
+    /// the underlying ExprContext remains valid across execution.
+    _expr_context_guard: Option<Arc<ExprContextGuard>>,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -225,6 +230,7 @@ impl Clone for PgSearchScanPlan {
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
+            _expr_context_guard: self._expr_context_guard.clone(),
         }
     }
 }
@@ -354,6 +360,7 @@ impl PgSearchScanPlan {
             range_split_points,
             assigned_partition: None,
             scan_mode,
+            _expr_context_guard: None,
         }
     }
 
@@ -457,6 +464,7 @@ impl PgSearchScanPlan {
             range_split_points: self.range_split_points.clone(),
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
+            _expr_context_guard: self._expr_context_guard.clone(),
         })
     }
 
@@ -737,12 +745,22 @@ impl PgSearchScanPlan {
 
         let query = descriptor.scan_mode.query().clone();
         let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
+        // If heap filters are present but no ExprContext was threaded through the codec
+        // (e.g. during internal plan roundtrips or standalone deserialization), allocate a fallback
+        // ExprContextGuard and retain it on the plan so the context lives for the duration of execution.
+        let fallback_guard = if expr_context.is_none() && query.has_heap_filters() {
+            Some(Arc::new(ExprContextGuard::new()))
+        } else {
+            None
+        };
+        let effective_expr_context =
+            expr_context.or_else(|| fallback_guard.as_ref().map(|g| g.as_ptr()));
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             descriptor.score_needed,
             mvcc,
-            expr_context.and_then(std::ptr::NonNull::new),
+            effective_expr_context.and_then(std::ptr::NonNull::new),
             // TODO: MPP is currently disabled when a scan requires parameter solving: see
             // https://github.com/paradedb/paradedb/issues/5445.
             None,
@@ -814,6 +832,7 @@ impl PgSearchScanPlan {
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
         plan.eager_fields = descriptor.eager_fields;
+        plan._expr_context_guard = fallback_guard;
         let final_plan = if let Some(assigned) = descriptor.assigned_partition {
             plan.with_assigned_partition(assigned)
         } else {

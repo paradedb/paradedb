@@ -308,11 +308,34 @@ DROP TABLE overlap_providers CASCADE;
 -- parameterized child paths, hypothetical indexes.
 -- ============================================================================
 
--- OR-positioned heap predicate: one arm's bitmap cannot reject rows.
+-- OR with a non-indexable arm: no index answers `gender`, so the union is not a
+-- necessary condition and the whole disjunction stays a heap filter. The AND-position
+-- clause beside it is still covered on its own.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology'
-  AND (location <@ circle(point(50, 50), 5) OR specialty LIKE 'specialty1%')
+  AND specialty = 'specialty13'
+  AND (location <@ circle(point(50, 50), 5) OR gender = 'male')
+ORDER BY id LIMIT 5;
+SELECT count(*) AS or_unindexable_arm_count, sum(id) AS or_unindexable_arm_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND specialty = 'specialty13'
+      AND (location <@ circle(point(50, 50), 5) OR gender = 'male')) q;
+SET paradedb.enable_bitmap_intersection = off;
+SELECT count(*) AS or_unindexable_arm_off_count, sum(id) AS or_unindexable_arm_off_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND specialty = 'specialty13'
+      AND (location <@ circle(point(50, 50), 5) OR gender = 'male')) q;
+RESET paradedb.enable_bitmap_intersection;
+
+-- OR of a heap predicate with an indexed ParadeDB predicate: the ParadeDB arm has no
+-- external bitmap, so the union cannot be built.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology'
+  AND (location <@ circle(point(50, 50), 5) OR description === 'family')
 ORDER BY id LIMIT 5;
 
 -- NOT-positioned heap predicate.
@@ -422,16 +445,66 @@ ORDER BY id LIMIT 5;
 ROLLBACK;
 
 -- ============================================================================
--- UNSUPPORTED / TODO SHAPES
--- Should harvest someday; these goldens flip when the feature lands.
+-- SUPPORTED: FULLY INDEXABLE DISJUNCTIONS (BitmapOr)
+-- The union of the arms' bitmaps is a necessary condition of the query, so the
+-- disjunction is covered whole. Every arm stays in `always_filters`: the union
+-- proves the OR, not which arm a given row satisfied, so no arm may skip its own
+-- predicate. What the bitmap buys is the miss, rejected with no heap access.
 -- ============================================================================
 
--- TODO BitmapOr: a fully indexable disjunction; today it stays a heap filter.
+-- Two arms on one index.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id FROM providers
 WHERE description === 'cardiology'
   AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3))
 ORDER BY id LIMIT 5;
+SELECT count(*) AS or_same_index_count, sum(id) AS or_same_index_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3))) q;
+-- Parity with the intersection disabled: same rows, not just the same count.
+SET paradedb.enable_bitmap_intersection = off;
+SELECT count(*) AS or_same_index_off_count, sum(id) AS or_same_index_off_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3))) q;
+RESET paradedb.enable_bitmap_intersection;
+
+-- Arms on different indexes: a GiST arm unioned with a btree arm.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM providers
+WHERE description === 'cardiology'
+  AND (location <@ circle(point(50, 50), 5) OR specialty LIKE 'specialty1%')
+ORDER BY id LIMIT 5;
+SELECT count(*) AS or_cross_index_count, sum(id) AS or_cross_index_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (location <@ circle(point(50, 50), 5) OR specialty LIKE 'specialty1%')) q;
+SET paradedb.enable_bitmap_intersection = off;
+SELECT count(*) AS or_cross_index_off_count, sum(id) AS or_cross_index_off_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (location <@ circle(point(50, 50), 5) OR specialty LIKE 'specialty1%')) q;
+RESET paradedb.enable_bitmap_intersection;
+
+-- Asymmetric arms: most matches come from one arm, so a row is returned that the
+-- other arm's bitmap alone would have rejected.
+SELECT count(*) AS or_asymmetric_count, sum(id) AS or_asymmetric_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (specialty = 'specialty7' OR location <@ circle(point(3, 3), 1))) q;
+SET paradedb.enable_bitmap_intersection = off;
+SELECT count(*) AS or_asymmetric_off_count, sum(id) AS or_asymmetric_off_sum FROM (
+    SELECT id FROM providers
+    WHERE description === 'cardiology'
+      AND (specialty = 'specialty7' OR location <@ circle(point(3, 3), 1))) q;
+RESET paradedb.enable_bitmap_intersection;
+
+-- Through the Aggregate Scan, which collects its coverables from the built query.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT count(*) FROM providers
+WHERE description === 'cardiology'
+  AND (location <@ circle(point(20, 20), 3) OR location <@ circle(point(80, 80), 3));
 
 DROP TABLE providers CASCADE;
 RESET paradedb.enable_filter_pushdown;

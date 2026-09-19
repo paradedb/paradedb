@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789806673308,
+  "lastUpdate": 1789830472533,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -4937,6 +4937,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "paradedb (single_topk) p99 latency",
             "value": 2.131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "336281cb2af16b13bc7730cf19fc3128f5167c18",
+          "message": "chore: Always defer wal during `CREATE INDEX`. (#6408)\n\n## What\n\nAlways use `deferred_wal`.\n\n## Why\n\nThis flag was never set intentionally in any build, but was likely set\n_unintentionally_ in a few cases where we used `--no-default-features`\nto select an alternate PG version.",
+          "timestamp": "2026-09-19T07:47:18-07:00",
+          "tree_id": "272b2732ec3f89f039c9fb59731acf2715bce4f0",
+          "url": "https://github.com/paradedb/paradedb/commit/336281cb2af16b13bc7730cf19fc3128f5167c18"
+        },
+        "date": 1789830466731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (single_topk) mean latency",
+            "value": 1.6568207484129647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p50 latency",
+            "value": 1.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p90 latency",
+            "value": 1.897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p95 latency",
+            "value": 1.947,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_topk) p99 latency",
+            "value": 2.211,
             "unit": "ms"
           }
         ]

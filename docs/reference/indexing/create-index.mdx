@@ -465,22 +465,16 @@ BM25 uses two parameters, `k1` and `b`, to control how term frequency and field 
 | `k1`      | `1.2`   | `0` to `100`, inclusive | Controls term frequency saturation. Lower values reduce the benefit of repeated query terms; higher values give them more weight. At `0`, term frequency and field length do not affect a term's score. |
 | `b`       | `0.75`  | `0` to `1`, inclusive   | Controls field length normalization relative to the field's average length. Higher values penalize longer fields more strongly. At `0`, normalization is disabled; at `1`, it is fully applied.         |
 
-Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `title` field uses lower values to reduce the influence of repeated terms and field length. The `body` field gives repeated terms more weight while keeping the default length normalization.
+Pass `k1` and `b` as options to a field's [tokenizer](/reference/tokenizers/overview). In this example, the `description` field uses lower values to reduce the influence of repeated terms and field length. The `category` field gives repeated terms more weight while keeping the default length normalization.
 
 <CodeGroup>
 
 ```sql SQL
-CREATE TABLE articles (
-  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  title TEXT,
-  body TEXT
-);
-
-CREATE INDEX articles_idx ON articles
+CREATE INDEX search_idx ON mock_items
 USING paradedb (
   id,
-  (title::pdb.simple('k1=0.9', 'b=0.3')),
-  (body::pdb.simple('k1=1.5', 'b=0.75'))
+  (description::pdb.simple('k1=0.9', 'b=0.3')),
+  (category::pdb.simple('k1=1.5', 'b=0.75'))
 )
 WITH (key_field='id');
 ```
@@ -489,15 +483,15 @@ WITH (key_field='id');
 import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .paradedbIndex("articles_idx")
+  .paradedbIndex("search_idx")
   .on(
-    articles.id,
+    mockItems.id,
     indexing.paradedbField(
-      articles.title,
+      mockItems.description,
       tokenizer.simple({ k1: 0.9, b: 0.3 }),
     ),
     indexing.paradedbField(
-      articles.body,
+      mockItems.category,
       tokenizer.simple({ k1: 1.5, b: 0.75 }),
     ),
   );
@@ -510,15 +504,15 @@ from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
-        Article,
+        MockItem,
         ParadeDBIndex(
             fields={
                 "id": {},
-                "title": {"tokenizer": Tokenizer.simple(options={"k1": 0.9, "b": 0.3})},
-                "body": {"tokenizer": Tokenizer.simple(options={"k1": 1.5, "b": 0.75})},
+                "description": {"tokenizer": Tokenizer.simple(options={"k1": 0.9, "b": 0.3})},
+                "category": {"tokenizer": Tokenizer.simple(options={"k1": 1.5, "b": 0.75})},
             },
             key_field="id",
-            name="articles_idx",
+            name="search_idx",
         ),
     )
 ```
@@ -528,14 +522,14 @@ from sqlalchemy import Index
 from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
-    "articles_idx",
-    indexing.ParadeDBField(Article.id),
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
     indexing.ParadeDBField(
-        Article.title,
+        MockItem.description,
         tokenizer=tokenizer.simple(options={"k1": 0.9, "b": 0.3}),
     ),
     indexing.ParadeDBField(
-        Article.body,
+        MockItem.category,
         tokenizer=tokenizer.simple(options={"k1": 1.5, "b": 0.75}),
     ),
     postgresql_using="paradedb",
@@ -548,22 +542,22 @@ with engine.begin() as conn:
 
 ```ruby Rails
 ActiveRecord::Base.connection.add_paradedb_index(
-  :articles,
+  :mock_items,
   fields: {
     id: {},
-    title: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 0.9, b: 0.3 }) },
-    body: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 1.5, b: 0.75 }) }
+    description: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 0.9, b: 0.3 }) },
+    category: { tokenizer: ParadeDB::Tokenizer.simple(options: { k1: 1.5, b: 0.75 }) }
   },
   key_field: :id,
-  name: :articles_idx
+  name: :search_idx
 )
 ```
 
 ```cs EF Core
-modelBuilder.Entity<Article>()
-    .HasParadeDbIndex("articles_idx", e => e.Id)
-    .HasField(e => e.Title, Tokenizer.Simple(new() { ["k1"] = 0.9f, ["b"] = 0.3f }))
-    .HasField(e => e.Body, Tokenizer.Simple(new() { ["k1"] = 1.5f, ["b"] = 0.75f }));
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Simple(new() { ["k1"] = 0.9f, ["b"] = 0.3f }))
+    .HasField(e => e.Category, Tokenizer.Simple(new() { ["k1"] = 1.5f, ["b"] = 0.75f }));
 ```
 
 </CodeGroup>

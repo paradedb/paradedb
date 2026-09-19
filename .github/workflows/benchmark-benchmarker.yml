@@ -49,7 +49,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - family=m8gd.metal-24xl # Chosen for its performance consistency across hosts
+      - family=c6gd.metal # Lowest-cost On-Demand metal runner with local NVMe in us-east-1
       - image=ubuntu24-full-arm64
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
@@ -331,8 +331,31 @@ jobs:
             exit 1
           fi
 
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [benchmark-benchmarker]
+    if: always() && needs.benchmark-benchmarker.result == 'failure' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
+      # RunsOn retries after this attempt finishes. Do not wait inside the workflow.
+      # Attempts 1 and 2 may retry; attempt 3 and API lookup errors must still alert.
+      - name: Detect Retryable Spot Interruption
+        id: spot-retry
+        continue-on-error: true
+        uses: runs-on/spot-retry-gate/.github/actions/detect@451eea7c3d2c58d14a1f80f0bbb99eaa347b9471 # v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run_id: ${{ github.run_id }}
+          run_attempt: ${{ github.run_attempt }}
+          job_results: ${{ toJSON(needs) }}
+          check_name: slack-alert
+
       - name: Notify Slack on Failure (push only)
-        if: failure() && github.event_name == 'push'
+        if: always() && steps.spot-retry.outputs.spot_interrupted != 'true'
         uses: paradedb/actions/slack-alert@v13
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

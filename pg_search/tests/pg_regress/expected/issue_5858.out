@@ -48,7 +48,6 @@ CREATE INDEX issue_5858_products_idx
 ON issue_5858_products
 USING paradedb (id, name_ci, name_icu, name_c, name_default)
 WITH (
-    key_field = 'id',
     text_fields = '{"name_ci": {"tokenizer": {"type": "keyword"}}, "name_icu": {"tokenizer": {"type": "keyword"}}, "name_c": {"tokenizer": {"type": "keyword"}}, "name_default": {"tokenizer": {"type": "keyword"}}}'
 );
 ANALYZE issue_5858_products;

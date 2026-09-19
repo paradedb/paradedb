@@ -214,4 +214,40 @@ LIMIT 4;
 (4 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
+-- An explicitly indexed cast is sortable by its own text values. Keep the
+-- native numeric field too, so the plan must choose the n_text expression field.
+DROP INDEX issue_5997_idx;
+CREATE INDEX issue_5997_idx ON issue_5997
+USING paradedb (id, title, n, ((n::text)::pdb.literal('alias=n_text')))
+WITH (key_field = 'id');
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT n FROM issue_5997
+WHERE title @@@ 'doc'
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on issue_5997
+         Table: issue_5997
+         Index: issue_5997_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: n_text asc
+            TopK Limit: 4
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT n FROM issue_5997
+WHERE title @@@ 'doc'
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+  n  
+-----
+   1
+  10
+ 100
+  11
+(4 rows)
+
 DROP TABLE issue_5997 CASCADE;

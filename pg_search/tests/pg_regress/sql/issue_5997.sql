@@ -105,4 +105,22 @@ ORDER BY n::text COLLATE "C"
 LIMIT 4;
 RESET paradedb.enable_aggregate_custom_scan;
 
+-- An explicitly indexed cast is sortable by its own text values. Keep the
+-- native numeric field too, so the plan must choose the n_text expression field.
+DROP INDEX issue_5997_idx;
+CREATE INDEX issue_5997_idx ON issue_5997
+USING paradedb (id, title, n, ((n::text)::pdb.literal('alias=n_text')))
+WITH (key_field = 'id');
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT n FROM issue_5997
+WHERE title @@@ 'doc'
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+
+SELECT n FROM issue_5997
+WHERE title @@@ 'doc'
+ORDER BY n::text COLLATE "C"
+LIMIT 4;
+
 DROP TABLE issue_5997 CASCADE;

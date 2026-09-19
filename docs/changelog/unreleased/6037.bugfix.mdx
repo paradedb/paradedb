@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed incorrect results for `ORDER BY column::text LIMIT` on numeric and range columns. These queries now sort by the cast text value instead of the underlying column value, while explicitly indexed cast expressions remain eligible for Top K.

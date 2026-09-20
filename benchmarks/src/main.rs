@@ -669,22 +669,23 @@ async fn run_recall(args: &RecallArgs) -> anyhow::Result<()> {
 
     // Parse the query file: resolve its `{{ param }}` references (per-query probes/ef_search scaled
     // by dataset_size), then split into the `SET` statements (operating point, applied to the
-    // session) and the single kNN query. A file may hold multiple variants (the benchmark runs all
-    // of them -- see benchmark_queries); recall measures only the FIRST variant (the one the
-    // benchmark labels with the bare file stem), so later variants' queries and SETs don't leak in.
-    // Splitting on `;` handles the inline `SET ...; SELECT ...` compound the harness uses. The query
-    // is run verbatim per held-out vector, so it must order by current_setting('cohere.qvec') --
-    // that lets recall vary the vector without changing the query (and thus its plan).
-    let raw_statements = queries(Path::new(&query_file));
-    let params =
-        resolve_template_params(&mut conn, &args.dataset, Some(&args.size), &raw_statements)
-            .await?;
-    let first_variant = raw_statements
-        .first()
-        .with_context(|| format!("Query file {query_file} is empty"))?;
-    let (set_statements, knn_query) =
-        split_operating_point(&substitute_vars(first_variant, &params)?)
-            .with_context(|| format!("Query file {query_file} has no query to score"))?;
+    // session) and the single kNN query. Splitting on `;` handles the inline `SET ...; SELECT ...`
+    // compound the harness uses. The query is run verbatim per held-out vector, so it must order by
+    // current_setting('cohere.qvec') -- that lets recall vary the vector without changing the query
+    // (and thus its plan).
+    let raw_query = single_query(Path::new(&query_file));
+    if raw_query.is_empty() {
+        bail!("Query file {query_file} is empty");
+    }
+    let params = resolve_template_params(
+        &mut conn,
+        &args.dataset,
+        Some(&args.size),
+        std::slice::from_ref(&raw_query),
+    )
+    .await?;
+    let (set_statements, knn_query) = split_operating_point(&substitute_vars(&raw_query, &params)?)
+        .with_context(|| format!("Query file {query_file} has no query to score"))?;
     if !knn_query.contains(&format!("current_setting('{QVEC_GUC}')")) {
         bail!(
             "Query file {query_file} does not order by current_setting('{QVEC_GUC}'); recall cannot \
@@ -1023,8 +1024,8 @@ async fn expand_sweeps(
     let mut expanded = Vec::new();
     let mut summary = Vec::new();
     for (query_type, query) in parsed {
-        // Only a file's first variant is labeled with the bare stem, so later variants (which
-        // recall does not score) never match a sweep.
+        // Queries not declared in config [sweeps] (e.g. exact pre-filter baselines) pass through
+        // unmodified.
         let Some(sweep) = config.sweep_for(&args.index, &query_type) else {
             expanded.push((query_type, query));
             continue;
@@ -1193,10 +1194,11 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             .with_context(|| "Failed to execute checkpoint.")?;
 
         println!("Query Type: {query_type}\nQuery: {query}");
-        // Alternatives are fixed reference plans -- the exact pre-filter, say -- never a swept
-        // operating point, so nothing builds a percentile series from them. Sampling one once per
-        // held-out vector costs hours at 10m rows to produce a distribution no series reads. They
-        // still read the vector GUC, so they get the vectors and just do not iterate them.
+        // Exact pre-filter baselines are fixed reference plans, never a swept operating point,
+        // so nothing builds a percentile series from them. Sampling one once per held-out vector
+        // costs hours at 10m rows to produce a distribution no series reads. They still read the
+        // vector GUC, so they get the vectors and just do not iterate them.
+        let sample_per_vector = !query_type.contains("exact_prefilter");
         let result = execute_query_multiple_times(
             &args.url,
             &query_type,
@@ -1204,7 +1206,7 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
             args.runs,
             args.fail_on_error,
             &query_vectors,
-            !is_alternative(&query_type),
+            sample_per_vector,
         )
         .await?;
         match result {
@@ -1782,36 +1784,6 @@ fn reads_query_vector(query: &str) -> bool {
     query.contains(&format!("current_setting('{QVEC_GUC}')"))
 }
 
-/// Suffix given to a query file's second and later statements. Doubles as the dashboard's
-/// chart-grouping separator, so alternatives plot alongside the statement they vary.
-const ALTERNATIVE_MARKER: &str = " - alternative ";
-
-/// Whether `query_type` names a non-first statement of its file.
-fn is_alternative(query_type: &str) -> bool {
-    query_type.contains(ALTERNATIVE_MARKER)
-}
-
-fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
-    let query_type = file
-        .file_stem()
-        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
-        .to_string_lossy()
-        .into_owned();
-
-    queries(file)
-        .into_iter()
-        .enumerate()
-        .map(|(idx, query)| {
-            let query_type = if idx == 0 {
-                query_type.clone()
-            } else {
-                format!("{query_type}{ALTERNATIVE_MARKER}{idx}")
-            };
-            (query_type, query)
-        })
-        .collect()
-}
-
 /// Load all benchmark queries from `queries_dir`.
 ///
 /// Queries can be structured in two ways:
@@ -1865,16 +1837,26 @@ fn load_benchmark_queries(queries_dir: &Path) -> anyhow::Result<Vec<(String, Str
                 };
 
                 let query = single_query(&sql_path);
-                if !query.is_empty() {
-                    queries.push((query_type, query));
+                if query.is_empty() {
+                    bail!("Query file `{}` is empty", sql_path.display());
                 }
+                queries.push((query_type, query));
             }
         } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
             // If a directory with the same stem exists, the directory supersedes this file.
             if path.with_extension("").is_dir() {
                 continue;
             }
-            queries.extend(benchmark_queries(&path));
+            let query_type = path
+                .file_stem()
+                .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", path.display()))
+                .to_string_lossy()
+                .into_owned();
+            let query = single_query(&path);
+            if query.is_empty() {
+                bail!("Query file `{}` is empty", path.display());
+            }
+            queries.push((query_type, query));
         }
     }
 
@@ -2434,29 +2416,8 @@ mod tests {
         );
     }
 
-    /// The marker is produced in one place and matched in another; a rename that touched only one
-    /// would silently restore the 100x sampling cost on reference plans.
-    #[test]
-    fn only_non_first_statements_count_as_alternatives() {
-        let file_stem = "knn_top10_10pct";
-        let named: Vec<String> = (0..3)
-            .map(|idx| {
-                if idx == 0 {
-                    file_stem.to_owned()
-                } else {
-                    format!("{file_stem}{ALTERNATIVE_MARKER}{idx}")
-                }
-            })
-            .collect();
-
-        assert!(!is_alternative(&named[0]));
-        assert!(named[1..].iter().all(|n| is_alternative(n)));
-        // A swept operating point is still the file's first statement.
-        assert!(!is_alternative(&format!("{file_stem}@r95")));
-    }
-
-    /// Passing an alternative an empty vector slice to stop it sampling per vector tripped this
-    /// precondition and failed the whole run: the query still reads the GUC. Availability and
+    /// Passing a non-sampled query an empty vector slice to stop it sampling per vector tripped
+    /// this precondition and failed the whole run: the query still reads the GUC. Availability and
     /// sampling mode are separate concerns, and only the former belongs here.
     #[test]
     fn binding_precondition_tracks_availability_not_sampling_mode() {
@@ -2467,7 +2428,7 @@ mod tests {
         assert!(!reads_query_vector("SELECT count(*) FROM t"));
 
         // Whether this is a swept point or a reference plan changes nothing about the precondition.
-        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct - alternative 1"] {
+        for query_type in ["knn_top10_10pct@r95", "knn_top10_10pct_exact_prefilter"] {
             assert!(reads_query_vector(&knn), "{query_type}");
         }
     }

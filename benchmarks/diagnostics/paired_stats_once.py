@@ -58,7 +58,8 @@ def queries():
     assert not subset.exists(), "do not replace an existing index-specific suite"
     subset.mkdir()
     for name, (settings, query) in selected.items():
-        sql = ";\n".join([*settings, query]) + ";\n"
+        # The benchmark parser splits on semicolon-newline; keep GUCs in this query group.
+        sql = "; ".join([*settings, query]) + ";\n"
         (subset / f"{name}.sql").write_text(sql)
         (OUT / f"{name}.sql").write_text(sql)
     return selected

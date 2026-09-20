@@ -42,9 +42,10 @@ jobs:
           pkglibdir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
           cp "$pkglibdir/pg_search.so" diagnostic-output/fixed.so
           (cd pg_search && cargo pgrx stop pg18)
-          git worktree add --detach baseline-src "$BASELINE_SHA"
-          (cd baseline-src && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features)
+          git checkout --detach "$BASELINE_SHA"
+          cargo pgrx install -p pg_search --sudo --release --pg-config /usr/lib/postgresql/18/bin/pg_config --features=pg18 --no-default-features
           cp "$pkglibdir/pg_search.so" diagnostic-output/baseline.so
+          git checkout --detach "$GITHUB_SHA"
           sha256sum diagnostic-output/*.so | tee diagnostic-output/binaries.sha256
           cargo build --release -p benchmarks
       - name: Restore heap once

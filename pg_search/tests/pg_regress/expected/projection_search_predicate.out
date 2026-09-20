@@ -1,0 +1,459 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+\set VERBOSITY default
+CREATE TABLE projection_search_predicate (
+    id INTEGER PRIMARY KEY,
+    body TEXT,
+    category TEXT
+);
+INSERT INTO projection_search_predicate VALUES
+    (1, 'mechanical keyboard', 'electronics'),
+    (2, 'wireless mouse', 'electronics'),
+    (3, 'keyboard stand', 'accessories');
+CREATE INDEX projection_search_predicate_idx
+ON projection_search_predicate USING paradedb (id, body);
+-- The search term cannot affect which rows satisfy the redundant branch.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+\echo :SQLSTATE
+0A000
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.snippets` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippets`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet_positions(body, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet_positions(body, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, pdb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `pdb.snippet_positions` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet_positions`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, paradedb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Sort
+   Output: id, (paradedb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, paradedb.score(id)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, paradedb.score(id)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `paradedb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, paradedb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (paradedb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, paradedb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, paradedb.snippet(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `paradedb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippet`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, paradedb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (paradedb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, paradedb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, paradedb.snippets(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `paradedb.snippets` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippets`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, paradedb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Sort
+   Output: id, (paradedb.snippet_positions(body, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, paradedb.snippet_positions(body, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+SELECT id, paradedb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
+ORDER BY id;
+ERROR:  `paradedb.snippet_positions` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippet_positions`, or remove it from the query.
+-- A missing search predicate does not imply that optimization removed one.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+(5 rows)
+
+SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+(5 rows)
+
+SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+PREPARE redundant_score(text, text) AS
+SELECT id, pdb.score(id)
+FROM projection_search_predicate
+WHERE category = $1 OR (category = $1 AND body === $2)
+ORDER BY id;
+PREPARE redundant_snippet(text, text) AS
+SELECT id, pdb.snippet(body)
+FROM projection_search_predicate
+WHERE category = $1 OR (category = $1 AND body @@@ $2)
+ORDER BY id;
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_score('electronics', 'keyboard');
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+EXECUTE redundant_score('electronics', 'keyboard');
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_snippet('electronics', 'keyboard');
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = 'electronics'::text)
+(6 rows)
+
+EXECUTE redundant_snippet('electronics', 'keyboard');
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_score('electronics', 'keyboard');
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+         Filter: (projection_search_predicate.category = $1)
+(6 rows)
+
+EXECUTE redundant_score('electronics', 'keyboard');
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_snippet('electronics', 'keyboard');
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = $1)
+(6 rows)
+
+EXECUTE redundant_snippet('electronics', 'keyboard');
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_score('accessories', 'mouse');
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Sort
+   Output: id, (pdb.score(id))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.score(id)
+         Filter: (projection_search_predicate.category = $1)
+(6 rows)
+
+EXECUTE redundant_score('accessories', 'mouse');
+ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+EXECUTE redundant_snippet('accessories', 'mouse');
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Seq Scan on public.projection_search_predicate
+         Output: id, pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)
+         Filter: (projection_search_predicate.category = $1)
+(6 rows)
+
+EXECUTE redundant_snippet('accessories', 'mouse');
+ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
+DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
+RESET plan_cache_mode;
+DEALLOCATE redundant_score;
+DEALLOCATE redundant_snippet;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, pdb.score(id) > 0 AS has_score,
+       pdb.snippet(body), pdb.snippets(body), pdb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE body === 'keyboard'
+ORDER BY id;
+                                                                                                                                                 QUERY PLAN                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, ((pdb.score(id) > '0'::double precision)), (pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), (pdb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text)), (pdb.snippet_positions(body, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.projection_search_predicate
+         Output: id, (pdb.score(id) > '0'::double precision), pdb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer), pdb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text), pdb.snippet_positions(body, NULL::integer, NULL::integer)
+         Table: projection_search_predicate
+         Index: projection_search_predicate_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"body","value":"keyboard"}}}}
+(11 rows)
+
+SELECT id, pdb.score(id) > 0 AS has_score,
+       pdb.snippet(body), pdb.snippets(body), pdb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE body === 'keyboard'
+ORDER BY id;
+ id | has_score |          snippet           |            snippets            | snippet_positions 
+----+-----------+----------------------------+--------------------------------+-------------------
+  1 | t         | mechanical <b>keyboard</b> | {"mechanical <b>keyboard</b>"} | {{11,19}}
+  3 | t         | <b>keyboard</b> stand      | {"<b>keyboard</b> stand"}      | {{0,8}}
+(2 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, paradedb.score(id) > 0 AS has_score,
+       paradedb.snippet(body), paradedb.snippets(body), paradedb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE body @@@ 'keyboard'
+ORDER BY id;
+                                                                                                                                                           QUERY PLAN                                                                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, ((paradedb.score(id) > '0'::double precision)), (paradedb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer)), (paradedb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text)), (paradedb.snippet_positions(body, NULL::integer, NULL::integer))
+   Sort Key: projection_search_predicate.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.projection_search_predicate
+         Output: id, (paradedb.score(id) > '0'::double precision), paradedb.snippet(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer), paradedb.snippets(body, '<b>'::text, '</b>'::text, 150, NULL::integer, NULL::integer, 'score'::text), paradedb.snippet_positions(body, NULL::integer, NULL::integer)
+         Table: projection_search_predicate
+         Index: projection_search_predicate_idx
+         Worker Selection: Cost model
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+SELECT id, paradedb.score(id) > 0 AS has_score,
+       paradedb.snippet(body), paradedb.snippets(body), paradedb.snippet_positions(body)
+FROM projection_search_predicate
+WHERE body @@@ 'keyboard'
+ORDER BY id;
+ id | has_score |          snippet           |            snippets            | snippet_positions 
+----+-----------+----------------------------+--------------------------------+-------------------
+  1 | t         | mechanical <b>keyboard</b> | {"mechanical <b>keyboard</b>"} | {{11,19}}
+  3 | t         | <b>keyboard</b> stand      | {"<b>keyboard</b> stand"}      | {{0,8}}
+(2 rows)
+
+DROP TABLE projection_search_predicate;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

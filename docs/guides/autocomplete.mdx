@@ -11,13 +11,13 @@ canonical: https://www.paradedb.com/docs/guides/autocomplete
   application you configured there.
 </Note>
 
-Suggest products from partial words: typing `wir` should match descriptions containing `wireless`.
+Autocomplete suggests products as the user types. For example, typing `wir` can match a description containing `wireless`.
 
-## Add an N-gram field and query it
+## Create an N-gram Index
 
-The default index matches whole tokens. Replace the demo `search_idx` with one that also indexes description fragments of three to eight characters under the alias `description_ngram`. The table and model stay the same, and the original indexed fields remain available.
+The default index matches whole tokens. Add an N-gram field to match fragments of three to eight characters, using `description_ngram` as its alias.
 
-The following block rebuilds the demo index and runs the first suggestion query. Run the index setup once; subsequent keystrokes only need the query. In an application, put the index change in a migration.
+The following example rebuilds `search_idx` with the additional field and queries it for `wir`. Run the index setup once, or add it to a migration. Each search request only needs the query.
 
 <Tabs>
 <Tab title="SQL">
@@ -42,7 +42,7 @@ LIMIT 5;
 
 <Tab title="Drizzle">
 
-Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+Use `await import(...)` for additional imports and paste the query into the REPL’s `.editor` mode. See [Connect Your App](/start/connect-your-app#drizzle).
 
 ```ts
 import { desc, sql } from "drizzle-orm";
@@ -202,15 +202,17 @@ await dbContext
 </Tab>
 </Tabs>
 
-## Expose a suggestions endpoint
+## Add a Suggestions Endpoint
 
-Add a `GET /api/suggestions?q=wir` handler in your application. Trim the input and return `{"suggestions": []}` without querying when it has fewer than three characters. Otherwise, run only the query above with the input in place of `wir` and serialize the rows as `{"suggestions": [{"id": ..., "description": ..., "rating": ..., "category": ...}]}`. Keep the five-result limit on the server.
+Create a `GET /api/suggestions?q=wir` endpoint that runs the query above with the user's input in place of `wir`. Trim the input and pass it as a query parameter or ORM value. Keep the result limit at five.
 
-Pass the input as a query parameter or ORM value. The match conjunction (`&&&`) requires every generated N-gram to match; this finds word fragments rather than only prefixes. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query behavior.
+Return the rows in a `suggestions` array, with each product's `id`, `description`, `rating`, and `category`. For input shorter than three characters, return `{"suggestions": []}` without querying.
 
-## Connect the search box
+The `&&&` operator requires every N-gram in the input to match. It matches fragments anywhere in a word. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [N-gram](/reference/tokenizers/available-tokenizers/ngrams) for details.
 
-Once your endpoint is in place, this browser example waits 200 milliseconds after typing stops before fetching suggestions. It cancels previous requests and ignores stale responses so an older result cannot overwrite the current input.
+## Connect the Search Box
+
+The following example calls the endpoint 200 milliseconds after the user stops typing. It cancels the previous request and ignores older responses to keep the suggestions in sync with the input.
 
 ```html
 <label for="product-search">Find a product</label>
@@ -268,8 +270,6 @@ Once your endpoint is in place, this browser example waits 200 milliseconds afte
 </script>
 ```
 
-Suggestions are ordinary links: users can reach them with Tab and activate them with Enter. This example does not implement an arrow-key combobox. Use `textContent` when rendering descriptions so product data is displayed as text.
+The suggestions are links that users can reach with Tab and open with Enter. Arrow-key navigation would require a combobox implementation. Replace `/products/` with your application's product route.
 
-## Check the interaction
-
-Type `wi`: no request should run. Continue to `wir`: matching products should appear. With network throttling enabled, type quickly and clear the field; late responses must not restore old suggestions. Try an unmatched phrase and a failed request to check the empty and error messages.
+The example uses `textContent` to display product descriptions as text. Clearing the input also clears the suggestions. Empty results and failed requests display separate messages below the search box.

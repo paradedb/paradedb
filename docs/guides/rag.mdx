@@ -11,22 +11,20 @@ canonical: https://www.paradedb.com/docs/guides/rag
   application you configured there.
 </Note>
 
-Retrieve relevant products with ParadeDB, then supply their descriptions to a language model as context for an answer.
+Retrieval-augmented generation uses search results to give a language model context for its answer. This guide retrieves product descriptions with ParadeDB and sends them to a model to answer a question about the catalog.
 
-## Define the question-answering flow
+## Retrieve Products and Generate an Answer
 
-A question-answering endpoint embeds the question, retrieves relevant records, and asks a language model to answer from those records. Keep the retrieved IDs alongside the answer so the application can link back to the products used as sources.
+The following example retrieves the three nearest products using a sample vector for “running shoes.” It prints their IDs and descriptions, then uses those descriptions as context for the model.
 
-This walkthrough exercises retrieval and optional generation with demo data. Its fixed vector is a fixture, not an embedding service: changing the question alone does not change the retrieved products.
+Retrieval works without an LLM account. To generate an answer, set `OPENROUTER_API_KEY` and `RAG_MODEL` before starting your shell or application. Use a model available to your OpenRouter account.
 
-## Retrieve context and generate an answer
-
-The examples use a demo vector for “running shoes” and print the three nearest products with their IDs. Retrieval works without an LLM account. To enable the optional generation step, set `OPENROUTER_API_KEY` and `RAG_MODEL` in the shell before starting your REPL or application. Choose a model available to your OpenRouter account.
+The sample vector is fixed. Changing the question will not change the results until you generate a new embedding, as described in [Embedding Questions](#embedding-questions).
 
 <Tabs>
 <Tab title="Drizzle">
 
-Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+Use `await import(...)` for additional imports and paste the query into the REPL’s `.editor` mode. See [Connect Your App](/start/connect-your-app#drizzle).
 
 ```ts
 import { search } from "@paradedb/drizzle-paradedb";
@@ -249,24 +247,22 @@ if (!string.IsNullOrEmpty(apiKey) && !string.IsNullOrEmpty(model) && rows.Count 
 </Tab>
 </Tabs>
 
-## Inspect the sources first
+## Review the Context
 
-Run retrieval without generation credentials and inspect the printed `[id] description` lines. These are the only product facts the model will receive. If they cannot answer the question, improve retrieval or include more fields before changing the prompt.
+The printed `[id] description` lines show what the model receives. Check that these descriptions contain the information needed to answer the question. Include additional product fields if needed.
 
-The nearest three products are not necessarily three relevant products. A nearest-neighbor query can return rows even for an unrelated question. Evaluate retrieval with questions your users actually ask; a nonempty result set does not prove that an answer is supported.
+Vector search returns the nearest products even when none are relevant. Test with questions about the catalog and unrelated questions to check whether the retrieved context is useful.
 
-## Return an answer with sources
+## Display the Answer
 
-In your application's handler, retain the retrieved rows and return both the generated answer and a source list containing their IDs and descriptions. Render that list as links to product pages. Resolve cited IDs only against the retrieved list; a prompt asking for citations does not guarantee that the model will cite correctly.
+Return the answer with the retrieved product IDs and descriptions. Use these IDs to link to product pages, and check that any IDs cited by the model appear in the retrieved results.
 
-If retrieval returns no rows, skip generation and show “No matching products found.” The snippets already skip the model call for empty results. If generation times out or fails, keep the retrieved products available and show that an answer could not be generated, with an option to retry.
+The example skips generation when there are no results. In your application, show “No matching products found” in this case. If generation fails or times out, show the retrieved products with an option to retry the answer.
 
-## Accept new questions
+## Embedding Questions
 
-Replace the fixed vector with an embedding generated from each question using the same model and dimensions as the stored product embeddings. When using your own embedding model, regenerate the product embeddings too. You can also use [hybrid search](/reference/hybrid/rrf) to combine full-text and vector search.
+For each new question, generate an embedding with the same model and dimensions used for the product embeddings. If you change the embedding model, regenerate the product embeddings too.
 
-For longer documents, retrieve chunks and retain their document IDs for source links. Apply access filters during retrieval before sending context to the model, and keep generation credentials on the server.
+You can also use [hybrid search](/reference/hybrid/rrf) to combine full-text and vector search. For longer documents, retrieve chunks and keep their document IDs for source links.
 
-## Check the answers
-
-Try a question supported by the retrieved descriptions, one asking for an absent detail such as a warranty, and one unrelated to the catalog. Check that supported answers cite retrieved IDs and unsupported questions receive an explicit lack-of-information response. Test empty retrieval and a generation failure separately; neither should appear as a successful generated answer.
+Apply access filters before sending results to the model, and keep API credentials on the server.

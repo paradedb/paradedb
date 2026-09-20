@@ -11,17 +11,17 @@ canonical: https://www.paradedb.com/docs/guides/search-with-filters
   application you configured there.
 </Note>
 
-Return product hits and facet counts together, so a search page can show results alongside category and rating filters. This pattern is called faceted search.
+Faceted search returns matching products along with counts for each category or rating. These counts let users narrow their search with filters.
 
-## Define the filter state
+## Search Parameters
 
-Keep the search text and selected filters in the page URL, for example `?q=shoes&category=Footwear&min_rating=4`. This lets users share a search and use the browser's Back button. A category selection is an exact value; the rating selection is a minimum.
+Store the search text and filters in the URL so users can share a search or return to it with the Back button. For example, `?q=shoes&category=Footwear&min_rating=4` searches for shoes in Footwear with a rating of at least four.
 
-On the server, validate the rating as an integer from 1 to 5 and pass all values as bound parameters or ORM values. Omit a filter's predicate when it is not selected.
+Validate the rating as an integer from 1 to 5. Pass the search text and filters as query parameters or ORM values, and omit filters that the user has not selected.
 
-## Retrieve hits and buckets
+## Query Results and Counts
 
-The query below represents a search for shoes with Footwear and a minimum rating of four selected. It returns the five highest-rated products. The window aggregations count categories and ratings over all matching rows, before the result limit.
+The following query returns the five highest-rated products that match these filters. The category and rating counts cover all matching products, before the result limit.
 
 <Tabs>
 <Tab title="SQL">
@@ -42,7 +42,7 @@ LIMIT 5;
 
 <Tab title="Drizzle">
 
-Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+Use `await import(...)` for additional imports and paste the query into the REPL’s `.editor` mode. See [Connect Your App](/start/connect-your-app#drizzle).
 
 ```ts
 import { and, desc, eq, gte } from "drizzle-orm";
@@ -168,20 +168,20 @@ foreach (var row in rows)
 </Tab>
 </Tabs>
 
-## Build the response
+## Display Results and Counts
 
-Return a single response containing the product list and the two bucket arrays. Use each terms aggregation's `buckets` array: `key` is the filter value and `doc_count` is its matching count. For window aggregations, read the repeated aggregates from the first row and leave them out of individual product objects.
+Return the products and facet counts in the same response. Each terms aggregation has a `buckets` array with a `key` for the field value and a `doc_count` for the number of matches. Window aggregations repeat these counts on every row, so read them from the first row.
 
-The limit applies to the product list, not the bucket counts. Do not use the length of the returned list as the total number of matches. If there are no hits, return empty product and bucket arrays.
+Use the category buckets for the sidebar choices. Rating buckets count each rating separately. For example, the bucket for four counts four-star products, not all products rated four or higher.
 
-## Update the sidebar
+The five-product limit does not apply to the counts. If the query returns no rows, display an empty result list and empty facets.
 
-Render category buckets as single-select choices and rating buckets as counts for individual ratings. A bucket for rating four counts exactly four-star products; it is not the count for a “4 and up” choice.
+## Apply Filters
 
-When a user changes a filter, update the URL, rerun the query, and replace both results and counts together. These counts include the selected filters: choosing Footwear removes other categories from the returned buckets. Keep selected filters visible independently of the buckets, with a clear action, so users can recover from an empty result set.
+When a user selects a filter, update the URL and rerun the query. Replace the products and counts together.
 
-For a sidebar that keeps showing alternatives in an already-selected category, run a separate category aggregation without that category predicate. Keep the search text and other filters on that query. See [Facets](/reference/aggregates/facets) for the query shape and [Terms](/reference/aggregates/bucket/terms) for bucket options.
+Counts include the selected filters. Selecting Footwear, for example, removes other categories from the buckets. Keep the selected filters visible even when there are no results, so the user can clear them.
 
-## Check the interaction
+To show other category choices after a category is selected, run a separate category aggregation without that filter. Keep the search text and remaining filters in this query.
 
-Start with `shoes` and no filters, select Footwear, then raise the minimum rating. Confirm that every result satisfies the filters and the counts change with them. Try a category with no matching shoes: the page should show no results while keeping the selected category and its clear action visible.
+See [Facets](/reference/aggregates/facets) and [Terms](/reference/aggregates/bucket/terms) for more on aggregations and bucket options.

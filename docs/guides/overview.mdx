@@ -4,14 +4,11 @@ description: Build common search features with ParadeDB
 canonical: https://www.paradedb.com/docs/guides/overview
 ---
 
-Guides show how to combine ParadeDB features into common application patterns, including a filter sidebar, a search box, and a question-answering flow. Each walkthrough connects database queries to application behavior. Choose a use case and select your SQL or ORM tab.
+These guides show how to build autocomplete, search filters, and a question-answering application with ParadeDB. Each guide includes code for the supported ORMs and builds on the [Getting Started](/start/install) tutorial.
 
-These guides build on the table, index, and connection from [Getting Started](/start/install). For individual query features, see the Reference pages for [vector search](/reference/vector/querying), [hybrid search](/reference/hybrid/rrf), and [More Like This](/reference/full-text/more-like-this).
+For query syntax, see the [Reference](/reference/overview).
 
 <CardGroup cols={2}>
-  <Card title="Retrieval-Augmented Generation" icon="robot" href="/guides/rag">
-    Retrieve relevant context for a language model to answer a question.
-  </Card>
   <Card
     title="Autocomplete"
     icon="magnifying-glass"
@@ -19,7 +16,14 @@ These guides build on the table, index, and connection from [Getting Started](/s
   >
     Suggest matches as a user types.
   </Card>
-  <Card title="Search with Filters" icon="filter" href="/guides/search-with-filters">
+  <Card
+    title="Search with Filters"
+    icon="filter"
+    href="/guides/search-with-filters"
+  >
     Return search results alongside counts for a filter sidebar.
+  </Card>
+  <Card title="Retrieval-Augmented Generation" icon="robot" href="/guides/rag">
+    Retrieve relevant context for a language model to answer a question.
   </Card>
 </CardGroup>

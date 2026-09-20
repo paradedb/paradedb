@@ -1,3 +1,0 @@
-SELECT SUM(amount15)
-FROM stackoverflow_posts
-WHERE to_tsvector('english', body) @@ plainto_tsquery('english', 'error');

@@ -53,12 +53,13 @@ USING bm25 (
     partition_by = 'id'
 );
 
--- Companion standard Postgres indexes for baseline queries executed in the same pass.
+-- Companion standard Postgres indexes for Top-K join baseline queries executed in the same pass.
+-- See benchmarks/datasets/stackoverflow/README.md for the rationale on including Top-K join
+-- baselines while omitting native Postgres aggregate baselines.
 
 -- Foreign Key / Join Columns (Standard B-tree)
 CREATE INDEX stackoverflow_posts_owner_user_id_idx ON stackoverflow_posts (owner_user_id);
 CREATE INDEX comments_post_id_idx ON comments (post_id);
-CREATE INDEX badges_user_id_idx ON badges (user_id);
 
 -- Full-Text Search Columns (GIN on tsvector)
 CREATE INDEX stackoverflow_posts_body_fts_idx ON stackoverflow_posts USING gin (to_tsvector('english', body));
@@ -66,12 +67,10 @@ CREATE INDEX stackoverflow_posts_title_fts_idx ON stackoverflow_posts USING gin 
 CREATE INDEX users_about_me_fts_idx ON users USING gin (to_tsvector('english', about_me));
 CREATE INDEX users_display_name_fts_idx ON users USING gin (to_tsvector('english', display_name));
 CREATE INDEX comments_text_fts_idx ON comments USING gin (to_tsvector('english', text));
-CREATE INDEX badges_name_fts_idx ON badges USING gin (to_tsvector('english', name));
 
 -- Common Scalar Filter, Grouping, and Sort Columns (B-tree)
-CREATE INDEX stackoverflow_posts_post_type_id_idx ON stackoverflow_posts (post_type_id);
 CREATE INDEX stackoverflow_posts_creation_date_idx ON stackoverflow_posts (creation_date DESC);
 CREATE INDEX users_reputation_idx ON users (reputation);
 CREATE INDEX comments_score_idx ON comments (score);
 CREATE INDEX comments_creation_date_id_idx ON comments (creation_date DESC, id DESC);
-CREATE INDEX badges_name_idx ON badges (name);
+

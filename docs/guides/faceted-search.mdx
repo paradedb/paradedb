@@ -13,9 +13,15 @@ canonical: https://www.paradedb.com/docs/guides/faceted-search
 
 Return product hits and facet counts together, so a search page can show results alongside category and rating filters.
 
+## Define the filter state
+
+Keep the search text and selected filters in the page URL, for example `?q=shoes&category=Footwear&min_rating=4`. This lets users share a search and use the browser's Back button. A category selection is an exact value; the rating selection is a minimum.
+
+On the server, validate the rating as an integer from 1 to 5 and pass all values as bound parameters or ORM values. Omit a filter's predicate when it is not selected.
+
 ## Retrieve hits and buckets
 
-Search for shoes and return the five highest-rated products. The window aggregations count categories and ratings over all matching rows, before the result limit.
+The query below represents a search for shoes with Footwear and a minimum rating of four selected. It returns the five highest-rated products. The window aggregations count categories and ratings over all matching rows, before the result limit.
 
 <Tabs>
 <Tab title="SQL">
@@ -26,6 +32,8 @@ SELECT id, description, rating,
        pdb.agg('{"terms": {"field": "rating"}}') OVER () AS ratings
 FROM mock_items
 WHERE description ||| 'shoes'
+  AND category = 'Footwear'
+  AND rating >= 4
 ORDER BY rating DESC, id
 LIMIT 5;
 ```
@@ -37,7 +45,7 @@ LIMIT 5;
 Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
 
 ```ts
-import { desc } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
 
 const rows = await db
@@ -49,7 +57,13 @@ const rows = await db
     ratings: search.agg({ terms: { field: "rating" } }).over(),
   })
   .from(mockItems)
-  .where(search.matchAny(mockItems.description, "shoes"))
+  .where(
+    and(
+      search.matchAny(mockItems.description, "shoes"),
+      eq(mockItems.category, "Footwear"),
+      gte(mockItems.rating, 4),
+    ),
+  )
   .orderBy(desc(mockItems.rating), mockItems.id)
   .limit(5);
 
@@ -65,7 +79,7 @@ console.log(rows[0]?.categories, rows[0]?.ratings);
 from paradedb import MatchAny, ParadeDB
 
 queryset = (
-    MockItem.objects.filter(description=ParadeDB(MatchAny("shoes")))
+    MockItem.objects.filter(description=ParadeDB(MatchAny("shoes")), category="Footwear", rating__gte=4)
     .order_by("-rating", "id")[:5]
 )
 rows, facets = queryset.facets("category", "rating", include_rows=True)
@@ -86,7 +100,7 @@ from paradedb.sqlalchemy import facets, pdb, search
 
 base = (
     select(MockItem.id, MockItem.description, MockItem.rating)
-    .where(search.match_any(MockItem.description, "shoes"))
+    .where(search.match_any(MockItem.description, "shoes"), MockItem.category == "Footwear", MockItem.rating >= 4)
     .order_by(MockItem.rating.desc(), MockItem.id)
     .limit(5)
 )
@@ -108,6 +122,7 @@ with Session(engine) as session:
 ```ruby
 relation = MockItem.search(:description)
                    .match_any("shoes")
+                   .where(category: "Footwear").where("rating >= ?", 4)
                    .with_agg(
                      categories: ParadeDB::Aggregations.terms(:category),
                      ratings: ParadeDB::Aggregations.terms(:rating)
@@ -131,7 +146,8 @@ Replace the sample query and its `PrintResults` call in `Program.cs`, keeping th
 
 ```cs
 var rows = await dbContext
-    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes")
+        && item.Category == "Footwear" && item.Rating >= 4)
     .OrderByDescending(item => item.Rating)
     .ThenBy(item => item.Id)
     .Select(item => new
@@ -152,8 +168,20 @@ foreach (var row in rows)
 </Tab>
 </Tabs>
 
-## Render the sidebar
+## Build the response
 
-Use each terms aggregation’s `buckets` array for filter choices: `key` is the field value and `doc_count` is its matching count. The same aggregations accompany each returned row; read them once. If there are no hits, show an empty result set and empty facets.
+Return a single response containing the product list and the two bucket arrays. Use each terms aggregation's `buckets` array: `key` is the filter value and `doc_count` is its matching count. For window aggregations, read the repeated aggregates from the first row and leave them out of individual product objects.
 
-When a user selects a filter, add it to the search predicate and rerun the query. These counts reflect the filtered result set, including the selected filter. See [Facets](/reference/aggregates/facets) for the query shape and [Terms](/reference/aggregates/bucket/terms) for bucket options.
+The limit applies to the product list, not the bucket counts. Do not use the length of the returned list as the total number of matches. If there are no hits, return empty product and bucket arrays.
+
+## Update the sidebar
+
+Render category buckets as single-select choices and rating buckets as counts for individual ratings. A bucket for rating four counts exactly four-star products; it is not the count for a “4 and up” choice.
+
+When a user changes a filter, update the URL, rerun the query, and replace both results and counts together. These counts include the selected filters: choosing Footwear removes other categories from the returned buckets. Keep selected filters visible independently of the buckets, with a clear action, so users can recover from an empty result set.
+
+For a sidebar that keeps showing alternatives in an already-selected category, run a separate category aggregation without that category predicate. Keep the search text and other filters on that query. See [Facets](/reference/aggregates/facets) for the query shape and [Terms](/reference/aggregates/bucket/terms) for bucket options.
+
+## Check the interaction
+
+Start with `shoes` and no filters, select Footwear, then raise the minimum rating. Confirm that every result satisfies the filters and the counts change with them. Try a category with no matching shoes: the page should show no results while keeping the selected category and its clear action visible.

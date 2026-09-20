@@ -32,7 +32,7 @@ USING paradedb (
 )
 WITH (key_field='id');
 
-SELECT description, rating, category FROM mock_items
+SELECT id, description, rating, category FROM mock_items
 WHERE description::pdb.alias('description_ngram') &&& 'wir'
 ORDER BY pdb.score(id) DESC, id
 LIMIT 5;
@@ -61,6 +61,7 @@ WITH (key_field='id');
 
 const rows = await db
   .select({
+    id: mockItems.id,
     description: mockItems.description,
     rating: mockItems.rating,
     category: mockItems.category,
@@ -102,7 +103,7 @@ rows = list(
         where=["description::pdb.alias('description_ngram') &&& %s"],
         params=["wir"],
     )
-    .values("description", "rating", "category")
+    .values("id", "description", "rating", "category")
     .annotate(score=Score())
     .order_by("-score", "id")[:5]
 )
@@ -131,7 +132,7 @@ with engine.begin() as conn:
     """))
 
 stmt = (
-    select(MockItem.description, MockItem.rating, MockItem.category)
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
     .where(search.match_all(pdb.alias(MockItem.description, "description_ngram"), "wir"))
     .order_by(pdb.score(MockItem.id).desc(), MockItem.id)
     .limit(5)
@@ -159,7 +160,7 @@ SQL
 
 MockItem.search(Arel.sql("description::pdb.alias('description_ngram')"))
         .match_all("wir")
-        .select(:description, :rating, :category)
+        .select(:id, :description, :rating, :category)
         .with_score
         .order(search_score: :desc, id: :asc)
         .limit(5)
@@ -193,7 +194,7 @@ await dbContext
     )
     .OrderByDescending(item => EF.Functions.Score(item.Id))
     .ThenBy(item => item.Id)
-    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .Take(5)
     .ToListAsync();
 ```
@@ -201,8 +202,74 @@ await dbContext
 </Tab>
 </Tabs>
 
+## Expose a suggestions endpoint
+
+Add a `GET /api/suggestions?q=wir` handler in your application. Trim the input and return `{"suggestions": []}` without querying when it has fewer than three characters. Otherwise, run only the query above with the input in place of `wir` and serialize the rows as `{"suggestions": [{"id": ..., "description": ..., "rating": ..., "category": ...}]}`. Keep the five-result limit on the server.
+
+Pass the input as a query parameter or ORM value. The match conjunction (`&&&`) requires every generated n-gram to match; this finds word fragments rather than only prefixes. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query behavior.
+
 ## Connect the search box
 
-Issue the query after the user enters at least three characters, and debounce requests so each keystroke does not require a round trip. Replace `wir` with the current input and keep the result limit small.
+Once your endpoint is in place, this browser example waits 200 milliseconds after typing stops before fetching suggestions. It cancels previous requests and ignores stale responses so an older result cannot overwrite the current input.
 
-The match conjunction (`&&&`) tokenizes the input with the aliased field’s n-gram tokenizer and requires every generated n-gram to match. Pass the input as a query parameter or ORM value. See [Match Conjunction](/reference/full-text/match#match-conjunction) and [Ngram](/reference/tokenizers/available-tokenizers/ngrams) for query and tokenizer behavior.
+```html
+<label for="product-search">Find a product</label>
+<input id="product-search" type="search" autocomplete="off" />
+<p id="search-status" role="status"></p>
+<ul id="suggestions"></ul>
+
+<script type="module">
+  const input = document.querySelector("#product-search");
+  const status = document.querySelector("#search-status");
+  const list = document.querySelector("#suggestions");
+  let timer;
+  let controller;
+  let revision = 0;
+
+  input.addEventListener("input", () => {
+    const current = ++revision;
+    clearTimeout(timer);
+    controller?.abort();
+    list.replaceChildren();
+    const query = input.value.trim();
+    status.textContent = "";
+    if (query.length < 3) return;
+
+    status.textContent = "Searching…";
+    timer = setTimeout(async () => {
+      controller = new AbortController();
+      try {
+        const response = await fetch(
+          "/api/suggestions?" + new URLSearchParams({ q: query }),
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error("Search failed");
+        const { suggestions } = await response.json();
+        if (current !== revision) return;
+        for (const product of suggestions) {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          // Replace this route with your application's product page.
+          link.href = "/products/" + encodeURIComponent(product.id);
+          link.textContent = product.description;
+          item.append(link);
+          list.append(item);
+        }
+        status.textContent = suggestions.length
+          ? suggestions.length + " suggestions"
+          : "No matching products";
+      } catch (error) {
+        if (current === revision && error.name !== "AbortError") {
+          status.textContent = "Search unavailable. Try typing again.";
+        }
+      }
+    }, 200);
+  });
+</script>
+```
+
+Suggestions are ordinary links: users can reach them with Tab and activate them with Enter. This example does not implement an arrow-key combobox. Use `textContent` when rendering descriptions so product data is displayed as text.
+
+## Check the interaction
+
+Type `wi`: no request should run. Continue to `wir`: matching products should appear. With network throttling enabled, type quickly and clear the field; late responses must not restore old suggestions. Try an unmatched phrase and a failed request to check the empty and error messages.

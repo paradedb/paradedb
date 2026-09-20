@@ -325,9 +325,9 @@ pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale
 /// pg_statistic helpers for logical NDV
 ///
 /// `stadistinct` interpretation (PostgreSQL convention):
-///   > 0  -> approximate number of distinct values
-///   < 0  -> -stadistinct * reltuples (fraction of rows that are distinct)
-///   = 0  -> unknown
+/// > 0  -> approximate number of distinct values
+/// > < 0  -> -stadistinct * reltuples (fraction of rows that are distinct)
+/// > = 0  -> unknown
 ///
 /// Returns None when statistics are unavailable, unanalysed, or the entry
 /// does not exist. The caller must handle the Absent fallback.

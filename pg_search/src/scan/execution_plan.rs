@@ -1093,19 +1093,16 @@ impl ExecutionPlan for PgSearchScanPlan {
         let mut column_statistics = vec![ColumnStatistics::default(); schema.fields().len()];
         for (idx, _field) in schema.fields().iter().enumerate() {
             // Only publish NDV for columns that have a valid heap attnum from index options.
-            if let Some(Some(attnum)) = self.stats_attnos.get(idx) {
-                if *attnum > 0 {
-                    if let Some(heap_rel) =
-                        PgSearchRelation::open(pg_sys::Oid::from(self.indexrelid)).heap_relation()
-                    {
-                        if let Some(ndv) = column_logical_ndv(&heap_rel, *attnum) {
-                            column_statistics[idx] = ColumnStatistics {
-                                distinct_count: Precision::Inexact(ndv),
-                                ..Default::default()
-                            };
-                        }
-                    }
-                }
+            if let Some(Some(attnum)) = self.stats_attnos.get(idx)
+                && *attnum > 0
+                && let Some(heap_rel) =
+                    PgSearchRelation::open(pg_sys::Oid::from(self.indexrelid)).heap_relation()
+                && let Some(ndv) = column_logical_ndv(&heap_rel, *attnum)
+            {
+                column_statistics[idx] = ColumnStatistics {
+                    distinct_count: Precision::Inexact(ndv),
+                    ..Default::default()
+                };
             }
         }
 

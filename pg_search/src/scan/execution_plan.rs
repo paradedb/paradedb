@@ -64,6 +64,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::stats::segments_for_partition;
 use crate::postgres::ParallelScanState;
+use crate::postgres::catalog::column_logical_ndv;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
@@ -205,6 +206,10 @@ pub struct PgSearchScanPlan {
     /// but no external ExprContext was supplied through the codec. Kept alive on the plan so
     /// the underlying ExprContext remains valid across execution.
     _expr_context_guard: Option<Arc<ExprContextGuard>>,
+    /// Heap attribute numbers for each output schema position, derived from index
+    /// options at plan construction. Used to look up logical NDV from pg_statistic
+    /// in partition_statistics. None for positions without a valid heap attnum.
+    stats_attnos: Vec<Option<i16>>,
 }
 
 impl Clone for PgSearchScanPlan {
@@ -231,6 +236,7 @@ impl Clone for PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
+            stats_attnos: self.stats_attnos.clone(),
         }
     }
 }
@@ -255,6 +261,8 @@ impl PgSearchScanPlan {
     /// * `sort_order` - Optional sort order declaration for equivalence properties
     /// * `partition_count` - Planner-selected number of global partitions. Non-range scans cap
     ///   this at their segment count; range scans may expose more partitions than segments.
+    /// * `stats_attnos` - Heap attribute numbers for each output schema position, used to
+    ///   look up logical NDV from pg_statistic. None for positions without a valid heap attnum.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: Option<ScanState>,
@@ -268,6 +276,7 @@ impl PgSearchScanPlan {
         partition_count: usize,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
         range_split_points: Option<RangeSplitPoints>,
+        stats_attnos: Vec<Option<i16>>,
     ) -> Self {
         let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
         if needs_ffhelper && ffhelper.is_none() {
@@ -361,6 +370,7 @@ impl PgSearchScanPlan {
             assigned_partition: None,
             scan_mode,
             _expr_context_guard: None,
+            stats_attnos,
         }
     }
 
@@ -465,6 +475,7 @@ impl PgSearchScanPlan {
             assigned_partition: self.assigned_partition,
             scan_mode: self.scan_mode.clone(),
             _expr_context_guard: self._expr_context_guard.clone(),
+            stats_attnos: self.stats_attnos.clone(),
         })
     }
 
@@ -828,6 +839,7 @@ impl PgSearchScanPlan {
             descriptor.global_partition_count,
             parallel_state,
             descriptor.range_split_points,
+            Vec::new(), // stats_attnos will be rebuilt on worker
         )
         .with_table_alias(descriptor.table_alias);
         plan.dynamic_filters = dynamic_filters;
@@ -1072,14 +1084,30 @@ impl ExecutionPlan for PgSearchScanPlan {
             ),
         };
 
-        let column_statistics = self
-            .properties
-            .eq_properties
-            .schema()
-            .fields
-            .iter()
-            .map(|_| ColumnStatistics::default())
-            .collect();
+        // NDV for deferred string/bytes columns using pg_statistic (logical heap-column NDV).
+        // Tantivy's packed-ordinal `num_terms()` is NOT the logical NDV after Decode because
+        // duplicate terms can exist across segments. Use pg_statistic.stadistinct instead.
+        // The dictionary_terms() function (used by DeferredAggregateRule for the ordinal-grouping
+        // cost threshold) uses the decode node's FFHelper to measure the packed-ordinal dictionary size.
+        let schema = self.properties.eq_properties.schema();
+        let mut column_statistics = vec![ColumnStatistics::default(); schema.fields().len()];
+        for (idx, _field) in schema.fields().iter().enumerate() {
+            // Only publish NDV for columns that have a valid heap attnum from index options.
+            if let Some(Some(attnum)) = self.stats_attnos.get(idx) {
+                if *attnum > 0 {
+                    if let Some(heap_rel) =
+                        PgSearchRelation::open(pg_sys::Oid::from(self.indexrelid)).heap_relation()
+                    {
+                        if let Some(ndv) = column_logical_ndv(&heap_rel, *attnum) {
+                            column_statistics[idx] = ColumnStatistics {
+                                distinct_count: Precision::Inexact(ndv),
+                                ..Default::default()
+                            };
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(Arc::new(Statistics {
             num_rows,
@@ -1651,8 +1679,9 @@ mod tests {
                 0,
                 None,
                 1,
-                None,
-                None,
+                None,       // parallel_state
+                None,       // range_split_points
+                Vec::new(), // stats_attnos
             ))
         }
 
@@ -1685,8 +1714,9 @@ mod tests {
             0,
             Some(1),
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         );
     }
 
@@ -1702,8 +1732,9 @@ mod tests {
             0,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         );
     }
 }

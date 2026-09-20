@@ -70,6 +70,8 @@ use datafusion::physical_expr::expressions::{Column, lit};
 use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
+use datafusion::physical_plan::joins::HashJoinExec;
+use datafusion::physical_plan::statistics::{StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::api::HashSet;
@@ -78,6 +80,7 @@ use crate::scan::deferred_encode::{deferred_data_type, is_deferred_field};
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::deferred_placement_rule::same_columns;
 use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::plan_statistics::is_ndv_backed;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
 use crate::scan::tantivy_fetch_exec::TantivyFetchExec;
 
@@ -194,8 +197,6 @@ pub(crate) fn ordinal_group_keys(
 /// The same estimate hides a fan-out. A join above the scan can multiply the rows the
 /// partial aggregate sees, and a key that reads as one row per term here would reduce well
 /// after it, but nothing on the join says by how much.
-// TODO(paradedb/paradedb#6341): take the floor at the aggregate's input once join
-// statistics can size the fan-out.
 fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Option<usize> {
     let mut scans = Vec::new();
     collect_scans(decode.children()[0], field.heap_rti, &mut scans);
@@ -216,10 +217,70 @@ fn scanned_rows(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> Op
 /// setting nobody could size from the outside.
 const MIN_ROWS_PER_TERM: usize = 4;
 
-/// Whether the scanned rows outnumber the terms of `field`'s dictionaries by
+/// The rows the aggregate reads: the cardinality of the node feeding the decode,
+/// which becomes the partial aggregate's input once the rewrite lifts it above.
+///
+/// DataFusion sizes join fan-out in its own statistics, so no join cardinality is
+/// reconstructed here. Unavailable or non-NDV-backed statistics fall back to
+/// [`scanned_rows`].
+fn aggregate_input_rows(decode: &TantivyDecodeExec) -> Option<usize> {
+    // Walk down through transparent single-child nodes (Fetch and other
+    // same-columns wrappers, mirroring `resolved_below`) to the HashJoin below
+    // the decode point; the direct child is usually a Fetch, not the join.
+    let mut node: Arc<dyn ExecutionPlan> = Arc::clone(decode.children()[0]);
+    loop {
+        // Use `Downcast::downcast_ref` (as in deferred_placement_rule.rs), not
+        // `as_any()`: duplicate HashJoinExec types across DataFusion/fork
+        // boundaries make the `as_any` TypeId check miss the join.
+        if let Some(hash_join) = node.as_ref().downcast_ref::<HashJoinExec>() {
+            // Provenance needs the actual join sides, not the join output:
+            // `is_ndv_backed` checks distinct_count on each side's join-key column.
+            let left_stats = StatisticsContext::new()
+                .compute(hash_join.left().as_ref(), &StatisticsArgs::new())
+                .ok()?;
+            let right_stats = StatisticsContext::new()
+                .compute(hash_join.right().as_ref(), &StatisticsArgs::new())
+                .ok()?;
+            if is_ndv_backed(hash_join, &left_stats, &right_stats) {
+                let join_stats = StatisticsContext::new()
+                    .compute(node.as_ref(), &StatisticsArgs::new())
+                    .ok()?;
+                return join_stats
+                    .num_rows
+                    .get_value()
+                    .copied()
+                    .filter(|rows| *rows > 0);
+            }
+            break;
+        }
+        let children = node.children();
+        if children.len() != 1 || !same_columns(&node, children[0]) {
+            break;
+        }
+        node = Arc::clone(children[0]);
+    }
+
+    // Fall back to scan estimate
+    scanned_rows(
+        decode,
+        &PhysicalDeferredField {
+            // We need a dummy field to call scanned_rows, but it only uses heap_rti
+            // which we can get from any deferred field in the decode
+            canonical: decode.deferred_fields().first()?.canonical.clone(),
+            heap_rti: decode.deferred_fields().first()?.heap_rti,
+            col_idx: 0,
+            display_name: String::new(),
+            is_bytes: false,
+            rebuild: None,
+        },
+    )
+}
+
+/// Whether the aggregate's input rows outnumber the terms of `field`'s dictionaries by
 /// [`MIN_ROWS_PER_TERM`]. A source without an estimate keeps the rewrite.
 fn reduces_enough(decode: &TantivyDecodeExec, field: &PhysicalDeferredField) -> bool {
-    let Some(rows) = scanned_rows(decode, field) else {
+    let rows = aggregate_input_rows(decode).or_else(|| scanned_rows(decode, field));
+    let Some(rows) = rows else {
         return true;
     };
     rows >= dictionary_terms(decode, field).saturating_mul(MIN_ROWS_PER_TERM)
@@ -465,8 +526,9 @@ mod tests {
             INDEXRELID,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         ))
     }
 

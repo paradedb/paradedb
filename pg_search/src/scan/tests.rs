@@ -113,8 +113,9 @@ mod tests {
             0,
             None,
             1,
-            None,
-            None,
+            None,       // parallel_state
+            None,       // range_split_points
+            Vec::new(), // stats_attnos
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -692,8 +693,9 @@ mod tests {
             index_oid.into(),
             None,
             5,
-            None,
+            None, // parallel_state
             Some(split_points),
+            Vec::new(), // stats_attnos
         );
 
         use datafusion::physical_plan::Partitioning;
@@ -936,8 +938,9 @@ mod tests {
             index_oid.into(),
             None,
             4,
-            None,
+            None, // parallel_state
             Some(split_points),
+            Vec::new(), // stats_attnos
         );
 
         // The planner-facing original retains all four global ranges. Only the variant sent to

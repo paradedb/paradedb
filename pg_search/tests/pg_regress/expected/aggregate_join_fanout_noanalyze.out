@@ -1,0 +1,69 @@
+-- #6341: unknown statistics fallback - without ANALYZE, stats are unavailable.
+--
+-- When pg_statistic is unavailable (unanalyzed tables), the statistics fall back
+-- to the conservative behavior (scanned_rows estimate), which should preserve
+-- the old behavior.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET max_parallel_workers_per_gather TO 0;
+CREATE TABLE fanout_noanalyze_a (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    category TEXT
+);
+CREATE TABLE fanout_noanalyze_b (
+    id SERIAL PRIMARY KEY,
+    category TEXT
+);
+-- Small dictionary (3 terms) on both sides, many-to-many join
+INSERT INTO fanout_noanalyze_a (title, category)
+SELECT 'doc ' || i, (ARRAY['a', 'b', 'c'])[1 + i % 3]
+FROM generate_series(1, 60) AS i;
+INSERT INTO fanout_noanalyze_b (category)
+SELECT (ARRAY['a', 'b', 'c'])[1 + i % 3]
+FROM generate_series(1, 80) AS i;
+CREATE INDEX fanout_noanalyze_a_idx ON fanout_noanalyze_a
+USING bm25 (id, title, category)
+WITH (text_fields='{"title": {}, "category": {"fast": true}}');
+CREATE INDEX fanout_noanalyze_b_idx ON fanout_noanalyze_b
+USING bm25 (id, category)
+WITH (text_fields='{"category": {"fast": true}}');
+-- NO ANALYZE - statistics unavailable
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT a.category, COUNT(*)
+FROM fanout_noanalyze_a a JOIN fanout_noanalyze_b b ON a.category = b.category
+WHERE a.title @@@ 'doc'
+GROUP BY a.category
+ORDER BY a.category;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: a.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: fanout_noanalyze_a_idx (a), fanout_noanalyze_b_idx (b)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0]
+           :     CooperativeExec
+           :       PgSearchScan: table=a, segments=1, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
+
+SELECT a.category, COUNT(*)
+FROM fanout_noanalyze_a a JOIN fanout_noanalyze_b b ON a.category = b.category
+WHERE a.title @@@ 'doc'
+GROUP BY a.category
+ORDER BY a.category;
+ category | count 
+----------+-------
+ a        |   520
+ b        |   540
+ c        |   540
+(3 rows)
+
+DROP TABLE fanout_noanalyze_a, fanout_noanalyze_b;

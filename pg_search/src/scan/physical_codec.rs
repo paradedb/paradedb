@@ -295,20 +295,13 @@ fn collect_ffhelpers_by_indexrelid(input: &Arc<dyn ExecutionPlan>) -> HashMap<u3
     map
 }
 
-/// A lookup node decoded below this one already rebuilt the helper for an index whose scan
-/// sits behind a network boundary, so the decode above a fetch reuses it instead of opening
-/// the index a second time. The reuse relies on every deferred column of a scan moving
-/// together (the placement rule moves them as a set and keys its decisions by index), so a
-/// fetch below a decode lays out exactly the columns the decode reads.
+/// A fetch decoded below reuses its helper for a decode above (the placement rule moves a
+/// fetch's columns as a set, so the fetch lays out exactly the columns the decode reads).
+/// Decode helpers are deliberately NOT reused: each decode rebuilds only its own columns,
+/// so an inner title-only helper must not satisfy an outer category decode (Scenario 2).
 fn collect_lookup_ffhelpers(plan: &Arc<dyn ExecutionPlan>, out: &mut HashMap<u32, Arc<FFHelper>>) {
-    let helpers = if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
-        Some(fetch.ffhelpers())
-    } else {
-        plan.downcast_ref::<TantivyDecodeExec>()
-            .map(TantivyDecodeExec::ffhelpers)
-    };
-    if let Some(helpers) = helpers {
-        for (indexrelid, ffhelper) in helpers {
+    if let Some(fetch) = plan.downcast_ref::<TantivyFetchExec>() {
+        for (indexrelid, ffhelper) in fetch.ffhelpers() {
             out.entry(*indexrelid)
                 .or_insert_with(|| Arc::clone(ffhelper));
         }

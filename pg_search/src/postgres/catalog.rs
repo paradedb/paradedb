@@ -19,6 +19,8 @@ use pgrx::{FromDatum, IntoDatum, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
+use crate::postgres::rel::PgSearchRelation;
+
 pub(crate) trait OidExt {
     fn is_paradedb_am(&self) -> bool;
 }
@@ -51,7 +53,17 @@ struct SysCacheEntry {
 impl SysCacheEntry {
     unsafe fn search1(cache: pg_sys::SysCacheIdentifier::Type, key: pg_sys::Datum) -> Option<Self> {
         let tuple = pg_sys::SearchSysCache1(cache as _, key);
-        (!tuple.is_null()).then_some(Self { cache, tuple })
+        (!tuple.is_null()).then(|| Self { cache, tuple })
+    }
+
+    unsafe fn search3(
+        cache: pg_sys::SysCacheIdentifier::Type,
+        key1: pg_sys::Datum,
+        key2: pg_sys::Datum,
+        key3: pg_sys::Datum,
+    ) -> Option<Self> {
+        let tuple = pg_sys::SearchSysCache3(cache as _, key1, key2, key3);
+        (!tuple.is_null()).then(|| Self { cache, tuple })
     }
 
     /// Note that borrowed values MUST be copied out before the guard drops
@@ -308,4 +320,63 @@ pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale
             name: collcollate,
         })
     }
+}
+
+/// pg_statistic helpers for logical NDV
+///
+/// `stadistinct` interpretation (PostgreSQL convention):
+///   > 0  -> approximate number of distinct values
+///   < 0  -> -stadistinct * reltuples (fraction of rows that are distinct)
+///   = 0  -> unknown
+///
+/// Returns None when statistics are unavailable, unanalysed, or the entry
+/// does not exist. The caller must handle the Absent fallback.
+pub fn lookup_pg_statistic(relid: pg_sys::Oid, attnum: i16) -> Option<(Option<f64>, Option<f64>)> {
+    // pg_statistic is indexed by (starelid, staattnum, stainherit)
+    // stainherit = false gets the non-inherited stats for ordinary tables;
+    // ANALYZE on plain tables creates stainherit=false rows (see aggregate_join_fanout diag).
+    unsafe {
+        let entry = SysCacheEntry::search3(
+            pg_sys::SysCacheIdentifier::STATRELATTINH as _,
+            relid.into_datum()?,
+            attnum.into_datum()?,
+            false.into_datum()?,
+        )?;
+
+        let stadistinct = entry
+            .attr::<f32>(pg_sys::Anum_pg_statistic_stadistinct)
+            .map(|v| v as f64);
+        let stanullfrac = entry
+            .attr::<f32>(pg_sys::Anum_pg_statistic_stanullfrac)
+            .map(|v| v as f64);
+
+        Some((stadistinct, stanullfrac))
+    }
+}
+
+/// Computes the logical NDV (number of distinct values) for a heap column
+/// from pg_statistic.
+///
+/// Returns None when:
+/// - pg_statistic entry is missing (table not ANALYZEd)
+/// - stadistinct is zero (unknown)
+/// - reltuples is unavailable or zero for negative stadistinct
+///
+/// The result is the estimated count of distinct non-null values.
+pub fn column_logical_ndv(heap_rel: &PgSearchRelation, attnum: i16) -> Option<usize> {
+    let relid = heap_rel.oid();
+    let (stadistinct, _stanullfrac) = lookup_pg_statistic(relid, attnum)?;
+
+    let ndv = match stadistinct? {
+        d if d > 0.0 => d as usize,
+        d if d < 0.0 => {
+            let reltuples = heap_rel.reltuples()? as f64;
+            if reltuples <= 0.0 {
+                return None;
+            }
+            ((-d) * reltuples).max(1.0) as usize
+        }
+        _ => return None,
+    };
+    Some(ndv.max(1))
 }

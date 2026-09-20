@@ -117,13 +117,14 @@ pub(crate) fn is_ndv_backed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::physical_plan::EmptyExec;
     use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::physical_plan::empty::EmptyExec;
     use std::sync::Arc;
 
     #[test]
     fn empty_plan_returns_none() {
-        let empty = Arc::new(EmptyExec::new(Arc::new(arrow_schema::Schema::empty())));
+        let empty: Arc<dyn ExecutionPlan> =
+            Arc::new(EmptyExec::new(Arc::new(arrow_schema::Schema::empty())));
         assert_eq!(estimated_output_rows(&empty), None);
     }
 }

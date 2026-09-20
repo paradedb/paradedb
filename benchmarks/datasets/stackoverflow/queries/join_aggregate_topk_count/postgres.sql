@@ -1,11 +1,10 @@
--- Postgres default plan (aggregate custom scan off)
-SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT
+SET work_mem TO '8GB'; SELECT
     b.name,
     COUNT(*)
 FROM stackoverflow_posts p
 JOIN badges b ON b.user_id = p.owner_user_id
 WHERE
-    p.body ||| 'javascript'
+    to_tsvector('english', p.body) @@ plainto_tsquery('english', 'javascript')
 GROUP BY
     b.name
 ORDER BY

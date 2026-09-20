@@ -1,6 +1,7 @@
--- Postgres default plan (custom scan off)
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*)
+SET work_mem TO '4GB'; SELECT COUNT(*)
 FROM users u
 JOIN stackoverflow_posts p ON u.id = p.owner_user_id
 JOIN comments c ON p.id = c.post_id
-WHERE u.about_me ||| 'python' OR p.title ||| 'python' OR c.text ||| 'python';
+WHERE to_tsvector('english', u.about_me) @@ plainto_tsquery('english', 'python')
+   OR to_tsvector('english', p.title) @@ plainto_tsquery('english', 'python')
+   OR to_tsvector('english', c.text) @@ plainto_tsquery('english', 'python');

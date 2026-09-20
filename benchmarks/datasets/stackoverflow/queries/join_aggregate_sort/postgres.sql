@@ -1,13 +1,13 @@
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SELECT
     p.id,
     p.title,
     MAX(c.creation_date) as last_activity
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE
-    p.body ||| 'code'             -- Search Term
+    to_tsvector('english', p.body) @@ plainto_tsquery('english', 'code')
 GROUP BY
     p.id, p.title
 ORDER BY
-    last_activity DESC            -- Single Feature Sort (Computed Aggregate)
+    last_activity DESC
 LIMIT 10;

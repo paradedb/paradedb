@@ -528,7 +528,7 @@ jobs:
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

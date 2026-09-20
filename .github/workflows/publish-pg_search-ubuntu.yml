@@ -198,7 +198,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: >-
             sudo wget git ca-certificates curl gnupg gpg lsb-release
@@ -214,7 +214,7 @@ jobs:
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
       - name: Install GitHub CLI
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: gh
 
@@ -394,7 +394,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: failure()
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

@@ -310,9 +310,9 @@
             "pages": [
               "guides/vector-search",
               "guides/hybrid-search",
-              "guides/rag-and-agents",
               "guides/faceted-search",
               "guides/search-as-you-type",
+              "guides/rag-and-agents",
               "guides/more-like-this"
             ]
           },

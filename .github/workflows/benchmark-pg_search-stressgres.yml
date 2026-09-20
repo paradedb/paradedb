@@ -272,10 +272,20 @@ jobs:
           PG_VERSION: ${{ env.pg_version }}
         run: ./.github/scripts/render_crashdump.sh
 
-      - name: Notify Slack on Failure (nightly only)
-        if: failure() && github.event_name == 'schedule'
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [benchmark-pg_search-stressgres]
+    if: always() && needs.benchmark-pg_search-stressgres.result == 'failure' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+    steps:
+      - name: Notify Slack on Failure
         uses: paradedb/actions/slack-alert@v14
         with:
+          suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
+          job_results: ${{ toJSON(needs) }}
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"
           title: "${{ github.workflow }} Failed"

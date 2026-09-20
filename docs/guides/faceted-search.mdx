@@ -1,556 +1,126 @@
 ---
 title: Faceted Search
-description: Return search results and facet counts together
+description: Build a filter sidebar alongside ranked search results
 canonical: https://www.paradedb.com/docs/guides/faceted-search
 ---
 
-Build a product-search sidebar with category and rating counts. These examples return hits and aggregations together, so the facets describe the matching result set.
+Return product hits and facet counts together, so a search page can show results alongside category and rating filters.
 
-Complete [Example Setup](/guides/setup) for your ORM first. Save every file shown in your ORM tab at the labeled path, then run the command from your project root.
+Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-<Tabs>
-<Tab title="Drizzle">
+For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
 
-```bash
-npx tsx faceted-search.ts
+## Retrieve hits and buckets
+
+Search for shoes and return the five highest-rated products. The window aggregations count categories and ratings over all matching rows, before the result limit.
+
+<CodeGroup>
+
+```sql SQL
+SELECT id, description, rating,
+       pdb.agg('{"terms": {"field": "category"}}') OVER () AS categories,
+       pdb.agg('{"terms": {"field": "rating"}}') OVER () AS ratings
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY rating DESC, id
+LIMIT 5;
 ```
 
-```ts faceted-search.ts
+```ts Drizzle
 import { desc } from "drizzle-orm";
-
-import { closeDb, db, mockItems, setupMockItems } from "./common.js";
 import { search } from "@paradedb/drizzle-paradedb";
 
-type FacetBucket = { key: unknown; doc_count?: number };
-type FacetResult = { buckets?: FacetBucket[] };
+const rows = await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    categories: search.agg({ terms: { field: "category" } }).over(),
+    ratings: search.agg({ terms: { field: "rating" } }).over(),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .orderBy(desc(mockItems.rating), mockItems.id)
+  .limit(5);
 
-export async function runFacetedSearch(): Promise<void> {
-  console.log("=".repeat(60));
-  console.log("drizzle-paradedb Faceted Search Example");
-  console.log("=".repeat(60));
-
-  await setupMockItems();
-
-  const query = "shoes";
-  console.log(`\nQuery: '${query}'`);
-  console.log("\n--- Facets + Rows (Top K) ---");
-
-  const rows = await db
-    .select({
-      description: mockItems.description,
-      category: mockItems.category,
-      rating: mockItems.rating,
-      inStock: mockItems.inStock,
-      metadata: mockItems.metadata,
-      categoryFacet: search
-        .agg({ terms: { field: "category", order: { _count: "desc" } } })
-        .over(),
-      ratingFacet: search
-        .agg({ terms: { field: "rating", order: { _count: "desc" } } })
-        .over(),
-      colorFacet: search
-        .agg({ terms: { field: "metadata.color", order: { _count: "desc" } } })
-        .over(),
-    })
-    .from(mockItems)
-    .where(search.matchAll(mockItems.description, query))
-    .orderBy(desc(mockItems.rating))
-    .limit(5);
-
-  console.log("Top results:");
-  for (const item of rows) {
-    const color = item.metadata?.color ?? "N/A";
-    const stock = item.inStock ? "In Stock" : "Out of Stock";
-    console.log(
-      `  • ${item.description.slice(0, 50)}... [${item.category}] (rating: ${item.rating}, ${stock}, color: ${color})`,
-    );
-  }
-
-  console.log("\nFacet buckets:");
-  printFacet("category_terms", rows[0]?.categoryFacet);
-  printFacet("rating_terms", rows[0]?.ratingFacet);
-  printFacet("metadata.color_terms", rows[0]?.colorFacet);
-
-  console.log("\n" + "=".repeat(60));
-  console.log("Done!");
-}
-
-function printFacet(name: string, facet: unknown): void {
-  const buckets = ((facet as FacetResult | undefined)?.buckets ?? []).slice(
-    0,
-    8,
-  );
-  console.log(`${name} (${buckets.length} buckets)`);
-  for (const bucket of buckets) {
-    console.log(`  • ${bucket.key}: ${bucket.doc_count}`);
-  }
-}
-
-try {
-  await runFacetedSearch();
-} finally {
-  await closeDb();
-}
+console.log(rows);
+console.log(rows[0]?.categories, rows[0]?.ratings);
 ```
 
-</Tab>
+```python Django
+from paradedb import MatchAny, ParadeDB
 
-<Tab title="Django">
-
-```bash
-python faceted_search/faceted_search.py
+queryset = (
+    MockItem.objects.filter(description=ParadeDB(MatchAny("shoes")))
+    .order_by("-rating", "id")[:5]
+)
+rows, facets = queryset.facets("category", "rating", include_rows=True)
+print(rows)
+print(facets)
 ```
 
-```python faceted_search/faceted_search.py
-#!/usr/bin/env python
-"""Faceted search example using ParadeDB's facets() helper.
-
-This example demonstrates how to fetch faceted counts alongside a search
-query using the ParadeDBQuerySet.facets() helper (Top K rows + buckets).
-"""
-
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import MockItem, setup_mock_items
-
-from paradedb.search import MatchAll, ParadeDB
-
-
-def demo_facets_with_rows(query: str) -> None:
-    """Fetch Top K rows with facet buckets using a window aggregation."""
-    print("\n--- Facets + Rows (Top K) ---")
-    queryset = MockItem.objects.filter(description=ParadeDB(MatchAll(query))).order_by(
-        "-rating"
-    )[:5]
-    rows, facets = queryset.facets(  # type: ignore[attr-defined]
-        "category", "rating", "metadata.color", include_rows=True
-    )
-
-    print("Top results:")
-    for item in rows:
-        color = item.metadata.get("color") if item.metadata else "N/A"
-        stock = "In Stock" if item.in_stock else "Out of Stock"
-        print(
-            f"  • {item.description[:50]}... "
-            f"[{item.category}] (rating: {item.rating}, {stock}, color: {color})"
-        )
-
-    print("\nFacet buckets:")
-    for key, data in facets.items():
-        buckets = data.get("buckets", []) if isinstance(data, dict) else []
-        print(f"{key} ({len(buckets)} buckets)")
-        for bucket in buckets:
-            print(f"  • {bucket.get('key')}: {bucket.get('doc_count')}")
-
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("django-paradedb Faceted Search Example")
-    print("=" * 60)
-
-    count = setup_mock_items()
-    print(f"Loaded {count} mock items")
-
-    search_query = "shoes"
-    print(f"\nQuery: '{search_query}'")
-
-    demo_facets_with_rows(search_query)
-
-    print("\n" + "=" * 60)
-    print("Done!")
-```
-
-</Tab>
-
-<Tab title="SQLAlchemy">
-
-```bash
-python faceted_search/faceted_search.py
-```
-
-<CodeGroup>
-
-```python faceted_search/faceted_search.py
-from __future__ import annotations
-
+```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
 from paradedb.sqlalchemy import facets, pdb, search
-from setup import Product, engine_from_env, setup_database
 
-
-def main() -> None:
-    engine = engine_from_env()
-    setup_database(engine)
-
-    stmt = (
-        select(
-            pdb.agg(facets.value_count(field="id")).label("count"),
-            pdb.agg(facets.avg(field="rating")).label("avg_rating"),
-            pdb.agg(facets.percentiles(field="rating", percents=[50, 95])).label("rating_percentiles"),
-            pdb.agg(
-                facets.top_hits(
-                    size=2,
-                    sort=[{"rating": "desc"}],
-                    docvalue_fields=["id", "rating"],
-                )
-            ).label("top_hits"),
-        )
-        .select_from(Product)
-        .where(search.match_all(Product.description, "running"))
-    )
-
-    with Session(engine) as session:
-        row = session.execute(stmt).one()
-        print(dict(row._mapping))
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```python faceted_search/setup.py
-from __future__ import annotations
-
-import os
-
-from sqlalchemy import Index, Integer, String, Text, create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-
-from paradedb import tokenizer
-from paradedb.sqlalchemy import indexing
-
-
-PRODUCT_ROWS = [
-    {"id": 1, "description": "Sleek running shoes for daily training", "category": "Footwear", "rating": 5},
-    {"id": 2, "description": "Trail running shoes with durable grip", "category": "Footwear", "rating": 4},
-    {"id": 3, "description": "Wireless noise-canceling headphones", "category": "Electronics", "rating": 5},
-    {"id": 4, "description": "Budget walking sneakers", "category": "Footwear", "rating": 2},
-    {"id": 5, "description": "Artistic ceramic vase", "category": "Home", "rating": 3},
-]
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class Product(Base):
-    __tablename__ = "products"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    category: Mapped[str] = mapped_column(String(120), nullable=False)
-    rating: Mapped[int] = mapped_column(Integer, nullable=False)
-
-
-Index(
-    "search_idx",
-    indexing.ParadeDBField(Product.id),
-    indexing.ParadeDBField(Product.description),
-    indexing.ParadeDBField(Product.category, tokenizer=tokenizer.literal()),
-    indexing.ParadeDBField(Product.rating),
-    postgresql_using="paradedb",
-    postgresql_with={"key_field": "id"},
+base = (
+    select(MockItem.id, MockItem.description, MockItem.rating)
+    .where(search.match_any(MockItem.description, "shoes"))
+    .order_by(MockItem.rating.desc(), MockItem.id)
+    .limit(5)
 )
-
-
-def engine_from_env() -> Engine:
-    dsn = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
-    return create_engine(dsn)
-
-
-def setup_database(engine: Engine) -> None:
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        session.add_all(Product(**row) for row in PRODUCT_ROWS)
-        session.commit()
+stmt = base.add_columns(
+    pdb.agg(facets.terms(field="category")).over().label("categories"),
+    pdb.agg(facets.terms(field="rating")).over().label("ratings"),
+)
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    print(rows)
+    if rows:
+        print(rows[0].categories, rows[0].ratings)
 ```
 
-</CodeGroup>
+```ruby Rails
+relation = MockItem.search(:description)
+                   .match_any("shoes")
+                   .with_agg(
+                     categories: ParadeDB::Aggregations.terms(:category),
+                     ratings: ParadeDB::Aggregations.terms(:rating)
+                   )
+                   .select(:id, :description, :rating)
+                   .order(rating: :desc, id: :asc)
+                   .limit(5)
 
-</Tab>
-
-<Tab title="Rails">
-
-```bash
-bundle exec ruby faceted_search/faceted_search.rb
+rows = relation.to_a
+puts rows.inspect
+puts relation.aggregates.inspect
 ```
 
-<CodeGroup>
-
-```ruby faceted_search/faceted_search.rb
-#!/usr/bin/env ruby
-# frozen_string_literal: true
-
-require_relative "setup"
-
-if $PROGRAM_NAME == __FILE__
-  puts "=" * 60
-  puts "rails-paradedb Faceted Search Example"
-  puts "=" * 60
-
-  count = FacetedSearchSetup.setup_mock_items!
-  puts "Loaded #{count} mock items"
-
-  search_query = "shoes"
-  puts "\nQuery: '#{search_query}'"
-
-  puts "\n--- Facets + Rows (Top K) ---"
-  relation = MockItem.search(:description)
-                     .match_all(search_query)
-                     .with_facets(:category, :rating, :metadata_color)
-                     .order(rating: :desc)
-                     .limit(5)
-
-  rows = relation.to_a
-  facets = relation.facets
-
-  puts "Top results:"
-  puts(rows.map { |item|
-    color = item.metadata&.fetch("color", nil) || "N/A"
-    "  - #{item.description.truncate(50)} [#{item.category}] (rating: #{item.rating}, color: #{color})"
-  })
-
-  puts "\nFacet buckets:"
-  facets.each do |key, data|
-    buckets = data.is_a?(Hash) ? Array(data["buckets"]) : []
-    puts "#{key} (#{buckets.length} buckets)"
-    puts(buckets.map { |bucket| "  - #{bucket["key"]}: #{bucket["doc_count"]}" })
-  end
-
-  puts "\n#{"=" * 60}"
-  puts "Done!"
-end
-```
-
-```ruby faceted_search/model.rb
-# frozen_string_literal: true
-
-require "active_record"
-require "parade_db"
-
-class MockItem < ActiveRecord::Base
-  include ParadeDB::Model
-
-  self.table_name = "mock_items"
-  self.primary_key = "id"
-end
-
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
-    description: nil,
-    rating: nil,
-    category: { tokenizer: ParadeDB::Tokenizer.literal() },
-    "metadata->>'color'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_color"}) },
-    "metadata->>'location'" => { tokenizer: ParadeDB::Tokenizer.literal(options: {alias: "metadata_location"}) }
-  }
-end
-```
-
-```ruby faceted_search/setup.rb
-# frozen_string_literal: true
-
-require "logger"
-require "rails"
-require "active_record"
-require "parade_db"
-
-class FacetedSearchExampleApp < Rails::Application
-  config.root = File.expand_path("..", __dir__)
-  config.eager_load = false
-  config.logger = Logger.new(nil)
-  config.secret_key_base = "paradedb_examples_secret_key_base"
-end
-
-FacetedSearchExampleApp.initialize!
-
-require_relative "model"
-
-module FacetedSearchSetup
-  module_function
-
-  def database_url
-    return ENV["DATABASE_URL"] if ENV["DATABASE_URL"]
-
-    host = ENV.fetch("PGHOST", "localhost")
-    port = ENV.fetch("PGPORT", "5432")
-    user = ENV.fetch("PGUSER", "postgres")
-    password = ENV.fetch("PGPASSWORD", "postgres")
-    database = ENV.fetch("PGDATABASE", "postgres")
-
-    "postgresql://#{user}:#{password}@#{host}:#{port}/#{database}"
-  end
-
-  def connect!
-    return if ActiveRecord::Base.connected?
-
-    ActiveRecord::Base.establish_connection(database_url)
-    ActiveRecord::Base.logger = nil
-  end
-
-  def setup_mock_items!
-    connect!
-
-    conn = ActiveRecord::Base.connection
-    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;")
-    conn.drop_table(:mock_items, if_exists: true)
-    conn.execute(
-      "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
-    )
-    conn.remove_paradedb_index(:mock_items, name: :search_idx, if_exists: true)
-    conn.create_paradedb_index(MockItemIndex)
-
-    MockItem.reset_column_information
-    MockItem.count
-  end
-end
-```
-
-</CodeGroup>
-
-</Tab>
-
-<Tab title="EF Core">
-
-```bash
-dotnet run --project Examples.csproj -p:Example=FacetedSearch
-```
-
-```cs FacetedSearch/Program.cs
-using System.Text.Json;
-using FacetedSearch.Data;
-using Microsoft.EntityFrameworkCore;
-using ParadeDB.EntityFrameworkCore.Extensions;
-using Shared;
-
-var options = new DbContextOptionsBuilder<AppDbContext>()
-    .UseNpgsql(ExampleSetup.ConnectionString, o => o.UseParadeDb())
-    .UseSnakeCaseNamingConvention()
-    .Options;
-
-await using var dbContext = new AppDbContext(options);
-
-Console.WriteLine(new string('=', 60));
-Console.WriteLine("Faceted Search Example");
-Console.WriteLine(new string('=', 60));
-
-await ExampleSetup.SetupMockItemsAsync(dbContext);
-
-var count = await dbContext.MockItems.CountAsync();
-Console.WriteLine($"\nLoaded {count} items");
-
-var searchQuery = "shoes";
-Console.WriteLine($"\nQuery: '{searchQuery}'");
-Console.WriteLine("\n--- Facets + Rows (Top K) ---");
-
-var results = await dbContext
-    .MockItems.Where(x => EF.Functions.MatchAll(x.Description, searchQuery))
-    .Select(x => new
+```cs EF Core
+var rows = await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
+    .OrderByDescending(item => item.Rating)
+    .ThenBy(item => item.Id)
+    .Select(item => new
     {
-        x.Id,
-        x.Description,
-        x.Category,
-        x.Rating,
-        x.InStock,
-        x.Metadata,
-        CategoryTerms = EF.Functions.AggOver(
-            new
-            {
-                terms = new
-                {
-                    field = "category",
-                    size = 10,
-                    order = new { _count = "desc" },
-                },
-            }
-        ),
-        RatingTerms = EF.Functions.AggOver(
-            new
-            {
-                terms = new
-                {
-                    field = "rating",
-                    size = 10,
-                    order = new { _count = "desc" },
-                },
-            }
-        ),
-        ColorTerms = EF.Functions.AggOver(
-            new
-            {
-                terms = new
-                {
-                    field = "metadata.color",
-                    size = 10,
-                    order = new { _count = "desc" },
-                },
-            }
-        ),
+        item.Id,
+        item.Description,
+        item.Rating,
+        Categories = EF.Functions.AggOver(new { terms = new { field = "category" } }),
+        Ratings = EF.Functions.AggOver(new { terms = new { field = "rating" } }),
     })
-    .OrderByDescending(x => x.Rating)
     .Take(5)
     .ToListAsync();
 
-Console.WriteLine("Top results:");
-foreach (var item in results)
-{
-    var color =
-        item.Metadata?.RootElement.TryGetProperty("color", out var c) == true
-            ? c.GetString()
-            : "N/A";
-    var stock = item.InStock ? "In Stock" : "Out of Stock";
-    var desc = item.Description[..Math.Min(50, item.Description.Length)];
-    Console.WriteLine(
-        $"  - {desc}... [{item.Category}] (rating: {item.Rating}, {stock}, color: {color})"
-    );
-}
-
-Console.WriteLine("\nFacet buckets:");
-if (results.Count > 0)
-{
-    static void PrintFacets(string label, JsonElement? json)
-    {
-        if (json is null)
-        {
-            return;
-        }
-
-        if (!json.Value.TryGetProperty("buckets", out var buckets))
-        {
-            return;
-        }
-
-        Console.WriteLine($"{label} ({buckets.GetArrayLength()} buckets)");
-
-        foreach (var bucket in buckets.EnumerateArray())
-        {
-            Console.WriteLine(
-                $"  - {bucket.GetProperty("key")}: {bucket.GetProperty("doc_count")}"
-            );
-        }
-    }
-
-    PrintFacets("category_terms", results[0].CategoryTerms);
-    PrintFacets("rating_terms", results[0].RatingTerms);
-    PrintFacets("metadata.color_terms", results[0].ColorTerms);
-}
-
-Console.WriteLine();
-Console.WriteLine(new string('=', 60));
-Console.WriteLine("Done.");
+foreach (var row in rows)
+    Console.WriteLine($"{row.Description}: {row.Categories}; {row.Ratings}");
 ```
 
-</Tab>
+</CodeGroup>
 
-</Tabs>
+## Render the sidebar
 
-For details, see the [reference documentation](/reference/aggregates/facets).
+Use each terms aggregation’s `buckets` array for filter choices: `key` is the field value and `doc_count` is its matching count. The same aggregations accompany each returned row; read them once. Django and Rails expose helpers to collect them separately. If there are no hits, show an empty result set and empty facets.
+
+When a user selects a filter, add it to the search predicate and rerun the query. These counts reflect the filtered result set, including the selected filter. See [Facets](/reference/aggregates/facets) for the query shape and [Terms](/reference/aggregates/bucket/terms) for bucket options.

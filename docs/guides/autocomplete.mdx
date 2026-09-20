@@ -15,9 +15,7 @@ Autocomplete suggests products as the user types. For example, typing `wir` can 
 
 ## Create an N-gram Index
 
-The default index matches whole tokens. Add an N-gram field to match fragments of three to eight characters, using `description_ngram` as its alias.
-
-The following example rebuilds `search_idx` with the additional field and queries it for `wir`. Run the index setup once, or add it to a migration. Each search request only needs the query.
+The following example rebuilds `search_idx` with an N-gram field named `description_ngram` that matches fragments of three to eight characters, then queries it for `wir`. Run the index setup once, or add it to a migration. Each search request only needs the query.
 
 <Tabs>
 <Tab title="SQL">

@@ -37,7 +37,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 \echo :SQLSTATE
 0A000
@@ -61,7 +61,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippet(body)
@@ -83,7 +83,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippet(body)
@@ -105,7 +105,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body @@@ 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippets(body)
@@ -127,7 +127,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.snippets` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippets`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippet_positions(body)
@@ -149,7 +149,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `pdb.snippet_positions` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet_positions`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, paradedb.score(id)
@@ -171,7 +171,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `paradedb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, paradedb.snippet(body)
@@ -193,7 +193,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `paradedb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippet`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, paradedb.snippets(body)
@@ -215,7 +215,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `paradedb.snippets` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippets`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, paradedb.snippet_positions(body)
@@ -237,7 +237,7 @@ FROM projection_search_predicate
 WHERE category = 'electronics' OR (category = 'electronics' AND body === 'keyboard')
 ORDER BY id;
 ERROR:  `paradedb.snippet_positions` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `paradedb.snippet_positions`, or remove it from the query.
 -- A missing search predicate does not imply that optimization removed one.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -253,7 +253,7 @@ SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
 
 SELECT id, pdb.score(id) FROM projection_search_predicate ORDER BY id;
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
@@ -268,7 +268,7 @@ SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
 
 SELECT id, pdb.snippet(body) FROM projection_search_predicate ORDER BY id;
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 PREPARE redundant_score(text, text) AS
 SELECT id, pdb.score(id)
@@ -295,7 +295,7 @@ EXECUTE redundant_score('electronics', 'keyboard');
 
 EXECUTE redundant_score('electronics', 'keyboard');
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_snippet('electronics', 'keyboard');
@@ -311,7 +311,7 @@ EXECUTE redundant_snippet('electronics', 'keyboard');
 
 EXECUTE redundant_snippet('electronics', 'keyboard');
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -328,7 +328,7 @@ EXECUTE redundant_score('electronics', 'keyboard');
 
 EXECUTE redundant_score('electronics', 'keyboard');
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_snippet('electronics', 'keyboard');
@@ -344,7 +344,7 @@ EXECUTE redundant_snippet('electronics', 'keyboard');
 
 EXECUTE redundant_snippet('electronics', 'keyboard');
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_score('accessories', 'mouse');
@@ -360,7 +360,7 @@ EXECUTE redundant_score('accessories', 'mouse');
 
 EXECUTE redundant_score('accessories', 'mouse');
 ERROR:  `pdb.score` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.score`, or remove it from the query.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE redundant_snippet('accessories', 'mouse');
@@ -376,7 +376,7 @@ EXECUTE redundant_snippet('accessories', 'mouse');
 
 EXECUTE redundant_snippet('accessories', 'mouse');
 ERROR:  `pdb.snippet` must be evaluated by a ParadeDB scan
-DETAIL:  A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.
+DETAIL:  A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.
 HINT:  Use `EXPLAIN` to check whether a ParadeDB scan evaluates `pdb.snippet`, or remove it from the query.
 RESET plan_cache_mode;
 DEALLOCATE redundant_score;

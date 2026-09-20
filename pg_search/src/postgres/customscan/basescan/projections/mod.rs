@@ -19,6 +19,7 @@ pub mod score;
 pub mod snippet;
 pub mod window_agg;
 
+// A search operator alone does not guarantee that a ParadeDB scan evaluates the projection.
 fn missing_scan_error(function: &str) -> ! {
     pgrx::pg_sys::panic::ErrorReport::new(
         pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
@@ -26,7 +27,7 @@ fn missing_scan_error(function: &str) -> ! {
         pgrx::function_name!(),
     )
     .set_detail(
-        "A search predicate must remain after query optimization. PostgreSQL can remove redundant search predicates.",
+        "A search predicate using a ParadeDB operator such as `@@@`, `|||`, `&&&`, or `===` must remain after query optimization. PostgreSQL can remove redundant search predicates.",
     )
     .set_hint(format!(
         "Use `EXPLAIN` to check whether a ParadeDB scan evaluates `{function}`, or remove it from the query.",

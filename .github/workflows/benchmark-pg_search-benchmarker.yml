@@ -12,7 +12,7 @@ on:
   schedule:
     - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
-    types: [labeled] # Opt in on a PR with the `benchmark-benchmarker` label
+    types: [labeled] # Opt in on a PR with the `benchmark-pg_search-benchmarker` label
   workflow_dispatch:
     inputs:
       commit:
@@ -35,7 +35,7 @@ permissions:
 # No concurrency group: let every run complete and append to gh-pages history.
 
 jobs:
-  benchmark-benchmarker:
+  benchmark-pg_search-benchmarker:
     name: Run Benchmarker Suite
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -47,7 +47,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker')
+      (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-pg_search-benchmarker')
     env:
       pg_version: "18"
       BENCHMARKER_REPO: paradedb/benchmarker
@@ -58,13 +58,13 @@ jobs:
     steps:
       # The label triggers this run; remove it so it can be re-applied to re-run.
       - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarker'
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark-pg_search-benchmarker'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --remove-label benchmark-benchmarker || true
+            --remove-label benchmark-pg_search-benchmarker || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -324,8 +324,8 @@ jobs:
 
   notify-slack-on-failure:
     name: Notify Slack on Failure
-    needs: [benchmark-benchmarker]
-    if: always() && needs.benchmark-benchmarker.result == 'failure' && github.event_name == 'schedule'
+    needs: [benchmark-pg_search-benchmarker]
+    if: always() && needs.benchmark-pg_search-benchmarker.result == 'failure' && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read

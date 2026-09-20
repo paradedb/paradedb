@@ -308,6 +308,7 @@
             "tab": "Guides",
             "icon": "map",
             "pages": [
+              "guides/overview",
               "guides/vector-search",
               "guides/hybrid-search",
               "guides/faceted-search",

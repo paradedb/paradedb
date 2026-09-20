@@ -311,8 +311,8 @@
               "guides/vector-search",
               "guides/hybrid-search",
               "guides/faceted-search",
-              "guides/search-as-you-type",
-              "guides/rag-and-agents",
+              "guides/autocomplete",
+              "guides/rag",
               "guides/more-like-this"
             ]
           },

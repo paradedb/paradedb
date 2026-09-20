@@ -405,7 +405,7 @@ jobs:
 
       - name: Notify Slack on Failure
         if: ${{ failure() && steps.guard.outputs.build == 'true' }}
-        uses: paradedb/actions/slack-alert@v13
+        uses: paradedb/actions/slack-alert@v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
           mention: "<!subteam^S0BLE20RYPM|@pg_search-maintainers>"

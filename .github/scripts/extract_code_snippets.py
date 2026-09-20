@@ -84,7 +84,7 @@ def build_output_dirs() -> dict[str, Path]:
 def process_doc(doc: Path, output_dirs: dict[str, Path]) -> None:
     """Extract supported snippets from one doc and write them to disk."""
     rel_path = doc.relative_to(DOCS_ROOT)
-    # Guides contain standalone projects, checked by test-orm-guides.yml.
+    # Guides contain standalone projects, checked by the docs workflow's guides job.
     if rel_path.parts[0] == "guides":
         return
     text = doc.read_text()

@@ -8,15 +8,16 @@ Retrieve relevant products with ParadeDB, then supply their descriptions to a la
 
 Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
-
 ## Retrieve context and answer a question
 
 The examples use a demo vector for “running shoes” and print the three nearest products with their IDs. Retrieval works without an LLM account. To enable the optional generation step, set `OPENROUTER_API_KEY` and `RAG_MODEL` in the shell before starting your REPL or application. Choose a model available to your OpenRouter account.
 
-<CodeGroup>
+<Tabs>
+<Tab title="Drizzle">
 
-```ts Drizzle
+Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+
+```ts
 import { search } from "@paradedb/drizzle-paradedb";
 
 const question = "What running shoes do you have?";
@@ -64,7 +65,11 @@ if (apiKey && model && rows.length > 0) {
 }
 ```
 
-```python Django
+</Tab>
+
+<Tab title="Django">
+
+```python
 import json
 import os
 import urllib.request
@@ -103,7 +108,11 @@ if api_key and model and rows:
     print(answer["choices"][0]["message"]["content"])
 ```
 
-```python SQLAlchemy
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```python
 import json
 import os
 import urllib.request
@@ -146,7 +155,11 @@ if api_key and model and rows:
     print(answer["choices"][0]["message"]["content"])
 ```
 
-```ruby Rails
+</Tab>
+
+<Tab title="Rails">
+
+```ruby
 require "json"
 require "net/http"
 require "uri"
@@ -180,7 +193,13 @@ if api_key && model && rows.any?
 end
 ```
 
-```cs EF Core
+</Tab>
+
+<Tab title="EF Core">
+
+Replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
+
+```cs
 var question = "What running shoes do you have?";
 var queryEmbedding = new float[] { -0.02f, 0.47f, -0.76f, 0.13f, 0.34f, 0.04f, 0.19f, -0.19f };
 var rows = await dbContext.MockItems
@@ -216,7 +235,8 @@ if (!string.IsNullOrEmpty(apiKey) && !string.IsNullOrEmpty(model) && rows.Count 
 }
 ```
 
-</CodeGroup>
+</Tab>
+</Tabs>
 
 ## Adapt the retrieval step
 

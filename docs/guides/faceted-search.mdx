@@ -8,15 +8,14 @@ Return product hits and facet counts together, so a search page can show results
 
 Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
-
 ## Retrieve hits and buckets
 
 Search for shoes and return the five highest-rated products. The window aggregations count categories and ratings over all matching rows, before the result limit.
 
-<CodeGroup>
+<Tabs>
+<Tab title="SQL">
 
-```sql SQL
+```sql
 SELECT id, description, rating,
        pdb.agg('{"terms": {"field": "category"}}') OVER () AS categories,
        pdb.agg('{"terms": {"field": "rating"}}') OVER () AS ratings
@@ -26,7 +25,13 @@ ORDER BY rating DESC, id
 LIMIT 5;
 ```
 
-```ts Drizzle
+</Tab>
+
+<Tab title="Drizzle">
+
+Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+
+```ts
 import { desc } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -47,7 +52,11 @@ console.log(rows);
 console.log(rows[0]?.categories, rows[0]?.ratings);
 ```
 
-```python Django
+</Tab>
+
+<Tab title="Django">
+
+```python
 from paradedb import MatchAny, ParadeDB
 
 queryset = (
@@ -59,7 +68,13 @@ print(rows)
 print(facets)
 ```
 
-```python SQLAlchemy
+`facets(..., include_rows=True)` returns the matching rows and facet counts separately.
+
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```python
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import facets, pdb, search
@@ -81,7 +96,11 @@ with Session(engine) as session:
         print(rows[0].categories, rows[0].ratings)
 ```
 
-```ruby Rails
+</Tab>
+
+<Tab title="Rails">
+
+```ruby
 relation = MockItem.search(:description)
                    .match_any("shoes")
                    .with_agg(
@@ -97,7 +116,15 @@ puts rows.inspect
 puts relation.aggregates.inspect
 ```
 
-```cs EF Core
+Read the matching rows from `relation.to_a` and the facet counts from `relation.aggregates`.
+
+</Tab>
+
+<Tab title="EF Core">
+
+Replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
+
+```cs
 var rows = await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
     .OrderByDescending(item => item.Rating)
@@ -117,10 +144,11 @@ foreach (var row in rows)
     Console.WriteLine($"{row.Description}: {row.Categories}; {row.Ratings}");
 ```
 
-</CodeGroup>
+</Tab>
+</Tabs>
 
 ## Render the sidebar
 
-Use each terms aggregation’s `buckets` array for filter choices: `key` is the field value and `doc_count` is its matching count. The same aggregations accompany each returned row; read them once. Django and Rails expose helpers to collect them separately. If there are no hits, show an empty result set and empty facets.
+Use each terms aggregation’s `buckets` array for filter choices: `key` is the field value and `doc_count` is its matching count. The same aggregations accompany each returned row; read them once. If there are no hits, show an empty result set and empty facets.
 
 When a user selects a filter, add it to the search predicate and rerun the query. These counts reflect the filtered result set, including the selected filter. See [Facets](/reference/aggregates/facets) for the query shape and [Terms](/reference/aggregates/bucket/terms) for bucket options.

@@ -8,25 +8,20 @@ Combine keyword matches with semantic neighbors to search a product catalog. Rec
 
 Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
-
 ## Prepare the query
 
 Use `running shoes` as the text query and its demo embedding below. For your own data, compute an embedding with the same model used for the stored vectors.
-
-Django also needs `django-cte` in the environment from Start:
-
-```bash
-pip install "django-cte>=2.0"
-```
 
 ## Fuse the rankings
 
 Retrieve 20 candidates from each branch, weight text results at `1.0` and vector results at `0.7`, then return the five highest combined scores. Each branch contributes `weight / (60 + rank)`.
 
-<CodeGroup>
+<Tabs>
+<Tab title="SQL">
 
-```sql SQL
+Fuse both candidate lists in a single SQL query.
+
+```sql
 WITH text AS (
     SELECT id, RANK() OVER (ORDER BY pdb.score(id) DESC, id) AS rank
     FROM mock_items
@@ -57,7 +52,15 @@ ORDER BY f.score DESC, m.id
 LIMIT 5;
 ```
 
-```ts Drizzle
+</Tab>
+
+<Tab title="Drizzle">
+
+Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+
+Fuse both candidate lists in a single SQL query.
+
+```ts
 import { desc, eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { search } from "@paradedb/drizzle-paradedb";
@@ -132,7 +135,19 @@ await db
   .limit(5);
 ```
 
-```python Django
+</Tab>
+
+<Tab title="Django">
+
+Install `django-cte` in the environment from Start:
+
+```bash
+pip install "django-cte>=2.0"
+```
+
+Fuse both candidate lists in a single SQL query.
+
+```python
 from django.db.models import F, FloatField, Sum, Value, Window
 from django.db.models.expressions import ExpressionWrapper
 from django.db.models.functions import Cast, Rank
@@ -197,7 +212,13 @@ results = list(with_cte(
 print(results)
 ```
 
-```python SQLAlchemy
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+Fuse both candidate lists in a single SQL query.
+
+```python
 from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import pdb, search, vector
@@ -250,7 +271,13 @@ with Session(engine) as session:
     session.execute(stmt).all()
 ```
 
-```ruby Rails
+</Tab>
+
+<Tab title="Rails">
+
+Fuse both candidate lists in a single SQL query.
+
+```ruby
 query_embedding = [-0.02, 0.47, -0.76, 0.13, 0.34, 0.04, 0.19, -0.19]
 id = MockItem.arel_table[:id]
 score = Arel::Nodes::NamedFunction.new("pdb.score", [id])
@@ -288,7 +315,15 @@ MockItem.with(text: text, vector: vector, weighted: weighted, fused: fused)
         .limit(5).to_a
 ```
 
-```cs EF Core
+</Tab>
+
+<Tab title="EF Core">
+
+Replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
+
+Retrieve the two candidate lists and fuse them in application code.
+
+```cs
 var queryEmbedding = new float[] { -0.02f, 0.47f, -0.76f, 0.13f, 0.34f, 0.04f, 0.19f, -0.19f };
 
 var text = await dbContext
@@ -320,9 +355,8 @@ var results = text
     .ToList();
 ```
 
-</CodeGroup>
-
-EF Core retrieves the two candidate lists and fuses them in application code; the other examples perform the fusion in SQL.
+</Tab>
+</Tabs>
 
 ## Tune retrieval
 

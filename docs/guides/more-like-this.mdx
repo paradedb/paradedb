@@ -8,15 +8,14 @@ Build a “related products” list from the words in a product description, wit
 
 Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
-
 ## Find related products
 
 Product `3` is “Sleek running shoes” in the demo data. Use its description as the source, exclude the product itself, and order the remaining matches by relevance.
 
-<CodeGroup>
+<Tabs>
+<Tab title="SQL">
 
-```sql SQL
+```sql
 SELECT id, description, pdb.score(id) AS score
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, ARRAY['description']) AND id <> 3
@@ -24,7 +23,13 @@ ORDER BY score DESC, id
 LIMIT 5;
 ```
 
-```ts Drizzle
+</Tab>
+
+<Tab title="Drizzle">
+
+Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+
+```ts
 import { and, desc, ne } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -46,7 +51,11 @@ const rows = await db
 console.log(rows);
 ```
 
-```python Django
+</Tab>
+
+<Tab title="Django">
+
+```python
 from paradedb import MoreLikeThis, ParadeDB, Score
 
 rows = list(
@@ -59,7 +68,11 @@ rows = list(
 print(rows)
 ```
 
-```python SQLAlchemy
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```python
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import pdb, search
@@ -74,7 +87,11 @@ with Session(engine) as session:
     print(session.execute(stmt).all())
 ```
 
-```ruby Rails
+</Tab>
+
+<Tab title="Rails">
+
+```ruby
 rows = MockItem.more_like_this(3, fields: [:description])
                .where.not(id: 3)
                .with_score
@@ -84,7 +101,13 @@ rows = MockItem.more_like_this(3, fields: [:description])
 puts rows.inspect
 ```
 
-```cs EF Core
+</Tab>
+
+<Tab title="EF Core">
+
+Replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
+
+```cs
 var moreLikeThisOptions = new MoreLikeThisOptions { Fields = new[] { "description" } };
 var rows = await dbContext
     .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions) && item.Id != 3)
@@ -97,7 +120,8 @@ foreach (var row in rows)
     Console.WriteLine($"{row.Id}: {row.Description} ({row.Score})");
 ```
 
-</CodeGroup>
+</Tab>
+</Tabs>
 
 ## Choose what makes a product similar
 

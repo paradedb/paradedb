@@ -8,17 +8,16 @@ Suggest products from partial words: typing `wir` should match descriptions cont
 
 Complete [Connect Your App](/start/connect-your-app) and [Create Your First Index](/start/create-your-first-index) first. These examples use the same `mock_items` table, model, and database connection. Run them in the shell or application you configured there.
 
-For Drizzle, load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle). For EF Core, replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
-
 ## Add an n-gram field and query it
 
 The default index matches whole tokens. Replace the demo `search_idx` with one that also indexes description fragments of three to eight characters under the alias `description_ngram`. The table and model stay the same, and the original indexed fields remain available.
 
 The following block rebuilds the demo index and runs the first suggestion query. Run the index setup once; subsequent keystrokes only need the query. In an application, put the index change in a migration.
 
-<CodeGroup>
+<Tabs>
+<Tab title="SQL">
 
-```sql SQL
+```sql
 DROP INDEX IF EXISTS search_idx;
 CREATE INDEX search_idx ON mock_items
 USING paradedb (
@@ -34,7 +33,13 @@ ORDER BY pdb.score(id) DESC, id
 LIMIT 5;
 ```
 
-```ts Drizzle
+</Tab>
+
+<Tab title="Drizzle">
+
+Load any additional imports with `await import(...)`, then paste the query body in the REPL’s `.editor` mode as described in [Connect Your App](/start/connect-your-app#drizzle).
+
+```ts
 import { desc, sql } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -62,7 +67,11 @@ const rows = await db
 console.log(rows);
 ```
 
-```python Django
+</Tab>
+
+<Tab title="Django">
+
+```python
 from django.db import connection
 from paradedb import ParadeDB, Parse, Score
 
@@ -87,7 +96,11 @@ rows = list(
 print(rows)
 ```
 
-```python SQLAlchemy
+</Tab>
+
+<Tab title="SQLAlchemy">
+
+```python
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import pdb, search
@@ -115,7 +128,11 @@ with Session(engine) as session:
     print(session.execute(stmt).all())
 ```
 
-```ruby Rails
+</Tab>
+
+<Tab title="Rails">
+
+```ruby
 ActiveRecord::Base.connection.execute <<~SQL
 DROP INDEX IF EXISTS search_idx;
 CREATE INDEX search_idx ON mock_items
@@ -136,7 +153,13 @@ MockItem.search(:id)
         .to_a
 ```
 
-```cs EF Core
+</Tab>
+
+<Tab title="EF Core">
+
+Replace the sample query and its `PrintResults` call in `Program.cs`, keeping the database context and model definitions.
+
+```cs
 await dbContext.Database.ExecuteSqlRawAsync("""
     DROP INDEX IF EXISTS search_idx;
     CREATE INDEX search_idx ON mock_items
@@ -159,7 +182,8 @@ await dbContext
     .ToListAsync();
 ```
 
-</CodeGroup>
+</Tab>
+</Tabs>
 
 ## Connect the search box
 

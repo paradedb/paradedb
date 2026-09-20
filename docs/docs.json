@@ -312,9 +312,9 @@
               {
                 "group": "Use Cases",
                 "pages": [
-                  "guides/faceted-search",
+                  "guides/rag",
                   "guides/autocomplete",
-                  "guides/rag"
+                  "guides/faceted-search"
                 ]
               }
             ]

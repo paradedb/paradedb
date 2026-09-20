@@ -305,21 +305,6 @@
             ]
           },
           {
-            "tab": "Guides",
-            "icon": "map",
-            "pages": [
-              "guides/overview",
-              {
-                "group": "Use Cases",
-                "pages": [
-                  "guides/autocomplete",
-                  "guides/search-with-filters",
-                  "guides/rag"
-                ]
-              }
-            ]
-          },
-          {
             "tab": "Project",
             "icon": "flag",
             "pages": [

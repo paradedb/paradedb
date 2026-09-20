@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract verification snippets from docs CodeGroups and guide tabs."""
+"""Extract verification snippets from docs CodeGroups."""
 
 import re
 import shutil
@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.DOTALL)
-TAB_PATTERN = re.compile(r'<Tab title="([^"]+)">(.*?)</Tab>', re.DOTALL)
 FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 TARGET_SUFFIXES = {
     "sql": "sql",
@@ -86,19 +85,6 @@ def process_doc(doc: Path, output_dirs: dict[str, Path]) -> None:
     """Extract supported snippets from one doc and write them to disk."""
     rel_path = doc.relative_to(DOCS_ROOT)
     text = doc.read_text()
-
-    if rel_path.parts[0] == "guides":
-        for title, tab in TAB_PATTERN.findall(text):
-            group_index = 0
-            for info, body in FENCE_PATTERN.findall(tab):
-                target = classify(f"{info} {title}")
-                if not target:
-                    continue
-                group_index += 1
-                group_name = codegroup_name(rel_path, group_index)
-                snippet_path = output_dirs[target] / f"{group_name}.{TARGET_SUFFIXES[target]}"
-                snippet_path.write_text(body.rstrip("\n") + "\n")
-        return
 
     for group_index, codegroup in enumerate(CODEGROUP_PATTERN.findall(text), start=1):
         group_name = codegroup_name(rel_path, group_index)

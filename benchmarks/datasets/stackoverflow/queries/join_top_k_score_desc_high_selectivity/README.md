@@ -6,6 +6,6 @@
 
 ## Query Info (statistics from 100k dataset; larger datasets may have different values):
 
-- 'the' chosen deliberately to introduce a very large pool of candidates for the
-  topk (12.5K in the 100K dataset), to ensure we see the effect of the threshold
-  tightening.
+- 'code developer' chosen deliberately to introduce a very large pool of candidates for the
+  topk (~13.5% selectivity on the 20M dataset, ~2.7M joined matches; ~13.5K in the 100K dataset),
+  to ensure we see the effect of the threshold tightening.

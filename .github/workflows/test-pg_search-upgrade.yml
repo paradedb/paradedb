@@ -107,7 +107,7 @@ jobs:
           install_cargo_pgrx: "false"
 
       - name: Install required system tools
-        uses: paradedb/actions/apt-install@v13
+        uses: paradedb/actions/apt-install@v14
         with:
           packages: lsof libopenblas-dev lld gdb
 
